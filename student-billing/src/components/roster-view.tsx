@@ -9,6 +9,7 @@ interface RosterViewProps {
   fileName: string;
   initialAvailableClasses: string[];
   initialData: RosterQueryResult;
+  currentRevision?: number;
 }
 
 export default function RosterView({
@@ -16,8 +17,10 @@ export default function RosterView({
   fileName,
   initialAvailableClasses,
   initialData,
+  currentRevision = 0,
 }: RosterViewProps) {
   const [loading, setLoading] = useState(false);
+  const [activating, setActivating] = useState(false);
   const [data, setData] = useState<RosterQueryResult>(initialData);
   const [error, setError] = useState<string | null>(null);
 
@@ -71,6 +74,30 @@ export default function RosterView({
       setError(err instanceof Error ? err.message : String(err));
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleActivate = async () => {
+    setActivating(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/v1/imports/${importId}/activate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          expectedRevision: currentRevision,
+          idempotencyKey: `act-${Date.now()}`,
+          asOfDate: new Date().toISOString().split('T')[0],
+        }),
+      });
+      const json = await res.json();
+      if (!res.ok) {
+        throw new Error(json.error || '啟用計算失敗');
+      }
+      window.location.reload();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+      setActivating(false);
     }
   };
 
@@ -160,9 +187,20 @@ export default function RosterView({
             展示A / 預覽名冊 (未計算)
           </span>
         </div>
-        <a href="/imports" className="btn-secondary" style={{ fontSize: '0.8125rem', padding: '6px 12px' }}>
-          重新上傳 / 查看其他批次
-        </a>
+        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+          <button
+            type="button"
+            className="btn-primary"
+            onClick={handleActivate}
+            disabled={activating}
+            style={{ fontSize: '0.8125rem', padding: '6px 14px' }}
+          >
+            {activating ? '啟用計算中...' : '啟用為正式 Run (進入展示B) ▶'}
+          </button>
+          <a href="/imports" className="btn-secondary" style={{ fontSize: '0.8125rem', padding: '6px 12px' }}>
+            重新上傳 / 查看其他批次
+          </a>
+        </div>
       </div>
 
       {/* 統計指標卡片 */}

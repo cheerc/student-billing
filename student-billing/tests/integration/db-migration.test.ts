@@ -33,12 +33,14 @@ describe('SQLite Migration Integration Tests', () => {
     const result = runMigrations(db);
     expect(result.applied).toContain('0001_init.sql');
     expect(result.applied).toContain('0002_students_enrollments.sql');
+    expect(result.applied).toContain('0003_runs_and_calculations.sql');
 
     // 驗證 schema_migrations
     const applied = getAppliedMigrations(db);
-    expect(applied.length).toBeGreaterThanOrEqual(2);
+    expect(applied.length).toBeGreaterThanOrEqual(3);
     expect(applied.map((m) => m.name)).toContain('0001_init.sql');
     expect(applied.map((m) => m.name)).toContain('0002_students_enrollments.sql');
+    expect(applied.map((m) => m.name)).toContain('0003_runs_and_calculations.sql');
 
     // 驗證 active_state 表與初始值
     const activeState = db.prepare('SELECT * FROM active_state WHERE id = 1').get() as {
@@ -72,9 +74,10 @@ describe('SQLite Migration Integration Tests', () => {
     expect(result2.applied).toHaveLength(0);
     expect(result2.alreadyApplied).toContain('0001_init.sql');
     expect(result2.alreadyApplied).toContain('0002_students_enrollments.sql');
+    expect(result2.alreadyApplied).toContain('0003_runs_and_calculations.sql');
 
     const applied = getAppliedMigrations(db2);
-    expect(applied.length).toBeGreaterThanOrEqual(2);
+    expect(applied.length).toBeGreaterThanOrEqual(3);
 
     db2.close();
   });

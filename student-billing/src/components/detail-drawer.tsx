@@ -1,0 +1,269 @@
+'use client';
+
+import React from 'react';
+import { StudentCalculationItem } from '@/application/query-students';
+
+interface DetailDrawerProps {
+  student: StudentCalculationItem | null;
+  onClose: () => void;
+}
+
+export default function DetailDrawer({ student, onClose }: DetailDrawerProps) {
+  if (!student) return null;
+
+  const { trace } = student;
+
+  return (
+    <div
+      style={{
+        position: 'fixed',
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
+        zIndex: 1000,
+        display: 'flex',
+        justifyContent: 'flex-end',
+        backgroundColor: 'rgba(15, 23, 42, 0.4)',
+      }}
+      onClick={onClose}
+    >
+      <div
+        style={{
+          width: '100%',
+          maxWidth: '560px',
+          height: '100%',
+          backgroundColor: '#ffffff',
+          boxShadow: '-4px 0 24px rgba(0, 0, 0, 0.15)',
+          overflowY: 'auto',
+          display: 'flex',
+          flexDirection: 'column',
+        }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Drawer Header */}
+        <div
+          style={{
+            padding: '16px 20px',
+            borderBottom: '1px solid var(--border-color)',
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            backgroundColor: '#f8fafc',
+          }}
+        >
+          <div>
+            <h3 style={{ fontSize: '1.125rem', fontWeight: 700 }}>
+              {student.name} ({student.personCode})
+            </h3>
+            <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+              來源試算表第 {student.sourceRow} 列 · {student.grade ? `${student.grade}年級` : student.gradeRaw || '未識別'}
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="btn-secondary"
+            style={{ padding: '4px 10px', fontSize: '0.875rem' }}
+          >
+            關閉 ✕
+          </button>
+        </div>
+
+        {/* Drawer Body */}
+        <div style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '20px' }}>
+          {/* 問題警告區塊 */}
+          {student.issues.length > 0 && (
+            <div className="alert alert-warning" style={{ margin: 0 }}>
+              <strong>待確認事項 ({student.issues.length})：</strong>
+              <ul style={{ paddingLeft: '18px', marginTop: '6px' }}>
+                {student.issues.map((iss, i) => (
+                  <li key={i} style={{ fontSize: '0.8125rem' }}>
+                    <strong>[{iss.code}]</strong> {iss.message}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {/* 八項總表天數卡片 */}
+          <div
+            style={{
+              backgroundColor: '#f8fafc',
+              border: '1px solid var(--border-color)',
+              borderRadius: '8px',
+              padding: '16px',
+            }}
+          >
+            <h4 style={{ fontSize: '0.875rem', fontWeight: 700, marginBottom: '12px' }}>
+              八項每週收費天數結果
+            </h4>
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(4, 1fr)',
+                gap: '8px',
+                textAlign: 'center',
+              }}
+            >
+              <div style={{ background: '#fff', padding: '8px', borderRadius: '4px', border: '1px solid #e2e8f0' }}>
+                <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>安親天數</div>
+                <div style={{ fontSize: '1.125rem', fontWeight: 700, color: '#1d4ed8' }}>
+                  {student.anqinDisplay || '-'}
+                </div>
+              </div>
+              <div style={{ background: '#fff', padding: '8px', borderRadius: '4px', border: '1px solid #e2e8f0' }}>
+                <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>課輔天數</div>
+                <div style={{ fontSize: '1.125rem', fontWeight: 700, color: '#1d4ed8' }}>
+                  {student.tutoringDisplay || '-'}
+                </div>
+              </div>
+              <div style={{ background: '#fff', padding: '8px', borderRadius: '4px', border: '1px solid #e2e8f0' }}>
+                <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>美語天數</div>
+                <div style={{ fontSize: '1.125rem', fontWeight: 700 }}>
+                  {student.englishDays !== null ? `${student.englishDays}` : '-'}
+                </div>
+              </div>
+              <div style={{ background: '#fff', padding: '8px', borderRadius: '4px', border: '1px solid #e2e8f0' }}>
+                <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>數學天數</div>
+                <div style={{ fontSize: '1.125rem', fontWeight: 700 }}>
+                  {student.mathDays !== null ? `${student.mathDays}` : '-'}
+                </div>
+              </div>
+              <div style={{ background: '#fff', padding: '8px', borderRadius: '4px', border: '1px solid #e2e8f0' }}>
+                <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>中文天數</div>
+                <div style={{ fontSize: '1.125rem', fontWeight: 700 }}>
+                  {student.chineseDays !== null ? `${student.chineseDays}` : '-'}
+                </div>
+              </div>
+              <div style={{ background: '#fff', padding: '8px', borderRadius: '4px', border: '1px solid #e2e8f0' }}>
+                <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>寫功課</div>
+                <div style={{ fontSize: '1.125rem', fontWeight: 700 }}>
+                  {student.homeworkDays !== null ? `${student.homeworkDays}` : '-'}
+                </div>
+              </div>
+              <div style={{ background: '#fff', padding: '8px', borderRadius: '4px', border: '1px solid #e2e8f0' }}>
+                <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>加重美語</div>
+                <div style={{ fontSize: '1.125rem', fontWeight: 700 }}>
+                  {student.intensiveEnglishDays !== null ? `${student.intensiveEnglishDays}` : '-'}
+                </div>
+              </div>
+              <div style={{ background: '#fff', padding: '8px', borderRadius: '4px', border: '1px solid #e2e8f0' }}>
+                <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>週六課輔</div>
+                <div style={{ fontSize: '1.125rem', fontWeight: 700 }}>
+                  {student.saturdayTutoringDays !== null ? `${student.saturdayTutoringDays}` : '-'}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* 折扣比對與推導 */}
+          <div
+            style={{
+              backgroundColor: '#f8fafc',
+              border: '1px solid var(--border-color)',
+              borderRadius: '8px',
+              padding: '16px',
+            }}
+          >
+            <h4 style={{ fontSize: '0.875rem', fontWeight: 700, marginBottom: '8px' }}>
+              折扣推導 (R04–R15)
+            </h4>
+            <div style={{ fontSize: '0.8125rem', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+              <div>已補科數：<strong>{student.subjectCount !== null ? `${student.subjectCount} 科` : '無班級 (null)'}</strong></div>
+              <div>
+                基本折扣率：
+                <strong>
+                  {student.baseDiscountBps !== null ? `${student.baseDiscountBps / 100}% (${student.baseDiscountBps / 1000}折)` : '無 (null)'}
+                </strong>
+              </div>
+              <div style={{ marginTop: '6px', borderTop: '1px dashed #cbd5e1', paddingTop: '6px' }}>
+                各課程適用率：
+                <span style={{ marginLeft: '6px' }}>安親: {student.applicableAnqinBps ? `${student.applicableAnqinBps / 100}%` : '-'}</span>
+                <span style={{ marginLeft: '12px' }}>課輔: {student.applicableTutoringBps ? `${student.applicableTutoringBps / 100}%` : '-'}</span>
+                <span style={{ marginLeft: '12px' }}>美語: {student.applicableEnglishBps ? `${student.applicableEnglishBps / 100}%` : '-'}</span>
+                <span style={{ marginLeft: '12px' }}>數學: {student.applicableMathBps ? `${student.applicableMathBps / 100}%` : '-'}</span>
+              </div>
+            </div>
+          </div>
+
+          {/* ERP 登記級距比對 */}
+          <div>
+            <h4 style={{ fontSize: '0.875rem', fontWeight: 700, marginBottom: '8px' }}>
+              ERP 登記級距比對清單 (U43, U47)
+            </h4>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              {student.tierComparisons.map((comp, idx) => (
+                <div
+                  key={idx}
+                  style={{
+                    border: '1px solid var(--border-color)',
+                    borderRadius: '6px',
+                    padding: '10px 12px',
+                    fontSize: '0.8125rem',
+                    backgroundColor: comp.status === 'mismatch' ? '#fef2f2' : '#ffffff',
+                  }}
+                >
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
+                    <span style={{ fontWeight: 600 }}>{comp.rawToken}</span>
+                    <span
+                      className="badge"
+                      style={{
+                        backgroundColor:
+                          comp.status === 'match'
+                            ? '#d1fae5'
+                            : comp.status === 'mismatch'
+                            ? '#fee2e2'
+                            : '#f1f5f9',
+                        color:
+                          comp.status === 'match'
+                            ? '#065f46'
+                            : comp.status === 'mismatch'
+                            ? '#991b1b'
+                            : '#475569',
+                      }}
+                    >
+                      {comp.status === 'match'
+                        ? '吻合 (Match)'
+                        : comp.status === 'mismatch'
+                        ? '級距差異 (Mismatch)'
+                        : comp.status === 'not_applicable'
+                        ? '非天數課程'
+                        : '未識別'}
+                    </span>
+                  </div>
+                  <div style={{ color: 'var(--text-secondary)' }}>
+                    系統計算級距: <strong>{comp.computedTier ?? '-'}</strong> 天 · ERP 登記級距: <strong>{comp.erpDeclaredTier ?? '-'}</strong> 天
+                  </div>
+                  {comp.needsReview && (
+                    <div style={{ color: '#b45309', marginTop: '4px', fontSize: '0.75rem' }}>
+                      ⚠ 排課缺漏，採相容 fallback 數值比較，請核對排課設定。
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* 原始標籤與備註 */}
+          <div
+            style={{
+              backgroundColor: '#f8fafc',
+              border: '1px solid var(--border-color)',
+              borderRadius: '8px',
+              padding: '14px',
+              fontSize: '0.8125rem',
+            }}
+          >
+            <div style={{ marginBottom: '6px' }}>
+              <strong>標籤 (Tags)：</strong> {trace?.rawTags || '-'}
+            </div>
+            <div>
+              <strong>備註 (Notes)：</strong> {trace?.rawNotes || '-'}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}

@@ -35,8 +35,9 @@ export function calculateStudentBilling(
 ): StudentBillingCalculation {
   const isCompat = options.ruleSetVersion === 'excel-v260922-compat';
 
-  // 1. 標籤解析 (R05–R08)
-  const tagDiscounts = parseTagDiscounts(student.tagsRaw);
+  // 1. 標籤 / 備註折扣來源解析 (02 §1 & §5: formal 讀標籤, compat 讀備註)
+  const discountSourceText = isCompat ? student.notesRaw : student.tagsRaw;
+  const tagDiscounts = parseTagDiscounts(discountSourceText);
 
   // 2. 科數 (R09) 與基本折扣 (R10)
   const subjectCount = calculateSubjectCount(student.enrollments);

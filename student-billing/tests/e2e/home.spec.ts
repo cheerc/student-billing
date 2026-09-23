@@ -11,13 +11,13 @@ test.describe('Home Page Smoke Test', () => {
     const importsNav = page.locator('nav a[href="/imports"]');
     await expect(importsNav).toBeVisible();
 
-    // 檢查若為初始狀態展示空狀態說明，若已匯入則展示名冊預覽
-    const isLoaded = await page.locator('text=展示A / 預覽名冊 (未計算)').isVisible();
-    if (!isLoaded) {
+    // 檢查若為初始狀態展示空狀態說明，若已匯入則展示名冊卡片
+    const hasStats = (await page.locator('.stats-grid').count()) > 0;
+    if (!hasStats) {
       await expect(page.locator('h2')).toContainText('尚未匯入學生收費名單');
       await expect(page.locator('.path-box')).toContainText('student-billing/data/');
     } else {
-      await expect(page.locator('.stats-grid')).toBeVisible();
+      await expect(page.locator('.stat-card').first()).toBeVisible();
     }
   });
 });

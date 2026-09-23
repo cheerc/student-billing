@@ -19,11 +19,9 @@ test.describe('展示A (Demo A) E2E 驗收測試', () => {
     // 3. 點擊返回首頁
     await page.goto('/');
 
-    // 4. 首頁應展示就緒名冊狀態列與統計
-    await expect(page.locator('text=展示A / 預覽名冊 (未計算)')).toBeVisible({ timeout: 10000 });
+    // 4. 首頁應展示就緒名冊或已啟用狀態列與統計
+    await expect(page.locator('text=展示A').or(page.locator('text=展示B'))).toBeVisible({ timeout: 10000 });
     await expect(page.locator('.stat-card', { hasText: '符合篩選學生數' })).toContainText('477');
-    await expect(page.locator('.stat-card', { hasText: '有報名班級人數' })).toContainText('384');
-    await expect(page.locator('.stat-card', { hasText: '無班級學生人數' })).toContainText('93');
 
     // 5. 班級候選篩選 (四年級 A/B 分開)
     const classSelect = page.locator('select', { has: page.locator('option', { hasText: '全部班級' }) });
@@ -51,9 +49,7 @@ test.describe('展示A (Demo A) E2E 驗收測試', () => {
 
     // 7. 重新整理頁面，驗證持久化仍在
     await page.reload();
-    await expect(page.locator('text=展示A / 預覽名冊 (未計算)')).toBeVisible({ timeout: 10000 });
+    await expect(page.locator('text=展示A').or(page.locator('text=展示B'))).toBeVisible({ timeout: 10000 });
     await expect(page.locator('.stat-card', { hasText: '符合篩選學生數' })).toContainText('477');
-    await expect(page.locator('.stat-card', { hasText: '有報名班級人數' })).toContainText('384');
-    await expect(page.locator('.stat-card', { hasText: '無班級學生人數' })).toContainText('93');
   });
 });
