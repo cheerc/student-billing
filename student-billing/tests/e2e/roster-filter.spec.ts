@@ -1,0 +1,59 @@
+import { test, expect } from '@playwright/test';
+import path from 'path';
+
+test.describe('展示A (Demo A) E2E 驗收測試', () => {
+  test('上傳 ERP 試算表 → 首頁持久化展示 → 班級與條件篩選 → 重新整理依然存在', async ({ page }) => {
+    // 1. 進入匯入頁面
+    await page.goto('/imports');
+    await expect(page.locator('h2')).toContainText('上傳 ERP 學生名單');
+
+    // 2. 上傳測試用保形匿名 fixture
+    const fixturePath = path.resolve(__dirname, '../fixtures/conforming-erp-fixture.xlsx');
+    const fileInput = page.locator('input[type="file"]');
+    await fileInput.setInputFiles(fixturePath);
+
+    // 等待解析完成並呈現統計
+    await expect(page.locator('.stats-grid')).toBeVisible({ timeout: 15000 });
+    await expect(page.locator('.stat-card', { hasText: '學生總人數' })).toContainText('477');
+
+    // 3. 點擊返回首頁
+    await page.goto('/');
+
+    // 4. 首頁應展示就緒名冊狀態列與統計
+    await expect(page.locator('text=展示A / 預覽名冊 (未計算)')).toBeVisible({ timeout: 10000 });
+    await expect(page.locator('.stat-card', { hasText: '符合篩選學生數' })).toContainText('477');
+    await expect(page.locator('.stat-card', { hasText: '有報名班級人數' })).toContainText('384');
+    await expect(page.locator('.stat-card', { hasText: '無班級學生人數' })).toContainText('93');
+
+    // 5. 班級候選篩選 (四年級 A/B 分開)
+    const classSelect = page.locator('select', { has: page.locator('option', { hasText: '全部班級' }) });
+    await expect(classSelect).toBeVisible();
+
+    // 篩選四年級 A
+    await classSelect.selectOption({ label: '國小輔導-四年級A' });
+    const table = page.locator('.data-table');
+    await expect(table).toBeVisible();
+    await expect(table.locator('tbody tr')).not.toHaveCount(0);
+    // 確認表格內都是四年級A
+    await expect(table.locator('tbody tr').first()).toContainText('國小輔導-四年級A');
+
+    // 篩選四年級 B
+    await classSelect.selectOption({ label: '國小輔導-四年級B' });
+    await expect(table.locator('tbody tr').first()).toContainText('國小輔導-四年級B');
+
+    // 6. 搜尋學生
+    const searchInput = page.locator('input[placeholder*="搜尋"]');
+    await searchInput.fill('STU0001');
+    // 清除班級篩選回全部班級
+    await classSelect.selectOption({ label: '全部班級' });
+    await expect(table.locator('tbody tr')).toHaveCount(1);
+    await expect(table.locator('tbody tr')).toContainText('STU0001');
+
+    // 7. 重新整理頁面，驗證持久化仍在
+    await page.reload();
+    await expect(page.locator('text=展示A / 預覽名冊 (未計算)')).toBeVisible({ timeout: 10000 });
+    await expect(page.locator('.stat-card', { hasText: '符合篩選學生數' })).toContainText('477');
+    await expect(page.locator('.stat-card', { hasText: '有報名班級人數' })).toContainText('384');
+    await expect(page.locator('.stat-card', { hasText: '無班級學生人數' })).toContainText('93');
+  });
+});
