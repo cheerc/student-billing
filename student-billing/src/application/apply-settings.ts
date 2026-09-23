@@ -43,6 +43,26 @@ export function applySettingsPreview(
   }
   const { previewId, expectedRevision, idempotencyKey } = parsed.data;
 
+  // B1: 冪等檢查先於 CAS（與 activate 同構）：相同 key＋同 body 的成功重送
+  // 先回原成功結果，再處理新請求的 revision 檢查（03:76）。
+  const bodyHash = `apply:${previewId}:${expectedRevision}`;
+  const existingIdemp = db
+    .prepare('SELECT request_body_hash, response_payload FROM idempotency_records WHERE idempotency_key = ?')
+    .get(idempotencyKey) as
+    | { request_body_hash: string; response_payload: string }
+    | undefined;
+  if (existingIdemp) {
+    // N1: 同 key 異 body 不得靜默回放
+    if (existingIdemp.request_body_hash !== bodyHash) {
+      throw new SettingsApplyError(
+        400,
+        `相同 idempotencyKey「${idempotencyKey}」已被使用於不同的請求內容。`,
+        'IDEMPOTENCY_CONFLICT'
+      );
+    }
+    return JSON.parse(existingIdemp.response_payload) as SettingsApplyResult;
+  }
+
   const preview = getSettingsPreview(db, previewId);
   if (!preview) {
     throw new SettingsApplyError(404, `找不到設定預覽 ${previewId}（可能已過期或 previewId 錯誤）`, 'PREVIEW_NOT_FOUND');
@@ -63,14 +83,6 @@ export function applySettingsPreview(
       `版本衝突：目前 revision 為 ${active.revision}，請求為 ${expectedRevision}`,
       'REVISION_CONFLICT'
     );
-  }
-
-  // 冪等性：同 key 回原結果
-  const existingIdemp = db
-    .prepare('SELECT response_payload FROM idempotency_records WHERE idempotency_key = ?')
-    .get(idempotencyKey) as { response_payload: string } | undefined;
-  if (existingIdemp) {
-    return JSON.parse(existingIdemp.response_payload) as SettingsApplyResult;
   }
 
   const draft = JSON.parse(preview.draftJson);
@@ -126,7 +138,7 @@ export function applySettingsPreview(
     db.prepare(
       `INSERT INTO idempotency_records (idempotency_key, request_body_hash, run_id, response_payload, created_at)
        VALUES (?, ?, ?, ?, ?)`
-    ).run(idempotencyKey, inputHash, runId, JSON.stringify(result), now);
+    ).run(idempotencyKey, bodyHash, runId, JSON.stringify(result), now);
   });
 
   txn();

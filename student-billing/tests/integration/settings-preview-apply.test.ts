@@ -128,6 +128,53 @@ describe('T05: preview→apply 雙階段流程整合測試 (I10/I11/I15/I18/I20)
     ).toThrowError(/找不到設定預覽/);
   });
 
+  it('B1: apply 成功後同 key＋同 body 重送應回原結果（冪等先於 409）', () => {
+    const draft = buildDraftWithAlias([
+      { rawBaseName: '國小數學-一', targetBaseName: '國小數學-一A' },
+    ]);
+    const prev = previewSettingsChange(db, previewId, { draft, expectedRevision: 1 });
+    const first = applySettingsPreview(db, {
+      previewId: prev.previewId,
+      expectedRevision: 1,
+      idempotencyKey: 't05-b1-idemp',
+    });
+    expect(first.revision).toBe(2);
+
+    // revision 已前進至 2；同 key＋同 body 重送必須回原結果而非 409
+    const replay = applySettingsPreview(db, {
+      previewId: prev.previewId,
+      expectedRevision: 1,
+      idempotencyKey: 't05-b1-idemp',
+    });
+    expect(replay.runId).toBe(first.runId);
+    expect(replay.revision).toBe(first.revision);
+  });
+
+  it('N1: 同 key＋異 body 重送應拒絕（不靜默回放）', () => {
+    const draft = buildDraftWithAlias([
+      { rawBaseName: '國小數學-一', targetBaseName: '國小數學-一A' },
+    ]);
+    // 同 revision 下先建兩個不同 preview（異 body）
+    const prev = previewSettingsChange(db, previewId, { draft, expectedRevision: 1 });
+    const prev2 = previewSettingsChange(db, previewId, { draft, expectedRevision: 1 });
+    expect(prev2.previewId).not.toBe(prev.previewId);
+
+    applySettingsPreview(db, {
+      previewId: prev.previewId,
+      expectedRevision: 1,
+      idempotencyKey: 't05-n1-idemp',
+    });
+
+    // 同 key 但不同 previewId（異 body）→ 必須拒絕而非回放
+    expect(() =>
+      applySettingsPreview(db, {
+        previewId: prev2.previewId,
+        expectedRevision: 1,
+        idempotencyKey: 't05-n1-idemp',
+      })
+    ).toThrowError(/已被使用於不同的請求內容/);
+  });
+
   it('I10/I20: apply 封存快照＋重算新 run；舊 run 可查且不受污染；離班保留', () => {
     const draft = buildDraftWithAlias([
       { rawBaseName: '國小數學-一', targetBaseName: '國小數學-一A' },
