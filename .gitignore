@@ -1,0 +1,38 @@
+# macOS
+.DS_Store
+
+# 來源資料：真實學生／財務 Excel 只留本機，不進 Git（specs/README.md、04 §2）
+/*.xlsx
+/*.xls
+/*.xlsm
+~$*
+/2026夏令營/
+
+# 私有證據：含學生代碼與公式快取（specs/README.md）
+/specs/evidence/
+
+# 應用本機資料：SQLite、來源副本、私有 fixture、報告（07 §3、§6）
+student-billing/data/
+**/private-fixtures/
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+*.db
+*.db-wal
+*.db-shm
+
+# 依賴與建置產物
+node_modules/
+.next/
+out/
+coverage/
+playwright-report/
+test-results/
+blob-report/
+*.tsbuildinfo
+next-env.d.ts
+
+# 環境機密
+.env
+.env.*
+!.env.example
