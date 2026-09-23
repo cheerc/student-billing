@@ -89,4 +89,4 @@
 
 已做：三份 Excel 結構與標頭讀取、公式文字與陣列公式擷取、頁面設定與學生槽位擷取、原 ERP 與計算檔 Sheet1 值比較、477 筆代碼完整與唯一性、D 表每欄公式相對位移一致性、樣本八欄快取分布、來源 SHA-256。
 
-未做：原生 Excel 重算、Windows A4 預覽／實印、新規則引擎實作、產品 unit／integration／E2E、效能量測、DB 建立、任何上線。evidence 裡的 cache 不能當作這些驗證已完成的證據。
+未做：原生 Excel 重算、Windows A4 預覽／實印、新規則引擎實作、產品 unit／integration／E2E、效能量測、DB 建立、任何上線。data/evidence 裡的 cache 不能當作這些驗證已完成的證據。

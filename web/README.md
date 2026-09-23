@@ -15,8 +15,8 @@
 ## 2. 快速上手與啟動
 
 ```bash
-# 進入 student-billing 目錄
-cd student-billing
+# 進入 web 目錄
+cd web
 
 # 安裝依賴 (含 better-sqlite3 原生編譯)
 npm install
@@ -52,7 +52,7 @@ npm run start
 ## 4. 目錄架構與模組劃分
 
 ```text
-student-billing/
+web/
 ├── package.json / package-lock.json / .nvmrc
 ├── next.config.ts           # Next.js 配置 (serverExternalPackages: better-sqlite3)
 ├── tsconfig.json            # TypeScript Strict 設定
@@ -73,14 +73,14 @@ student-billing/
 │   ├── integration/         # 資料庫與 API 整合測試
 │   ├── e2e/                 # Playwright 瀏覽器流程驗收
 │   └── fixtures/            # 保形匿名測試資料
-└── data/                    # 本地 SQLite 資料庫與來源副本 (被 .gitignore 排除)
 ```
+*(資料庫位於專案根目錄 `/data/`，被 `.gitignore` 排除)*
 
 ---
 
 ## 5. 資料庫與 Migration 機制
 
-- **儲存位置**: 預設路徑為 `student-billing/data/app.sqlite`，可透過環境變數 `DATABASE_PATH` 覆蓋（測試環境使用獨立臨時 DB）。
+- **儲存位置**: 預設路徑為專案根目錄 `data/app.sqlite`，可透過環境變數 `DATABASE_PATH` 覆蓋（測試環境使用獨立臨時 DB）。
 - **Migration 策略**:
   - Migration 檔案置於 `src/adapters/sqlite/migrations/`，採編號命名（例如 `0001_init.sql`）。
   - 使用 `schema_migrations` 資料表記錄已套用之版本編號與時間。
@@ -121,13 +121,13 @@ student-billing/
    ```bash
    # 1. 確保目標伺服器處於停機狀態
    # 2. 執行還原至乾淨的空 data 目錄
-   npm run restore /path/to/backups/backup-20260923 /path/to/student-billing/data
+   npm run restore /path/to/backups/backup-20260923 /path/to/data
 
    # 3. 若目標目錄已存在檔案，需主動帶入 --force 明確確認覆蓋
-   npm run restore /path/to/backups/backup-20260923 /path/to/student-billing/data --force
+   npm run restore /path/to/backups/backup-20260923 /path/to/data --force
 
    # 4. 驗證還原完整性與代表性查詢
-   npx tsx scripts/backup-restore.ts verify /path/to/student-billing/data
+   npx tsx scripts/backup-restore.ts verify /path/to/data
 
    # 5. 重新啟動伺服器
    npm run start

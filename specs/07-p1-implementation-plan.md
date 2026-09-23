@@ -30,10 +30,10 @@
 
 ## 3. 專案位置與模組邊界
 
-於 `/Users/cheerc/Downloads/學生帳務對帳/student-billing/` 建立應用程式，避免框架初始化碰到來源Excel及既有夏令營資料。不使用會自動git init的預設流程；手動建立package與目錄，或明確禁用初始化Git。本文件以後的程式路徑皆相对此應用目錄。
+於 `web/`（原 `student-billing/`，依 Issue #7 D+ 方案更名）建立應用程式，避免框架初始化碰到來源Excel及既有夏令營資料。不使用會自動git init的預設流程；手動建立package與目錄，或明確禁用初始化Git。本文件以後的程式路徑皆相对此應用目錄。
 
 ```text
-student-billing/
+web/
   package.json / package-lock.json / .nvmrc
   src/app/                     頁面與薄route handlers
   src/components/              表格、篩選、明細、設定表單
@@ -48,9 +48,9 @@ student-billing/
   src/adapters/files/          受限上傳、hash與來源儲存
   scripts/                     seed、測試基準檢查、bench等開發工具
   tests/{unit,integration,e2e,fixtures}/
-  data/                        SQLite、原檔副本、私有fixture、報告
   README.md                    本機啟動、使用、备份、限制
 ```
+*(資料庫與來源副本位於專案根目錄 `/data/`，被 `.gitignore` 排除)*
 
 只封裝WorkbookReader、Repositories、FileStore及clock/id等必要依賴。domain輸入為普通型別，輸出為確定性結果；不得從domain讀Excel、查DB或拿今天日期。共用同一application query給UI/API，不另寫一份agent算法。不得建立通用公式引擎、任意規則DSL或完整事件溯源架構。
 
@@ -162,7 +162,7 @@ student-billing/
 
 ### 5.1 初始班名、排課與alias
 
-seed工具從指定計算XLSX唯讀擷取「手動值」產生本機seed manifest：來源hash、sheet／row、49班與時段、care windows、parser版本。不讀使用者之後每次上傳ERP就覆蓋排課，也不從evidence快取假造session。
+seed工具從指定計算XLSX唯讀擷取「手動值」產生本機seed manifest：來源hash、sheet／row、49班與時段、care windows、parser版本。不讀使用者之後每次上傳ERP就覆蓋排課，也不從 data/evidence 快取假造session。
 
 seed本身冪等，以來源hash＋seed版本辨識；首次空DB可匯入，已有人員編輯過則只能預覽，不能重置。先做版本未限定年度的seed，核對基準日由使用者明選；不要從舊模板日期猜排課生效日。
 
@@ -216,7 +216,7 @@ Windows重算workaround副本仍未取得，可用獨立手算／參考計算繼
 
 以下為實作後必須提供的scripts，不代表現在已存在：
 
-|指令（在student-billing目錄）|目的|
+|指令（在web目錄）|目的|
 |---|---|
 |npm ci|按lockfile安裝|
 |npm run dev|開發，127.0.0.1:3000|
@@ -230,7 +230,7 @@ Windows重算workaround副本仍未取得，可用獨立手算／參考計算繼
 
 Node已有24.21.0，不需為本案升級全機Node；若另一機器沒有Node24，README指示用該機既有版本管理器或Node官方安裝方式，不能直接覆寫使用者全域工具。首次安裝會下載依賴／測試瀏覽器，依當時執行權限處理。本次plan不執行安裝。
 
-本機DB預設`student-billing/data/app.sqlite`，另有sources、private-fixtures、reports。所有測試使用獨立temporary DB；E2E以環境變數指定測試data，不能清掉真實資料。正式dev/start綁127.0.0.1，no-auth版本不開LAN或tunnel。
+本機DB預設專案根目錄 `data/app.sqlite`，另有sources、private-fixtures、reports。所有測試使用獨立temporary DB；E2E以環境變數指定測試data，不能清掉真實資料。正式dev/start綁127.0.0.1，no-auth版本不開LAN或tunnel。
 
 停機備份：停止服務、確保DB連線關閉後複製完整data及manifest到新位置，記錄schema/app版本。還原至新data目錄啟動，驗筆數、activeRun和代表查詢；成功才人工切回。禁止在連線中只複製sqlite主檔忽略WAL，也禁止以還原指令無提示覆蓋原資料。
 
