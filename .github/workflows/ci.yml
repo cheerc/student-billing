@@ -1,0 +1,45 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  check-and-build:
+    name: Typecheck, Lint, Test & Build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: 'npm'
+          cache-dependency-path: student-billing/package-lock.json
+
+      - name: Install dependencies
+        working-directory: student-billing
+        run: npm ci
+
+      - name: TypeScript Typecheck
+        working-directory: student-billing
+        run: npm run typecheck
+
+      - name: ESLint Check
+        working-directory: student-billing
+        run: npm run lint
+
+      - name: Vitest Integration & Unit Tests
+        working-directory: student-billing
+        run: npm run test
+
+      - name: Next.js Production Build
+        working-directory: student-billing
+        run: npm run build
