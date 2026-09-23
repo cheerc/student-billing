@@ -32,12 +32,13 @@ describe('SQLite Migration Integration Tests', () => {
 
     const result = runMigrations(db);
     expect(result.applied).toContain('0001_init.sql');
+    expect(result.applied).toContain('0002_students_enrollments.sql');
 
     // 驗證 schema_migrations
     const applied = getAppliedMigrations(db);
-    expect(applied).toHaveLength(1);
-    expect(applied[0].version).toBe(1);
-    expect(applied[0].name).toBe('0001_init.sql');
+    expect(applied.length).toBeGreaterThanOrEqual(2);
+    expect(applied.map((m) => m.name)).toContain('0001_init.sql');
+    expect(applied.map((m) => m.name)).toContain('0002_students_enrollments.sql');
 
     // 驗證 active_state 表與初始值
     const activeState = db.prepare('SELECT * FROM active_state WHERE id = 1').get() as {
@@ -70,10 +71,10 @@ describe('SQLite Migration Integration Tests', () => {
     const result2 = runMigrations(db2);
     expect(result2.applied).toHaveLength(0);
     expect(result2.alreadyApplied).toContain('0001_init.sql');
+    expect(result2.alreadyApplied).toContain('0002_students_enrollments.sql');
 
     const applied = getAppliedMigrations(db2);
-    expect(applied).toHaveLength(1);
-    expect(applied[0].version).toBe(1);
+    expect(applied.length).toBeGreaterThanOrEqual(2);
 
     db2.close();
   });
@@ -86,26 +87,26 @@ describe('SQLite Migration Integration Tests', () => {
     const customMigrationsDir = path.join(tempDir, 'migrations');
     fs.mkdirSync(customMigrationsDir, { recursive: true });
 
-    // 0002 有效 migration
+    // 0098 有效 migration
     fs.writeFileSync(
-      path.join(customMigrationsDir, '0002_good.sql'),
+      path.join(customMigrationsDir, '0098_good.sql'),
       'CREATE TABLE test_good (id INTEGER PRIMARY KEY);'
     );
-    // 0003 錯誤 migration (語法錯誤)
+    // 0099 錯誤 migration (語法錯誤)
     fs.writeFileSync(
-      path.join(customMigrationsDir, '0003_bad.sql'),
+      path.join(customMigrationsDir, '0099_bad.sql'),
       'CREATE TABLE test_bad (id INTEGER PRIMARY KEY); INVALID SQL SYNTAX HERE;'
     );
 
-    // 執行自訂 migration，預期在 0003 拋出例外
+    // 執行自訂 migration，預期在 0099 拋出例外
     expect(() => {
       runMigrations(db, customMigrationsDir);
     }).toThrow();
 
-    // 驗證 0002 成功套用
+    // 驗證 0098 成功套用
     const applied = getAppliedMigrations(db);
-    expect(applied.map(m => m.name)).toContain('0002_good.sql');
-    expect(applied.map(m => m.name)).not.toContain('0003_bad.sql');
+    expect(applied.map(m => m.name)).toContain('0098_good.sql');
+    expect(applied.map(m => m.name)).not.toContain('0099_bad.sql');
 
     // 驗證 0003 中的 test_bad 表因為 rollback 而不存在
     const badTable = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='test_bad'").get();
