@@ -1,0 +1,1122 @@
+{
+  "sourceHash": "b524a8a39bbbf22712c3f8b6531ddb42c46e8cf8bc19fd48a470e691301ca635",
+  "totalSessionRows": 89,
+  "classes": [
+    {
+      "rawName": "小六加強班-自然[團]",
+      "baseName": "小六加強班-自然",
+      "source": "schedule",
+      "teacher": "莊家文",
+      "sessions": [
+        {
+          "rawName": "小六加強班-自然[團]",
+          "baseName": "小六加強班-自然",
+          "teacher": "莊家文",
+          "weekday": "六",
+          "startMinutes": 900,
+          "endMinutes": 1020
+        }
+      ]
+    },
+    {
+      "rawName": "小六加強班-國文[團]",
+      "baseName": "小六加強班-國文",
+      "source": "schedule",
+      "teacher": "伍軒",
+      "sessions": [
+        {
+          "rawName": "小六加強班-國文[團]",
+          "baseName": "小六加強班-國文",
+          "teacher": "伍軒",
+          "weekday": "六",
+          "startMinutes": 780,
+          "endMinutes": 900
+        }
+      ]
+    },
+    {
+      "rawName": "小六加強班-數學[團]",
+      "baseName": "小六加強班-數學",
+      "source": "schedule",
+      "teacher": "丞鍹",
+      "sessions": [
+        {
+          "rawName": "小六加強班-數學[團]",
+          "baseName": "小六加強班-數學",
+          "teacher": "丞鍹",
+          "weekday": "二",
+          "startMinutes": 1140,
+          "endMinutes": 1260
+        }
+      ]
+    },
+    {
+      "rawName": "兒童美語-Gino[團]",
+      "baseName": "兒童美語-Gino",
+      "source": "schedule",
+      "teacher": "Cathy",
+      "sessions": [
+        {
+          "rawName": "兒童美語-Gino[團]",
+          "baseName": "兒童美語-Gino",
+          "teacher": "Cathy",
+          "weekday": "一",
+          "startMinutes": 920,
+          "endMinutes": 1010
+        },
+        {
+          "rawName": "兒童美語-Gino[團]",
+          "baseName": "兒童美語-Gino",
+          "teacher": "Cathy",
+          "weekday": "三",
+          "startMinutes": 930,
+          "endMinutes": 1020
+        },
+        {
+          "rawName": "兒童美語-Gino[團]",
+          "baseName": "兒童美語-Gino",
+          "teacher": "Cathy",
+          "weekday": "五",
+          "startMinutes": 920,
+          "endMinutes": 1010
+        }
+      ]
+    },
+    {
+      "rawName": "兒童美語-Archy[團]",
+      "baseName": "兒童美語-Archy",
+      "source": "schedule",
+      "teacher": "Cathy",
+      "sessions": [
+        {
+          "rawName": "兒童美語-Archy[團]",
+          "baseName": "兒童美語-Archy",
+          "teacher": "Cathy",
+          "weekday": "三",
+          "startMinutes": 800,
+          "endMinutes": 920
+        },
+        {
+          "rawName": "兒童美語-Archy[團]",
+          "baseName": "兒童美語-Archy",
+          "teacher": "Cathy",
+          "weekday": "五",
+          "startMinutes": 1030,
+          "endMinutes": 1150
+        }
+      ]
+    },
+    {
+      "rawName": "兒童美語-Chevady[團]",
+      "baseName": "兒童美語-Chevady",
+      "source": "schedule",
+      "teacher": "Janice",
+      "sessions": [
+        {
+          "rawName": "兒童美語-Chevady[團]",
+          "baseName": "兒童美語-Chevady",
+          "teacher": "Janice",
+          "weekday": "一",
+          "startMinutes": 1010,
+          "endMinutes": 1130
+        },
+        {
+          "rawName": "兒童美語-Chevady[團]",
+          "baseName": "兒童美語-Chevady",
+          "teacher": "Janice",
+          "weekday": "四",
+          "startMinutes": 1010,
+          "endMinutes": 1130
+        }
+      ]
+    },
+    {
+      "rawName": "兒童美語-Cody[團]",
+      "baseName": "兒童美語-Cody",
+      "source": "schedule",
+      "teacher": "Zona",
+      "sessions": [
+        {
+          "rawName": "兒童美語-Cody[團]",
+          "baseName": "兒童美語-Cody",
+          "teacher": "Zona",
+          "weekday": "二",
+          "startMinutes": 1050,
+          "endMinutes": 1170
+        },
+        {
+          "rawName": "兒童美語-Cody[團]",
+          "baseName": "兒童美語-Cody",
+          "teacher": "Zona",
+          "weekday": "五",
+          "startMinutes": 1010,
+          "endMinutes": 1130
+        }
+      ]
+    },
+    {
+      "rawName": "兒童美語-Ali[團]",
+      "baseName": "兒童美語-Ali",
+      "source": "schedule",
+      "teacher": "Zona",
+      "sessions": [
+        {
+          "rawName": "兒童美語-Ali[團]",
+          "baseName": "兒童美語-Ali",
+          "teacher": "Zona",
+          "weekday": "三",
+          "startMinutes": 890,
+          "endMinutes": 1010
+        },
+        {
+          "rawName": "兒童美語-Ali[團]",
+          "baseName": "兒童美語-Ali",
+          "teacher": "Zona",
+          "weekday": "五",
+          "startMinutes": 1010,
+          "endMinutes": 1130
+        }
+      ]
+    },
+    {
+      "rawName": "兒童美語-Dommie[團]",
+      "baseName": "兒童美語-Dommie",
+      "source": "schedule",
+      "teacher": "Janice",
+      "sessions": [
+        {
+          "rawName": "兒童美語-Dommie[團]",
+          "baseName": "兒童美語-Dommie",
+          "teacher": "Janice",
+          "weekday": "三",
+          "startMinutes": 990,
+          "endMinutes": 1110
+        },
+        {
+          "rawName": "兒童美語-Dommie[團]",
+          "baseName": "兒童美語-Dommie",
+          "teacher": "Janice",
+          "weekday": "一",
+          "startMinutes": 1050,
+          "endMinutes": 1170
+        }
+      ]
+    },
+    {
+      "rawName": "兒童美語-EC[團]",
+      "baseName": "兒童美語-EC",
+      "source": "schedule",
+      "teacher": "Dana",
+      "sessions": [
+        {
+          "rawName": "兒童美語-EC[團]",
+          "baseName": "兒童美語-EC",
+          "teacher": "Dana",
+          "weekday": "一",
+          "startMinutes": 1040,
+          "endMinutes": 1130
+        },
+        {
+          "rawName": "兒童美語-EC[團]",
+          "baseName": "兒童美語-EC",
+          "teacher": "Dana",
+          "weekday": "四",
+          "startMinutes": 1040,
+          "endMinutes": 1130
+        }
+      ]
+    },
+    {
+      "rawName": "兒童美語-ED[團]",
+      "baseName": "兒童美語-ED",
+      "source": "schedule",
+      "teacher": "Cathy",
+      "sessions": [
+        {
+          "rawName": "兒童美語-ED[團]",
+          "baseName": "兒童美語-ED",
+          "teacher": "Cathy",
+          "weekday": "一",
+          "startMinutes": 1060,
+          "endMinutes": 1150
+        },
+        {
+          "rawName": "兒童美語-ED[團]",
+          "baseName": "兒童美語-ED",
+          "teacher": "Cathy",
+          "weekday": "四",
+          "startMinutes": 1000,
+          "endMinutes": 1090
+        }
+      ]
+    },
+    {
+      "rawName": "兒童美語-Pluto[團]",
+      "baseName": "兒童美語-Pluto",
+      "source": "schedule",
+      "teacher": "Cathy",
+      "sessions": [
+        {
+          "rawName": "兒童美語-Pluto[團]",
+          "baseName": "兒童美語-Pluto",
+          "teacher": "Cathy",
+          "weekday": "二",
+          "startMinutes": 990,
+          "endMinutes": 1110
+        },
+        {
+          "rawName": "兒童美語-Pluto[團]",
+          "baseName": "兒童美語-Pluto",
+          "teacher": "Cathy",
+          "weekday": "四",
+          "startMinutes": 1010,
+          "endMinutes": 1130
+        }
+      ]
+    },
+    {
+      "rawName": "兒童美語-EF[團]",
+      "baseName": "兒童美語-EF",
+      "source": "schedule",
+      "teacher": "Cathy",
+      "sessions": [
+        {
+          "rawName": "兒童美語-EF[團]",
+          "baseName": "兒童美語-EF",
+          "teacher": "Cathy",
+          "weekday": "三",
+          "startMinutes": 1080,
+          "endMinutes": 1170
+        },
+        {
+          "rawName": "兒童美語-EF[團]",
+          "baseName": "兒童美語-EF",
+          "teacher": "Cathy",
+          "weekday": "六",
+          "startMinutes": 630,
+          "endMinutes": 720
+        }
+      ]
+    },
+    {
+      "rawName": "兒童美語-EG[團]",
+      "baseName": "兒童美語-EG",
+      "source": "schedule",
+      "teacher": "Janice",
+      "sessions": [
+        {
+          "rawName": "兒童美語-EG[團]",
+          "baseName": "兒童美語-EG",
+          "teacher": "Janice",
+          "weekday": "二",
+          "startMinutes": 1040,
+          "endMinutes": 1130
+        },
+        {
+          "rawName": "兒童美語-EG[團]",
+          "baseName": "兒童美語-EG",
+          "teacher": "Janice",
+          "weekday": "四",
+          "startMinutes": 1080,
+          "endMinutes": 1170
+        }
+      ]
+    },
+    {
+      "rawName": "兒童美語-EK[團]",
+      "baseName": "兒童美語-EK",
+      "source": "schedule",
+      "teacher": "Dana",
+      "sessions": [
+        {
+          "rawName": "兒童美語-EK[團]",
+          "baseName": "兒童美語-EK",
+          "teacher": "Dana",
+          "weekday": "三",
+          "startMinutes": 990,
+          "endMinutes": 1080
+        },
+        {
+          "rawName": "兒童美語-EK[團]",
+          "baseName": "兒童美語-EK",
+          "teacher": "Dana",
+          "weekday": "六",
+          "startMinutes": 540,
+          "endMinutes": 630
+        }
+      ]
+    },
+    {
+      "rawName": "兒童美語-EL[團]",
+      "baseName": "兒童美語-EL",
+      "source": "schedule",
+      "teacher": "Dana",
+      "sessions": [
+        {
+          "rawName": "兒童美語-EL[團]",
+          "baseName": "兒童美語-EL",
+          "teacher": "Dana",
+          "weekday": "三",
+          "startMinutes": 1080,
+          "endMinutes": 1170
+        },
+        {
+          "rawName": "兒童美語-EL[團]",
+          "baseName": "兒童美語-EL",
+          "teacher": "Dana",
+          "weekday": "六",
+          "startMinutes": 630,
+          "endMinutes": 720
+        }
+      ]
+    },
+    {
+      "rawName": "兒童美語-EM[團]",
+      "baseName": "兒童美語-EM",
+      "source": "schedule",
+      "teacher": "Zona",
+      "sessions": [
+        {
+          "rawName": "兒童美語-EM[團]",
+          "baseName": "兒童美語-EM",
+          "teacher": "Zona",
+          "weekday": "六",
+          "startMinutes": 540,
+          "endMinutes": 630
+        },
+        {
+          "rawName": "兒童美語-EM[團]",
+          "baseName": "兒童美語-EM",
+          "teacher": "Zona",
+          "weekday": "四",
+          "startMinutes": 1080,
+          "endMinutes": 1170
+        }
+      ]
+    },
+    {
+      "rawName": "兒童美語-Kirra[團]",
+      "baseName": "兒童美語-Kirra",
+      "source": "schedule",
+      "teacher": "Janice",
+      "sessions": [
+        {
+          "rawName": "兒童美語-Kirra[團]",
+          "baseName": "兒童美語-Kirra",
+          "teacher": "Janice",
+          "weekday": "三",
+          "startMinutes": 800,
+          "endMinutes": 920
+        },
+        {
+          "rawName": "兒童美語-Kirra[團]",
+          "baseName": "兒童美語-Kirra",
+          "teacher": "Janice",
+          "weekday": "五",
+          "startMinutes": 1050,
+          "endMinutes": 1170
+        }
+      ]
+    },
+    {
+      "rawName": "兒童美語-Norma[團]",
+      "baseName": "兒童美語-Norma",
+      "source": "schedule",
+      "teacher": "Zona",
+      "sessions": [
+        {
+          "rawName": "兒童美語-Norma[團]",
+          "baseName": "兒童美語-Norma",
+          "teacher": "Zona",
+          "weekday": "一",
+          "startMinutes": 1050,
+          "endMinutes": 1170
+        },
+        {
+          "rawName": "兒童美語-Norma[團]",
+          "baseName": "兒童美語-Norma",
+          "teacher": "Zona",
+          "weekday": "三",
+          "startMinutes": 1050,
+          "endMinutes": 1170
+        }
+      ]
+    },
+    {
+      "rawName": "兒童美語-Hopper[團]",
+      "baseName": "兒童美語-Hopper",
+      "source": "schedule",
+      "teacher": "Janice",
+      "sessions": [
+        {
+          "rawName": "兒童美語-Hopper[團]",
+          "baseName": "兒童美語-Hopper",
+          "teacher": "Janice",
+          "weekday": "一",
+          "startMinutes": 920,
+          "endMinutes": 1010
+        },
+        {
+          "rawName": "兒童美語-Hopper[團]",
+          "baseName": "兒童美語-Hopper",
+          "teacher": "Janice",
+          "weekday": "三",
+          "startMinutes": 890,
+          "endMinutes": 980
+        },
+        {
+          "rawName": "兒童美語-Hopper[團]",
+          "baseName": "兒童美語-Hopper",
+          "teacher": "Janice",
+          "weekday": "五",
+          "startMinutes": 920,
+          "endMinutes": 1010
+        }
+      ]
+    },
+    {
+      "rawName": "兒童美語-Teffer[團]",
+      "baseName": "兒童美語-Teffer",
+      "source": "schedule",
+      "teacher": "Janice",
+      "sessions": [
+        {
+          "rawName": "兒童美語-Teffer[團]",
+          "baseName": "兒童美語-Teffer",
+          "teacher": "Janice",
+          "weekday": "一",
+          "startMinutes": 920,
+          "endMinutes": 1010
+        },
+        {
+          "rawName": "兒童美語-Teffer[團]",
+          "baseName": "兒童美語-Teffer",
+          "teacher": "Janice",
+          "weekday": "四",
+          "startMinutes": 920,
+          "endMinutes": 1010
+        },
+        {
+          "rawName": "兒童美語-Teffer[團]",
+          "baseName": "兒童美語-Teffer",
+          "teacher": "Janice",
+          "weekday": "五",
+          "startMinutes": 920,
+          "endMinutes": 1010
+        }
+      ]
+    },
+    {
+      "rawName": "兒童美語-Toker[團]",
+      "baseName": "兒童美語-Toker",
+      "source": "schedule",
+      "teacher": "Zona",
+      "sessions": [
+        {
+          "rawName": "兒童美語-Toker[團]",
+          "baseName": "兒童美語-Toker",
+          "teacher": "Zona",
+          "weekday": "一",
+          "startMinutes": 920,
+          "endMinutes": 1010
+        },
+        {
+          "rawName": "兒童美語-Toker[團]",
+          "baseName": "兒童美語-Toker",
+          "teacher": "Zona",
+          "weekday": "四",
+          "startMinutes": 920,
+          "endMinutes": 1010
+        },
+        {
+          "rawName": "兒童美語-Toker[團]",
+          "baseName": "兒童美語-Toker",
+          "teacher": "Zona",
+          "weekday": "五",
+          "startMinutes": 920,
+          "endMinutes": 1010
+        }
+      ]
+    },
+    {
+      "rawName": "國小國語文-小三小四[團]",
+      "baseName": "國小國語文-小三小四",
+      "source": "schedule",
+      "teacher": "蘇姸",
+      "sessions": [
+        {
+          "rawName": "國小國語文-小三小四[團]",
+          "baseName": "國小國語文-小三小四",
+          "teacher": "蘇姸",
+          "weekday": "六",
+          "startMinutes": 780,
+          "endMinutes": 900
+        }
+      ]
+    },
+    {
+      "rawName": "國小國語文-小五[團]",
+      "baseName": "國小國語文-小五",
+      "source": "schedule",
+      "teacher": "蘇姸",
+      "sessions": [
+        {
+          "rawName": "國小國語文-小五[團]",
+          "baseName": "國小國語文-小五",
+          "teacher": "蘇姸",
+          "weekday": "六",
+          "startMinutes": 900,
+          "endMinutes": 1020
+        }
+      ]
+    },
+    {
+      "rawName": "國小輔導-一A[團]",
+      "baseName": "國小輔導-一A",
+      "source": "care_window",
+      "teacher": "玟君",
+      "sessions": [
+        {
+          "rawName": "國小輔導-一A[團]",
+          "baseName": "國小輔導-一A",
+          "teacher": "玟君",
+          "weekday": null,
+          "startMinutes": null,
+          "endMinutes": null
+        }
+      ]
+    },
+    {
+      "rawName": "國小輔導-一B[團]",
+      "baseName": "國小輔導-一B",
+      "source": "care_window",
+      "teacher": "家鈞",
+      "sessions": [
+        {
+          "rawName": "國小輔導-一B[團]",
+          "baseName": "國小輔導-一B",
+          "teacher": "家鈞",
+          "weekday": null,
+          "startMinutes": null,
+          "endMinutes": null
+        }
+      ]
+    },
+    {
+      "rawName": "國小輔導-二A[團]",
+      "baseName": "國小輔導-二A",
+      "source": "care_window",
+      "teacher": "香玲",
+      "sessions": [
+        {
+          "rawName": "國小輔導-二A[團]",
+          "baseName": "國小輔導-二A",
+          "teacher": "香玲",
+          "weekday": null,
+          "startMinutes": null,
+          "endMinutes": null
+        }
+      ]
+    },
+    {
+      "rawName": "國小輔導-二B[團]",
+      "baseName": "國小輔導-二B",
+      "source": "care_window",
+      "teacher": "子瑤",
+      "sessions": [
+        {
+          "rawName": "國小輔導-二B[團]",
+          "baseName": "國小輔導-二B",
+          "teacher": "子瑤",
+          "weekday": null,
+          "startMinutes": null,
+          "endMinutes": null
+        }
+      ]
+    },
+    {
+      "rawName": "國小輔導-三年級[團]",
+      "baseName": "國小輔導-三年級",
+      "source": "care_window",
+      "teacher": "玟君",
+      "sessions": [
+        {
+          "rawName": "國小輔導-三年級[團]",
+          "baseName": "國小輔導-三年級",
+          "teacher": "玟君",
+          "weekday": null,
+          "startMinutes": null,
+          "endMinutes": null
+        }
+      ]
+    },
+    {
+      "rawName": "國小輔導-五年級[團]",
+      "baseName": "國小輔導-五年級",
+      "source": "care_window",
+      "teacher": "子瑤",
+      "sessions": [
+        {
+          "rawName": "國小輔導-五年級[團]",
+          "baseName": "國小輔導-五年級",
+          "teacher": "子瑤",
+          "weekday": null,
+          "startMinutes": null,
+          "endMinutes": null
+        }
+      ]
+    },
+    {
+      "rawName": "國小輔導-六年級[團]",
+      "baseName": "國小輔導-六年級",
+      "source": "care_window",
+      "teacher": "芳宜",
+      "sessions": [
+        {
+          "rawName": "國小輔導-六年級[團]",
+          "baseName": "國小輔導-六年級",
+          "teacher": "芳宜",
+          "weekday": null,
+          "startMinutes": null,
+          "endMinutes": null
+        }
+      ]
+    },
+    {
+      "rawName": "國小輔導-四年級[團]",
+      "baseName": "國小輔導-四年級",
+      "source": "care_window",
+      "teacher": "香玲",
+      "sessions": [
+        {
+          "rawName": "國小輔導-四年級[團]",
+          "baseName": "國小輔導-四年級",
+          "teacher": "香玲",
+          "weekday": null,
+          "startMinutes": null,
+          "endMinutes": null
+        }
+      ]
+    },
+    {
+      "rawName": "國小數學-一A[團]",
+      "baseName": "國小數學-一A",
+      "source": "schedule",
+      "teacher": "惠孅",
+      "sessions": [
+        {
+          "rawName": "國小數學-一A[團]",
+          "baseName": "國小數學-一A",
+          "teacher": "惠孅",
+          "weekday": "四",
+          "startMinutes": 900,
+          "endMinutes": 990
+        },
+        {
+          "rawName": "國小數學-一A[團]",
+          "baseName": "國小數學-一A",
+          "teacher": "惠孅",
+          "weekday": "六",
+          "startMinutes": 630,
+          "endMinutes": 720
+        }
+      ]
+    },
+    {
+      "rawName": "國小數學-一B[團]",
+      "baseName": "國小數學-一B",
+      "source": "empty",
+      "teacher": null,
+      "sessions": [
+        {
+          "rawName": "國小數學-一B[團]",
+          "baseName": "國小數學-一B",
+          "teacher": null,
+          "weekday": null,
+          "startMinutes": null,
+          "endMinutes": null
+        },
+        {
+          "rawName": "國小數學-一B[團]",
+          "baseName": "國小數學-一B",
+          "teacher": null,
+          "weekday": null,
+          "startMinutes": null,
+          "endMinutes": null
+        }
+      ]
+    },
+    {
+      "rawName": "國小數學-二A[團]",
+      "baseName": "國小數學-二A",
+      "source": "schedule",
+      "teacher": "丞鍹",
+      "sessions": [
+        {
+          "rawName": "國小數學-二A[團]",
+          "baseName": "國小數學-二A",
+          "teacher": "丞鍹",
+          "weekday": "三",
+          "startMinutes": 930,
+          "endMinutes": 1020
+        },
+        {
+          "rawName": "國小數學-二A[團]",
+          "baseName": "國小數學-二A",
+          "teacher": "丞鍹",
+          "weekday": "六",
+          "startMinutes": 540,
+          "endMinutes": 630
+        }
+      ]
+    },
+    {
+      "rawName": "國小數學-二B[團]",
+      "baseName": "國小數學-二B",
+      "source": "schedule",
+      "teacher": "惠孅",
+      "sessions": [
+        {
+          "rawName": "國小數學-二B[團]",
+          "baseName": "國小數學-二B",
+          "teacher": "惠孅",
+          "weekday": "三",
+          "startMinutes": 930,
+          "endMinutes": 1020
+        },
+        {
+          "rawName": "國小數學-二B[團]",
+          "baseName": "國小數學-二B",
+          "teacher": "惠孅",
+          "weekday": "六",
+          "startMinutes": 540,
+          "endMinutes": 630
+        }
+      ]
+    },
+    {
+      "rawName": "國小數學-三A[團]",
+      "baseName": "國小數學-三A",
+      "source": "schedule",
+      "teacher": "惠孅",
+      "sessions": [
+        {
+          "rawName": "國小數學-三A[團]",
+          "baseName": "國小數學-三A",
+          "teacher": "惠孅",
+          "weekday": "一",
+          "startMinutes": 990,
+          "endMinutes": 1080
+        },
+        {
+          "rawName": "國小數學-三A[團]",
+          "baseName": "國小數學-三A",
+          "teacher": "惠孅",
+          "weekday": "三",
+          "startMinutes": 1080,
+          "endMinutes": 1170
+        }
+      ]
+    },
+    {
+      "rawName": "國小數學-三B[團]",
+      "baseName": "國小數學-三B",
+      "source": "schedule",
+      "teacher": "品妤",
+      "sessions": [
+        {
+          "rawName": "國小數學-三B[團]",
+          "baseName": "國小數學-三B",
+          "teacher": "品妤",
+          "weekday": "一",
+          "startMinutes": 990,
+          "endMinutes": 1080
+        },
+        {
+          "rawName": "國小數學-三B[團]",
+          "baseName": "國小數學-三B",
+          "teacher": "品妤",
+          "weekday": "三",
+          "startMinutes": 1080,
+          "endMinutes": 1170
+        }
+      ]
+    },
+    {
+      "rawName": "國小數學-五A[團]",
+      "baseName": "國小數學-五A",
+      "source": "schedule",
+      "teacher": "丞鍹",
+      "sessions": [
+        {
+          "rawName": "國小數學-五A[團]",
+          "baseName": "國小數學-五A",
+          "teacher": "丞鍹",
+          "weekday": "二",
+          "startMinutes": 990,
+          "endMinutes": 1080
+        },
+        {
+          "rawName": "國小數學-五A[團]",
+          "baseName": "國小數學-五A",
+          "teacher": "丞鍹",
+          "weekday": "四",
+          "startMinutes": 990,
+          "endMinutes": 1080
+        }
+      ]
+    },
+    {
+      "rawName": "國小數學-五B[團]",
+      "baseName": "國小數學-五B",
+      "source": "schedule",
+      "teacher": "惠孅",
+      "sessions": [
+        {
+          "rawName": "國小數學-五B[團]",
+          "baseName": "國小數學-五B",
+          "teacher": "惠孅",
+          "weekday": "二",
+          "startMinutes": 990,
+          "endMinutes": 1080
+        },
+        {
+          "rawName": "國小數學-五B[團]",
+          "baseName": "國小數學-五B",
+          "teacher": "惠孅",
+          "weekday": "四",
+          "startMinutes": 990,
+          "endMinutes": 1080
+        }
+      ]
+    },
+    {
+      "rawName": "國小數學-六A[團]",
+      "baseName": "國小數學-六A",
+      "source": "schedule",
+      "teacher": "品妤",
+      "sessions": [
+        {
+          "rawName": "國小數學-六A[團]",
+          "baseName": "國小數學-六A",
+          "teacher": "品妤",
+          "weekday": "一",
+          "startMinutes": 1080,
+          "endMinutes": 1170
+        },
+        {
+          "rawName": "國小數學-六A[團]",
+          "baseName": "國小數學-六A",
+          "teacher": "品妤",
+          "weekday": "四",
+          "startMinutes": 1080,
+          "endMinutes": 1170
+        }
+      ]
+    },
+    {
+      "rawName": "國小數學-六B[團]",
+      "baseName": "國小數學-六B",
+      "source": "schedule",
+      "teacher": "惠孅",
+      "sessions": [
+        {
+          "rawName": "國小數學-六B[團]",
+          "baseName": "國小數學-六B",
+          "teacher": "惠孅",
+          "weekday": "二",
+          "startMinutes": 1080,
+          "endMinutes": 1170
+        },
+        {
+          "rawName": "國小數學-六B[團]",
+          "baseName": "國小數學-六B",
+          "teacher": "惠孅",
+          "weekday": "四",
+          "startMinutes": 1080,
+          "endMinutes": 1170
+        }
+      ]
+    },
+    {
+      "rawName": "國小數學-四A[團]",
+      "baseName": "國小數學-四A",
+      "source": "schedule",
+      "teacher": "惠孅",
+      "sessions": [
+        {
+          "rawName": "國小數學-四A[團]",
+          "baseName": "國小數學-四A",
+          "teacher": "惠孅",
+          "weekday": "三",
+          "startMinutes": 810,
+          "endMinutes": 900
+        },
+        {
+          "rawName": "國小數學-四A[團]",
+          "baseName": "國小數學-四A",
+          "teacher": "惠孅",
+          "weekday": "五",
+          "startMinutes": 990,
+          "endMinutes": 1080
+        }
+      ]
+    },
+    {
+      "rawName": "國小數學-四B[團]",
+      "baseName": "國小數學-四B",
+      "source": "schedule",
+      "teacher": "品妤",
+      "sessions": [
+        {
+          "rawName": "國小數學-四B[團]",
+          "baseName": "國小數學-四B",
+          "teacher": "品妤",
+          "weekday": "三",
+          "startMinutes": 810,
+          "endMinutes": 900
+        },
+        {
+          "rawName": "國小數學-四B[團]",
+          "baseName": "國小數學-四B",
+          "teacher": "品妤",
+          "weekday": "五",
+          "startMinutes": 990,
+          "endMinutes": 1080
+        }
+      ]
+    },
+    {
+      "rawName": "兒童美語-KA[團]",
+      "baseName": "兒童美語-KA",
+      "source": "schedule",
+      "teacher": "Sophie",
+      "sessions": [
+        {
+          "rawName": "兒童美語-KA[團]",
+          "baseName": "兒童美語-KA",
+          "teacher": "Sophie",
+          "weekday": "二",
+          "startMinutes": 930,
+          "endMinutes": 990
+        },
+        {
+          "rawName": "兒童美語-KA[團]",
+          "baseName": "兒童美語-KA",
+          "teacher": "Sophie",
+          "weekday": "四",
+          "startMinutes": 900,
+          "endMinutes": 960
+        }
+      ]
+    },
+    {
+      "rawName": "兒童美語-KB[團]",
+      "baseName": "兒童美語-KB",
+      "source": "schedule",
+      "teacher": "Sophie",
+      "sessions": [
+        {
+          "rawName": "兒童美語-KB[團]",
+          "baseName": "兒童美語-KB",
+          "teacher": "Sophie",
+          "weekday": "二",
+          "startMinutes": 900,
+          "endMinutes": 960
+        },
+        {
+          "rawName": "兒童美語-KB[團]",
+          "baseName": "兒童美語-KB",
+          "teacher": "Sophie",
+          "weekday": "五",
+          "startMinutes": 930,
+          "endMinutes": 990
+        }
+      ]
+    },
+    {
+      "rawName": "兒童美語-KC[團]",
+      "baseName": "兒童美語-KC",
+      "source": "schedule",
+      "teacher": "Dana",
+      "sessions": [
+        {
+          "rawName": "兒童美語-KC[團]",
+          "baseName": "兒童美語-KC",
+          "teacher": "Dana",
+          "weekday": "一",
+          "startMinutes": 1080,
+          "endMinutes": 1140
+        },
+        {
+          "rawName": "兒童美語-KC[團]",
+          "baseName": "兒童美語-KC",
+          "teacher": "Dana",
+          "weekday": "四",
+          "startMinutes": 1080,
+          "endMinutes": 1140
+        }
+      ]
+    },
+    {
+      "rawName": "兒童美語-EA[團]",
+      "baseName": "兒童美語-EA",
+      "source": "schedule",
+      "teacher": "Dana",
+      "sessions": [
+        {
+          "rawName": "兒童美語-EA[團]",
+          "baseName": "兒童美語-EA",
+          "teacher": "Dana",
+          "weekday": "二",
+          "startMinutes": 1040,
+          "endMinutes": 1130
+        },
+        {
+          "rawName": "兒童美語-EA[團]",
+          "baseName": "兒童美語-EA",
+          "teacher": "Dana",
+          "weekday": "五",
+          "startMinutes": 1040,
+          "endMinutes": 1130
+        }
+      ]
+    },
+    {
+      "rawName": "兒童美語-EB[團]",
+      "baseName": "兒童美語-EB",
+      "source": "schedule",
+      "teacher": "Zona",
+      "sessions": [
+        {
+          "rawName": "兒童美語-EB[團]",
+          "baseName": "兒童美語-EB",
+          "teacher": "Zona",
+          "weekday": "三",
+          "startMinutes": 1080,
+          "endMinutes": 1170
+        },
+        {
+          "rawName": "兒童美語-EB[團]",
+          "baseName": "兒童美語-EB",
+          "teacher": "Zona",
+          "weekday": "六",
+          "startMinutes": 630,
+          "endMinutes": 720
+        }
+      ]
+    }
+  ],
+  "careWindows": {
+    "anqin": {
+      "startMinutes": 780,
+      "endMinutes": 960,
+      "weekdayText": "一~五"
+    },
+    "tutoring": {
+      "startMinutes": 990,
+      "endMinutes": 1170,
+      "weekdayText": "一~五"
+    }
+  }
+}
