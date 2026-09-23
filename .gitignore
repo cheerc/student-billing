@@ -1,6 +1,9 @@
 # macOS
 .DS_Store
 
+# AgEnD worktree marker
+.agend-managed
+
 # 來源資料：真實學生／財務 Excel 只留本機，不進 Git（specs/README.md、04 §2）
 /*.xlsx
 /*.xls
