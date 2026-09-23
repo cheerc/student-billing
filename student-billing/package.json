@@ -10,6 +10,7 @@
     "build": "next build",
     "start": "next start -H 127.0.0.1 -p 3000",
     "test": "vitest run",
+    "verify:baseline": "tsx scripts/verify-baseline.ts",
     "typecheck": "tsc --noEmit",
     "lint": "eslint ."
   },
@@ -30,6 +31,7 @@
     "@types/react-dom": "^19.0.0",
     "eslint": "^9.0.0",
     "eslint-config-next": "^16.3.6",
+    "tsx": "^4.19.0",
     "typescript": "^5.7.0",
     "vitest": "^3.0.0"
   }

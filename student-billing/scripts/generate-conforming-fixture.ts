@@ -71,7 +71,7 @@ async function generateConformingFixture() {
       (_cMatch: string, prefix: string, noteText: string, suffix: string) => {
         let anonymizedNote = `匿名備註_${stuIndex}`;
         if (noteText.includes('園內生') || noteText.includes('幼幼班')) {
-          anonymizedNote = `(弟弟園內幼幼班) ${anonymizedNote}`;
+          anonymizedNote = `園內生 (弟弟園內幼幼班) ${anonymizedNote}`;
         }
         return `${prefix}${anonymizedNote}${suffix}`;
       }
