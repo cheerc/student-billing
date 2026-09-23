@@ -5,14 +5,15 @@ import fs from 'fs';
 test.describe('T06: 故障恢復、歷程查閱與剩餘 UI 契約 E2E 驗收測試', () => {
   test.beforeEach(() => {
     // 清理測試 SQLite 資料庫，避免跨測試污染
-    const dataDir = path.resolve(__dirname, '../../data');
-    if (fs.existsSync(dataDir)) {
-      const files = fs.readdirSync(dataDir);
-      for (const f of files) {
-        if (f.includes('app.sqlite')) {
-          try {
-            fs.rmSync(path.join(dataDir, f), { force: true });
-          } catch (_e) {}
+    for (const d of [path.resolve(__dirname, '../../../data'), path.resolve(__dirname, '../../data')]) {
+      if (fs.existsSync(d)) {
+        const files = fs.readdirSync(d);
+        for (const f of files) {
+          if (f.includes('app.sqlite')) {
+            try {
+              fs.rmSync(path.join(d, f), { force: true });
+            } catch (_e) {}
+          }
         }
       }
     }
@@ -20,14 +21,15 @@ test.describe('T06: 故障恢復、歷程查閱與剩餘 UI 契約 E2E 驗收測
 
   test.afterEach(() => {
     // 測試完成後清理資料庫殘留
-    const dataDir = path.resolve(__dirname, '../../data');
-    if (fs.existsSync(dataDir)) {
-      const files = fs.readdirSync(dataDir);
-      for (const f of files) {
-        if (f.includes('app.sqlite')) {
-          try {
-            fs.rmSync(path.join(dataDir, f), { force: true });
-          } catch (_e) {}
+    for (const d of [path.resolve(__dirname, '../../../data'), path.resolve(__dirname, '../../data')]) {
+      if (fs.existsSync(d)) {
+        const files = fs.readdirSync(d);
+        for (const f of files) {
+          if (f.includes('app.sqlite')) {
+            try {
+              fs.rmSync(path.join(d, f), { force: true });
+            } catch (_e) {}
+          }
         }
       }
     }

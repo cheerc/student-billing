@@ -28,10 +28,10 @@
 
 ## 證據與限制
 
-根目錄三份來源 Excel 皆保持原檔。`evidence/workbook-inspection.json` 保存 SHA-256、工作表結構、全部公式文字（含陣列公式）、既存快取值及列印設定。`evidence/cached-summary-baseline.json` 保存 477 筆學生的八個總表輸出快取，供後續逐列比對。
+根目錄三份來源 Excel 皆保持原檔。`data/evidence/workbook-inspection.json` 保存 SHA-256、工作表結構、全部公式文字（含陣列公式）、既存快取值及列印設定。`data/evidence/cached-summary-baseline.json` 保存 477 筆學生的八個總表輸出快取，供後續逐列比對。
 
 本次以 openpyxl 讀取及 OOXML 層級結構分析，沒有在 Windows Excel 重新計算／列印，沒有執行產品測試。因此快取是「參考基準」，不是已驗證的新引擎結果；列印設定也不等於已通過 A4 實印驗收。下一個 session 必須依 TDD 文件完成比對，不能宣稱本 spec 已證明替代引擎正確。
 
 v2不更改原快取數值，只補其ruleSet與F01缺陷metadata。正式測試另建expected；review提供的使用者確認與建議須區分，處理方式見修正對照。
 
-證據檔含學生代碼與部分公式快取，屬本機工作資料；未來建 Git／CI 時不要直接公開或放入公開測試報告。
+證據檔位於 `/data/evidence/`（含學生代碼與部分公式快取，屬本機工作資料，被 `.gitignore` 排除）；`specs/` 目錄保持乾淨無個資。

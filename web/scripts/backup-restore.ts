@@ -244,12 +244,13 @@ if (process.argv[1]?.endsWith('backup-restore.ts')) {
   const [cmd, arg1, arg2, ...rest] = process.argv.slice(2);
   const cwd = process.cwd();
   const defaultDataDir =
+    cwd.endsWith('/web') ||
+    cwd.endsWith('\\web') ||
     cwd.endsWith('/app') ||
     cwd.endsWith('\\app') ||
-    cwd.endsWith('student-billing') ||
-    path.basename(cwd) === 'app'
-      ? path.resolve(cwd, 'data')
-      : path.resolve(cwd, 'app', 'data');
+    path.basename(cwd) === 'web'
+      ? path.resolve(cwd, '..', 'data')
+      : path.resolve(cwd, 'data');
 
   if (cmd === 'backup') {
     const targetDir = arg1 || path.resolve(defaultDataDir, '..', `backups/backup-${Date.now()}`);

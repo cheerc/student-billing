@@ -11,11 +11,8 @@
 ~$*
 /2026夏令營/
 
-# 私有證據：含學生代碼與公式快取（specs/README.md）
-/specs/evidence/
-
-# 應用本機資料：SQLite、來源副本、私有 fixture、報告（07 §3、§6）
-app/data/
+# 本機私有資料目錄：SQLite、來源副本、私有 fixture、報告與 evidence（D+ 方案統一收斂於 /data/）
+/data/
 **/private-fixtures/
 *.sqlite
 *.sqlite-wal

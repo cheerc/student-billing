@@ -19,14 +19,15 @@ export interface MigrationResult {
 export function getDefaultMigrationsDir(): string {
   const cwd = process.cwd();
   if (
+    cwd.endsWith('/web') ||
+    cwd.endsWith('\\web') ||
     cwd.endsWith('/app') ||
     cwd.endsWith('\\app') ||
-    cwd.endsWith('student-billing') ||
-    path.basename(cwd) === 'app'
+    path.basename(cwd) === 'web'
   ) {
     return path.join(cwd, 'src/adapters/sqlite/migrations');
   }
-  return path.join(cwd, 'app/src/adapters/sqlite/migrations');
+  return path.join(cwd, 'web/src/adapters/sqlite/migrations');
 }
 
 /**

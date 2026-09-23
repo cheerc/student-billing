@@ -21,9 +21,9 @@ describe('SQLite Migration Integration Tests', () => {
     }
   });
 
-  it('1. 預設資料庫路徑應為 app/data/app.sqlite', () => {
+  it('1. 預設資料庫路徑應為 data/app.sqlite', () => {
     const defaultPath = getDefaultDatabasePath();
-    expect(defaultPath).toMatch(/(app|student-billing)\/data\/app\.sqlite$/);
+    expect(defaultPath).toMatch(/data\/app\.sqlite$/);
   });
 
   it('2. 應能在獨立臨時路徑建檔並成功套用初始 migration', () => {

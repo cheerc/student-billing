@@ -281,7 +281,7 @@ export async function runBenchmark() {
     },
   };
 
-  const reportsDir = path.resolve(__dirname, '../data/reports');
+  const reportsDir = path.resolve(__dirname, '../../data/reports');
   fs.mkdirSync(reportsDir, { recursive: true });
   const reportPath = path.join(reportsDir, 'bench-report.json');
   fs.writeFileSync(reportPath, JSON.stringify(report, null, 2), 'utf-8');
