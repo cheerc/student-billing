@@ -1,0 +1,201 @@
+import Database from 'better-sqlite3';
+import crypto from 'crypto';
+import {
+  SettingsDraft,
+  SettingsPreviewRequestSchema,
+} from '@/contracts/settings';
+import {
+  hashSettingsDraft,
+  saveSettingsPreview,
+  draftToAliasMap,
+  draftToScheduleOverride,
+  getLatestSettingsVersion,
+} from '@/adapters/sqlite/settings-repository';
+import { calculateStudentBilling } from '@/domain/billing/billing-calculator';
+import { StudentSnapshot } from '@/domain/students';
+
+export class SettingsPreviewError extends Error {
+  statusCode: number;
+  code: string;
+  constructor(statusCode: number, message: string, code = 'SETTINGS_PREVIEW_FAILED') {
+    super(message);
+    this.name = 'SettingsPreviewError';
+    this.statusCode = statusCode;
+    this.code = code;
+  }
+}
+
+export interface TierTransition {
+  personCode: string;
+  name: string;
+  sourceRow: number;
+  beforeTier: number | null;
+  afterTier: number | null;
+  beforeStatus: string;
+  afterStatus: string;
+}
+
+export interface SettingsPreviewResult {
+  previewId: string;
+  inputHash: string;
+  affectedStudents: number;
+  /** 各 -0.5 天等天數變化明細（personCode → [before, after]） */
+  dayDeltas: Array<{ personCode: string; name: string; before: number | null; after: number | null }>;
+  mismatchBefore: number;
+  mismatchAfter: number;
+  tierTransitions: TierTransition[];
+  issueDelta: { before: number; after: number };
+}
+
+function loadStudents(db: Database.Database, importId: string): StudentSnapshot[] {
+  const studentRows = db
+    .prepare('SELECT * FROM imported_students WHERE import_id = ? ORDER BY source_row ASC')
+    .all(importId) as any[];
+  const enrollmentRows = db
+    .prepare('SELECT * FROM student_enrollments WHERE import_id = ? ORDER BY person_code ASC, token_index ASC')
+    .all(importId) as any[];
+  const map: Record<string, any[]> = {};
+  for (const r of enrollmentRows) {
+    (map[r.person_code] ??= []).push({
+      rawToken: r.raw_token,
+      yearPrefix: r.year_prefix,
+      baseName: r.base_name,
+      groupFlag: r.group_flag,
+      modifiers: r.modifiers ? JSON.parse(r.modifiers) : [],
+      withdrawalDate: r.withdrawal_date,
+      erpBillingTierRaw: r.erp_billing_tier_raw,
+      erpBillingTier: r.erp_billing_tier,
+      tierParseStatus: r.tier_parse_status,
+      parseStatus: r.parse_status,
+    });
+  }
+  return studentRows.map((row) => ({
+    personCode: row.person_code,
+    name: row.name,
+    branch: row.branch,
+    gradeRaw: row.grade_raw,
+    grade: row.grade,
+    gradeStatus: row.grade_status,
+    contact: row.contact,
+    schoolInfo: row.school_info,
+    tagsRaw: row.tags_raw,
+    tags: row.tags_raw ? row.tags_raw.split(/[,;\s]+/).filter(Boolean) : [],
+    notesRaw: row.notes_raw,
+    enrollments: map[row.person_code] || [],
+    sourceRow: row.source_row,
+  }));
+}
+
+/**
+ * T05: 設定草稿 dry-run 影響預覽（無副作用，不寫入 active 資料）。
+ */
+export function previewSettingsChange(
+  db: Database.Database,
+  importId: string,
+  rawBody: unknown
+): SettingsPreviewResult {
+  const parsed = SettingsPreviewRequestSchema.safeParse(rawBody);
+  if (!parsed.success) {
+    throw new SettingsPreviewError(400, `設定草稿格式錯誤：${parsed.error.message}`, 'INVALID_DRAFT');
+  }
+  const { draft, expectedRevision } = parsed.data;
+
+  const active = db.prepare('SELECT revision FROM active_state WHERE id = 1').get() as any;
+  if (!active) throw new SettingsPreviewError(500, 'ActiveState 未初始化');
+  if (active.revision !== expectedRevision) {
+    throw new SettingsPreviewError(
+      409,
+      `版本衝突：目前 revision 為 ${active.revision}，請求為 ${expectedRevision}`,
+      'REVISION_CONFLICT'
+    );
+  }
+
+  const latest = getLatestSettingsVersion(db);
+  const baseDraft: SettingsDraft | null = latest ? (JSON.parse(latest.contentJson) as SettingsDraft) : null;
+
+  const students = loadStudents(db, importId);
+  if (students.length === 0) {
+    throw new SettingsPreviewError(404, `找不到匯入批次 ${importId} 之學生資料`);
+  }
+
+  const aliasMap = draftToAliasMap(draft);
+  const scheduleOverride = draftToScheduleOverride(draft);
+
+  const dayDeltas: SettingsPreviewResult['dayDeltas'] = [];
+  const tierTransitions: TierTransition[] = [];
+  let mismatchBefore = 0;
+  let mismatchAfter = 0;
+  let issuesBefore = 0;
+  let issuesAfter = 0;
+
+  for (const stu of students) {
+    const before = calculateStudentBilling(stu);
+    const after = calculateStudentBilling(stu, { aliasMap, scheduleOverride });
+
+    const beforeDays = stu.grade !== null && stu.grade <= 2
+      ? before.careDays.anqin.days
+      : before.careDays.tutoring.days;
+    const afterDays = stu.grade !== null && stu.grade <= 2
+      ? after.careDays.anqin.days
+      : after.careDays.tutoring.days;
+
+    const bMismatch = before.tierComparisons.some((c) => c.status === 'mismatch');
+    const aMismatch = after.tierComparisons.some((c) => c.status === 'mismatch');
+    if (bMismatch) mismatchBefore++;
+    if (aMismatch) mismatchAfter++;
+    if (before.hasIssues) issuesBefore++;
+    if (after.hasIssues) issuesAfter++;
+
+    if (beforeDays !== afterDays) {
+      dayDeltas.push({ personCode: stu.personCode, name: stu.name, before: beforeDays, after: afterDays });
+    }
+
+    // 記錄 match/mismatch 轉換
+    if (
+      (bMismatch !== aMismatch) ||
+      before.tierComparisons.some((c, i) => after.tierComparisons[i] && c.status !== after.tierComparisons[i].status)
+    ) {
+      const bComp = before.tierComparisons.find((c) => c.status === 'mismatch') ?? before.tierComparisons[0];
+      const aComp = after.tierComparisons.find((c) => c.status === 'mismatch') ?? after.tierComparisons[0];
+      if (bComp && aComp) {
+        tierTransitions.push({
+          personCode: stu.personCode,
+          name: stu.name,
+          sourceRow: stu.sourceRow,
+          beforeTier: bComp.computedTier,
+          afterTier: aComp.computedTier,
+          beforeStatus: bComp.status,
+          afterStatus: aComp.status,
+        });
+      }
+    }
+  }
+
+  const inputHash = hashSettingsDraft(draft);
+  const previewId = `setprev_${inputHash.slice(0, 12)}_${Date.now()}`;
+  const now = new Date().toISOString();
+
+  const result: SettingsPreviewResult = {
+    previewId,
+    inputHash,
+    affectedStudents: dayDeltas.length,
+    dayDeltas,
+    mismatchBefore,
+    mismatchAfter,
+    tierTransitions,
+    issueDelta: { before: issuesBefore, after: issuesAfter },
+  };
+
+  saveSettingsPreview(db, {
+    previewId,
+    inputHash,
+    draftJson: JSON.stringify(draft),
+    expectedRevision,
+    settingsVersionId: latest?.id ?? 'seed-v250922',
+    importId,
+    resultJson: JSON.stringify(result),
+    createdAt: now,
+  });
+
+  return result;
+}

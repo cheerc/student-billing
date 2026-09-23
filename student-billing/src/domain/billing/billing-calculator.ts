@@ -19,11 +19,78 @@ import seedData from '../schedules/schedule-seed.json';
 
 export interface CalculationOptions {
   ruleSetVersion?: 'erp-tag-v1' | 'excel-v260922-compat';
+  /** T05: alias 覆寫（rawToken baseName → seed baseName），不自動批准時為空 */
+  aliasMap?: Map<string, string>;
+  /** T05: schedule 覆寫（seed baseName → 時段 sessions），供設定維護自訂時段 */
+  scheduleOverride?: Map<string, Array<{ start: number; end: number }>>;
 }
 
 const seedClassMap = new Map<string, any>();
 for (const cls of seedData.classes) {
   seedClassMap.set(cls.baseName, cls);
+}
+
+/**
+ * T05: 解析班級時段（含 alias 與 schedule 覆寫）。
+ * 回傳 { sessions, status, resolvedBaseName }。
+ */
+export function resolveClassSessions(
+  token: ParsedToken | undefined,
+  aliasMap: Map<string, string> | undefined,
+  scheduleOverride: Map<string, Array<{ start: number; end: number }>> | undefined,
+  classMap: Map<string, any> = seedClassMap
+): {
+  sessions: Array<{ start: number; end: number }>;
+  status: string;
+  resolvedBaseName: string | null;
+} {
+  if (!token) {
+    return { sessions: [], status: 'no_enrollment', resolvedBaseName: null };
+  }
+  const resolvedBaseName = aliasMap?.get(token.baseName) ?? token.baseName;
+
+  const override = scheduleOverride?.get(resolvedBaseName);
+  if (override) {
+    if (override.length === 0) {
+      return { sessions: [], status: 'schedule_empty', resolvedBaseName };
+    }
+    return { sessions: override, status: 'calculated', resolvedBaseName };
+  }
+
+  const cls = classMap.get(resolvedBaseName);
+  if (!cls) {
+    return { sessions: [], status: 'schedule_not_found', resolvedBaseName };
+  }
+  if (cls.source === 'empty' || cls.sessions.length === 0) {
+    return { sessions: [], status: 'schedule_empty', resolvedBaseName };
+  }
+  const valid = cls.sessions.filter(
+    (s: any) => s.startMinutes !== null && s.endMinutes !== null
+  );
+  if (valid.length === 0) {
+    return { sessions: [], status: 'schedule_empty', resolvedBaseName };
+  }
+  return {
+    sessions: valid.map((s: any) => ({ start: s.startMinutes, end: s.endMinutes })),
+    status: 'calculated',
+    resolvedBaseName,
+  };
+}
+
+/**
+ * T05: 以已解析時段計算安親/課輔扣天。
+ */
+function deductSessions(
+  sessions: Array<{ start: number; end: number }>,
+  isCompat: boolean
+): { anqin: number; tutoring: number } {
+  const anqinRes = isCompat
+    ? calculateClassDeductionCompat(sessions, 'anqin')
+    : calculateClassDeductionD24(sessions, 'anqin');
+  const tutoringRes = isCompat
+    ? calculateClassDeductionCompat(sessions, 'tutoring')
+    : calculateClassDeductionD24(sessions, 'tutoring');
+  return { anqin: anqinRes.rounded, tutoring: tutoringRes.rounded };
 }
 
 /**
@@ -50,56 +117,31 @@ export function calculateStudentBilling(
   // 3. 抽取數學與美語之衝堂扣天
   // 找第一個國小數學
   const mathToken = student.enrollments.find((e) => e.baseName.includes('國小數學'));
+  const mathSessions = resolveClassSessions(
+    mathToken, options.aliasMap, options.scheduleOverride, seedClassMap
+  );
   let mathAnqinDed = 0;
   let mathTutoringDed = 0;
-  let mathScheduleStatus = 'no_enrollment';
+  let mathScheduleStatus = mathSessions.status;
 
-  if (mathToken) {
-    const mathClass = seedClassMap.get(mathToken.baseName);
-    if (!mathClass) {
-      mathScheduleStatus = 'schedule_not_found';
-    } else if (mathClass.source === 'empty' || mathClass.sessions.length === 0) {
-      mathScheduleStatus = 'schedule_empty';
-    } else {
-      mathScheduleStatus = 'calculated';
-      const validSessions = mathClass.sessions.filter((s: any) => s.startMinutes !== null && s.endMinutes !== null);
-      if (validSessions.length === 0) {
-        mathScheduleStatus = 'schedule_empty';
-      } else {
-        const sessions = validSessions.map((s: any) => ({ start: s.startMinutes, end: s.endMinutes }));
-        const anqinRes = isCompat
-          ? calculateClassDeductionCompat(sessions, 'anqin')
-          : calculateClassDeductionD24(sessions, 'anqin');
-        const tutoringRes = isCompat
-          ? calculateClassDeductionCompat(sessions, 'tutoring')
-          : calculateClassDeductionD24(sessions, 'tutoring');
-        mathAnqinDed = anqinRes.rounded;
-        mathTutoringDed = tutoringRes.rounded;
-      }
-    }
+  if (mathSessions.status === 'calculated') {
+    const ded = deductSessions(mathSessions.sessions, isCompat);
+    mathAnqinDed = ded.anqin;
+    mathTutoringDed = ded.tutoring;
   }
 
   // 找第一個兒童美語
   const englishToken = student.enrollments.find((e) => e.baseName.includes('兒童美語'));
+  const englishSessions = resolveClassSessions(
+    englishToken, options.aliasMap, options.scheduleOverride, seedClassMap
+  );
   let englishAnqinDed = 0;
   let englishTutoringDed = 0;
 
-  if (englishToken) {
-    const englishClass = seedClassMap.get(englishToken.baseName);
-    if (englishClass && englishClass.sessions.length > 0) {
-      const validSessions = englishClass.sessions.filter((s: any) => s.startMinutes !== null && s.endMinutes !== null);
-      if (validSessions.length > 0) {
-        const sessions = validSessions.map((s: any) => ({ start: s.startMinutes, end: s.endMinutes }));
-        const anqinRes = isCompat
-          ? calculateClassDeductionCompat(sessions, 'anqin')
-          : calculateClassDeductionD24(sessions, 'anqin');
-        const tutoringRes = isCompat
-          ? calculateClassDeductionCompat(sessions, 'tutoring')
-          : calculateClassDeductionD24(sessions, 'tutoring');
-        englishAnqinDed = anqinRes.rounded;
-        englishTutoringDed = tutoringRes.rounded;
-      }
-    }
+  if (englishSessions.status === 'calculated') {
+    const ded = deductSessions(englishSessions.sessions, isCompat);
+    englishAnqinDed = ded.anqin;
+    englishTutoringDed = ded.tutoring;
   }
 
   // 4. 計算安親與課輔每週收費天數 (R11, R12)

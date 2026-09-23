@@ -14,6 +14,9 @@ export interface CalculateRunOptions {
   ruleSetVersion?: string;
   numericPolicy?: string;
   asOfDate?: string;
+  /** T05: 設定覆寫（alias 映射與自訂時段），無則使用 seed 預設 */
+  aliasMap?: Map<string, string>;
+  scheduleOverride?: Map<string, Array<{ start: number; end: number }>>;
 }
 
 export function executeCalculationRun(
@@ -84,10 +87,18 @@ export function executeCalculationRun(
     };
 
     // 正式軌計算
-    const formal = calculateStudentBilling(student, { ruleSetVersion: 'erp-tag-v1' });
+    const formal = calculateStudentBilling(student, {
+      ruleSetVersion: 'erp-tag-v1',
+      aliasMap: options.aliasMap,
+      scheduleOverride: options.scheduleOverride,
+    });
 
     // 診斷軌計算 (比較 NUMERIC_POLICY_DIFFERENCE)
-    const compat = calculateStudentBilling(student, { ruleSetVersion: 'excel-v260922-compat' });
+    const compat = calculateStudentBilling(student, {
+      ruleSetVersion: 'excel-v260922-compat',
+      aliasMap: options.aliasMap,
+      scheduleOverride: options.scheduleOverride,
+    });
 
     if (
       formal.careDays.anqin.days !== compat.careDays.anqin.days ||
