@@ -1,13 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getDatabase } from '@/adapters/sqlite';
 import { queryImportStudents, RosterQueryError } from '@/application/roster-query';
+import { sanitizePathParam, maskSensitiveInfo, SecurityError } from '@/contracts/security';
 
 export async function GET(
   request: NextRequest,
   context: { params: Promise<{ previewId: string }> }
 ) {
   try {
-    const { previewId } = await context.params;
+    const { previewId: rawPreviewId } = await context.params;
+    const previewId = sanitizePathParam(rawPreviewId, 'previewId');
     const url = new URL(request.url);
 
     const queryParams: Record<string, string> = {};
@@ -20,10 +22,13 @@ export async function GET(
 
     return NextResponse.json(result, { status: 200 });
   } catch (error) {
+    if (error instanceof SecurityError) {
+      return NextResponse.json({ error: error.message, code: error.code }, { status: error.statusCode });
+    }
     if (error instanceof RosterQueryError) {
-      return NextResponse.json({ error: error.message }, { status: error.statusCode });
+      return NextResponse.json({ error: maskSensitiveInfo(error.message) }, { status: error.statusCode });
     }
     const message = error instanceof Error ? error.message : String(error);
-    return NextResponse.json({ error: message }, { status: 500 });
+    return NextResponse.json({ error: maskSensitiveInfo(message) }, { status: 500 });
   }
 }

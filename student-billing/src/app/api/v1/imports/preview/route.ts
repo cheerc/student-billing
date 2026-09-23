@@ -3,9 +3,17 @@ import { generateImportPreview } from '@/application/import-preview';
 import { ErpReaderError } from '@/adapters/xlsx/erp-reader';
 import { getDatabase } from '@/adapters/sqlite';
 import { saveImportBatch } from '@/adapters/sqlite/import-repository';
+import { validateSameOrigin, maskSensitiveInfo } from '@/contracts/security';
 
 export async function POST(request: Request | NextRequest) {
   try {
+    if (!validateSameOrigin(request)) {
+      return NextResponse.json(
+        { error: '拒絕跨來源寫入請求 (Cross-origin write request forbidden)', code: 'FORBIDDEN_CROSS_ORIGIN' },
+        { status: 403 }
+      );
+    }
+
     const formData = await request.formData();
     const file = formData.get('file') as File | null;
 
@@ -53,13 +61,13 @@ export async function POST(request: Request | NextRequest) {
   } catch (error) {
     if (error instanceof ErpReaderError) {
       return NextResponse.json(
-        { error: error.message, code: error.code },
+        { error: maskSensitiveInfo(error.message), code: error.code },
         { status: error.statusCode }
       );
     }
     const message = error instanceof Error ? error.message : String(error);
     return NextResponse.json(
-      { error: `解析試算表失敗: ${message}`, code: 'IMPORT_FAILED' },
+      { error: maskSensitiveInfo(`解析試算表失敗: ${message}`), code: 'IMPORT_FAILED' },
       { status: 500 }
     );
   }

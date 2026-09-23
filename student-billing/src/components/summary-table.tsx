@@ -7,12 +7,14 @@ interface SummaryTableProps {
   students: StudentCalculationItem[];
   loading?: boolean;
   onSelectStudent: (student: StudentCalculationItem) => void;
+  onResetFilters?: () => void;
 }
 
 export default function SummaryTable({
   students,
   loading,
   onSelectStudent,
+  onResetFilters,
 }: SummaryTableProps) {
   if (loading) {
     return (
@@ -24,8 +26,15 @@ export default function SummaryTable({
 
   if (students.length === 0) {
     return (
-      <div style={{ padding: '36px', textAlign: 'center', color: 'var(--text-muted)' }}>
-        無符合篩選條件之學生資料。
+      <div style={{ padding: '48px 24px', textAlign: 'center', color: 'var(--text-muted)' }}>
+        <div style={{ fontSize: '1.5rem', marginBottom: '8px' }}>🔍</div>
+        <div style={{ fontWeight: 600, fontSize: '0.9375rem', marginBottom: '6px' }}>無符合篩選條件之學生資料</div>
+        <div style={{ fontSize: '0.8125rem', marginBottom: '16px' }}>請嘗試調整關鍵字、放寬科別、年級或問題狀態等篩選條件。</div>
+        {onResetFilters && (
+          <button type="button" className="btn-secondary" style={{ fontSize: '0.8125rem' }} onClick={onResetFilters}>
+            重置所有篩選條件
+          </button>
+        )}
       </div>
     );
   }

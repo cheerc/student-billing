@@ -92,6 +92,9 @@ export default function RosterView({
       });
       const json = await res.json();
       if (!res.ok) {
+        if (res.status === 409) {
+          throw new Error('版本衝突 (409)：系統狀態已由其他操作推進新版本，請重新整理頁面取得最新狀態後再行啟用。');
+        }
         throw new Error(json.error || '啟用計算失敗');
       }
       window.location.reload();

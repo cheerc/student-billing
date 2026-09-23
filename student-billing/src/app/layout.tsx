@@ -25,6 +25,7 @@ export default function RootLayout({
               <Link href="/" className="nav-link">首頁核對</Link>
               <Link href="/imports" className="nav-link">名單匯入</Link>
               <Link href="/settings" className="nav-link">課程設定</Link>
+              <Link href="/history" className="nav-link">批次與歷程</Link>
             </nav>
           </header>
           <main className="main">{children}</main>

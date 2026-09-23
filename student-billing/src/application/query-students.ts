@@ -70,6 +70,23 @@ export interface RunStudentsQueryResult {
   };
 }
 
+export const KNOWN_ISSUE_CODES = new Set([
+  'DUPLICATE_SUBJECT_ENROLLMENT',
+  'STAFF_FAMILY_NO_DISCOUNT',
+  'CONFLICTING_NOTE_SOURCE',
+  'NUMERIC_POLICY_DIFFERENCE',
+  'SCHEDULE_NOT_FOUND',
+  'SCHEDULE_EMPTY',
+  'SCHEDULE_INCOMPLETE',
+]);
+
+export const VALID_TIER_COMPARISONS = new Set([
+  'match',
+  'mismatch',
+  'not_applicable',
+  'unavailable',
+]);
+
 export function validateRunQueryParams(params: Record<string, any>): void {
   for (const key of Object.keys(params)) {
     if (params[key] === undefined || params[key] === null || params[key] === '') {
@@ -77,6 +94,54 @@ export function validateRunQueryParams(params: Record<string, any>): void {
     }
     if (!ALLOWED_RUN_QUERY_PARAMS.has(key)) {
       throw new QueryStudentError(400, `未知或不支援的查詢參數: 「${key}」`);
+    }
+  }
+
+  // issueCode 檢驗
+  if (params.issueCode !== undefined && params.issueCode !== '') {
+    if (!KNOWN_ISSUE_CODES.has(String(params.issueCode))) {
+      throw new QueryStudentError(400, `未知或不支援的問題碼: 「${params.issueCode}」`);
+    }
+    if (params.hasIssues === false || params.hasIssues === 'false') {
+      throw new QueryStudentError(400, 'hasIssues=false 與 issueCode 不得同時指定');
+    }
+  }
+
+  // tierComparison 檢驗與 tierMismatch 矛盾檢查
+  if (params.tierComparison !== undefined && params.tierComparison !== '') {
+    if (!VALID_TIER_COMPARISONS.has(String(params.tierComparison))) {
+      throw new QueryStudentError(400, `無效的 tierComparison 參數值: 「${params.tierComparison}」`);
+    }
+    const isMismatchTrue = params.tierMismatch === true || params.tierMismatch === 'true';
+    const isMismatchFalse = params.tierMismatch === false || params.tierMismatch === 'false';
+    if (isMismatchTrue && params.tierComparison === 'match') {
+      throw new QueryStudentError(400, 'tierMismatch=true 與 tierComparison=match 衝突矛盾');
+    }
+    if (isMismatchFalse && params.tierComparison === 'mismatch') {
+      throw new QueryStudentError(400, 'tierMismatch=false 與 tierComparison=mismatch 衝突矛盾');
+    }
+  }
+
+  // careType 與 billingTier 檢驗
+  if (params.careType !== undefined && params.careType !== '') {
+    if (params.careType !== 'anqin' && params.careType !== 'tutoring') {
+      throw new QueryStudentError(400, `careType 僅接受 'anqin' 或 'tutoring'，無效值: 「${params.careType}」`);
+    }
+  }
+  if (params.billingTier !== undefined && params.billingTier !== '') {
+    if (!params.careType) {
+      throw new QueryStudentError(400, '指定 billingTier 時必須同時指定 careType (anqin 或 tutoring)');
+    }
+    const tierNum = parseFloat(String(params.billingTier));
+    if (isNaN(tierNum)) {
+      throw new QueryStudentError(400, `無效的 billingTier 數值: 「${params.billingTier}」`);
+    }
+  }
+
+  // applicableDiscountBps 檢驗 (需 classId)
+  if (params.applicableDiscountBps !== undefined && params.applicableDiscountBps !== '') {
+    if (!params.classId && !params.enrollmentKey) {
+      throw new QueryStudentError(400, '指定 applicableDiscountBps 時必須同時指定 classId');
     }
   }
 }
@@ -160,6 +225,88 @@ export function queryRunStudents(
     const term = `%${params.q.trim()}%`;
     whereClauses.push('(sc.name LIKE ? OR sc.person_code LIKE ?)');
     queryArgs.push(term, term);
+  }
+
+  // 6. issueCode 篩選
+  if (params.issueCode) {
+    whereClauses.push(`sc.issues LIKE '%"code":"' || ? || '"%'`);
+    queryArgs.push(params.issueCode);
+  }
+
+  // 7. tierComparison 篩選
+  if (params.tierComparison) {
+    whereClauses.push(`sc.tier_comparisons LIKE '%"status":"' || ? || '"%'`);
+    queryArgs.push(params.tierComparison);
+  }
+
+  // 8. branch 分校篩選
+  if (params.branch) {
+    whereClauses.push('sc.branch = ?');
+    queryArgs.push(params.branch);
+  }
+
+  // 9. hasClass 有無班級篩選
+  if (params.hasClass !== undefined && params.hasClass !== '') {
+    const hasClassBool = params.hasClass === true || params.hasClass === 'true';
+    if (hasClassBool) {
+      whereClauses.push('sc.subject_count > 0');
+    } else {
+      whereClauses.push('(sc.subject_count = 0 OR sc.subject_count IS NULL)');
+    }
+  }
+
+  // 10. billingTier + careType 篩選
+  if (params.billingTier !== undefined && params.billingTier !== '') {
+    const tierNum = parseFloat(String(params.billingTier));
+    if (params.careType === 'anqin') {
+      whereClauses.push('sc.anqin_days = ?');
+      queryArgs.push(tierNum);
+    } else if (params.careType === 'tutoring') {
+      whereClauses.push('sc.tutoring_days = ?');
+      queryArgs.push(tierNum);
+    }
+  }
+
+  // 11. baseDiscountBps 基本折扣篩選
+  if (params.baseDiscountBps !== undefined && params.baseDiscountBps !== '') {
+    const bps = parseInt(String(params.baseDiscountBps), 10);
+    if (!isNaN(bps)) {
+      whereClauses.push('sc.base_discount_bps = ?');
+      queryArgs.push(bps);
+    }
+  }
+
+  // 12. subject 科別篩選
+  if (params.subject) {
+    whereClauses.push(`
+      EXISTS (
+        SELECT 1 FROM student_enrollments e
+        WHERE e.import_id = ? AND e.person_code = sc.person_code
+          AND (e.base_name LIKE '%' || ? || '%' OR e.raw_token LIKE '%' || ? || '%')
+      )
+    `);
+    queryArgs.push(run.importId, params.subject, params.subject);
+  }
+
+  // 13. sibling, internalStudent
+  if (params.sibling !== undefined && params.sibling !== '') {
+    const isSib = params.sibling === true || params.sibling === 'true';
+    if (isSib) {
+      whereClauses.push(`EXISTS (SELECT 1 FROM imported_students s WHERE s.import_id = ? AND s.person_code = sc.person_code AND s.tags_raw LIKE '%有兄弟姊妹折扣%')`);
+    } else {
+      whereClauses.push(`NOT EXISTS (SELECT 1 FROM imported_students s WHERE s.import_id = ? AND s.person_code = sc.person_code AND s.tags_raw LIKE '%有兄弟姊妹折扣%')`);
+    }
+    queryArgs.push(run.importId);
+  }
+
+  if (params.internalStudent !== undefined && params.internalStudent !== '') {
+    const isInternal = params.internalStudent === true || params.internalStudent === 'true';
+    if (isInternal) {
+      whereClauses.push(`EXISTS (SELECT 1 FROM imported_students s WHERE s.import_id = ? AND s.person_code = sc.person_code AND s.tags_raw LIKE '%園內生%')`);
+    } else {
+      whereClauses.push(`NOT EXISTS (SELECT 1 FROM imported_students s WHERE s.import_id = ? AND s.person_code = sc.person_code AND s.tags_raw LIKE '%園內生%')`);
+    }
+    queryArgs.push(run.importId);
   }
 
   const baseWhereSql = whereClauses.join(' AND ');
