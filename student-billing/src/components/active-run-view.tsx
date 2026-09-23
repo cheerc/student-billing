@@ -16,6 +16,21 @@ interface ActiveRunViewProps {
   initialData: RunStudentsQueryResult;
 }
 
+const UNMAPPED_CLASSES = new Set([
+  '交通車',
+  '小六國文加強班',
+  '小六數學加強班',
+  '小六英文加強班',
+  '正音A班',
+  '正音B班',
+  '國小輔導-寫功課',
+  '國小輔導-四年級A',
+  '國小輔導-四年級B',
+  '國小數學-一',
+  '國小國語文-小三四',
+  '美語',
+]);
+
 export default function ActiveRunView({
   runId,
   revision,
@@ -31,8 +46,10 @@ export default function ActiveRunView({
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedGrade, setSelectedGrade] = useState('');
   const [selectedClass, setSelectedClass] = useState('');
+  const [selectedSubject, setSelectedSubject] = useState('');
   const [selectedMismatch, setSelectedMismatch] = useState('');
   const [selectedHasIssues, setSelectedHasIssues] = useState('');
+  const [selectedIssueCode, setSelectedIssueCode] = useState('');
 
   // 分頁狀態
   const [cursor, setCursor] = useState<string | null>(null);
@@ -47,8 +64,10 @@ export default function ActiveRunView({
       qVal: string,
       gradeVal: string,
       classVal: string,
+      subjectVal: string,
       mismatchVal: string,
-      hasIssuesVal: string
+      hasIssuesVal: string,
+      issueCodeVal: string
     ) => {
       setLoading(true);
       setError(null);
@@ -68,11 +87,17 @@ export default function ActiveRunView({
       if (classVal) {
         params.set('enrollmentKey', classVal);
       }
+      if (subjectVal) {
+        params.set('subject', subjectVal);
+      }
       if (mismatchVal) {
         params.set('tierMismatch', mismatchVal);
       }
       if (hasIssuesVal) {
         params.set('hasIssues', hasIssuesVal);
+      }
+      if (issueCodeVal) {
+        params.set('issueCode', issueCodeVal);
       }
 
       try {
@@ -95,35 +120,72 @@ export default function ActiveRunView({
     setSearchQuery(val);
     setCursor(null);
     setHistoryCursors([]);
-    fetchWithParams(null, val, selectedGrade, selectedClass, selectedMismatch, selectedHasIssues);
+    fetchWithParams(null, val, selectedGrade, selectedClass, selectedSubject, selectedMismatch, selectedHasIssues, selectedIssueCode);
   };
 
   const handleGradeChange = (val: string) => {
     setSelectedGrade(val);
     setCursor(null);
     setHistoryCursors([]);
-    fetchWithParams(null, searchQuery, val, selectedClass, selectedMismatch, selectedHasIssues);
+    fetchWithParams(null, searchQuery, val, selectedClass, selectedSubject, selectedMismatch, selectedHasIssues, selectedIssueCode);
   };
 
   const handleClassChange = (val: string) => {
     setSelectedClass(val);
     setCursor(null);
     setHistoryCursors([]);
-    fetchWithParams(null, searchQuery, selectedGrade, val, selectedMismatch, selectedHasIssues);
+    fetchWithParams(null, searchQuery, selectedGrade, val, selectedSubject, selectedMismatch, selectedHasIssues, selectedIssueCode);
+  };
+
+  const handleSubjectChange = (val: string) => {
+    setSelectedSubject(val);
+    setCursor(null);
+    setHistoryCursors([]);
+    fetchWithParams(null, searchQuery, selectedGrade, selectedClass, val, selectedMismatch, selectedHasIssues, selectedIssueCode);
   };
 
   const handleMismatchChange = (val: string) => {
     setSelectedMismatch(val);
     setCursor(null);
     setHistoryCursors([]);
-    fetchWithParams(null, searchQuery, selectedGrade, selectedClass, val, selectedHasIssues);
+    fetchWithParams(null, searchQuery, selectedGrade, selectedClass, selectedSubject, val, selectedHasIssues, selectedIssueCode);
   };
 
   const handleHasIssuesChange = (val: string) => {
     setSelectedHasIssues(val);
+    // 若選擇僅顯示完全正常，同時清空 issueCode 避免 400 衝突
+    const nextIssueCode = val === 'false' ? '' : selectedIssueCode;
+    if (val === 'false') {
+      setSelectedIssueCode('');
+    }
     setCursor(null);
     setHistoryCursors([]);
-    fetchWithParams(null, searchQuery, selectedGrade, selectedClass, selectedMismatch, val);
+    fetchWithParams(null, searchQuery, selectedGrade, selectedClass, selectedSubject, selectedMismatch, val, nextIssueCode);
+  };
+
+  const handleIssueCodeChange = (val: string) => {
+    setSelectedIssueCode(val);
+    // 若選擇了特定問題碼，確保 hasIssues 不為 false
+    const nextHasIssues = (val && selectedHasIssues === 'false') ? '' : selectedHasIssues;
+    if (val && selectedHasIssues === 'false') {
+      setSelectedHasIssues('');
+    }
+    setCursor(null);
+    setHistoryCursors([]);
+    fetchWithParams(null, searchQuery, selectedGrade, selectedClass, selectedSubject, selectedMismatch, nextHasIssues, val);
+  };
+
+  const handleResetFilters = () => {
+    setSearchQuery('');
+    setSelectedGrade('');
+    setSelectedClass('');
+    setSelectedSubject('');
+    setSelectedMismatch('');
+    setSelectedHasIssues('');
+    setSelectedIssueCode('');
+    setCursor(null);
+    setHistoryCursors([]);
+    fetchWithParams(null, '', '', '', '', '', '', '');
   };
 
   const handleNextPage = () => {
@@ -135,8 +197,10 @@ export default function ActiveRunView({
         searchQuery,
         selectedGrade,
         selectedClass,
+        selectedSubject,
         selectedMismatch,
-        selectedHasIssues
+        selectedHasIssues,
+        selectedIssueCode
       );
     }
   };
@@ -153,8 +217,10 @@ export default function ActiveRunView({
         searchQuery,
         selectedGrade,
         selectedClass,
+        selectedSubject,
         selectedMismatch,
-        selectedHasIssues
+        selectedHasIssues,
+        selectedIssueCode
       );
     }
   };
@@ -312,6 +378,27 @@ export default function ActiveRunView({
               ))}
             </select>
 
+            {/* 科別篩選 */}
+            <select
+              value={selectedSubject}
+              onChange={(e) => handleSubjectChange(e.target.value)}
+              style={{
+                padding: '6px 10px',
+                borderRadius: '4px',
+                border: '1px solid var(--border-color)',
+                fontSize: '0.8125rem',
+                background: '#fff',
+              }}
+            >
+              <option value="">全部科別</option>
+              <option value="國小輔導">國小輔導</option>
+              <option value="國小數學">國小數學</option>
+              <option value="兒童美語">兒童美語</option>
+              <option value="國語文">國語文</option>
+              <option value="加強班">加強班</option>
+              <option value="寫功課">寫功課</option>
+            </select>
+
             {/* 級距比對篩選 (展示B 驗收重點: 篩出 5 筆級距差異) */}
             <select
               value={selectedMismatch}
@@ -346,6 +433,40 @@ export default function ActiveRunView({
               <option value="true">僅顯示有待確認事項</option>
               <option value="false">僅顯示完全正常</option>
             </select>
+
+            {/* 問題代碼跳轉篩選 */}
+            <select
+              value={selectedIssueCode}
+              onChange={(e) => handleIssueCodeChange(e.target.value)}
+              style={{
+                padding: '6px 10px',
+                borderRadius: '4px',
+                border: selectedIssueCode ? '2px solid #d97706' : '1px solid var(--border-color)',
+                fontSize: '0.8125rem',
+                background: selectedIssueCode ? '#fffbeb' : '#fff',
+                maxWidth: '180px',
+              }}
+            >
+              <option value="">問題代碼定位...</option>
+              <option value="SCHEDULE_NOT_FOUND">排課缺漏 (SCHEDULE_NOT_FOUND, 13人)</option>
+              <option value="DUPLICATE_SUBJECT_ENROLLMENT">重複報名 (DUPLICATE_SUBJECT, 2人)</option>
+              <option value="STAFF_FAMILY_NO_DISCOUNT">員工家屬無折扣 (STAFF_FAMILY, 5人)</option>
+              <option value="CONFLICTING_NOTE_SOURCE">備註衝突 (CONFLICTING_NOTE, 1人)</option>
+              <option value="NUMERIC_POLICY_DIFFERENCE">數值政策差異 (NUMERIC_POLICY)</option>
+              <option value="SCHEDULE_EMPTY">排課空時段 (SCHEDULE_EMPTY)</option>
+            </select>
+
+            {/* 重置按鈕 */}
+            {(searchQuery || selectedGrade || selectedClass || selectedSubject || selectedMismatch || selectedHasIssues || selectedIssueCode) && (
+              <button
+                type="button"
+                className="btn-secondary"
+                style={{ padding: '6px 10px', fontSize: '0.75rem', color: '#64748b' }}
+                onClick={handleResetFilters}
+              >
+                重置篩選 ✕
+              </button>
+            )}
           </div>
 
           {/* 分頁按鈕 */}
@@ -374,11 +495,41 @@ export default function ActiveRunView({
           </div>
         </div>
 
+        {/* 待設定清單定位提示 */}
+        {selectedClass && UNMAPPED_CLASSES.has(selectedClass) && (
+          <div
+            style={{
+              margin: '0 16px 12px 16px',
+              padding: '10px 14px',
+              backgroundColor: '#fffbeb',
+              border: '1px solid #fef3c7',
+              borderRadius: '6px',
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              fontSize: '0.8125rem',
+              color: '#92400e',
+            }}
+          >
+            <span>
+              <strong>待設定班級提示：</strong>班級「{selectedClass}」尚未建立排課時段或別名映射。
+            </span>
+            <a
+              href="/settings"
+              className="btn-secondary"
+              style={{ padding: '2px 10px', fontSize: '0.75rem', background: '#ffffff' }}
+            >
+              前往課程設定 (Settings) 進行映射 ↗
+            </a>
+          </div>
+        )}
+
         {/* 核對總表 */}
         <SummaryTable
           students={data?.items || []}
           loading={loading}
           onSelectStudent={(s) => setSelectedStudent(s)}
+          onResetFilters={handleResetFilters}
         />
       </div>
 

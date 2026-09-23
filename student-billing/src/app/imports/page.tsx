@@ -34,7 +34,8 @@ export default function ImportsPage() {
 
       const data = await res.json();
       if (!res.ok) {
-        throw new Error(data.error || '解析上傳試算表失敗');
+        const errorCode = data.code ? `[${data.code}] ` : '';
+        throw new Error(`${errorCode}${data.error || '解析上傳試算表失敗'}`);
       }
 
       setPreview(data);
@@ -94,8 +95,12 @@ export default function ImportsPage() {
 
       {/* 錯誤警示 */}
       {error && (
-        <div className="alert alert-danger" role="alert">
-          <strong>上傳錯誤：</strong> {error}
+        <div className="alert alert-danger" role="alert" style={{ marginBottom: '20px' }}>
+          <div style={{ fontWeight: 700, marginBottom: '4px' }}>上傳與解析錯誤：</div>
+          <div>{error}</div>
+          <div style={{ marginTop: '8px', fontSize: '0.75rem', color: '#7f1d1d' }}>
+            系統已拒絕此不合法檔案，既有資料庫不受任何影響（安全不變）。
+          </div>
         </div>
       )}
 

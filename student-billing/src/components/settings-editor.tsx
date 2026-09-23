@@ -128,7 +128,14 @@ export default function SettingsEditor({
         }),
       });
       const json = await res.json();
-      if (!res.ok) throw new Error(json.error || '套用失敗');
+      if (!res.ok) {
+        if (res.status === 409) {
+          throw new Error(
+            '設定版本衝突 (409)：目前系統版本已推進，先前預覽草稿已過期 (stale preview)。請重新點擊「預覽影響 (dry-run)」更新草稿後再行套用。'
+          );
+        }
+        throw new Error(json.error || '套用失敗');
+      }
       setApplied(json);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));

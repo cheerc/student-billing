@@ -89,17 +89,52 @@ student-billing/
 
 ---
 
-## 6. 本機備份與還原指南
+## 6. 停機備份與災難還原指南 (Backup & Disaster Recovery SOP)
 
-由於本機資料庫包含匯入之名單快照與設定，備份必須完整包含資料目錄：
+依據 `specs/07-p1-implementation-plan.md §6` 與 `specs/04-tdd-acceptance.md I12` 規範，系統提供標準化的停機備份與災難還原機制：
 
-1. **停機備份**:
-   確保應用程式未在寫入狀態（關閉伺服器或離峰時），複製整個 `student-billing/data/` 目錄：
+### 核心安全契約 (Hard Invariants)
+- **禁止在連線中只複製主檔**: SQLite 於 WAL 模式下，交易記錄暫存於 `app.sqlite-wal`。備份時必須複製完整 `data/` 目錄（包含 `app.sqlite`, `app.sqlite-wal`, `app.sqlite-shm` 與來源檔案），或先執行停機 WAL Checkpoint。切勿僅複製 `app.sqlite` 主檔而遺失最新交易！
+- **禁止無提示覆蓋現有資料**: 還原程序嚴格禁止在未經操作者明確確認的情形下，直接覆蓋已有資料檔案的目錄。目標目錄非空時必須使用 `--force` 旗標確認，防範災難性資料丟失。
+
+### 操作指令表
+
+| 操作 | 指令 | 說明 |
+|---|---|---|
+| **自動停機備份** | `npm run backup [備份目標路徑]` | 執行 WAL checkpoint、複製完整 data 目錄、產出包含 SHA-256 雜湊與 activeState 的 `backup-manifest.json` |
+| **災難還原** | `npm run restore <備份來源路徑> [還原目標路徑] [--force]` | 還原檔案至指定空目錄，並自動連線執行 `PRAGMA integrity_check` 與指標驗證 |
+| **完整性驗證** | `npx tsx scripts/backup-restore.ts verify [資料目錄]` | 連線檢驗 SQLite 檔案完整性、學生筆數、計算筆數與 ActiveState revision |
+
+### 手動停機備份與還原標準作業程序 (SOP)
+
+1. **停機備份步驟**:
    ```bash
-   cp -R student-billing/data/ /path/to/backup/data-$(date +%Y%m%d)/
+   # 1. 停止運行中的開發或生產伺服器 (Ctrl+C 或停止行程)，確保所有連線關閉
+   # 2. 執行自動化備份腳本 (或指定目標目錄)
+   npm run backup /path/to/backups/backup-$(date +%Y%m%d%H%M%S)
+
+   # 3. 檢查備份目錄下已產出 backup-manifest.json 與完整資料檔案
+   ls -la /path/to/backups/backup-*/
    ```
-2. **災難還原**:
-   將備份的 `data/` 目錄複製回 `student-billing/data/`，重新啟動伺服器即可恢復全部狀態。
+
+2. **災難還原步驟**:
+   ```bash
+   # 1. 確保目標伺服器處於停機狀態
+   # 2. 執行還原至乾淨的空 data 目錄
+   npm run restore /path/to/backups/backup-20260923 /path/to/student-billing/data
+
+   # 3. 若目標目錄已存在檔案，需主動帶入 --force 明確確認覆蓋
+   npm run restore /path/to/backups/backup-20260923 /path/to/student-billing/data --force
+
+   # 4. 驗證還原完整性與代表性查詢
+   npx tsx scripts/backup-restore.ts verify /path/to/student-billing/data
+
+   # 5. 重新啟動伺服器
+   npm run start
+   ```
+
+3. **自動化驗證測試**:
+   本專案包含整合測試 `tests/integration/backup-restore.test.ts`，每次 CI 與本機測試均會自動模擬「建立真實資料 → 完整停機備份 → 還原至空目錄 → 5 筆 mismatch 與 13 人排課缺漏比對」之端到端檢驗。
 
 ---
 

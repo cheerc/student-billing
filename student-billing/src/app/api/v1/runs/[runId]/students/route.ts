@@ -1,13 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getDatabase } from '@/adapters/sqlite';
 import { queryRunStudents, QueryStudentError } from '@/application/query-students';
+import { sanitizePathParam, maskSensitiveInfo, SecurityError } from '@/contracts/security';
 
 export async function GET(
   request: NextRequest,
   context: { params: Promise<{ runId: string }> }
 ) {
   try {
-    const { runId } = await context.params;
+    const { runId: rawRunId } = await context.params;
+    const runId = sanitizePathParam(rawRunId, 'runId');
     const url = new URL(request.url);
 
     const queryParams: Record<string, string> = {};
@@ -20,10 +22,13 @@ export async function GET(
 
     return NextResponse.json(result, { status: 200 });
   } catch (error) {
+    if (error instanceof SecurityError) {
+      return NextResponse.json({ error: error.message, code: error.code }, { status: error.statusCode });
+    }
     if (error instanceof QueryStudentError) {
-      return NextResponse.json({ error: error.message }, { status: error.statusCode });
+      return NextResponse.json({ error: maskSensitiveInfo(error.message) }, { status: error.statusCode });
     }
     const message = error instanceof Error ? error.message : String(error);
-    return NextResponse.json({ error: message }, { status: 500 });
+    return NextResponse.json({ error: maskSensitiveInfo(message) }, { status: 500 });
   }
 }

@@ -3,13 +3,15 @@ import { getDatabase } from '@/adapters/sqlite';
 import { getCalculationRun } from '@/adapters/sqlite/runs-repository';
 import { calculateStudentBilling } from '@/domain/billing/billing-calculator';
 import { StudentSnapshot, ParsedToken } from '@/domain/students';
+import { sanitizePathParam, maskSensitiveInfo, SecurityError } from '@/contracts/security';
 
 export async function GET(
   request: NextRequest,
   context: { params: Promise<{ runId: string }> }
 ) {
   try {
-    const { runId } = await context.params;
+    const { runId: rawRunId } = await context.params;
+    const runId = sanitizePathParam(rawRunId, 'runId');
     const url = new URL(request.url);
     const againstRuleSet = url.searchParams.get('againstRuleSet');
 
@@ -131,7 +133,10 @@ export async function GET(
       differences,
     });
   } catch (error) {
+    if (error instanceof SecurityError) {
+      return NextResponse.json({ error: error.message, code: error.code }, { status: error.statusCode });
+    }
     const message = error instanceof Error ? error.message : String(error);
-    return NextResponse.json({ error: message }, { status: 500 });
+    return NextResponse.json({ error: maskSensitiveInfo(message) }, { status: 500 });
   }
 }
