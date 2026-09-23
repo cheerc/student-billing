@@ -15,7 +15,7 @@ test.describe('Home Page Smoke Test', () => {
     const hasStats = (await page.locator('.stats-grid').count()) > 0;
     if (!hasStats) {
       await expect(page.locator('h2')).toContainText('尚未匯入學生收費名單');
-      await expect(page.locator('.path-box')).toContainText('student-billing/data/');
+      await expect(page.locator('.path-box')).toContainText('app/data/');
     } else {
       await expect(page.locator('.stat-card').first()).toBeVisible();
     }

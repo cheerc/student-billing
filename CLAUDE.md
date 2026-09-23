@@ -57,7 +57,7 @@
 - **敏感個資嚴禁外洩**：真實學生名單、學生代碼 (personCode)、姓名、電話、備註、身分證等個資，**絕對禁止**提交至 Git、CI、PR 描述、測試報告或任何公開/雲端介面。回報時僅能以來源座標（如「列 205」）或匿名代碼指涉。
 - **本機資料嚴格隔離**：
   - 專案根目錄之來源 Excel 檔（`嘉義縣私立資優生文教機構.xlsx` 等）保留在本地，不可修改、不可 stage。
-  - `~$*.xlsx` 鎖定暫存檔、`2026夏令營/`、`specs/evidence/`、`student-billing/data/` 已被 `.gitignore` 排除，嚴禁強行加入。
+  - `~$*.xlsx` 鎖定暫存檔、`2026夏令營/`、`specs/evidence/`、`app/data/` 已被 `.gitignore` 排除，嚴禁強行加入。
 - **測試資料規範**：
   - Git/CI 測試一律採用保形、匿名或合成 fixture。
   - ERP 檔案具有 100% `inlineStr`、無 `sharedStrings.xml`、缺 `<dimension>` 之特殊 OOXML 結構，測試 fixture 必須保留此原形特徵，避免因自製 fixture 掩蓋相容性問題。
@@ -67,9 +67,9 @@
 ## 4. 目錄結構與路徑約定 (Directory & Path Conventions)
 
 - **規格文件目錄**：`specs/` 位於專案根目錄，保持單一權威來源，不複製多份。
-- **應用程式目錄**：所有產品程式碼位於 `student-billing/` 子目錄（即 `/Users/cheerc/Projects/student-billing/student-billing/`）。
-- **資料儲存目錄**：`student-billing/data/` 存放 SQLite 資料庫 (`app.sqlite`)、來源副本、私有 fixture 與報告。
-- **開發指令路徑**：所有 `npm`、建置、測試指令皆必須在 `student-billing/` 目錄內執行。
+- **應用程式目錄**：所有產品程式碼位於 `app/` 子目錄（即 `/Users/cheerc/Projects/student-billing/app/`）。
+- **資料儲存目錄**：`app/data/` 存放 SQLite 資料庫 (`app.sqlite`)、來源副本、私有 fixture 與報告。
+- **開發指令路徑**：所有 `npm`、建置、測試指令皆必須在 `app/` 目錄內執行。
 
 ---
 

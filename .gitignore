@@ -15,7 +15,7 @@
 /specs/evidence/
 
 # 應用本機資料：SQLite、來源副本、私有 fixture、報告（07 §3、§6）
-student-billing/data/
+app/data/
 **/private-fixtures/
 *.sqlite
 *.sqlite-wal

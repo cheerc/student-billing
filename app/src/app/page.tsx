@@ -84,7 +84,7 @@ export default async function HomePage() {
         <div className="path-label">本機資料庫與儲存路徑 (Local Storage Path)：</div>
         <div className="path-code">{dbPath}</div>
         <div style={{ marginTop: '6px', fontSize: '0.75rem', color: '#64748b' }}>
-          資料目錄：student-billing/data/（受 .gitignore 保護，敏感個資絕不外流）
+          資料目錄：app/data/（受 .gitignore 保護，敏感個資絕不外流）
         </div>
       </div>
 

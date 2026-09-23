@@ -22,24 +22,24 @@ jobs:
         with:
           node-version: '24'
           cache: 'npm'
-          cache-dependency-path: student-billing/package-lock.json
+          cache-dependency-path: app/package-lock.json
 
       - name: Install dependencies
-        working-directory: student-billing
+        working-directory: app
         run: npm ci
 
       - name: TypeScript Typecheck
-        working-directory: student-billing
+        working-directory: app
         run: npm run typecheck
 
       - name: ESLint Check
-        working-directory: student-billing
+        working-directory: app
         run: npm run lint
 
       - name: Vitest Integration & Unit Tests
-        working-directory: student-billing
+        working-directory: app
         run: npm run test
 
       - name: Next.js Production Build
-        working-directory: student-billing
+        working-directory: app
         run: npm run build

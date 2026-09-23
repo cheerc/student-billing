@@ -12,12 +12,12 @@
 - **架構模式**: Next.js 16 App Router + React 19 + TypeScript Strict + SQLite (`better-sqlite3` native module)
 - **本機啟動指令**:
   ```bash
-  cd student-billing
+  cd app
   npm run build
   npm run start
   ```
 - **存取網址**: `http://127.0.0.1:3000` (嚴格綁定 localhost，無雲端部署、無外部 API 呼叫、無公網 tunnel)
-- **資料隔離政策**: 本機 SQLite 資料庫位於 `student-billing/data/app.sqlite`，受到 `.gitignore` 嚴格保護，敏感個資絕不進入版控或外流。
+- **資料隔離政策**: 本機 SQLite 資料庫位於 `app/data/app.sqlite`，受到 `.gitignore` 嚴格保護，敏感個資絕不進入版控或外流。
 
 ---
 
@@ -118,14 +118,14 @@ Gate 2 (歷史 Compat 雙軌差異): ✓ 通過
   - 運算與記憶體使用穩定，未發生記憶體溢位 (OOM) 或行程崩潰。
   - 證明在 10 倍資料量級下，系統仍維持次秒級 (< 0.5s) 處理能力。
 
-*評測原始 JSON 報告保存於本地 `student-billing/data/reports/bench-report.json`（受版本控制忽略保護）。*
+*評測原始 JSON 報告保存於本地 `app/data/reports/bench-report.json`（受版本控制忽略保護）。*
 
 ---
 
 ## 6. 停機備份與災難還原實測報告 (Disaster Recovery Verification)
 
 - **自動化實測套件**: `tests/integration/backup-restore.test.ts`
-- **SOP 文件**: `student-billing/README.md` 第 6 節
+- **SOP 文件**: `app/README.md` 第 6 節
 - **驗證成果**:
   1. **停機備份**:
      - 執行 `PRAGMA wal_checkpoint(TRUNCATE)`，確保 WAL 交易日誌完整刷入主檔。

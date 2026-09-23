@@ -5,7 +5,7 @@ import fs from 'fs';
 /**
  * 取得預設 SQLite 資料庫檔案路徑。
  * 若有環境變數 DATABASE_PATH 則優先採用；
- * 否則指向 student-billing/data/app.sqlite。
+ * 否則指向 app/data/app.sqlite。
  */
 export function getDefaultDatabasePath(): string {
   if (process.env.DATABASE_PATH) {
@@ -13,10 +13,15 @@ export function getDefaultDatabasePath(): string {
   }
 
   const cwd = process.cwd();
-  if (cwd.endsWith('student-billing')) {
+  if (
+    cwd.endsWith('/app') ||
+    cwd.endsWith('\\app') ||
+    cwd.endsWith('student-billing') ||
+    path.basename(cwd) === 'app'
+  ) {
     return path.resolve(cwd, 'data', 'app.sqlite');
   }
-  return path.resolve(cwd, 'student-billing', 'data', 'app.sqlite');
+  return path.resolve(cwd, 'app', 'data', 'app.sqlite');
 }
 
 /**
