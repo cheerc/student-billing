@@ -118,6 +118,8 @@ export function gridRowsToClasses(
 
   const grouped = new Map<string, ScheduleGridRow[]>();
   for (const r of rows) {
+    // F1 rework: 班級名稱空白（僅空白）之列直接丟棄，不產出 baseName 空字串班
+    if (r.className.trim() === '') continue;
     if (!grouped.has(r.className)) {
       grouped.set(r.className, []);
     }
@@ -188,6 +190,54 @@ export function classesToGridRows(classes: ClassSetting[]): ScheduleGridRow[] {
   }
 
   return rows;
+}
+
+export interface SplitClassWarning {
+  originalName: string;
+  splitNames: string[];
+}
+
+/** 偵測原同名多時段班級是否被改散拆分為不同班名 (D28) */
+export function detectSplitClasses(
+  originalRows: ScheduleGridRow[],
+  currentRows: ScheduleGridRow[]
+): SplitClassWarning[] {
+  const originalClassRows = new Map<string, string[]>(); // className -> rowIds
+
+  for (const r of originalRows) {
+    if (!originalClassRows.has(r.className)) {
+      originalClassRows.set(r.className, []);
+    }
+    originalClassRows.get(r.className)!.push(r.rowId);
+  }
+
+  const currentRowMap = new Map<string, ScheduleGridRow>();
+  for (const r of currentRows) {
+    currentRowMap.set(r.rowId, r);
+  }
+
+  const warnings: SplitClassWarning[] = [];
+
+  for (const [origClass, rowIds] of originalClassRows.entries()) {
+    if (rowIds.length <= 1) continue;
+
+    const currentNames = new Set<string>();
+    for (const id of rowIds) {
+      const curRow = currentRowMap.get(id);
+      if (curRow && curRow.className.trim()) {
+        currentNames.add(curRow.className.trim());
+      }
+    }
+
+    if (currentNames.size > 1) {
+      warnings.push({
+        originalName: origClass,
+        splitNames: Array.from(currentNames).sort(),
+      });
+    }
+  }
+
+  return warnings;
 }
 
 /** ERP alias 映射：待設定 token → 已核准 seed 班級 */

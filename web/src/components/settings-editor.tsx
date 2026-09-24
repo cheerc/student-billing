@@ -9,6 +9,7 @@ import {
   timeStringToMinutes,
   minutesToTimeString,
   buildSeedGridRows,
+  detectSplitClasses,
 } from '@/contracts/settings';
 
 interface Candidate {
@@ -86,7 +87,17 @@ export default function SettingsEditor({
     return errMap;
   }, [rows]);
 
+  // D28: 班級改散警告（原同名多時段班級被拆散改名）
+  const splitWarnings = useMemo(() => {
+    return detectSplitClasses(initialRows, rows);
+  }, [initialRows, rows]);
+
   const hasTimeErrors = rowTimeErrors.size > 0;
+
+  // F1 rework: 班級名稱清空檢查（與 hasTimeErrors 同級阻擋 preview）
+  const hasEmptyClassName = useMemo(() => {
+    return rows.some((r) => r.className.trim() === '');
+  }, [rows]);
 
   const toggleAlias = (raw: string, target: string) => {
     setDraft((prev) => {
@@ -98,6 +109,31 @@ export default function SettingsEditor({
           : [...prev.aliases, { rawBaseName: raw, targetBaseName: target }],
       };
     });
+    setPreview(null);
+    setApplied(null);
+  };
+
+  // D28: 逐列改名
+  const updateRowClassName = (rowId: string, className: string) => {
+    setRows((prev) =>
+      prev.map((r) => (r.rowId === rowId ? { ...r, className } : r))
+    );
+    setPreview(null);
+    setApplied(null);
+  };
+
+  // 星期欄位編輯（僅供顯示與點名表，不影響扣天）
+  const updateRowWeekday = (rowId: string, weekday: string) => {
+    setRows((prev) =>
+      prev.map((r) => (r.rowId === rowId ? { ...r, weekday } : r))
+    );
+    setPreview(null);
+    setApplied(null);
+  };
+
+  // D29: 單列刪除時段
+  const deleteSessionRow = (rowId: string) => {
+    setRows((prev) => prev.filter((r) => r.rowId !== rowId));
     setPreview(null);
     setApplied(null);
   };
@@ -163,6 +199,10 @@ export default function SettingsEditor({
   };
 
   const doPreview = async () => {
+    if (hasEmptyClassName) {
+      setError('排課表格中存在班級名稱為空的時段列，請填寫班級名稱後再行預覽。');
+      return;
+    }
     if (hasTimeErrors) {
       setError('排課表格中存在起訖時間倒置（起大於等於迄），請修正後再行預覽。');
       return;
@@ -333,7 +373,12 @@ export default function SettingsEditor({
       {/* D1: S表五欄平鋪排課設定表格 */}
       <div className="table-container" style={{ marginBottom: '20px' }}>
         <div className="table-header">
-          <div className="table-title">S 表平鋪排課設定（共 {rows.length} 筆時段列）</div>
+          <div className="table-title">
+            S 表平鋪排課設定（共 {rows.length} 筆時段列）
+            <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 'normal', marginLeft: '8px' }}>
+              （五欄皆可逐列編輯；星期僅供顯示與點名表，不影響衝堂扣天）
+            </span>
+          </div>
           <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
             <input
               type="text"
@@ -375,6 +420,18 @@ export default function SettingsEditor({
             </button>
           </div>
         </div>
+        {splitWarnings.length > 0 && (
+          <div style={{ padding: '8px 16px', background: '#fef3c7', color: '#92400e', fontSize: '0.8125rem', borderBottom: '1px solid #fde68a' }}>
+            <strong>⚠ 班級改散警告 (D28)：</strong> 偵測到以下多時段班級被拆散改名為不同班名，請確認是否為業務本意：
+            <ul style={{ margin: '4px 0 0 16px', padding: 0 }}>
+              {splitWarnings.map((w) => (
+                <li key={w.originalName}>
+                  原班名 <strong>{w.originalName}</strong> 已拆為：{w.splitNames.join('、')}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
         {hasTimeErrors && (
           <div style={{ padding: '8px 16px', background: '#fee2e2', color: '#b91c1c', fontSize: '0.8125rem' }}>
             ⚠ 表格中存在結束時間 (迄) 小於或等於起始時間 (起) 之無效時段，請修正紅框欄位。
@@ -384,12 +441,12 @@ export default function SettingsEditor({
           <table className="data-table">
             <thead>
               <tr>
-                <th style={{ width: '220px' }}>班級名稱</th>
-                <th style={{ width: '140px' }}>帶班老師</th>
-                <th style={{ width: '90px' }}>星期</th>
-                <th style={{ width: '120px' }}>上課時間(起)</th>
-                <th style={{ width: '120px' }}>上課時間(迄)</th>
-                <th style={{ width: '90px' }}>狀態</th>
+                <th style={{ width: '200px' }}>班級名稱</th>
+                <th style={{ width: '130px' }}>帶班老師</th>
+                <th style={{ width: '80px' }}>星期</th>
+                <th style={{ width: '110px' }}>上課時間(起)</th>
+                <th style={{ width: '110px' }}>上課時間(迄)</th>
+                <th style={{ width: '120px' }}>操作</th>
               </tr>
             </thead>
             <tbody>
@@ -397,7 +454,22 @@ export default function SettingsEditor({
                 const hasErr = rowTimeErrors.has(r.rowId);
                 return (
                   <tr key={r.rowId} style={{ opacity: r.active ? 1 : 0.55 }}>
-                    <td style={{ fontWeight: 600 }}>{r.className}</td>
+                    <td>
+                      <input
+                        type="text"
+                        value={r.className}
+                        onChange={(e) => updateRowClassName(r.rowId, e.target.value)}
+                        placeholder="班級名稱"
+                        style={{
+                          padding: '4px 8px',
+                          borderRadius: '4px',
+                          border: r.className.trim() === '' ? '1px solid #ef4444' : '1px solid var(--border-color)',
+                          fontSize: '0.8125rem',
+                          width: '100%',
+                          fontWeight: 600,
+                        }}
+                      />
+                    </td>
                     <td>
                       <input
                         type="text"
@@ -408,7 +480,20 @@ export default function SettingsEditor({
                       />
                     </td>
                     <td>
-                      <span className="badge" style={{ fontSize: '0.75rem' }}>{r.weekday}</span>
+                      <input
+                        type="text"
+                        value={r.weekday}
+                        onChange={(e) => updateRowWeekday(r.rowId, e.target.value)}
+                        placeholder="星期"
+                        style={{
+                          padding: '4px 6px',
+                          borderRadius: '4px',
+                          border: '1px solid var(--border-color)',
+                          fontSize: '0.8125rem',
+                          width: '55px',
+                        }}
+                        title="星期僅供顯示與點名表，不影響衝堂扣天"
+                      />
                     </td>
                     <td>
                       <input
@@ -421,7 +506,7 @@ export default function SettingsEditor({
                           border: hasErr ? '1px solid #ef4444' : '1px solid var(--border-color)',
                           background: hasErr ? '#fef2f2' : undefined,
                           fontSize: '0.8125rem',
-                          width: '80px',
+                          width: '75px',
                         }}
                       />
                     </td>
@@ -436,7 +521,7 @@ export default function SettingsEditor({
                           border: hasErr ? '1px solid #ef4444' : '1px solid var(--border-color)',
                           background: hasErr ? '#fef2f2' : undefined,
                           fontSize: '0.8125rem',
-                          width: '80px',
+                          width: '75px',
                         }}
                       />
                       {hasErr && (
@@ -446,15 +531,26 @@ export default function SettingsEditor({
                       )}
                     </td>
                     <td>
-                      <button
-                        type="button"
-                        className="btn-secondary"
-                        style={{ padding: '2px 10px', fontSize: '0.75rem' }}
-                        onClick={() => toggleClassActive(r.className)}
-                        title="停用班級保留歷史（不硬刪）"
-                      >
-                        {r.active ? '停用' : '啟用'}
-                      </button>
+                      <div style={{ display: 'flex', gap: '4px' }}>
+                        <button
+                          type="button"
+                          className="btn-secondary"
+                          style={{ padding: '2px 8px', fontSize: '0.75rem' }}
+                          onClick={() => toggleClassActive(r.className)}
+                          title="停用班級保留歷史（不硬刪）"
+                        >
+                          {r.active ? '停用' : '啟用'}
+                        </button>
+                        <button
+                          type="button"
+                          className="btn-secondary"
+                          style={{ padding: '2px 8px', fontSize: '0.75rem', color: '#b91c1c' }}
+                          onClick={() => deleteSessionRow(r.rowId)}
+                          title="刪除此時段列"
+                        >
+                          刪除
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 );
@@ -470,7 +566,7 @@ export default function SettingsEditor({
           type="button"
           className="btn-primary"
           onClick={doPreview}
-          disabled={busy || hasTimeErrors}
+          disabled={busy || hasTimeErrors || hasEmptyClassName}
         >
           {busy ? '處理中...' : '預覽影響 (dry-run)'}
         </button>
