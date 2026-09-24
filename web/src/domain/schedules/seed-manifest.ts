@@ -244,15 +244,29 @@ export function classifyErpDualTrack(
     aliasCoveredCount: aliasCoveredSet.size,
   };
 
-  // N2: 標記候選有效性 (isValid)，target 存在於有效設定中即為有效
-  const candidates = NAMED_CANDIDATES.map((c) => ({
-    ...c,
-    isValid: activeClassSet.has(c.targetBaseName),
-  }));
+  // D32-B: 候選自動隱藏（rawBaseName 已改名對齊則隱藏）與有效性判定
+  const candidates = filterVisibleCandidates(NAMED_CANDIDATES, activeClassSet);
 
   return {
     seedInventory,
     activeView,
     candidates,
   };
+}
+
+/**
+ * D32-B: 候選可見性與有效性過濾：
+ * 1. 若候選的 rawBaseName 已存在於目前 activeClasses（改名對齊），該候選行隱藏不渲染。
+ * 2. 若候選的 targetBaseName 存在於目前 activeClasses，isValid 為 true，否則為 false（紅字提示）。
+ */
+export function filterVisibleCandidates(
+  candidates: NamedCandidate[],
+  activeClassSet: Set<string>
+): Array<NamedCandidate & { isValid: boolean }> {
+  return candidates
+    .filter((c) => !activeClassSet.has(c.rawBaseName))
+    .map((c) => ({
+      ...c,
+      isValid: activeClassSet.has(c.targetBaseName),
+    }));
 }

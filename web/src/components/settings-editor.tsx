@@ -10,15 +10,10 @@ import {
   minutesToTimeString,
   buildSeedGridRows,
   detectSplitClasses,
+  SettingsBaseline,
+  isSettingsDirty,
 } from '@/contracts/settings';
-
-interface Candidate {
-  rawBaseName: string;
-  targetBaseName: string;
-  reason: string;
-  category?: 'D18' | 'D22';
-  isValid?: boolean;
-}
+import { NamedCandidate, filterVisibleCandidates } from '@/domain/schedules/seed-manifest';
 
 const TIME_FORMAT_REGEX = /^([01]\d|2[0-3]):([0-5]\d)$/;
 
@@ -29,7 +24,9 @@ interface SettingsEditorProps {
   unmatched: string[];
   seedNotAppeared: string[];
   matchedCount: number;
-  candidates: Candidate[];
+  candidates: NamedCandidate[];
+  lastAppliedRevision?: number;
+  lastAppliedAt?: string | null;
 }
 
 export default function SettingsEditor({
@@ -40,6 +37,8 @@ export default function SettingsEditor({
   seedNotAppeared,
   matchedCount,
   candidates,
+  lastAppliedRevision,
+  lastAppliedAt,
 }: SettingsEditorProps) {
   const [draft, setDraft] = useState<SettingsDraft>(initialDraft);
 
@@ -54,7 +53,37 @@ export default function SettingsEditor({
   const [preview, setPreview] = useState<any>(null);
   const [applied, setApplied] = useState<any>(null);
   const [error, setError] = useState<string | null>(null);
+  const [guideMessage, setGuideMessage] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+
+  // D31: 基準狀態與 dirty 追蹤
+  const [baseline, setBaseline] = useState<SettingsBaseline>(() => ({
+    rows: initialRows,
+    aliases: initialDraft.aliases,
+  }));
+
+  const [lastApplied, setLastApplied] = useState<{ revision: number; appliedAt: string | null }>({
+    revision: lastAppliedRevision ?? currentRevision,
+    appliedAt: lastAppliedAt ?? null,
+  });
+
+  const isDirty = useMemo(() => {
+    return isSettingsDirty(baseline, rows, draft.aliases);
+  }, [baseline, rows, draft.aliases]);
+
+  // D32-B: 當前有效班級名稱集合（已停用或未填名稱者不計入）
+  const currentActiveBaseNames = useMemo(() => {
+    return new Set(
+      rows
+        .filter((r) => r.active && r.className.trim() !== '')
+        .map((r) => r.className.trim())
+    );
+  }, [rows]);
+
+  // D32-B: 若候選之 rawBaseName 已在系統有效班級中（改名對齊），該候選行自動隱藏不渲染；target 不在有效班級中則標記 isValid: false
+  const visibleCandidates = useMemo(() => {
+    return filterVisibleCandidates(candidates, currentActiveBaseNames);
+  }, [candidates, currentActiveBaseNames]);
 
   // 新增時段列輸入狀態
   const [newClassName, setNewClassName] = useState('');
@@ -209,6 +238,7 @@ export default function SettingsEditor({
     }
     setBusy(true);
     setError(null);
+    setGuideMessage(null);
     try {
       const currentClasses = gridRowsToClasses(rows, draft.classes);
       const updatedDraft: SettingsDraft = {
@@ -231,9 +261,13 @@ export default function SettingsEditor({
   };
 
   const doApply = async () => {
-    if (!preview) return;
+    if (!preview) {
+      setGuideMessage('請先點擊「預覽影響 (dry-run)」查看變更影響，確認無誤後方可套用並重算。');
+      return;
+    }
     setBusy(true);
     setError(null);
+    setGuideMessage(null);
     try {
       // idempotencyKey 附加隨機後綴防範衝突
       const idempotencyKey = `ui-apply-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -261,6 +295,17 @@ export default function SettingsEditor({
         throw new Error(json.error || '套用失敗');
       }
       setApplied(json);
+      setPreview(null);
+      if (json.revision) {
+        setLastApplied({
+          revision: json.revision,
+          appliedAt: json.appliedAt || new Date().toISOString(),
+        });
+      }
+      setBaseline({
+        rows: [...rows],
+        aliases: [...draft.aliases],
+      });
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -270,6 +315,52 @@ export default function SettingsEditor({
 
   return (
     <div>
+      {/* D31: 未儲存提示條 */}
+      {isDirty && (
+        <div
+          className="alert alert-warning"
+          style={{
+            background: '#fef3c7',
+            color: '#92400e',
+            border: '1px solid #fde68a',
+            padding: '10px 16px',
+            borderRadius: '6px',
+            marginBottom: '16px',
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            flexWrap: 'wrap',
+            gap: '8px',
+          }}
+        >
+          <div>
+            <strong>⚠ 有未儲存的變更：</strong>
+            <span>排課表格或 alias 設定已修改，尚未套用至正式設定。</span>
+          </div>
+          <div style={{ fontSize: '0.8125rem', color: '#78350f' }}>
+            上次套用：版本 rev {lastApplied.revision}
+            {lastApplied.appliedAt ? ` (${new Date(lastApplied.appliedAt).toLocaleString()})` : '（初始設定）'}
+          </div>
+        </div>
+      )}
+
+      {/* 操作引導提示 */}
+      {guideMessage && (
+        <div
+          className="alert alert-info"
+          style={{
+            background: '#e0f2fe',
+            color: '#0369a1',
+            border: '1px solid #bae6fd',
+            padding: '10px 16px',
+            borderRadius: '6px',
+            marginBottom: '16px',
+          }}
+        >
+          💡 <strong>操作引導：</strong> {guideMessage}
+        </div>
+      )}
+
       {error && (
         <div className="alert alert-danger" role="alert">
           {error}
@@ -302,43 +393,49 @@ export default function SettingsEditor({
           <div className="table-title">具名漂移候選確認（D18 ＋ D22，需人工逐項確認，軟體不自動批准）</div>
         </div>
         <div style={{ padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
-          {candidates.map((c) => {
-            const checked = draft.aliases.some(
-              (a) => a.rawBaseName === c.rawBaseName && a.targetBaseName === c.targetBaseName
-            );
-            const isTargetValid = c.isValid !== false;
-            return (
-              <label
-                key={`${c.rawBaseName}→${c.targetBaseName}`}
-                style={{
-                  display: 'flex',
-                  gap: '8px',
-                  alignItems: 'center',
-                  fontSize: '0.875rem',
-                  opacity: isTargetValid ? 1 : 0.6,
-                }}
-              >
-                <input
-                  type="checkbox"
-                  checked={checked}
-                  disabled={!isTargetValid}
-                  onChange={() => isTargetValid && toggleAlias(c.rawBaseName, c.targetBaseName)}
-                />
-                <span>
-                  {c.category && (
-                    <span className="badge" style={{ fontSize: '0.75rem', marginRight: '6px' }}>{c.category}</span>
-                  )}
-                  <strong>{c.rawBaseName}</strong> → <strong>{c.targetBaseName}</strong>
-                  <span style={{ color: 'var(--text-muted)', marginLeft: '8px' }}>{c.reason}</span>
-                  {!isTargetValid && (
-                    <span style={{ color: '#ef4444', fontSize: '0.75rem', marginLeft: '6px' }}>
-                      （目標班級已停用或未設定）
-                    </span>
-                  )}
-                </span>
-              </label>
-            );
-          })}
+          {visibleCandidates.length === 0 ? (
+            <div style={{ fontSize: '0.875rem', color: 'var(--text-muted)' }}>
+              所有具名候選皆已改名對齊（已自動隱藏）或已無待對齊候選。
+            </div>
+          ) : (
+            visibleCandidates.map((c) => {
+              const checked = draft.aliases.some(
+                (a) => a.rawBaseName === c.rawBaseName && a.targetBaseName === c.targetBaseName
+              );
+              const isTargetValid = c.isValid !== false;
+              return (
+                <label
+                  key={`${c.rawBaseName}→${c.targetBaseName}`}
+                  style={{
+                    display: 'flex',
+                    gap: '8px',
+                    alignItems: 'center',
+                    fontSize: '0.875rem',
+                    opacity: isTargetValid ? 1 : 0.6,
+                  }}
+                >
+                  <input
+                    type="checkbox"
+                    checked={checked}
+                    disabled={!isTargetValid}
+                    onChange={() => isTargetValid && toggleAlias(c.rawBaseName, c.targetBaseName)}
+                  />
+                  <span>
+                    {c.category && (
+                      <span className="badge" style={{ fontSize: '0.75rem', marginRight: '6px' }}>{c.category}</span>
+                    )}
+                    <strong>{c.rawBaseName}</strong> → <strong>{c.targetBaseName}</strong>
+                    <span style={{ color: 'var(--text-muted)', marginLeft: '8px' }}>{c.reason}</span>
+                    {!isTargetValid && (
+                      <span style={{ color: '#ef4444', fontSize: '0.75rem', marginLeft: '6px' }}>
+                        （目標班級已停用或未設定）
+                      </span>
+                    )}
+                  </span>
+                </label>
+              );
+            })
+          )}
         </div>
       </div>
 
@@ -570,7 +667,17 @@ export default function SettingsEditor({
         >
           {busy ? '處理中...' : '預覽影響 (dry-run)'}
         </button>
-        <button type="button" className="btn-secondary" onClick={doApply} disabled={busy || !preview}>
+        <button
+          type="button"
+          className="btn-secondary"
+          onClick={doApply}
+          disabled={busy}
+          style={{
+            opacity: !preview ? 0.6 : 1,
+            cursor: !preview ? 'not-allowed' : 'pointer',
+          }}
+          title={!preview ? '請先點擊「預覽影響 (dry-run)」' : '套用設定並重新計算'}
+        >
           套用並重算
         </button>
         {preview && (
