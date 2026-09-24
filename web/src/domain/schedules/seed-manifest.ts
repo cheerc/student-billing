@@ -88,6 +88,9 @@ export interface BaseNameClassificationResult {
   seedNotAppeared: string[];
   seedNotAppearedCount: number;
   ambiguousCount: number;
+  /** 經由 Alias 映射覆蓋之目標班級清單 (獨立展示，不與 ERP 實體直配混淆) */
+  aliasCovered?: string[];
+  aliasCoveredCount?: number;
 }
 
 /**
@@ -133,6 +136,7 @@ export interface NamedCandidate {
   targetBaseName: string;
   reason: string;
   category: 'D18' | 'D22';
+  isValid?: boolean;
 }
 
 /**
@@ -204,23 +208,26 @@ export function classifyErpDualTrack(
   const erpSet = new Set(erpBaseNames);
   const activeMatched: string[] = [];
   const activeUnmatched: string[] = [];
-  const coveredActiveClasses = new Set<string>();
+  const erpDirectCovered = new Set<string>();
+  const aliasCoveredSet = new Set<string>();
 
   for (const b of erpSet) {
     if (activeClassSet.has(b)) {
       activeMatched.push(b);
-      coveredActiveClasses.add(b);
+      erpDirectCovered.add(b);
     } else if (aliasMap.has(b)) {
       activeMatched.push(b);
-      coveredActiveClasses.add(aliasMap.get(b)!);
+      aliasCoveredSet.add(aliasMap.get(b)!);
     } else {
       activeUnmatched.push(b);
     }
   }
 
+  // F1: activeNotAppeared (seedNotAppeared) 嚴格按 ERP 實體直配判定 (01 §4.3)，
+  // 即使目標班級由 alias 覆蓋，若本批無 ERP 實體 token 仍列為未出現，真相不被掩蓋。
   const activeNotAppeared: string[] = [];
   for (const c of activeClassSet) {
-    if (!coveredActiveClasses.has(c)) {
+    if (!erpDirectCovered.has(c)) {
       activeNotAppeared.push(c);
     }
   }
@@ -233,16 +240,19 @@ export function classifyErpDualTrack(
     seedNotAppeared: activeNotAppeared.sort(),
     seedNotAppearedCount: activeNotAppeared.length,
     ambiguousCount: 0,
+    aliasCovered: Array.from(aliasCoveredSet).sort(),
+    aliasCoveredCount: aliasCoveredSet.size,
   };
 
-  // 只驗證 targetBaseName 存在於有效設定中
-  const validCandidates = NAMED_CANDIDATES.filter((c) =>
-    activeClassSet.has(c.targetBaseName)
-  );
+  // N2: 標記候選有效性 (isValid)，target 存在於有效設定中即為有效
+  const candidates = NAMED_CANDIDATES.map((c) => ({
+    ...c,
+    isValid: activeClassSet.has(c.targetBaseName),
+  }));
 
   return {
     seedInventory,
     activeView,
-    candidates: validCandidates,
+    candidates,
   };
 }

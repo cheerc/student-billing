@@ -75,7 +75,7 @@ describe('D2 Task 3: 具名候選擴充（D18 + D22）與雙軌對照整合測�
     if (fs.existsSync(tempDir)) fs.rmSync(tempDir, { recursive: true, force: true });
   });
 
-  it('1. [RED] NAMED_CANDIDATES 應包含 D18 與 D22 全部 4 組具名候選', () => {
+  it('1. NAMED_CANDIDATES 應包含 D18 與 D22 全部 4 組具名候選', () => {
     expect(NAMED_CANDIDATES).toBeDefined();
     expect(NAMED_CANDIDATES.length).toBe(4);
 
@@ -122,17 +122,25 @@ describe('D2 Task 3: 具名候選擴充（D18 + D22）與雙軌對照整合測�
     expect(res.unmatched).toContain('小六數學加強班');
   });
 
-  it('4. [RED] classifyErpDualTrack() 應能輸出雙軌對照（Seed 基準盤點 + Active 設定視圖）', () => {
+  it('4. [RED F1] classifyErpDualTrack() 雙軌對照中，alias 覆蓋不掩蓋 ERP 實體未出現真相 (01 §4.3)，aliasCovered 另立欄位', () => {
     const dual = classifyErpDualTrack(erpBaseNames);
     expect(dual.seedInventory.matchedCount).toBe(42);
     expect(dual.seedInventory.unmatchedCount).toBe(12);
     expect(dual.seedInventory.seedNotAppearedCount).toBe(7);
 
-    // 當有核准 aliases 時，activeView 待設定減少
+    // 當核准 D18 alias 時，activeView 待設定自 12 減少為 11，已對應自 42 增為 43
+    // 但 seedNotAppeared 依 01 §4.3 實體原則維持 7 班（一A 本批無 ERP 實體 token，不因 alias 覆蓋而謊報實體出現）
+    // aliasCovered 另立欄位獨立展示（一A 恰 1 班）
     const aliases = [{ rawBaseName: '國小數學-一', targetBaseName: '國小數學-一A' }];
     const dualWithAlias = classifyErpDualTrack(erpBaseNames, SEED_BASE_NAMES, aliases);
     expect(dualWithAlias.activeView.unmatchedCount).toBe(11);
     expect(dualWithAlias.activeView.matchedCount).toBe(43);
+
+    // F1: activeNotAppeared 不應把一A 從未出現清單移除（目前程式碼會移除變成 6）
+    expect(dualWithAlias.activeView.seedNotAppearedCount).toBe(7);
+    expect(dualWithAlias.activeView.seedNotAppeared).toContain('國小數學-一A');
+    expect(dualWithAlias.activeView.aliasCoveredCount).toBe(1);
+    expect(dualWithAlias.activeView.aliasCovered).toContain('國小數學-一A');
   });
 
   it('5. 逐 token 勾選後發起一次整表 dry-run preview 衝擊驗證（D18 13人/-0.5天/5→18，D22 不改天數）', async () => {
@@ -154,6 +162,5 @@ describe('D2 Task 3: 具名候選擴充（D18 + D22）與雙軌對照整合測�
     expect(body.affectedStudents).toBe(13);
     expect(body.mismatchBefore).toBe(5);
     expect(body.mismatchAfter).toBe(18);
-    // D22 不參與衝堂抽取，不額外增加 affectedStudents
   });
 });

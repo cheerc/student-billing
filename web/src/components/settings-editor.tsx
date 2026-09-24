@@ -15,7 +15,8 @@ interface Candidate {
   rawBaseName: string;
   targetBaseName: string;
   reason: string;
-  category?: 'D18' | 'D22' | string;
+  category?: 'D18' | 'D22';
+  isValid?: boolean;
 }
 
 const TIME_FORMAT_REGEX = /^([01]\d|2[0-3]):([0-5]\d)$/;
@@ -265,12 +266,23 @@ export default function SettingsEditor({
             const checked = draft.aliases.some(
               (a) => a.rawBaseName === c.rawBaseName && a.targetBaseName === c.targetBaseName
             );
+            const isTargetValid = c.isValid !== false;
             return (
-              <label key={`${c.rawBaseName}→${c.targetBaseName}`} style={{ display: 'flex', gap: '8px', alignItems: 'center', fontSize: '0.875rem' }}>
+              <label
+                key={`${c.rawBaseName}→${c.targetBaseName}`}
+                style={{
+                  display: 'flex',
+                  gap: '8px',
+                  alignItems: 'center',
+                  fontSize: '0.875rem',
+                  opacity: isTargetValid ? 1 : 0.6,
+                }}
+              >
                 <input
                   type="checkbox"
                   checked={checked}
-                  onChange={() => toggleAlias(c.rawBaseName, c.targetBaseName)}
+                  disabled={!isTargetValid}
+                  onChange={() => isTargetValid && toggleAlias(c.rawBaseName, c.targetBaseName)}
                 />
                 <span>
                   {c.category && (
@@ -278,6 +290,11 @@ export default function SettingsEditor({
                   )}
                   <strong>{c.rawBaseName}</strong> → <strong>{c.targetBaseName}</strong>
                   <span style={{ color: 'var(--text-muted)', marginLeft: '8px' }}>{c.reason}</span>
+                  {!isTargetValid && (
+                    <span style={{ color: '#ef4444', fontSize: '0.75rem', marginLeft: '6px' }}>
+                      （目標班級已停用或未設定）
+                    </span>
+                  )}
                 </span>
               </label>
             );
