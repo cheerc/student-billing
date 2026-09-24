@@ -80,6 +80,7 @@ export const KNOWN_ISSUE_CODES = new Set([
   'SCHEDULE_NOT_FOUND',
   'SCHEDULE_EMPTY',
   'SCHEDULE_INCOMPLETE',
+  'UNKNOWN_WEEKDAY',
 ]);
 
 export const VALID_TIER_COMPARISONS = new Set([

@@ -66,6 +66,7 @@ export function activateImport(
         expectedRevision,
         asOfDate: options.asOfDate || '',
         scheduleVersionId: options.scheduleVersionId || '',
+        ruleSetVersion: (options as any).ruleSetVersion || 'erp-tag-v2',
       })
     )
     .digest('hex');

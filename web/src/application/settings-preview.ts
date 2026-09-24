@@ -101,7 +101,7 @@ export function previewSettingsChange(
   }
   const { draft, expectedRevision } = parsed.data;
 
-  const active = db.prepare('SELECT revision FROM active_state WHERE id = 1').get() as any;
+  const active = db.prepare('SELECT revision, active_run_id FROM active_state WHERE id = 1').get() as any;
   if (!active) throw new SettingsPreviewError(500, 'ActiveState 未初始化');
   if (active.revision !== expectedRevision) {
     throw new SettingsPreviewError(
@@ -122,6 +122,15 @@ export function previewSettingsChange(
   const aliasMap = draftToAliasMap(draft);
   const scheduleOverride = draftToScheduleOverride(draft);
 
+  // 取得目前 active run 之 ruleSetVersion（若無則預設為最新正式軌 erp-tag-v2）
+  let formalRuleSetVersion = 'erp-tag-v2';
+  if (active.active_run_id) {
+    const runRow = db.prepare('SELECT rule_set_version FROM calculation_runs WHERE id = ?').get(active.active_run_id) as any;
+    if (runRow?.rule_set_version) {
+      formalRuleSetVersion = runRow.rule_set_version;
+    }
+  }
+
   const dayDeltas: SettingsPreviewResult['dayDeltas'] = [];
   const tierTransitions: TierTransition[] = [];
   let mismatchBefore = 0;
@@ -130,9 +139,9 @@ export function previewSettingsChange(
   let issuesAfter = 0;
 
   for (const stu of students) {
-    // 預覽僅跑正式軌 erp-tag-v1（不跑 compat 診斷以保證反應速度）
-    const before = calculateStudentBilling(stu, { ruleSetVersion: 'erp-tag-v1' });
-    const after = calculateStudentBilling(stu, { aliasMap, scheduleOverride, ruleSetVersion: 'erp-tag-v1' });
+    // 預覽僅跑正式軌（不跑 compat 診斷以保證反應速度）
+    const before = calculateStudentBilling(stu, { ruleSetVersion: formalRuleSetVersion as any });
+    const after = calculateStudentBilling(stu, { aliasMap, scheduleOverride, ruleSetVersion: formalRuleSetVersion as any });
 
     const beforeDays = stu.grade !== null && stu.grade <= 2
       ? before.careDays.anqin.days

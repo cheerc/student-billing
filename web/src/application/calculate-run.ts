@@ -1,6 +1,6 @@
 import Database from 'better-sqlite3';
 import { StudentSnapshot, ParsedToken } from '@/domain/students';
-import { calculateStudentBilling } from '@/domain/billing/billing-calculator';
+import { calculateStudentBilling, RuleSetVersion } from '@/domain/billing/billing-calculator';
 import { CalculationRunRecord, StudentCalculationRecord } from '@/adapters/sqlite/runs-repository';
 import seedData from '@/domain/schedules/schedule-seed.json';
 
@@ -11,12 +11,12 @@ for (const cls of seedData.classes) {
 
 export interface CalculateRunOptions {
   scheduleVersionId?: string;
-  ruleSetVersion?: string;
+  ruleSetVersion?: RuleSetVersion | string;
   numericPolicy?: string;
   asOfDate?: string;
   /** T05: 設定覆寫（alias 映射與自訂時段），無則使用 seed 預設 */
   aliasMap?: Map<string, string>;
-  scheduleOverride?: Map<string, Array<{ start: number; end: number }>>;
+  scheduleOverride?: Map<string, Array<{ start: number; end: number; weekday?: string | null }>>;
 }
 
 export function executeCalculationRun(
@@ -26,7 +26,7 @@ export function executeCalculationRun(
   options: CalculateRunOptions = {}
 ): { run: CalculationRunRecord; results: StudentCalculationRecord[] } {
   const scheduleVersionId = options.scheduleVersionId || 'seed-v250922';
-  const ruleSetVersion = options.ruleSetVersion || 'erp-tag-v1';
+  const ruleSetVersion = options.ruleSetVersion || 'erp-tag-v2';
   const numericPolicy = options.numericPolicy || 'integer-minute-rational-v1';
   const asOfDate = options.asOfDate || new Date().toISOString().split('T')[0];
   const now = new Date().toISOString();
@@ -88,7 +88,7 @@ export function executeCalculationRun(
 
     // 正式軌計算
     const formal = calculateStudentBilling(student, {
-      ruleSetVersion: 'erp-tag-v1',
+      ruleSetVersion: ruleSetVersion as any,
       aliasMap: options.aliasMap,
       scheduleOverride: options.scheduleOverride,
     });

@@ -83,7 +83,8 @@ export async function GET(
         sourceRow: row.source_row,
       };
 
-      const formal = calculateStudentBilling(student, { ruleSetVersion: 'erp-tag-v1' });
+      const formalRuleSet = (run.ruleSetVersion as any) || 'erp-tag-v2';
+      const formal = calculateStudentBilling(student, { ruleSetVersion: formalRuleSet });
       const compat = calculateStudentBilling(student, { ruleSetVersion: 'excel-v260922-compat' });
 
       // 比較基本折扣率差異

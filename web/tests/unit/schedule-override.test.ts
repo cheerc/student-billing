@@ -37,6 +37,6 @@ describe('N2: draftToScheduleOverride 空 sessions 語義', () => {
     draft.classes[0].sessions = [{ weekday: '四', startMinutes: 900, endMinutes: 990 }];
     const override = draftToScheduleOverride(draft);
     expect(override.size).toBe(1);
-    expect(override.get('國小數學-一A')).toEqual([{ start: 900, end: 990 }]);
+    expect(override.get('國小數學-一A')).toEqual([{ start: 900, end: 990, weekday: '四' }]);
   });
 });

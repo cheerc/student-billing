@@ -117,7 +117,7 @@ describe('T06: 剩餘 P1 讀取端點整合測試 (03 §5)', () => {
     const body = await res.json();
     expect(body.id).toBe(runId);
     expect(body.isActive).toBe(true);
-    expect(body.ruleSetVersion).toBe('erp-tag-v1');
+    expect(body.ruleSetVersion).toBe('erp-tag-v2');
     expect(body.numericPolicy).toBe('integer-minute-rational-v1');
   });
 
@@ -152,5 +152,35 @@ describe('T06: 剩餘 P1 讀取端點整合測試 (03 §5)', () => {
     expect(body.items[0]).toHaveProperty('studentCount');
     expect(body.items[0]).toHaveProperty('mappingStatus');
     expect(body.items[0]).toHaveProperty('isConfigured');
+  });
+
+  it('POST /api/v1/imports/[previewId]/activate 指定 ruleSetVersion: erp-tag-v1 應建立 erp-tag-v1 之 run（舊版本不可變契約）', async () => {
+    const db = getDatabase();
+    const active = db.prepare('SELECT revision FROM active_state WHERE id = 1').get() as any;
+
+    const activateReq = new NextRequest(
+      `http://127.0.0.1:3000/api/v1/imports/${previewId}/activate`,
+      {
+        method: 'POST',
+        headers: { host: '127.0.0.1:3000', origin: 'http://127.0.0.1:3000' },
+        body: JSON.stringify({
+          expectedRevision: active.revision,
+          idempotencyKey: 'test-v1-explicit-key',
+          ruleSetVersion: 'erp-tag-v1',
+        }),
+      }
+    );
+    const activateRes = await activatePOST(activateReq, {
+      params: Promise.resolve({ previewId }),
+    });
+    expect(activateRes.status).toBe(200);
+    const actBody = await activateRes.json();
+
+    const req = new NextRequest(`http://127.0.0.1:3000/api/v1/runs/${actBody.runId}`);
+    const res = await singleRunGET(req, { params: Promise.resolve({ runId: actBody.runId }) });
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.id).toBe(actBody.runId);
+    expect(body.ruleSetVersion).toBe('erp-tag-v1');
   });
 });

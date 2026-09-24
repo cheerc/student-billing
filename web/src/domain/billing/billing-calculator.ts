@@ -14,15 +14,18 @@ import { detectStudentIssues, compareTier } from './issues-detector';
 import {
   calculateClassDeductionD24,
   calculateClassDeductionCompat,
+  isUnknownWeekday,
 } from '../schedules/overlap-calculator';
 import seedData from '../schedules/schedule-seed.json';
 
+export type RuleSetVersion = 'erp-tag-v1' | 'excel-v260922-compat' | 'erp-tag-v2';
+
 export interface CalculationOptions {
-  ruleSetVersion?: 'erp-tag-v1' | 'excel-v260922-compat';
+  ruleSetVersion?: RuleSetVersion;
   /** T05: alias 覆寫（rawToken baseName → seed baseName），不自動批准時為空 */
   aliasMap?: Map<string, string>;
   /** T05: schedule 覆寫（seed baseName → 時段 sessions），供設定維護自訂時段 */
-  scheduleOverride?: Map<string, Array<{ start: number; end: number }>>;
+  scheduleOverride?: Map<string, Array<{ start: number; end: number; weekday?: string | null }>>;
 }
 
 const seedClassMap = new Map<string, any>();
@@ -37,10 +40,10 @@ for (const cls of seedData.classes) {
 export function resolveClassSessions(
   token: ParsedToken | undefined,
   aliasMap: Map<string, string> | undefined,
-  scheduleOverride: Map<string, Array<{ start: number; end: number }>> | undefined,
+  scheduleOverride: Map<string, Array<{ start: number; end: number; weekday?: string | null }>> | undefined,
   classMap: Map<string, any> = seedClassMap
 ): {
-  sessions: Array<{ start: number; end: number }>;
+  sessions: Array<{ start: number; end: number; weekday?: string | null }>;
   status: string;
   resolvedBaseName: string | null;
 } {
@@ -71,7 +74,11 @@ export function resolveClassSessions(
     return { sessions: [], status: 'schedule_empty', resolvedBaseName };
   }
   return {
-    sessions: valid.map((s: any) => ({ start: s.startMinutes, end: s.endMinutes })),
+    sessions: valid.map((s: any) => ({
+      start: s.startMinutes,
+      end: s.endMinutes,
+      weekday: s.weekday ?? null,
+    })),
     status: 'calculated',
     resolvedBaseName,
   };
@@ -79,18 +86,27 @@ export function resolveClassSessions(
 
 /**
  * T05: 以已解析時段計算安親/課輔扣天。
+ * v2 同星期路徑下未知星期（缺失或無法識別）一律 fail-closed 為 0，並回傳 unknownWeekdayCount 供告警。
  */
 function deductSessions(
-  sessions: Array<{ start: number; end: number }>,
-  isCompat: boolean
-): { anqin: number; tutoring: number } {
+  sessions: Array<{ start: number; end: number; weekday?: string | null }>,
+  ruleSetVersion: RuleSetVersion = 'erp-tag-v2'
+): { anqin: number; tutoring: number; unknownWeekdayCount: number } {
+  const isCompat = ruleSetVersion === 'excel-v260922-compat';
+  const sameWeekdayOnly = ruleSetVersion === 'erp-tag-v2';
+  const options = { sameWeekdayOnly };
+
+  const unknownWeekdayCount = sameWeekdayOnly
+    ? sessions.filter((s) => isUnknownWeekday(s.weekday)).length
+    : 0;
+
   const anqinRes = isCompat
     ? calculateClassDeductionCompat(sessions, 'anqin')
-    : calculateClassDeductionD24(sessions, 'anqin');
+    : calculateClassDeductionD24(sessions, 'anqin', options);
   const tutoringRes = isCompat
     ? calculateClassDeductionCompat(sessions, 'tutoring')
-    : calculateClassDeductionD24(sessions, 'tutoring');
-  return { anqin: anqinRes.rounded, tutoring: tutoringRes.rounded };
+    : calculateClassDeductionD24(sessions, 'tutoring', options);
+  return { anqin: anqinRes.rounded, tutoring: tutoringRes.rounded, unknownWeekdayCount };
 }
 
 /**
@@ -100,7 +116,8 @@ export function calculateStudentBilling(
   student: StudentSnapshot,
   options: CalculationOptions = {}
 ): StudentBillingCalculation {
-  const isCompat = options.ruleSetVersion === 'excel-v260922-compat';
+  const ruleSetVersion: RuleSetVersion = options.ruleSetVersion || 'erp-tag-v2';
+  const isCompat = ruleSetVersion === 'excel-v260922-compat';
 
   // 1. 標籤 / 備註折扣來源解析 (02 §1 & §5: formal 讀標籤, compat 讀備註)
   const discountSourceText = isCompat ? student.notesRaw : student.tagsRaw;
@@ -123,11 +140,13 @@ export function calculateStudentBilling(
   let mathAnqinDed = 0;
   let mathTutoringDed = 0;
   let mathScheduleStatus = mathSessions.status;
+  let unknownWeekdayCount = 0;
 
   if (mathSessions.status === 'calculated') {
-    const ded = deductSessions(mathSessions.sessions, isCompat);
+    const ded = deductSessions(mathSessions.sessions, ruleSetVersion);
     mathAnqinDed = ded.anqin;
     mathTutoringDed = ded.tutoring;
+    unknownWeekdayCount += ded.unknownWeekdayCount;
   }
 
   // 找第一個兒童美語
@@ -139,9 +158,10 @@ export function calculateStudentBilling(
   let englishTutoringDed = 0;
 
   if (englishSessions.status === 'calculated') {
-    const ded = deductSessions(englishSessions.sessions, isCompat);
+    const ded = deductSessions(englishSessions.sessions, ruleSetVersion);
     englishAnqinDed = ded.anqin;
     englishTutoringDed = ded.tutoring;
+    unknownWeekdayCount += ded.unknownWeekdayCount;
   }
 
   // 4. 計算安親與課輔每週收費天數 (R11, R12)
@@ -192,6 +212,8 @@ export function calculateStudentBilling(
     let schStatus = 'calculated';
     if (mathScheduleStatus !== 'calculated' && mathScheduleStatus !== 'no_enrollment') {
       schStatus = mathScheduleStatus;
+    } else if (ruleSetVersion === 'erp-tag-v2' && unknownWeekdayCount > 0) {
+      schStatus = 'schedule_incomplete';
     }
 
     const comp = compareTier({
@@ -221,6 +243,14 @@ export function calculateStudentBilling(
     issues.push({
       code: 'SCHEDULE_NOT_FOUND',
       message: `學生報名之數學班級「${mathToken?.rawToken}」未於排課種子中找到，天數採 0 扣天 fallback，待確認排課或 alias 對應。`,
+    });
+  }
+
+  // F3/K2: v2 同星期路徑下未知星期（缺失或無法識別）一律 fail-closed 為 0，並出告警＋needs_review，不靜默
+  if (ruleSetVersion === 'erp-tag-v2' && unknownWeekdayCount > 0) {
+    issues.push({
+      code: 'UNKNOWN_WEEKDAY',
+      message: `排課時段含 ${unknownWeekdayCount} 筆未知星期（缺失或無法識別），v2 同星期規則下該時段衝堂一律計為 0，請核對排課星期欄。`,
     });
   }
 

@@ -171,6 +171,28 @@ describe('U01–U14: 時段重疊、單堂扣天與取整規則測試', () => {
     expect(res.rounded).toBe(-0.5);
   });
 
+  it('U13: 同日兩堂重疊／週六一堂 (erp-tag-v1 照每列相加不做星期排除；erp-tag-v2 週六重疊為 0)', () => {
+    // 1. 同日兩堂時間重疊照每列相加，不做 union 去重 (週一 13:00–14:30 與 14:00–15:30 各 90 分鐘，共 180 分鐘)
+    const sameDaySessions = [
+      { start: 780, end: 870, weekday: '一' }, // 90 分鐘
+      { start: 840, end: 930, weekday: '一' }, // 90 分鐘
+    ];
+    const resSameDay = calculateClassDeductionD24(sameDaySessions, 'anqin', { sameWeekdayOnly: true });
+    expect(resSameDay.totalOverlapMinutes).toBe(180);
+    expect(resSameDay.rounded).toBe(-1);
+
+    // 2. 週六一堂 13:00–15:00 (120 分鐘)
+    // 舊版 erp-tag-v1: sameWeekdayOnly=false，按時刻重疊算 120 分鐘 -> -0.5
+    const resV1 = calculateClassDeductionD24([{ start: 780, end: 900, weekday: '六' }], 'anqin', { sameWeekdayOnly: false });
+    expect(resV1.totalOverlapMinutes).toBe(120);
+    expect(resV1.rounded).toBe(-0.5);
+
+    // 新版 erp-tag-v2 (D30): sameWeekdayOnly=true，週六對一～五窗口重疊為 0 -> 0 天
+    const resV2 = calculateClassDeductionD24([{ start: 780, end: 900, weekday: '六' }], 'anqin', { sameWeekdayOnly: true });
+    expect(resV2.totalOverlapMinutes).toBe(0);
+    expect(resV2.rounded).toBe(0);
+  });
+
   it('DIFF-01 (原生 Excel 錨點): 同班兩堂各 18 分鐘加總 → 正式 0 天，Excel compat -0.5 天', () => {
     // 兩堂各 13:00–13:18 (780–798)
     const sessions = [

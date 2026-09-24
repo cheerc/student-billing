@@ -19,7 +19,7 @@ export async function POST(
     const previewId = sanitizePathParam(rawPreviewId, 'previewId');
 
     const body = await request.json().catch(() => ({}));
-    const { expectedRevision, idempotencyKey, asOfDate, scheduleVersionId } = body;
+    const { expectedRevision, idempotencyKey, asOfDate, scheduleVersionId, ruleSetVersion } = body;
 
     const db = getDatabase();
     const result = activateImport(db, {
@@ -28,6 +28,7 @@ export async function POST(
       idempotencyKey,
       asOfDate,
       scheduleVersionId,
+      ruleSetVersion,
     });
 
     return NextResponse.json(result, { status: 200 });
