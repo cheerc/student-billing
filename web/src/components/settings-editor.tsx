@@ -94,6 +94,11 @@ export default function SettingsEditor({
 
   const hasTimeErrors = rowTimeErrors.size > 0;
 
+  // F1 rework: 班級名稱清空檢查（與 hasTimeErrors 同級阻擋 preview）
+  const hasEmptyClassName = useMemo(() => {
+    return rows.some((r) => r.className.trim() === '');
+  }, [rows]);
+
   const toggleAlias = (raw: string, target: string) => {
     setDraft((prev) => {
       const exists = prev.aliases.some((a) => a.rawBaseName === raw && a.targetBaseName === target);
@@ -194,6 +199,10 @@ export default function SettingsEditor({
   };
 
   const doPreview = async () => {
+    if (hasEmptyClassName) {
+      setError('排課表格中存在班級名稱為空的時段列，請填寫班級名稱後再行預覽。');
+      return;
+    }
     if (hasTimeErrors) {
       setError('排課表格中存在起訖時間倒置（起大於等於迄），請修正後再行預覽。');
       return;
@@ -557,7 +566,7 @@ export default function SettingsEditor({
           type="button"
           className="btn-primary"
           onClick={doPreview}
-          disabled={busy || hasTimeErrors}
+          disabled={busy || hasTimeErrors || hasEmptyClassName}
         >
           {busy ? '處理中...' : '預覽影響 (dry-run)'}
         </button>

@@ -118,6 +118,8 @@ export function gridRowsToClasses(
 
   const grouped = new Map<string, ScheduleGridRow[]>();
   for (const r of rows) {
+    // F1 rework: 班級名稱空白（僅空白）之列直接丟棄，不產出 baseName 空字串班
+    if (r.className.trim() === '') continue;
     if (!grouped.has(r.className)) {
       grouped.set(r.className, []);
     }

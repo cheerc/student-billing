@@ -106,4 +106,17 @@ describe('PR-1 追加: 逐列改名、單列刪除、改散警告與星期可編
     const classes = gridRowsToClasses(rows);
     expect(classes[0].sessions[0].weekday).toBe('四');
   });
+
+  it('5. [RED F1 rework] 空班級名稱列應被 gridRowsToClasses 丟棄，不產出 baseName 空字串班', () => {
+    const rows: ScheduleGridRow[] = [
+      { rowId: 'r-empty', className: '   ', teacher: null, weekday: '一', startTime: '13:00', endTime: '15:00', startMinutes: 780, endMinutes: 900, active: true },
+      { rowId: 'r-1', className: '兒童美語-Gino', teacher: 'Cathy', weekday: '一', startTime: '15:20', endTime: '16:50', startMinutes: 920, endMinutes: 1010, active: true },
+    ];
+
+    const classes = gridRowsToClasses(rows);
+    // F1: 空名列不可產出 baseName 為空字串的班污染版本快照
+    expect(classes.length).toBe(1);
+    expect(classes[0].baseName).toBe('兒童美語-Gino');
+    expect(classes.every((c) => c.baseName.trim() !== '')).toBe(true);
+  });
 });
