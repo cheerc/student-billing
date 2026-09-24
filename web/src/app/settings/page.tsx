@@ -72,6 +72,8 @@ export default async function SettingsPage() {
         seedNotAppeared={dualTrack.activeView.seedNotAppeared}
         matchedCount={dualTrack.activeView.matchedCount}
         candidates={dualTrack.candidates}
+        lastAppliedRevision={latest?.revision ?? active.revision}
+        lastAppliedAt={latest?.createdAt ?? null}
       />
     </div>
   );

@@ -28,6 +28,7 @@ export interface SettingsApplyResult {
   revision: number;
   totalStudents: number;
   mismatchCount: number;
+  appliedAt: string;
 }
 
 /**
@@ -146,6 +147,7 @@ export function applySettingsPreview(
       revision: nextRevision,
       totalStudents: results.length,
       mismatchCount,
+      appliedAt: now,
     };
 
     db.prepare(

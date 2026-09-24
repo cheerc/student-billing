@@ -240,6 +240,51 @@ export function detectSplitClasses(
   return warnings;
 }
 
+export interface SettingsBaseline {
+  rows: ScheduleGridRow[];
+  aliases: Array<{ rawBaseName: string; targetBaseName: string }>;
+}
+
+/**
+ * D31: 判斷目前排課表格列或 aliases 是否相對於基準狀態有未儲存變更 (dirty)。
+ */
+export function isSettingsDirty(
+  baseline: SettingsBaseline,
+  currentRows: ScheduleGridRow[],
+  currentAliases: Array<{ rawBaseName: string; targetBaseName: string }>
+): boolean {
+  if (currentRows.length !== baseline.rows.length) return true;
+
+  for (let i = 0; i < currentRows.length; i++) {
+    const cr = currentRows[i];
+    const br = baseline.rows[i];
+    if (
+      cr.rowId !== br.rowId ||
+      cr.className !== br.className ||
+      cr.teacher !== br.teacher ||
+      cr.weekday !== br.weekday ||
+      cr.startTime !== br.startTime ||
+      cr.endTime !== br.endTime ||
+      cr.active !== br.active
+    ) {
+      return true;
+    }
+  }
+
+  if (currentAliases.length !== baseline.aliases.length) return true;
+
+  const baseAliasKeys = new Set(
+    baseline.aliases.map((a) => `${a.rawBaseName}→${a.targetBaseName}`)
+  );
+  for (const a of currentAliases) {
+    if (!baseAliasKeys.has(`${a.rawBaseName}→${a.targetBaseName}`)) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
 /** ERP alias 映射：待設定 token → 已核准 seed 班級 */
 export const AliasMappingSchema = z.object({
   rawBaseName: z.string().min(1),
