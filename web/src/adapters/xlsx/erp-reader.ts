@@ -73,17 +73,28 @@ function extractCellValue(
   // 處理 RichText
   if (typeof cell.value === 'object') {
     if ('richText' in cell.value && Array.isArray(cell.value.richText)) {
-      return cell.value.richText.map((part) => part.text || '').join('');
+      return cell.value.richText
+        .map((part) => part.text || '')
+        .join('')
+        .trim()
+        .replace(/\r\n/g, '\n')
+        .replace(/\r/g, '\n');
     }
     if (cell.value instanceof Date) {
       return cell.value.toISOString().split('T')[0];
     }
     if ('text' in cell.value && typeof cell.value.text === 'string') {
-      return cell.value.text;
+      return cell.value.text
+        .trim()
+        .replace(/\r\n/g, '\n')
+        .replace(/\r/g, '\n');
     }
   }
 
-  return String(cell.value).trim();
+  return String(cell.value)
+    .trim()
+    .replace(/\r\n/g, '\n')
+    .replace(/\r/g, '\n');
 }
 
 /**
