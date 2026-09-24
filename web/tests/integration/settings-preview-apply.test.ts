@@ -10,6 +10,7 @@ import { activateImport } from '@/application/activate-import';
 import { previewSettingsChange } from '@/application/settings-preview';
 import { applySettingsPreview } from '@/application/apply-settings';
 import { SEED_CLASSES } from '@/domain/schedules/seed-manifest';
+import { buildSeedDraft } from '@/adapters/sqlite/settings-repository';
 import { queryRunStudents } from '@/application/query-students';
 import { getCalculationRun } from '@/adapters/sqlite/runs-repository';
 
@@ -150,8 +151,7 @@ describe('T05: preview→apply 雙階段流程整合測試 (I10/I11/I15/I18/I20)
     expect(replay.revision).toBe(first.revision);
   });
 
-  it('N1: 同 key＋異 body 重送應拒絕（不靜默回放）', () => {
-    const draft = buildDraftWithAlias([
+  it('N1: 同 key＋異 body 重送應拒絕（不靜默回放）', () => {    const draft = buildDraftWithAlias([
       { rawBaseName: '國小數學-一', targetBaseName: '國小數學-一A' },
     ]);
     // 同 revision 下先建兩個不同 preview（異 body）
@@ -225,5 +225,35 @@ describe('T05: preview→apply 雙階段流程整合測試 (I10/I11/I15/I18/I20)
     // 既有 run 不受影響
     const oldStudents = queryRunStudents(db, activeRunId, { tierMismatch: true, limit: 100 });
     expect(oldStudents.totalStudents).toBe(5);
+  });
+
+  it('F1/K4: 穩態 preview 不 throw——有／無 active run 兩態皆跟隨正確正式版本', () => {
+    // 態 A：有 active run（beforeEach 已 activate，active_run_id 存在）→ 跟隨該 run 版本
+    const draftA = buildSeedDraft(SEED_CLASSES, {
+      anqin: { start: 780, end: 960 },
+      tutoring: { start: 990, end: 1170 },
+    });
+    let resA: any;
+    expect(() => {
+      resA = previewSettingsChange(db, previewId, { draft: draftA, expectedRevision: 1 });
+    }).not.toThrow();
+    expect(resA.previewId).toBeDefined();
+
+    const activeRow = db.prepare('SELECT active_run_id FROM active_state WHERE id = 1').get() as any;
+    expect(activeRow.active_run_id).toBe(activeRunId);
+    const runRow = db.prepare('SELECT rule_set_version FROM calculation_runs WHERE id = ?').get(activeRunId) as any;
+    expect(runRow.rule_set_version).toBeDefined();
+
+    // 態 B：無 active run（active_run_id 清空）→ 不 throw，預設最新正式軌 erp-tag-v2
+    db.prepare('UPDATE active_state SET active_run_id = NULL WHERE id = 1').run();
+    const draftB = buildSeedDraft(SEED_CLASSES, {
+      anqin: { start: 780, end: 960 },
+      tutoring: { start: 990, end: 1170 },
+    });
+    let resB: any;
+    expect(() => {
+      resB = previewSettingsChange(db, previewId, { draft: draftB, expectedRevision: 1 });
+    }).not.toThrow();
+    expect(resB.previewId).toBeDefined();
   });
 });

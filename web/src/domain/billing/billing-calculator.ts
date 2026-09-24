@@ -14,6 +14,7 @@ import { detectStudentIssues, compareTier } from './issues-detector';
 import {
   calculateClassDeductionD24,
   calculateClassDeductionCompat,
+  isUnknownWeekday,
 } from '../schedules/overlap-calculator';
 import seedData from '../schedules/schedule-seed.json';
 
@@ -85,14 +86,19 @@ export function resolveClassSessions(
 
 /**
  * T05: 以已解析時段計算安親/課輔扣天。
+ * v2 同星期路徑下未知星期（缺失或無法識別）一律 fail-closed 為 0，並回傳 unknownWeekdayCount 供告警。
  */
 function deductSessions(
   sessions: Array<{ start: number; end: number; weekday?: string | null }>,
   ruleSetVersion: RuleSetVersion = 'erp-tag-v2'
-): { anqin: number; tutoring: number } {
+): { anqin: number; tutoring: number; unknownWeekdayCount: number } {
   const isCompat = ruleSetVersion === 'excel-v260922-compat';
   const sameWeekdayOnly = ruleSetVersion === 'erp-tag-v2';
   const options = { sameWeekdayOnly };
+
+  const unknownWeekdayCount = sameWeekdayOnly
+    ? sessions.filter((s) => isUnknownWeekday(s.weekday)).length
+    : 0;
 
   const anqinRes = isCompat
     ? calculateClassDeductionCompat(sessions, 'anqin')
@@ -100,7 +106,7 @@ function deductSessions(
   const tutoringRes = isCompat
     ? calculateClassDeductionCompat(sessions, 'tutoring')
     : calculateClassDeductionD24(sessions, 'tutoring', options);
-  return { anqin: anqinRes.rounded, tutoring: tutoringRes.rounded };
+  return { anqin: anqinRes.rounded, tutoring: tutoringRes.rounded, unknownWeekdayCount };
 }
 
 /**
@@ -134,11 +140,13 @@ export function calculateStudentBilling(
   let mathAnqinDed = 0;
   let mathTutoringDed = 0;
   let mathScheduleStatus = mathSessions.status;
+  let unknownWeekdayCount = 0;
 
   if (mathSessions.status === 'calculated') {
     const ded = deductSessions(mathSessions.sessions, ruleSetVersion);
     mathAnqinDed = ded.anqin;
     mathTutoringDed = ded.tutoring;
+    unknownWeekdayCount += ded.unknownWeekdayCount;
   }
 
   // 找第一個兒童美語
@@ -153,6 +161,7 @@ export function calculateStudentBilling(
     const ded = deductSessions(englishSessions.sessions, ruleSetVersion);
     englishAnqinDed = ded.anqin;
     englishTutoringDed = ded.tutoring;
+    unknownWeekdayCount += ded.unknownWeekdayCount;
   }
 
   // 4. 計算安親與課輔每週收費天數 (R11, R12)
@@ -203,6 +212,8 @@ export function calculateStudentBilling(
     let schStatus = 'calculated';
     if (mathScheduleStatus !== 'calculated' && mathScheduleStatus !== 'no_enrollment') {
       schStatus = mathScheduleStatus;
+    } else if (ruleSetVersion === 'erp-tag-v2' && unknownWeekdayCount > 0) {
+      schStatus = 'schedule_incomplete';
     }
 
     const comp = compareTier({
@@ -232,6 +243,14 @@ export function calculateStudentBilling(
     issues.push({
       code: 'SCHEDULE_NOT_FOUND',
       message: `學生報名之數學班級「${mathToken?.rawToken}」未於排課種子中找到，天數採 0 扣天 fallback，待確認排課或 alias 對應。`,
+    });
+  }
+
+  // F3/K2: v2 同星期路徑下未知星期（缺失或無法識別）一律 fail-closed 為 0，並出告警＋needs_review，不靜默
+  if (ruleSetVersion === 'erp-tag-v2' && unknownWeekdayCount > 0) {
+    issues.push({
+      code: 'UNKNOWN_WEEKDAY',
+      message: `排課時段含 ${unknownWeekdayCount} 筆未知星期（缺失或無法識別），v2 同星期規則下該時段衝堂一律計為 0，請核對排課星期欄。`,
     });
   }
 

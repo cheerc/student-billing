@@ -162,6 +162,8 @@ I19另須斷言**全科別的初始對照總量**，避免只驗一般輔導子�
    - Hopper（一/三/五平日）天數完全不變。
    - D18 具名候選套用後果（13 位小一安親各 -0.5 天，mismatch 5→18）完全不變。
 3. 舊版本 `erp-tag-v1` run 結果完全不變（位元不可變快照）。
+4. 未知星期（F3/K2，方案 (a) 皆 fail-closed）：v2 下時段星期缺失或無法識別一律衝堂計 0，並出 `UNKNOWN_WEEKDAY` 告警＋`tierComparisons` 標 `SCHEDULE_INCOMPLETE`（needs_review）。U13/K2 單元測試與 `same-weekday-r01-d30.test.ts` §4 覆蓋缺失／非法／空字串三態；v1/compat 不檢查星期，行為凍結。
+5. 穩態 preview（F1/K4）與版本隔離（F2）回歸測試：`settings-preview-apply.test.ts` 覆蓋有／無 active run 兩態皆不 throw 且跟隨正確正式版本；`activate-run.test.ts` 覆蓋同 key 同版本冪等命中、同 key 異版本拒絕。
 
 ## 6. API 與瀏覽器驗收
 

@@ -56,7 +56,9 @@ export function normalizeWeekday(w: string | null | undefined): string | null {
 
 /**
  * 計算兩個時間區間之重疊分鐘數 (R01)。
- * 若提供 sessionWeekday 與 windowWeekdays，且兩者不匹配（跨星期或週末無窗口），則重疊為 0 (D30)。
+ * 若提供 windowWeekdays（v2 同星期路徑），則強制星期檢查 (D30/K2 fail-closed)：
+ * session 星期缺失（null/undefined）或無法識別皆視為未知，一律重疊為 0。
+ * 未提供 windowWeekdays 時（v1/compat 舊呼叫）保持純時刻比對。
  */
 export function calculateOverlapMinutes(
   start: number,
@@ -66,12 +68,7 @@ export function calculateOverlapMinutes(
   sessionWeekday?: string | null,
   windowWeekdays?: readonly string[] | string[]
 ): number {
-  if (
-    sessionWeekday !== undefined &&
-    sessionWeekday !== null &&
-    windowWeekdays !== undefined &&
-    windowWeekdays !== null
-  ) {
+  if (windowWeekdays !== undefined && windowWeekdays !== null) {
     const normSession = normalizeWeekday(sessionWeekday);
     const normWindows = windowWeekdays.map((w) => normalizeWeekday(w)).filter(Boolean);
     if (!normSession || !normWindows.includes(normSession)) {
@@ -80,6 +77,13 @@ export function calculateOverlapMinutes(
   }
   const overlap = Math.min(end, windowEnd) - Math.max(start, windowStart);
   return Math.max(0, overlap);
+}
+
+/**
+ * 判斷單一星期值是否為未知（缺失或無法識別）。v2 同星期路徑下未知一律 fail-closed 為 0。
+ */
+export function isUnknownWeekday(w: string | null | undefined): boolean {
+  return normalizeWeekday(w) === null;
 }
 
 /**

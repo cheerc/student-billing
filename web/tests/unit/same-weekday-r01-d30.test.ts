@@ -95,6 +95,18 @@ describe('D30 / R01: 衝堂計算改為同星期才算（新 ruleSet 版本 erp-
       expect(normalizeWeekday('')).toBeNull();
       expect(normalizeWeekday('未知')).toBeNull();
     });
+
+    it('K2: v2 同星期路徑下星期缺失與非法字串皆 fail-closed 為 0（與 spec 二選一 (a) 一致）', () => {
+      // 缺失 null
+      expect(calculateOverlapMinutes(780, 900, 780, 960, null, CARE_WINDOW_WEEKDAYS)).toBe(0);
+      // 缺失 undefined（顯式傳入 windowWeekdays 即強制檢查）
+      expect(calculateOverlapMinutes(780, 900, 780, 960, undefined, CARE_WINDOW_WEEKDAYS)).toBe(0);
+      // 非法字串
+      expect(calculateOverlapMinutes(780, 900, 780, 960, '未知', CARE_WINDOW_WEEKDAYS)).toBe(0);
+      expect(calculateOverlapMinutes(780, 900, 780, 960, 'XYZ', CARE_WINDOW_WEEKDAYS)).toBe(0);
+      // 空字串
+      expect(calculateOverlapMinutes(780, 900, 780, 960, '', CARE_WINDOW_WEEKDAYS)).toBe(0);
+    });
   });
 
   describe('2. calculateClassDeductionD24 扣天計算與版本差異 (RED)', () => {
@@ -259,6 +271,97 @@ describe('D30 / R01: 衝堂計算改為同星期才算（新 ruleSet 版本 erp-
       });
 
       expect(resDefault.careDays.anqin.days).toBe(5);
+    });
+  });
+
+  describe('4. F3/K2: v2 未知星期告警＋needs_review（不靜默）', () => {
+    const unknownStudent: StudentSnapshot = {
+      personCode: 'TEST002',
+      name: '未知星期生',
+      branch: '本校',
+      gradeRaw: '小一',
+      grade: 1,
+      gradeStatus: 'valid',
+      contact: '0900000000',
+      schoolInfo: null,
+      tagsRaw: '',
+      tags: [],
+      notesRaw: '',
+      enrollments: [
+        {
+          rawToken: '國小輔導-一[團]',
+          yearPrefix: null,
+          baseName: '國小輔導-一',
+          groupFlag: '團',
+          modifiers: [],
+          withdrawalDate: null,
+          erpBillingTierRaw: null,
+          erpBillingTier: 5,
+          tierParseStatus: 'defaulted',
+          parseStatus: 'ok',
+        },
+        {
+          rawToken: '國小數學-未知班[團]',
+          yearPrefix: null,
+          baseName: '國小數學-未知班',
+          groupFlag: '團',
+          modifiers: [],
+          withdrawalDate: null,
+          erpBillingTierRaw: null,
+          erpBillingTier: null,
+          tierParseStatus: 'not_applicable',
+          parseStatus: 'ok',
+        },
+      ],
+      sourceRow: 11,
+    };
+
+    it('v2: 星期缺失（null）時段 fail-closed 為 0，並出 UNKNOWN_WEEKDAY 告警＋needs_review', () => {
+      const override = new Map<string, Array<{ start: number; end: number; weekday?: string | null }>>([
+        ['國小數學-未知班', [{ start: 780, end: 900, weekday: null }]],
+      ]);
+      const res = calculateStudentBilling(unknownStudent, {
+        ruleSetVersion: 'erp-tag-v2',
+        scheduleOverride: override as any,
+      });
+
+      // 未知星期 fail-closed：不扣天
+      expect(res.careDays.anqin.days).toBe(5);
+      // 告警存在
+      expect(res.issues.some((i) => i.code === 'UNKNOWN_WEEKDAY')).toBe(true);
+      expect(res.hasIssues).toBe(true);
+      // needs_review：tierComparisons 帶 SCHEDULE_INCOMPLETE
+      expect(res.tierComparisons.every((c) => c.needsReview)).toBe(true);
+      expect(res.tierComparisons.every((c) => c.issues.includes('SCHEDULE_INCOMPLETE'))).toBe(true);
+    });
+
+    it('v2: 非法星期字串時段 fail-closed 為 0，並出 UNKNOWN_WEEKDAY 告警＋needs_review', () => {
+      const override = new Map<string, Array<{ start: number; end: number; weekday?: string | null }>>([
+        ['國小數學-未知班', [{ start: 780, end: 900, weekday: '未知' }]],
+      ]);
+      const res = calculateStudentBilling(unknownStudent, {
+        ruleSetVersion: 'erp-tag-v2',
+        scheduleOverride: override as any,
+      });
+
+      expect(res.careDays.anqin.days).toBe(5);
+      expect(res.issues.some((i) => i.code === 'UNKNOWN_WEEKDAY')).toBe(true);
+      expect(res.hasIssues).toBe(true);
+      expect(res.tierComparisons.every((c) => c.needsReview)).toBe(true);
+    });
+
+    it('v1: 同一未知星期時段不告警、不改 needs_review（舊版本行為凍結）', () => {
+      const override = new Map<string, Array<{ start: number; end: number; weekday?: string | null }>>([
+        ['國小數學-未知班', [{ start: 780, end: 900, weekday: null }]],
+      ]);
+      const res = calculateStudentBilling(unknownStudent, {
+        ruleSetVersion: 'erp-tag-v1',
+        scheduleOverride: override as any,
+      });
+
+      // v1 照時刻算：120 分鐘 -> -0.5 -> 4.5 天
+      expect(res.careDays.anqin.days).toBe(4.5);
+      expect(res.issues.some((i) => i.code === 'UNKNOWN_WEEKDAY')).toBe(false);
     });
   });
 });

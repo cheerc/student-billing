@@ -158,6 +158,34 @@ describe('T04: 計算生命週期、CAS 409 啟用與總表查詢整合測試 (I
     expect(actRes.issueCounts['SCHEDULE_NOT_FOUND']).toBe(13);
   });
 
+  it('F2: 同 key 不同 ruleSetVersion 不互相命中（版本隔離），同 key 同版本重送回原 run', () => {
+    const resV2 = activateImport(db, {
+      importId: previewId,
+      expectedRevision: 0,
+      idempotencyKey: 'key-f2-isolation',
+      ruleSetVersion: 'erp-tag-v2',
+    });
+
+    // 同 key＋同版本＋同 body → 回原結果（冪等命中）
+    const replay = activateImport(db, {
+      importId: previewId,
+      expectedRevision: 0,
+      idempotencyKey: 'key-f2-isolation',
+      ruleSetVersion: 'erp-tag-v2',
+    });
+    expect(replay.runId).toBe(resV2.runId);
+
+    // 同 key＋不同版本 → 不得靜默回錯版 run，必須拒絕
+    expect(() =>
+      activateImport(db, {
+        importId: previewId,
+        expectedRevision: 0,
+        idempotencyKey: 'key-f2-isolation',
+        ruleSetVersion: 'erp-tag-v1',
+      })
+    ).toThrowError(/不同的請求內容/);
+  });
+
   it('D30 / I17: erp-tag-v2 與 erp-tag-v1 雙版本對照驗證，在 seed 基準下 477 筆學生計算天數完全一致且版本記錄精確', () => {
     // 1. 啟用預設 erp-tag-v2 run
     const actV2 = activateImport(db, {

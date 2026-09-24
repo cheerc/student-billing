@@ -101,7 +101,7 @@ export function previewSettingsChange(
   }
   const { draft, expectedRevision } = parsed.data;
 
-  const active = db.prepare('SELECT revision FROM active_state WHERE id = 1').get() as any;
+  const active = db.prepare('SELECT revision, active_run_id FROM active_state WHERE id = 1').get() as any;
   if (!active) throw new SettingsPreviewError(500, 'ActiveState 未初始化');
   if (active.revision !== expectedRevision) {
     throw new SettingsPreviewError(
@@ -125,7 +125,7 @@ export function previewSettingsChange(
   // 取得目前 active run 之 ruleSetVersion（若無則預設為最新正式軌 erp-tag-v2）
   let formalRuleSetVersion = 'erp-tag-v2';
   if (active.active_run_id) {
-    const runRow = db.prepare('SELECT rule_set_version FROM runs WHERE id = ?').get(active.active_run_id) as any;
+    const runRow = db.prepare('SELECT rule_set_version FROM calculation_runs WHERE id = ?').get(active.active_run_id) as any;
     if (runRow?.rule_set_version) {
       formalRuleSetVersion = runRow.rule_set_version;
     }
