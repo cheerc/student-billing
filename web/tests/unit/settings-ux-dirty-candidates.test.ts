@@ -137,6 +137,43 @@ describe('D31 & D32-B: 設定頁 UX（未儲存提示＋候選已對齊隱藏）
       expect(typeof applyRes.appliedAt).toBe('string');
       expect(new Date(applyRes.appliedAt).getTime()).not.toBeNaN();
     });
+
+    it('8. [RED F1] 改格後或套用後舊 previewId 不得殘留或被重複送出 (409 CAS 防護)', async () => {
+      const db = getDatabase();
+      const draft = buildSeedDraft();
+      draft.aliases = [{ rawBaseName: '國小數學-一', targetBaseName: '國小數學-一A' }];
+
+      // 產生第一次預覽 (expectedRevision: 1)
+      const preview1 = previewSettingsChange(db, importId, { draft, expectedRevision: 1 });
+      expect(preview1.previewId).toBeDefined();
+
+      // 套用第一次預覽 -> revision 推進至 2
+      const applyRes1 = applySettingsPreview(db, {
+        previewId: preview1.previewId,
+        expectedRevision: 1,
+        idempotencyKey: `ux-apply-once-${Date.now()}`,
+      });
+      expect(applyRes1.revision).toBe(2);
+
+      // 改格後若未重新預覽，直接重複送出舊 previewId（無論帶舊 revision 1 或新 revision 2）皆被拒絕
+      // 1. 帶舊 revision 1 -> 409 版本衝突 (REVISION_CONFLICT)
+      expect(() => {
+        applySettingsPreview(db, {
+          previewId: preview1.previewId,
+          expectedRevision: 1,
+          idempotencyKey: `ux-apply-stale-rev1-${Date.now()}`,
+        });
+      }).toThrowError(/版本衝突/);
+
+      // 2. 帶新 revision 2 -> 409 版本衝突（因為 preview1 建立時 expectedRevision 是 1，與請求 2 衝突）
+      expect(() => {
+        applySettingsPreview(db, {
+          previewId: preview1.previewId,
+          expectedRevision: 2,
+          idempotencyKey: `ux-apply-stale-rev2-${Date.now()}`,
+        });
+      }).toThrowError(/版本衝突/);
+    });
   });
 
   describe('D32-B: 候選已對齊自動隱藏 (filterVisibleCandidates & classifyErpDualTrack)', () => {

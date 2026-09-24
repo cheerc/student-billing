@@ -295,6 +295,7 @@ export default function SettingsEditor({
         throw new Error(json.error || '套用失敗');
       }
       setApplied(json);
+      setPreview(null);
       if (json.revision) {
         setLastApplied({
           revision: json.revision,
