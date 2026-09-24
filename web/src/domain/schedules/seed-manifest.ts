@@ -58,7 +58,7 @@ export const SEED_CLASS_RAW_NAMES = [
   '兒童美語-EB[團]',
 ] as const;
 
-function deriveSubject(baseName: string): string {
+export function deriveSubject(baseName: string): string {
   if (baseName.includes('美語')) return '兒童美語';
   if (baseName.includes('數學')) return '國小數學';
   if (baseName.includes('國語文')) return '國小國語文';

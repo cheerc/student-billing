@@ -67,6 +67,19 @@ export function applySettingsPreview(
   if (!preview) {
     throw new SettingsApplyError(404, `找不到設定預覽 ${previewId}（可能已過期或 previewId 錯誤）`, 'PREVIEW_NOT_FOUND');
   }
+
+  // TTL 逾期檢查 (15 分鐘失效，回 400 PREVIEW_EXPIRED)
+  if (preview.expiresAt) {
+    const expiresTime = new Date(preview.expiresAt).getTime();
+    if (Date.now() > expiresTime) {
+      throw new SettingsApplyError(
+        400,
+        `設定預覽已逾期 (PREVIEW_EXPIRED)：預覽有效期限為 15 分鐘，請重新執行 dry-run 預覽後再套用。`,
+        'PREVIEW_EXPIRED'
+      );
+    }
+  }
+
   if (preview.expectedRevision !== expectedRevision) {
     throw new SettingsApplyError(
       409,

@@ -2,7 +2,7 @@ import Link from 'next/link';
 import { getDatabase } from '@/adapters/sqlite';
 import { getLatestReadyBatch } from '@/adapters/sqlite/import-repository';
 import { getCurrentActiveRun } from '@/adapters/sqlite/runs-repository';
-import { getLatestSettingsVersion } from '@/adapters/sqlite/settings-repository';
+import { getLatestSettingsVersion, buildSeedDraft } from '@/adapters/sqlite/settings-repository';
 import { SEED_CLASSES, classifyErpBaseNames } from '@/domain/schedules/seed-manifest';
 import { SettingsDraft } from '@/contracts/settings';
 import SettingsEditor from '@/components/settings-editor';
@@ -48,22 +48,10 @@ export default async function SettingsPage() {
   const latest = getLatestSettingsVersion(db);
   const initialDraft: SettingsDraft = latest
     ? (JSON.parse(latest.contentJson) as SettingsDraft)
-    : {
-        classes: SEED_CLASSES.map((c) => ({
-          baseName: c.baseName,
-          subject: c.subject,
-          teacher: null,
-          active: true,
-          sessions: [],
-        })),
-        aliases: [],
-        careWindows: {
-          anqin: { startMinutes: 780, endMinutes: 960 },
-          tutoring: { startMinutes: 990, endMinutes: 1170 },
-        },
-        effectiveFrom: null,
-        effectiveTo: null,
-      };
+    : buildSeedDraft(SEED_CLASSES, {
+        anqin: { start: 780, end: 960 },
+        tutoring: { start: 990, end: 1170 },
+      });
 
   return (
     <div>
