@@ -15,6 +15,7 @@ interface Candidate {
   rawBaseName: string;
   targetBaseName: string;
   reason: string;
+  category?: 'D18' | 'D22' | string;
 }
 
 const TIME_FORMAT_REGEX = /^([01]\d|2[0-3]):([0-5]\d)$/;
@@ -254,10 +255,10 @@ export default function SettingsEditor({
         </div>
       </div>
 
-      {/* D18 候選區 */}
+      {/* 具名漂移候選確認（D18 ＋ D22） */}
       <div className="table-container" style={{ marginBottom: '20px' }}>
         <div className="table-header">
-          <div className="table-title">D18 已確認候選（需人工一次確認，軟體不自動批准）</div>
+          <div className="table-title">具名漂移候選確認（D18 ＋ D22，需人工逐項確認，軟體不自動批准）</div>
         </div>
         <div style={{ padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
           {candidates.map((c) => {
@@ -272,6 +273,9 @@ export default function SettingsEditor({
                   onChange={() => toggleAlias(c.rawBaseName, c.targetBaseName)}
                 />
                 <span>
+                  {c.category && (
+                    <span className="badge" style={{ fontSize: '0.75rem', marginRight: '6px' }}>{c.category}</span>
+                  )}
                   <strong>{c.rawBaseName}</strong> → <strong>{c.targetBaseName}</strong>
                   <span style={{ color: 'var(--text-muted)', marginLeft: '8px' }}>{c.reason}</span>
                 </span>
