@@ -25,8 +25,9 @@ test.describe('T05 設定 preview→apply E2E', () => {
     await expect(page.locator('.table-title', { hasText: '待設定清單（12）' })).toBeVisible();
     await expect(page.locator('.table-title', { hasText: 'seed 本批未出現（7）' })).toBeVisible();
 
-    // 5. 勾選 D18 候選 數學一 → 一A
+    // 5. D32-C 動態候選：為「國小數學-一」填目標「國小數學-一A」後勾選
     const d18 = page.locator('label', { hasText: '國小數學-一' }).first();
+    await d18.locator('input[type="text"]').fill('國小數學-一A');
     await d18.locator('input[type="checkbox"]').check();
 
     // 6. 預覽影響

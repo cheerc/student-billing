@@ -31,9 +31,21 @@ export default async function SettingsPage() {
   }
 
   const enrollmentRows = db
-    .prepare('SELECT DISTINCT base_name FROM student_enrollments WHERE import_id = ?')
-    .all(importId) as Array<{ base_name: string }>;
+    .prepare(
+      `SELECT base_name,
+              COUNT(*) AS token_count,
+              COUNT(DISTINCT person_code) AS student_count
+         FROM student_enrollments WHERE import_id = ? GROUP BY base_name`
+    )
+    .all(importId) as Array<{ base_name: string; token_count: number; student_count: number }>;
   const erpBaseNames = enrollmentRows.map((r) => r.base_name);
+  // D32-C 人數口徑：去重人數 COUNT DISTINCT person_code（I19／preview 口徑）＋ token 筆數
+  const candidateCounts = new Map(
+    enrollmentRows.map((r) => [
+      r.base_name,
+      { studentCount: Number(r.student_count), tokenCount: Number(r.token_count) },
+    ])
+  );
 
   const latest = getLatestSettingsVersion(db);
   const initialDraft: SettingsDraft = latest
@@ -43,11 +55,13 @@ export default async function SettingsPage() {
         tutoring: { start: 990, end: 1170 },
       });
 
-  // 雙軌對照視圖：初始 Seed 49 班盤點基準 + 當前 active classes 設定視圖 (D2)
+  // 雙軌對照視圖：初始 Seed 49 班盤點基準 + 當前 active classes 設定視圖 (D2)；
+  // 候選由 D32-C 動態引擎以當批差集組裝（含去重人數／筆數，建議目標留空人工填）
   const dualTrack = classifyErpDualTrack(
     erpBaseNames,
     initialDraft.classes.map((c) => c.baseName),
-    initialDraft.aliases
+    initialDraft.aliases,
+    candidateCounts
   );
 
   return (

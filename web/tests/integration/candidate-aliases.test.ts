@@ -11,14 +11,15 @@ import {
   SEED_CLASSES,
   SEED_BASE_NAMES,
   classifyErpBaseNames,
-  NAMED_CANDIDATES,
+  buildDynamicCandidates,
+  type CandidateCounts,
   classifyErpDualTrack,
 } from '@/domain/schedules/seed-manifest';
 import { buildSeedDraft } from '@/adapters/sqlite/settings-repository';
 import { POST as previewPOST } from '@/app/api/v1/settings/preview/route';
 import { POST as applyPOST } from '@/app/api/v1/settings/apply/route';
 
-describe('D2 Task 3: 具名候選擴充（D18 + D22）與雙軌對照整合測試 (candidate-aliases)', () => {
+describe('D2 Task 3 → D32-C: 動態候選引擎與雙軌對照整合測試 (candidate-aliases)', () => {
   let tempDir: string;
   let tempDbPath: string;
   let previewId: string;
@@ -75,35 +76,31 @@ describe('D2 Task 3: 具名候選擴充（D18 + D22）與雙軌對照整合測�
     if (fs.existsSync(tempDir)) fs.rmSync(tempDir, { recursive: true, force: true });
   });
 
-  it('1. NAMED_CANDIDATES 應包含 D18 與 D22 全部 4 組具名候選', () => {
-    expect(NAMED_CANDIDATES).toBeDefined();
-    expect(NAMED_CANDIDATES.length).toBe(4);
+  it('1. [D32-C] 動態候選由當批差集組裝：12 待設定進候選，無寫死數字', () => {
+    const dual = classifyErpDualTrack(erpBaseNames, SEED_BASE_NAMES, []);
+    // fixture 全量：12 待設定全數進動態候選
+    expect(dual.activeView.unmatchedCount).toBe(12);
+    expect(dual.candidates.length).toBe(12);
+    for (const b of dual.activeView.unmatched) {
+      expect(dual.candidates.some((c) => c.rawBaseName === b)).toBe(true);
+    }
 
-    // D18 數學一班
-    const d18 = NAMED_CANDIDATES.find((c) => c.rawBaseName === '國小數學-一');
+    // D18 組 reason 不再寫死後果數字；影響由 preview 產生（見本檔測試 5）
+    const d18 = dual.candidates.find((c) => c.rawBaseName === '國小數學-一');
     expect(d18).toBeDefined();
-    expect(d18?.targetBaseName).toBe('國小數學-一A');
+    expect(d18?.reason ?? '').not.toMatch(/\d+\s*人/);
+    expect(d18?.reason ?? '').not.toMatch(/mismatch/i);
 
-    // D22 國語文小三四
-    const d22Lang = NAMED_CANDIDATES.find((c) => c.rawBaseName === '國小國語文-小三四');
-    expect(d22Lang).toBeDefined();
-    expect(d22Lang?.targetBaseName).toBe('國小國語文-小三小四');
-
-    // D22 小六國文加強班
-    const d22Chi = NAMED_CANDIDATES.find((c) => c.rawBaseName === '小六國文加強班');
-    expect(d22Chi).toBeDefined();
-    expect(d22Chi?.targetBaseName).toBe('小六加強班-國文');
-
-    // D22 小六數學加強班
-    const d22Math = NAMED_CANDIDATES.find((c) => c.rawBaseName === '小六數學加強班');
-    expect(d22Math).toBeDefined();
-    expect(d22Math?.targetBaseName).toBe('小六加強班-數學');
+    // D22 三組同樣由差集動態產生（非 hardcode 常數）
+    for (const raw of ['國小國語文-小三四', '小六國文加強班', '小六數學加強班']) {
+      expect(dual.candidates.some((c) => c.rawBaseName === raw)).toBe(true);
+    }
   });
 
-  it('2. 具名候選目標存在性驗證：4 組 targetBaseName 必須全數存在於 SEED 49 班中', () => {
-    const seedSet = new Set(SEED_BASE_NAMES);
-    for (const c of NAMED_CANDIDATES) {
-      expect(seedSet.has(c.targetBaseName)).toBe(true);
+  it('2. [D32-C] 動態候選建議目標凍結為空（人工填寫；不做模糊匹配）', () => {
+    const dual = classifyErpDualTrack(erpBaseNames, SEED_BASE_NAMES, []);
+    for (const c of dual.candidates) {
+      expect(c.suggestedTarget).toBe('');
     }
   });
 
