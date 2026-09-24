@@ -17,6 +17,8 @@ interface Candidate {
   reason: string;
 }
 
+const TIME_FORMAT_REGEX = /^([01]\d|2[0-3]):([0-5]\d)$/;
+
 interface SettingsEditorProps {
   importId: string;
   currentRevision: number;
@@ -58,12 +60,25 @@ export default function SettingsEditor({
   const [newStartTime, setNewStartTime] = useState('13:00');
   const [newEndTime, setNewEndTime] = useState('15:00');
 
-  // 起訖時間倒置檢驗 (起 >= 迄)
+  // N1: 起訖時間檢驗 (格式合法性 + 起 < 迄)
   const rowTimeErrors = useMemo(() => {
     const errMap = new Map<string, string>();
     for (const r of rows) {
-      if (r.startMinutes >= r.endMinutes) {
+      if (r.startTime !== '' && !TIME_FORMAT_REGEX.test(r.startTime)) {
+        errMap.set(r.rowId, '起始時間格式必須為 HH:mm');
+        continue;
+      }
+      if (r.endTime !== '' && !TIME_FORMAT_REGEX.test(r.endTime)) {
+        errMap.set(r.rowId, '結束時間格式必須為 HH:mm');
+        continue;
+      }
+      if (r.startMinutes !== null && r.endMinutes !== null && r.startMinutes >= r.endMinutes) {
         errMap.set(r.rowId, '結束時間 (迄) 必須大於起始時間 (起)');
+        continue;
+      }
+      if ((r.startMinutes !== null && r.endMinutes === null) || (r.startMinutes === null && r.endMinutes !== null)) {
+        errMap.set(r.rowId, '時段起訖必須同時填寫');
+        continue;
       }
     }
     return errMap;
@@ -93,15 +108,16 @@ export default function SettingsEditor({
     setApplied(null);
   };
 
+  // N1: 即時同步計算分鐘數，非法格式時將分鐘設為 null 以觸發檢驗錯誤
   const updateRowTime = (rowId: string, field: 'startTime' | 'endTime', value: string) => {
     setRows((prev) =>
       prev.map((r) => {
         if (r.rowId !== rowId) return r;
         const updated = { ...r, [field]: value };
-        const parsedStart = timeStringToMinutes(field === 'startTime' ? value : r.startTime);
-        const parsedEnd = timeStringToMinutes(field === 'endTime' ? value : r.endTime);
-        if (parsedStart !== null) updated.startMinutes = parsedStart;
-        if (parsedEnd !== null) updated.endMinutes = parsedEnd;
+        const startVal = field === 'startTime' ? value : r.startTime;
+        const endVal = field === 'endTime' ? value : r.endTime;
+        updated.startMinutes = timeStringToMinutes(startVal);
+        updated.endMinutes = timeStringToMinutes(endVal);
         return updated;
       })
     );

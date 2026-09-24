@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import seedData from '../domain/schedules/schedule-seed.json';
+import { deriveSubject } from '../domain/schedules/seed-manifest';
 
 /** 將 "HH:mm" 時間字串轉換為當日分鐘數 (0~1440) */
 export function timeStringToMinutes(timeStr: string | null | undefined): number | null {
@@ -40,38 +41,39 @@ export const ClassSettingSchema = z.object({
 
 export type ClassSetting = z.infer<typeof ClassSettingSchema>;
 
-/** 平鋪排課時段列（對齊 S 表五欄平鋪模型，R4:E96 89 筆） */
+/** 平鋪排課時段列（對齊 S 表五欄平鋪模型，R4:E96 89 筆；支援空時段佔位列） */
 export const ScheduleGridRowSchema = z
   .object({
     rowId: z.string().min(1),
     className: z.string().min(1, { message: '班級名稱不可為空' }),
     teacher: z.string().nullable().default(null),
     weekday: z.string().min(1).max(8),
-    startTime: z.string().regex(/^([01]\d|2[0-3]):([0-5]\d)$/, { message: '起始時間格式必須為 HH:mm' }),
-    endTime: z.string().regex(/^([01]\d|2[0-3]):([0-5]\d)$/, { message: '結束時間格式必須為 HH:mm' }),
-    startMinutes: z.number().int().min(0).max(1440),
-    endMinutes: z.number().int().min(0).max(1440),
+    startTime: z.string().refine((val) => val === '' || /^([01]\d|2[0-3]):([0-5]\d)$/.test(val), {
+      message: '起始時間格式必須為 HH:mm 或留空',
+    }),
+    endTime: z.string().refine((val) => val === '' || /^([01]\d|2[0-3]):([0-5]\d)$/.test(val), {
+      message: '結束時間格式必須為 HH:mm 或留空',
+    }),
+    startMinutes: z.number().int().min(0).max(1440).nullable().default(null),
+    endMinutes: z.number().int().min(0).max(1440).nullable().default(null),
     active: z.boolean().default(true),
   })
-  .refine((r) => r.endMinutes > r.startMinutes, {
-    message: '結束時間 (迄) 必須大於起始時間 (起)',
-    path: ['endTime'],
-  });
+  .refine(
+    (r) => {
+      if (r.startMinutes !== null && r.endMinutes !== null) {
+        return r.endMinutes > r.startMinutes;
+      }
+      return true;
+    },
+    {
+      message: '結束時間 (迄) 必須大於起始時間 (起)',
+      path: ['endTime'],
+    }
+  );
 
 export type ScheduleGridRow = z.infer<typeof ScheduleGridRowSchema>;
 
-function deriveSubject(baseName: string): string {
-  if (baseName.includes('美語')) return '兒童美語';
-  if (baseName.includes('數學')) return '國小數學';
-  if (baseName.includes('國語文')) return '國小國語文';
-  if (baseName.includes('加強班')) return '加強班';
-  if (baseName.includes('國小輔導') || baseName.includes('安親') || baseName.includes('課輔')) {
-    return '國小輔導';
-  }
-  return '其他';
-}
-
-/** 由 schedule-seed 產生全量 89 筆平鋪時段列 */
+/** 由 schedule-seed 產生全量 89 筆平鋪時段列（F1: 空時段原樣攜帶 null，不捏造假分鐘數） */
 export function buildSeedGridRows(): ScheduleGridRow[] {
   const rows: ScheduleGridRow[] = [];
   let rowSeq = 1;
@@ -79,17 +81,19 @@ export function buildSeedGridRows(): ScheduleGridRow[] {
   for (const cls of seedData.classes) {
     const isCareWindow = cls.source === 'care_window';
     for (const session of cls.sessions) {
-      const weekday = session.weekday ?? (isCareWindow ? '一~五' : '六');
-      const startMin = session.startMinutes ?? (isCareWindow ? 780 : 630);
-      const endMin = session.endMinutes ?? (isCareWindow ? 960 : 720);
+      const hasStart = session.startMinutes !== null && session.startMinutes !== undefined;
+      const hasEnd = session.endMinutes !== null && session.endMinutes !== undefined;
+      const weekday = session.weekday ?? (isCareWindow ? '一~五' : '—');
+      const startMin = hasStart ? session.startMinutes! : null;
+      const endMin = hasEnd ? session.endMinutes! : null;
 
       rows.push({
         rowId: `row-${rowSeq++}`,
         className: cls.baseName,
         teacher: session.teacher ?? cls.teacher ?? null,
         weekday,
-        startTime: minutesToTimeString(startMin),
-        endTime: minutesToTimeString(endMin),
+        startTime: hasStart ? minutesToTimeString(startMin) : '',
+        endTime: hasEnd ? minutesToTimeString(endMin) : '',
         startMinutes: startMin,
         endMinutes: endMin,
         active: true,
@@ -100,7 +104,7 @@ export function buildSeedGridRows(): ScheduleGridRow[] {
   return rows;
 }
 
-/** 將平鋪時段列聚合為 ClassSetting[] 結構 */
+/** 將平鋪時段列聚合為 ClassSetting[] 結構（F1: null 時段列不產出實體 session） */
 export function gridRowsToClasses(
   rows: ScheduleGridRow[],
   existingClasses?: ClassSetting[]
@@ -128,11 +132,11 @@ export function gridRowsToClasses(
     const active = classRows.some((r) => r.active);
 
     const sessions = classRows
-      .filter((r) => r.endMinutes > r.startMinutes)
+      .filter((r) => r.startMinutes !== null && r.endMinutes !== null && r.endMinutes > r.startMinutes)
       .map((r) => ({
         weekday: r.weekday,
-        startMinutes: r.startMinutes,
-        endMinutes: r.endMinutes,
+        startMinutes: r.startMinutes!,
+        endMinutes: r.endMinutes!,
       }));
 
     classes.push({
@@ -147,7 +151,7 @@ export function gridRowsToClasses(
   return classes;
 }
 
-/** 將 ClassSetting[] 展平為平鋪時段列 */
+/** 將 ClassSetting[] 展平為平鋪時段列（F2: 空 sessions 班級展平為佔位列，不丟失空班） */
 export function classesToGridRows(classes: ClassSetting[]): ScheduleGridRow[] {
   const rows: ScheduleGridRow[] = [];
   let rowSeq = 1;
@@ -167,6 +171,19 @@ export function classesToGridRows(classes: ClassSetting[]): ScheduleGridRow[] {
           active: c.active,
         });
       }
+    } else {
+      // F2: 空時段班級展平為佔位列，保留該班級在平鋪表格之可見性與可編輯性
+      rows.push({
+        rowId: `grid-${c.baseName}-${rowSeq++}`,
+        className: c.baseName,
+        teacher: c.teacher,
+        weekday: '—',
+        startTime: '',
+        endTime: '',
+        startMinutes: null,
+        endMinutes: null,
+        active: c.active,
+      });
     }
   }
 

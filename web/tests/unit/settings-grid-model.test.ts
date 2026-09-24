@@ -110,15 +110,51 @@ describe('D1: 平鋪排課時段列模型與驗證測試 (settings-grid-model)',
     expect(ginoRows[0].teacher).toBe('Cathy');
   });
 
-  it('8. gridRowsToClasses() 與 classesToGridRows() 雙向聚合轉換正確且保持資訊不失真', () => {
-    const seedRows = buildSeedGridRows();
-    const classes = gridRowsToClasses(seedRows);
-    expect(classes.length).toBe(49);
-    const ginoClass = classes.find((c) => c.baseName === '兒童美語-Gino');
-    expect(ginoClass).toBeDefined();
-    expect(ginoClass?.sessions.length).toBe(3);
+  it('8. [F1] buildSeedGridRows() 空時段原樣攜帶 null，gridRowsToClasses 不產假 session，一B 保持空 sessions (RED)', () => {
+    const rows = buildSeedGridRows();
+    // 8 個 care_window 班級 + 一B 2 列，共 10 筆空時段列
+    const math1BRows = rows.filter((r) => r.className === '國小數學-一B');
+    expect(math1BRows.length).toBe(2);
+    // F1: 不應被捏造 630-720，而應原樣攜帶 null
+    expect(math1BRows[0].startMinutes).toBeNull();
+    expect(math1BRows[0].endMinutes).toBeNull();
 
-    const roundTripRows = classesToGridRows(classes);
-    expect(roundTripRows.length).toBe(89);
+    const careRows = rows.filter((r) => r.className === '國小輔導-一A');
+    expect(careRows.length).toBe(1);
+    // F1: 不應被捏造 780-960，而應原樣攜帶 null
+    expect(careRows[0].startMinutes).toBeNull();
+    expect(careRows[0].endMinutes).toBeNull();
+
+    // 聚合後：國小數學-一B 與 國小輔導-一A 不應含有實體 sessions
+    const classes = gridRowsToClasses(rows);
+    const math1BClass = classes.find((c) => c.baseName === '國小數學-一B');
+    expect(math1BClass).toBeDefined();
+    expect(math1BClass?.sessions.length).toBe(0); // 保持 schedule_empty 語義！
+
+    const careClass = classes.find((c) => c.baseName === '國小輔導-一A');
+    expect(careClass).toBeDefined();
+    expect(careClass?.sessions.length).toBe(0); // 保持 care_window 共用時間窗語義！
+  });
+
+  it('9. [F2] classesToGridRows 不丟棄空時段班級，往返雙向保真 (RED)', () => {
+    const emptyClass: ClassSetting = {
+      baseName: '國小數學-一B',
+      subject: '國小數學',
+      teacher: null,
+      active: true,
+      sessions: [], // 空 sessions 班
+    };
+    const flatRows = classesToGridRows([emptyClass]);
+    // F2: 展平後應有 1 筆佔位列，不應丟棄該班
+    expect(flatRows.length).toBe(1);
+    expect(flatRows[0].className).toBe('國小數學-一B');
+    expect(flatRows[0].startMinutes).toBeNull();
+    expect(flatRows[0].endMinutes).toBeNull();
+
+    // 往返轉換回 ClassSetting[] 仍應保留該班
+    const roundTrip = gridRowsToClasses(flatRows);
+    expect(roundTrip.length).toBe(1);
+    expect(roundTrip[0].baseName).toBe('國小數學-一B');
+    expect(roundTrip[0].sessions.length).toBe(0);
   });
 });
