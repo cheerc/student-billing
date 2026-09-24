@@ -47,9 +47,9 @@ repositories / XLSX adapter / clock & ID provider / file store
 |StudentSnapshot|importId、personCode、rawName、displayName、englishName、gradeRaw、grade、branches、classText、tagsRaw、notesRaw、contactRaw、schoolRaw、sourceRow|唯一(importId, personCode)；標籤與備註不互覆；年級無／空為未知|
 |EnrollmentSnapshot|enrollmentId、importId、personCode、tokenIndex、rawClassToken、yearPrefix、baseName、groupFlag、modifiers、withdrawalDate、parseStatus、erpBillingTierRaw、erpBillingTier、tierParseStatus|不可變解析資料；不在此保存隨設定變更的classId|
 |EnrollmentResolution|runId、enrollmentId、classId?、mappingStatus、aliasVersion|解析對應固定於run，不查目前最新alias反改舊結果|
-|ClassDefinition|classId、name、subject、active、teacher、revision|停用保留；displayName 改名不改 ID|
+|ClassDefinition|classId、name、subject、active、teacher、revision|停用保留，不提供硬刪除；無 classId 主鍵前不做更名（以停用舊班＋新增新班替代）|
 |ClassAlias|aliasId、rawToken、classId、scope、effectiveFrom/To、revision|同一有效範圍 alias 不可同時對多班|
-|ScheduleVersion|id、effectiveFrom/To、careWindows、createdAt、source|整套設定版本，可由 Excel 初始匯入|
+|ScheduleVersion|id、effectiveFrom/To、careWindows、createdAt、source|整套設定版本；初始草稿攜帶 seed 全文 89 筆平鋪時段，消除空 sessions 雙義性|
 |ScheduleSession|scheduleVersionId、sessionId、classId、weekday、startMinute、endMinute、order|一班多時段；重複警告，不自動去重|
 |RuleSet|id、version、parameters、description|P1 用程式定義的版本；parameters 至少含 minutesPerBillingDay、取整門檻 zeroBelow／fullAtOrAbove、課輔整日特例條件（D24）；改參數即新版本；不建任意公式编辑器|
 |CalculationRun|runId、importId、scheduleVersionId、classCatalogVersion、aliasVersion、ruleSetVersion、numericPolicy、asOfDate、status、issueCounts|正式erp-tag-v1；歷史compat診斷不可啟用；輸入版本全固定|
@@ -73,7 +73,7 @@ ClassDefinition、ClassAlias、ScheduleSession 及解析對應均須可由run引
 
 SQLite 使用交易：先寫不可見的新批次／結果，完成驗證與計算後才一次切 activeState；任何步驟失敗，現行結果不變。設定保存同理。並行兩次變更使用 revision 比對，過期更新回 409，不最後寫入者無聲覆蓋。
 
-同檔 hash 再上傳顯示已匯入，不重複建立學生；若排課改變可用同 import 新建 run。不同檔案同內容可提示重用；不以檔名直接判重。ActiveState 初始化為 revision=0、activeImportId/activeRunId=null；初始設定 seed 使用獨立冪等初始化流程，不需要先有 run。首次 activate 仍以 revision=0 做 CAS。preview 固定設定版本，activate 必須核對該版本仍可用及基準日適用性；過期回409，不悄悄改用最新設定。相同 idempotencyKey/body 的成功重送先回原成功結果，再處理新請求的 revision 檢查，避免首次成功後網路重試得到錯誤409；失敗不留成功紀錄。
+同檔 hash 再上傳顯示已匯入，不重複建立學生；若排課改變可用同 import 新建 run。不同檔案同內容可提示重用；不以檔名直接判重。ActiveState 初始化為 revision=0、activeImportId/activeRunId=null；初始設定 seed 使用獨立冪等初始化流程，不需要先有 run。首次 activate 仍以 revision=0 做 CAS。preview 固定設定版本並設 TTL 逾期防 stale，僅跑正式 erp-tag-v1 規則；activate 必須核對該版本仍可用及基準日適用性；過期回409，不悄悄改用最新設定。idempotencyKey 必須附加隨機後綴（如 `apply-{timestamp}-{random}`）；相同 idempotencyKey/body 的成功重送先回原成功結果，再處理新請求的 revision 檢查，避免首次成功後網路重試得到錯誤409；失敗不留成功紀錄。比對基準採初始 seed 盤點（49 班基準）與目前設定視圖（active classes ＋ 已核准 aliases）雙軌並存。
 
 P1 整批重算可接受，5000 筆規模未證明有瓶頸前不實作複雜增量計算。
 
@@ -107,9 +107,9 @@ P1 整批重算可接受，5000 筆規模未證明有瓶頸前不實作複雜增
 |GET /openapi.json|P2|正式機器可讀契約；P1 先以此文件與契約測試維護|
 |POST /exports/attendance|P3|綁定 run、templateVersion、class、日期區間及排序|
 
-`POST /settings/schedules` 的 P1 UX 可提供「儲存並重算」；不要自動改舊 scheduleVersion。停用班級透過 active=false，不提供硬刪除歷史。
+`POST /settings/schedules` 的 P1 UX 可提供「儲存並重算」；不要自動改舊 scheduleVersion。初始草稿直接攜帶 seed 全量 89 筆時段，消除空 sessions 雙義性。無 classId 主鍵前不做更名功能；停用班級一律透過 active=false，不提供硬刪除歷史。
 
-影響計算的設定保存需帶previewId與expectedRevision；預覽hash綁定草稿、import、設定、ruleSet，任一改變回409要求重預覽。保存不得接收與預覽不同草稿。GET /classes 可含 mappingStatus=unmapped 的待設定項目及暫定候選鍵；GET /students 可用 enrollmentKey 查該清單，不因缺classId失去學生。
+影響計算的設定保存需帶previewId與expectedRevision；預覽hash綁定草稿、import、設定、ruleSet，任一改變回409要求重預覽。預覽草稿設定 TTL 防止陳舊操作，且預覽只跑正式 erp-tag-v1 規則以保證反應速度。保存不得接收與預覽不同草稿。GET /classes 可含 mappingStatus=unmapped 的待設定項目及暫定候選鍵；GET /students 可用 enrollmentKey 查該清單，不因缺classId失去學生。列表 API 執行脫敏保護（不回傳完整電話與自由備註），單一學生明細抽屜 API（GET /students/{personCode}/calculation）按需查閱完整原文；學生資料字元一致性走依人員代碼排序之逐 key SHA-256 hash 比對。就學資料只存不篩。
 
 GET /runs/{runId}/comparison?againstRuleSet=excel-v260922-compat 為P1唯讀診斷，固定同輸入，列欄位前後值、來源與差異分類；不切換active。可先在明細／診斷頁顯示107筆率差，不要求P1做通用報表平台。診斷值是固定輸入的純函式，**預存或即時計算皆可**，兩者結果必須相同；P1預設即時計算不落庫，避免結果表多出一份與正式結果等大的資料，待bench顯示診斷頁影響操作再改預存。即時計算仍不得寫入任何資料。run 保存 diagnosticAlgorithmVersion 與必要浮點輸入；程式升級不得用另一版本診斷覆蓋舊run的意義。舊版本不支援時明確回409 DIAGNOSTIC_VERSION_UNAVAILABLE。正式 run 的 NUMERIC_POLICY_DIFFERENCE 與 hasIssues 在建立run時就計算、保存，不能等使用者開診斷頁才產生。只比較同來源／同映射／同取整規則下的兩種 numericPolicy 以判定此問題碼，來源、alias 或取整規則（D24）差異另分類。
 
