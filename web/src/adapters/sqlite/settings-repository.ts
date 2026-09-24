@@ -1,6 +1,10 @@
 import Database from 'better-sqlite3';
 import crypto from 'crypto';
-import { SettingsDraft } from '@/contracts/settings';
+import {
+  SettingsDraft,
+  buildSeedGridRows,
+  gridRowsToClasses,
+} from '@/contracts/settings';
 
 export interface SettingsVersionRecord {
   id: string;
@@ -22,6 +26,7 @@ export interface SettingsPreviewRecord {
   importId: string;
   resultJson: string;
   createdAt: string;
+  expiresAt?: string | null;
 }
 
 export function hashSettingsDraft(draft: SettingsDraft): string {
@@ -80,6 +85,7 @@ export function getSettingsPreview(
     importId: row.import_id,
     resultJson: row.result_json,
     createdAt: row.created_at,
+    expiresAt: row.expires_at ?? null,
   };
 }
 
@@ -87,20 +93,41 @@ export function saveSettingsPreview(
   db: Database.Database,
   record: SettingsPreviewRecord
 ): void {
-  db.prepare(
-    `INSERT INTO settings_previews
-      (preview_id, input_hash, draft_json, expected_revision, settings_version_id, import_id, result_json, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
-  ).run(
-    record.previewId,
-    record.inputHash,
-    record.draftJson,
-    record.expectedRevision,
-    record.settingsVersionId,
-    record.importId,
-    record.resultJson,
-    record.createdAt
-  );
+  const cols = db.prepare("PRAGMA table_info(settings_previews)").all() as Array<{ name: string }>;
+  const hasExpiresAt = cols.some((c) => c.name === 'expires_at');
+
+  if (hasExpiresAt) {
+    db.prepare(
+      `INSERT INTO settings_previews
+        (preview_id, input_hash, draft_json, expected_revision, settings_version_id, import_id, result_json, created_at, expires_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(
+      record.previewId,
+      record.inputHash,
+      record.draftJson,
+      record.expectedRevision,
+      record.settingsVersionId,
+      record.importId,
+      record.resultJson,
+      record.createdAt,
+      record.expiresAt ?? null
+    );
+  } else {
+    db.prepare(
+      `INSERT INTO settings_previews
+        (preview_id, input_hash, draft_json, expected_revision, settings_version_id, import_id, result_json, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(
+      record.previewId,
+      record.inputHash,
+      record.draftJson,
+      record.expectedRevision,
+      record.settingsVersionId,
+      record.importId,
+      record.resultJson,
+      record.createdAt
+    );
+  }
 }
 
 export function saveSettingsVersion(
@@ -134,12 +161,16 @@ export function draftToAliasMap(draft: SettingsDraft): Map<string, string> {
 
 /** 將草稿轉為計算管線可用的 scheduleOverride。
  * 僅含明確填寫時段的班級；sessions 為空表示「未變更」，沿用 seed 預設時段，
- * 避免空陣列誤把全體 seed 時段清空。 */
+ * 避免空陣列誤把全體 seed 時段清空。若 active=false 則覆寫為空時段（不扣天）。 */
 export function draftToScheduleOverride(
   draft: SettingsDraft
 ): Map<string, Array<{ start: number; end: number }>> {
   const map = new Map<string, Array<{ start: number; end: number }>>();
   for (const c of draft.classes) {
+    if (!c.active) {
+      map.set(c.baseName, []);
+      continue;
+    }
     if (c.sessions.length === 0) continue;
     map.set(
       c.baseName,
@@ -149,23 +180,26 @@ export function draftToScheduleOverride(
   return map;
 }
 
-/** 由 seed 預設產生初始草稿（供 UI 編輯起點）。 */
+/** 由 seed 預設產生初始草稿（攜帶全量 89 筆平鋪時段消空 sessions 雙義性）。 */
 export function buildSeedDraft(
-  seedClasses: Array<{ baseName: string; subject: string; teacher?: string | null }>,
-  careWindows: { anqin: { start: number; end: number }; tutoring: { start: number; end: number } }
+  seedClasses?: Array<{ baseName: string; subject: string; teacher?: string | null }>,
+  careWindows?: { anqin: { start: number; end: number }; tutoring: { start: number; end: number } }
 ): SettingsDraft {
+  const seedRows = buildSeedGridRows();
+  const fullSeedClasses = gridRowsToClasses(seedRows);
+
   return {
-    classes: seedClasses.map((c) => ({
-      baseName: c.baseName,
-      subject: c.subject,
-      teacher: c.teacher ?? null,
-      active: true,
-      sessions: [],
-    })),
+    classes: fullSeedClasses,
     aliases: [],
     careWindows: {
-      anqin: { startMinutes: careWindows.anqin.start, endMinutes: careWindows.anqin.end },
-      tutoring: { startMinutes: careWindows.tutoring.start, endMinutes: careWindows.tutoring.end },
+      anqin: {
+        startMinutes: careWindows?.anqin?.start ?? 780,
+        endMinutes: careWindows?.anqin?.end ?? 960,
+      },
+      tutoring: {
+        startMinutes: careWindows?.tutoring?.start ?? 990,
+        endMinutes: careWindows?.tutoring?.end ?? 1170,
+      },
     },
     effectiveFrom: null,
     effectiveTo: null,

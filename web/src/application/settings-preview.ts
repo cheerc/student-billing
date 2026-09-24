@@ -45,6 +45,7 @@ export interface SettingsPreviewResult {
   mismatchAfter: number;
   tierTransitions: TierTransition[];
   issueDelta: { before: number; after: number };
+  expiresAt: string;
 }
 
 function loadStudents(db: Database.Database, importId: string): StudentSnapshot[] {
@@ -129,8 +130,9 @@ export function previewSettingsChange(
   let issuesAfter = 0;
 
   for (const stu of students) {
-    const before = calculateStudentBilling(stu);
-    const after = calculateStudentBilling(stu, { aliasMap, scheduleOverride });
+    // 預覽僅跑正式軌 erp-tag-v1（不跑 compat 診斷以保證反應速度）
+    const before = calculateStudentBilling(stu, { ruleSetVersion: 'erp-tag-v1' });
+    const after = calculateStudentBilling(stu, { aliasMap, scheduleOverride, ruleSetVersion: 'erp-tag-v1' });
 
     const beforeDays = stu.grade !== null && stu.grade <= 2
       ? before.careDays.anqin.days
@@ -174,6 +176,8 @@ export function previewSettingsChange(
   const inputHash = hashSettingsDraft(draft);
   const previewId = `setprev_${inputHash.slice(0, 12)}_${Date.now()}`;
   const now = new Date().toISOString();
+  // TTL: 15 分鐘
+  const expiresAt = new Date(Date.now() + 15 * 60 * 1000).toISOString();
 
   const result: SettingsPreviewResult = {
     previewId,
@@ -184,6 +188,7 @@ export function previewSettingsChange(
     mismatchAfter,
     tierTransitions,
     issueDelta: { before: issuesBefore, after: issuesAfter },
+    expiresAt,
   };
 
   saveSettingsPreview(db, {
@@ -195,6 +200,7 @@ export function previewSettingsChange(
     importId,
     resultJson: JSON.stringify(result),
     createdAt: now,
+    expiresAt,
   });
 
   return result;
