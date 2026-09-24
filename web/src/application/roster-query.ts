@@ -150,14 +150,14 @@ export function queryImportStudents(
     }
   }
 
-  // 3. 分校（D3 Task 5: 換行複值集合語義——整值相等或換行邊界精確匹配）
+  // 3. 分校（D3 Task 5: 換行複值集合語義——整值相等或換行邊界精確匹配，相容 CRLF/LF）
   if (params.branch) {
-    const b = String(params.branch);
+    const b = String(params.branch).trim().replace(/\r\n/g, '\n').replace(/\r/g, '\n');
     whereClauses.push(`(
-      s.branch = ?
-      OR s.branch LIKE ? ESCAPE '\\'
-      OR s.branch LIKE ? ESCAPE '\\'
-      OR s.branch LIKE ? ESCAPE '\\'
+      replace(replace(s.branch, char(13)||char(10), char(10)), char(13), char(10)) = ?
+      OR replace(replace(s.branch, char(13)||char(10), char(10)), char(13), char(10)) LIKE ? ESCAPE '\\'
+      OR replace(replace(s.branch, char(13)||char(10), char(10)), char(13), char(10)) LIKE ? ESCAPE '\\'
+      OR replace(replace(s.branch, char(13)||char(10), char(10)), char(13), char(10)) LIKE ? ESCAPE '\\'
     )`);
     const esc = b.replace(/[\\%_]/g, (c) => '\\' + c);
     queryArgs.push(b, `${esc}\n%`, `%\n${esc}`, `%\n${esc}\n%`);

@@ -241,14 +241,14 @@ export function queryRunStudents(
     queryArgs.push(params.tierComparison);
   }
 
-  // 8. branch 分校篩選（D3 Task 5: 換行複值集合語義——整值相等或換行邊界精確匹配）
+  // 8. branch 分校篩選（D3 Task 5: 換行複值集合語義——整值相等或換行邊界精確匹配，相容 CRLF/LF）
   if (params.branch) {
-    const b = String(params.branch);
+    const b = String(params.branch).trim().replace(/\r\n/g, '\n').replace(/\r/g, '\n');
     whereClauses.push(`(
-      sc.branch = ?
-      OR sc.branch LIKE ? ESCAPE '\\'
-      OR sc.branch LIKE ? ESCAPE '\\'
-      OR sc.branch LIKE ? ESCAPE '\\'
+      replace(replace(sc.branch, char(13)||char(10), char(10)), char(13), char(10)) = ?
+      OR replace(replace(sc.branch, char(13)||char(10), char(10)), char(13), char(10)) LIKE ? ESCAPE '\\'
+      OR replace(replace(sc.branch, char(13)||char(10), char(10)), char(13), char(10)) LIKE ? ESCAPE '\\'
+      OR replace(replace(sc.branch, char(13)||char(10), char(10)), char(13), char(10)) LIKE ? ESCAPE '\\'
     )`);
     const esc = b.replace(/[\\%_]/g, (c) => '\\' + c);
     queryArgs.push(b, `${esc}\n%`, `%\n${esc}`, `%\n${esc}\n%`);
@@ -437,8 +437,8 @@ export function queryRunStudents(
     })(),
     createdAt: r.created_at,
     enrollments: itemEnrollments,
-    // D3 Task 4: 班級全文由 enrollments rawToken 依 token_index 升冪以換行拼回
-    classText: itemEnrollments.length > 0 ? itemEnrollments.map((e) => e.rawToken).join('\n') : null,
+    // D3 Task 4: 班級全文由 enrollments rawToken 依 token_index 升冪以換行拼回（正規化去除 \r）
+    classText: itemEnrollments.length > 0 ? itemEnrollments.map((e) => e.rawToken.trim().replace(/\r\n/g, '').replace(/\r/g, '')).join('\n') : null,
     sourceRow: r.source_row ?? 0,
   };});
 
@@ -526,8 +526,8 @@ export function getStudentCalculationDetail(
     trace: JSON.parse(row.trace),
     createdAt: row.created_at,
     enrollments,
-    // D3 Task 4: 班級全文由 enrollments rawToken 依 token_index 升冪以換行拼回
-    classText: enrollments.length > 0 ? enrollments.map((e) => e.rawToken).join('\n') : null,
+    // D3 Task 4: 班級全文由 enrollments rawToken 依 token_index 升冪以換行拼回（正規化去除 \r）
+    classText: enrollments.length > 0 ? enrollments.map((e) => e.rawToken.trim().replace(/\r\n/g, '').replace(/\r/g, '')).join('\n') : null,
     sourceRow: row.source_row ?? 0,
   };
 }
