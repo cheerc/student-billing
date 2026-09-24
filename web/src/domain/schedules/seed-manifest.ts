@@ -130,45 +130,56 @@ export function classifyErpBaseNames(erpBaseNames: string[]): BaseNameClassifica
   };
 }
 
-/** 具名漂移候選定義（D18 ＋ D22） */
-export interface NamedCandidate {
+/** D32-C 動態候選行：由當批 ERP 差集組裝，純資料，不含寫死後果數字 */
+export interface DynamicCandidate {
   rawBaseName: string;
-  targetBaseName: string;
+  /** 確定性建議目標；無確定性規則時為空字串，由人工填寫（D32-C 凍結） */
+  suggestedTarget: string;
+  /** 去重人數（COUNT DISTINCT person_code；I19／preview 口徑） */
+  studentCount: number;
+  /** token 筆數（COUNT(*)） */
+  tokenCount: number;
+  /** 中性說明，不含寫死人數／後果數字；影響以後果預覽為準 */
   reason: string;
-  category: 'D18' | 'D22';
-  isValid?: boolean;
+  /** 建議目標有效性（為空視為中性 true；非空則需存在於有效設定） */
+  isValid: boolean;
 }
 
+/** D32-C 候選人數口徑：key 為 baseName */
+export type CandidateCounts = Map<string, { studentCount: number; tokenCount: number }>;
+
 /**
- * D18 與 D22 具名候選清單（4 組）。
- * 沿用 D18 具名模式供人工確認，軟體嚴禁自動批准。
+ * D32-C 動態候選組裝層（純函式）：
+ * activeUnmatched 差集 → 候選行（rawBaseName＋去重人數／筆數＋建議目標）。
+ * - 建議目標凍結為空字串由人工填寫（不做模糊匹配，CLAUDE.md 別名政策）。
+ * - 後果數字一律由 preview 產生，reason 不寫死任何數字。
+ * - 不建立 alias、不修改傳入的 active 集合或 alias 表（嚴禁自動批准）。
  */
-export const NAMED_CANDIDATES: NamedCandidate[] = [
-  {
-    rawBaseName: '國小數學-一',
-    targetBaseName: '國小數學-一A',
-    reason: 'D18 確認事實：本次數學一班與一A為同班；preview 應展示 13 人各 -0.5 天、mismatch 5→18',
-    category: 'D18',
-  },
-  {
-    rawBaseName: '國小國語文-小三四',
-    targetBaseName: '國小國語文-小三小四',
-    reason: 'D22 純命名漂移：國小國語文小三四對應 seed 國小國語文-小三小四',
-    category: 'D22',
-  },
-  {
-    rawBaseName: '小六國文加強班',
-    targetBaseName: '小六加強班-國文',
-    reason: 'D22 純命名漂移：小六國文加強班對應 seed 小六加強班-國文',
-    category: 'D22',
-  },
-  {
-    rawBaseName: '小六數學加強班',
-    targetBaseName: '小六加強班-數學',
-    reason: 'D22 純命名漂移：小六數學加強班對應 seed 小六加強班-數學',
-    category: 'D22',
-  },
-];
+export function buildDynamicCandidates(
+  activeUnmatched: string[],
+  counts?: CandidateCounts,
+  activeClassSet?: Set<string>
+): DynamicCandidate[] {
+  const rows: DynamicCandidate[] = [];
+  const seen = new Set<string>();
+  for (const raw of activeUnmatched) {
+    if (seen.has(raw)) continue;
+    seen.add(raw);
+    // 防禦性過濾：已對齊（存在於有效班級）者不進候選（對齊消失自動消失）
+    if (activeClassSet && activeClassSet.has(raw)) continue;
+    const c = counts?.get(raw);
+    rows.push({
+      rawBaseName: raw,
+      suggestedTarget: '',
+      studentCount: c?.studentCount ?? 0,
+      tokenCount: c?.tokenCount ?? 0,
+      reason: 'D32-C 動態候選：本批 ERP 與系統差集待設定；影響以後果預覽（preview）為準，不在此寫死',
+      isValid: true,
+    });
+  }
+  rows.sort((a, b) => (a.rawBaseName < b.rawBaseName ? -1 : a.rawBaseName > b.rawBaseName ? 1 : 0));
+  return rows;
+}
 
 /** 雙軌對照視圖結果 */
 export interface DualTrackClassificationResult {
@@ -176,8 +187,8 @@ export interface DualTrackClassificationResult {
   seedInventory: BaseNameClassificationResult;
   /** 軌道 2：當前系統有效設定視圖 (動態 active classes + 已核准 aliases) */
   activeView: BaseNameClassificationResult;
-  /** 候選清單 (驗證 target 存在於有效設定中) */
-  candidates: NamedCandidate[];
+  /** D32-C 動態候選清單（由當批差集組裝；D32-B 隱藏語義內建） */
+  candidates: DynamicCandidate[];
 }
 
 /**
@@ -187,7 +198,8 @@ export interface DualTrackClassificationResult {
 export function classifyErpDualTrack(
   erpBaseNames: string[],
   activeClassBaseNames?: string[],
-  approvedAliases?: Array<{ rawBaseName: string; targetBaseName: string }>
+  approvedAliases?: Array<{ rawBaseName: string; targetBaseName: string }>,
+  candidateCounts?: CandidateCounts
 ): DualTrackClassificationResult {
   const seedInventory = classifyErpBaseNames(erpBaseNames);
 
@@ -244,29 +256,13 @@ export function classifyErpDualTrack(
     aliasCoveredCount: aliasCoveredSet.size,
   };
 
-  // D32-B: 候選自動隱藏（rawBaseName 已改名對齊則隱藏）與有效性判定
-  const candidates = filterVisibleCandidates(NAMED_CANDIDATES, activeClassSet);
+  // D32-C: 動態候選由當批差集組裝（activeUnmatched 為已排除 alias 覆蓋與已對齊者）。
+  // D32-B 隱藏語義由 buildDynamicCandidates 內建（raw 已在 active 即不進候選）。
+  const candidates = buildDynamicCandidates(activeUnmatched, candidateCounts, activeClassSet);
 
   return {
     seedInventory,
     activeView,
     candidates,
   };
-}
-
-/**
- * D32-B: 候選可見性與有效性過濾：
- * 1. 若候選的 rawBaseName 已存在於目前 activeClasses（改名對齊），該候選行隱藏不渲染。
- * 2. 若候選的 targetBaseName 存在於目前 activeClasses，isValid 為 true，否則為 false（紅字提示）。
- */
-export function filterVisibleCandidates(
-  candidates: NamedCandidate[],
-  activeClassSet: Set<string>
-): Array<NamedCandidate & { isValid: boolean }> {
-  return candidates
-    .filter((c) => !activeClassSet.has(c.rawBaseName))
-    .map((c) => ({
-      ...c,
-      isValid: activeClassSet.has(c.targetBaseName),
-    }));
 }

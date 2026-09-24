@@ -13,7 +13,7 @@ import {
   SettingsBaseline,
   isSettingsDirty,
 } from '@/contracts/settings';
-import { NamedCandidate, filterVisibleCandidates } from '@/domain/schedules/seed-manifest';
+import { DynamicCandidate } from '@/domain/schedules/seed-manifest';
 
 const TIME_FORMAT_REGEX = /^([01]\d|2[0-3]):([0-5]\d)$/;
 
@@ -24,7 +24,7 @@ interface SettingsEditorProps {
   unmatched: string[];
   seedNotAppeared: string[];
   matchedCount: number;
-  candidates: NamedCandidate[];
+  candidates: DynamicCandidate[];
   lastAppliedRevision?: number;
   lastAppliedAt?: string | null;
 }
@@ -80,10 +80,28 @@ export default function SettingsEditor({
     );
   }, [rows]);
 
-  // D32-B: 若候選之 rawBaseName 已在系統有效班級中（改名對齊），該候選行自動隱藏不渲染；target 不在有效班級中則標記 isValid: false
-  const visibleCandidates = useMemo(() => {
-    return filterVisibleCandidates(candidates, currentActiveBaseNames);
-  }, [candidates, currentActiveBaseNames]);
+  // D32-C: 動態候選已由引擎按當批差集組裝（含 D32-B 隱藏語義：raw 已對齊即不進候選）。
+  // 渲染直接使用傳入 candidates；目標由人工於下方輸入框填寫後核取（軟體不自動批准）。
+  const visibleCandidates = useMemo(() => candidates, [candidates]);
+
+  // D32-C: 每行候選的人工目標輸入（初始為引擎 suggestedTarget，凍結為空由人工填）
+  const [candidateTargets, setCandidateTargets] = useState<Record<string, string>>({});
+
+  const getCandidateTarget = (c: DynamicCandidate) =>
+    candidateTargets[c.rawBaseName] ?? c.suggestedTarget;
+
+  const setCandidateTarget = (raw: string, target: string) => {
+    setCandidateTargets((prev) => ({ ...prev, [raw]: target }));
+    setPreview(null);
+    setApplied(null);
+  };
+
+  // 目標有效性：為空（待填）或存在於目前有效班級中
+  const isCandidateTargetValid = (c: DynamicCandidate) => {
+    const t = getCandidateTarget(c).trim();
+    if (t === '') return true;
+    return currentActiveBaseNames.has(t);
+  };
 
   // 新增時段列輸入狀態
   const [newClassName, setNewClassName] = useState('');
@@ -387,46 +405,57 @@ export default function SettingsEditor({
         </div>
       </div>
 
-      {/* 具名漂移候選確認（D18 ＋ D22） */}
+      {/* D32-C 動態候選確認（當批差集自動產生，需人工填目標＋逐項確認，軟體不自動批准） */}
       <div className="table-container" style={{ marginBottom: '20px' }}>
         <div className="table-header">
-          <div className="table-title">具名漂移候選確認（D18 ＋ D22，需人工逐項確認，軟體不自動批准）</div>
+          <div className="table-title">待設定候選確認（D32-C 動態產生，需人工填目標＋逐項確認，軟體不自動批准）</div>
         </div>
         <div style={{ padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
           {visibleCandidates.length === 0 ? (
             <div style={{ fontSize: '0.875rem', color: 'var(--text-muted)' }}>
-              所有具名候選皆已改名對齊（已自動隱藏）或已無待對齊候選。
+              本批 ERP 與系統設定已完全對齊，無待設定候選。
             </div>
           ) : (
             visibleCandidates.map((c) => {
-              const checked = draft.aliases.some(
-                (a) => a.rawBaseName === c.rawBaseName && a.targetBaseName === c.targetBaseName
+              const target = getCandidateTarget(c);
+              const targetTrimmed = target.trim();
+              const checked = targetTrimmed !== '' && draft.aliases.some(
+                (a) => a.rawBaseName === c.rawBaseName && a.targetBaseName === targetTrimmed
               );
-              const isTargetValid = c.isValid !== false;
+              const isTargetValid = isCandidateTargetValid(c);
               return (
                 <label
-                  key={`${c.rawBaseName}→${c.targetBaseName}`}
+                  key={c.rawBaseName}
                   style={{
                     display: 'flex',
                     gap: '8px',
                     alignItems: 'center',
                     fontSize: '0.875rem',
                     opacity: isTargetValid ? 1 : 0.6,
+                    flexWrap: 'wrap',
                   }}
                 >
                   <input
                     type="checkbox"
                     checked={checked}
-                    disabled={!isTargetValid}
-                    onChange={() => isTargetValid && toggleAlias(c.rawBaseName, c.targetBaseName)}
+                    disabled={targetTrimmed === '' || !isTargetValid}
+                    onChange={() => targetTrimmed !== '' && isTargetValid && toggleAlias(c.rawBaseName, targetTrimmed)}
+                    title={targetTrimmed === '' ? '請先填寫對應目標班級' : `核取後納入一次整表 preview：${c.rawBaseName}→${targetTrimmed}`}
                   />
                   <span>
-                    {c.category && (
-                      <span className="badge" style={{ fontSize: '0.75rem', marginRight: '6px' }}>{c.category}</span>
-                    )}
-                    <strong>{c.rawBaseName}</strong> → <strong>{c.targetBaseName}</strong>
+                    <strong>{c.rawBaseName}</strong>
+                    <span style={{ color: 'var(--text-muted)', margin: '0 6px' }}>
+                      {c.studentCount} 人／{c.tokenCount} 筆 →
+                    </span>
+                    <input
+                      type="text"
+                      value={target}
+                      placeholder="請填目標班級"
+                      onChange={(e) => setCandidateTarget(c.rawBaseName, e.target.value)}
+                      style={{ padding: '4px 8px', borderRadius: '4px', border: '1px solid var(--border-color)', fontSize: '0.8125rem', width: '180px' }}
+                    />
                     <span style={{ color: 'var(--text-muted)', marginLeft: '8px' }}>{c.reason}</span>
-                    {!isTargetValid && (
+                    {targetTrimmed !== '' && !isTargetValid && (
                       <span style={{ color: '#ef4444', fontSize: '0.75rem', marginLeft: '6px' }}>
                         （目標班級已停用或未設定）
                       </span>

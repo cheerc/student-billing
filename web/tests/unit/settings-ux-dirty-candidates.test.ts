@@ -9,9 +9,8 @@ import { activateImport } from '@/application/activate-import';
 import {
   SEED_CLASSES,
   SEED_BASE_NAMES,
-  NAMED_CANDIDATES,
   classifyErpDualTrack,
-  filterVisibleCandidates,
+  buildDynamicCandidates,
 } from '@/domain/schedules/seed-manifest';
 import {
   ScheduleGridRow,
@@ -176,26 +175,30 @@ describe('D31 & D32-B: 設定頁 UX（未儲存提示＋候選已對齊隱藏）
     });
   });
 
-  describe('D32-B: 候選已對齊自動隱藏 (filterVisibleCandidates & classifyErpDualTrack)', () => {
-    it('4. [RED D32-B] 初始 Seed 狀態下 4 組候選皆可見且 isValid 為 true', () => {
-      const activeClassSet = new Set(SEED_BASE_NAMES);
-      const visible = filterVisibleCandidates(NAMED_CANDIDATES, activeClassSet);
-
-      expect(visible.length).toBe(4);
-      for (const c of visible) {
+  describe('D32-B→D32-C: 候選已對齊自動隱藏（動態引擎 buildDynamicCandidates & classifyErpDualTrack）', () => {
+    it('4. [D32-C] 初始 Seed 狀態下動態候選由差集組裝，建議目標為空', () => {
+      const erp = ['小六國文加強班', '小六數學加強班', '國小數學-一'];
+      const dual = classifyErpDualTrack(erp, SEED_BASE_NAMES, []);
+      expect(dual.candidates.length).toBe(3);
+      for (const c of dual.candidates) {
+        expect(c.suggestedTarget).toBe('');
         expect(c.isValid).toBe(true);
       }
     });
 
-    it('5. [RED D32-B] 改名對齊後：若 rawBaseName 已存在於有效班級中，該候選行自動隱藏', () => {
+    it('5. [D32-B 語義保留] 改名對齊後：rawBaseName 已存在於有效班級中，該候選行自動消失', () => {
       // 模擬使用者將「小六加強班-國文」改名對齊為「小六國文加強班」
       const activeClassNames = SEED_BASE_NAMES.map((name) =>
         name === '小六加強班-國文' ? '小六國文加強班' : name
       );
       const activeClassSet = new Set(activeClassNames);
 
-      const visible = filterVisibleCandidates(NAMED_CANDIDATES, activeClassSet);
-      // 原 4 組候選中，「小六國文加強班」已與 ERP 對齊，應被隱藏，只剩 3 組
+      const visible = buildDynamicCandidates(
+        ['小六國文加強班', '小六數學加強班', '國小數學-一', '國小國語文-小三四'],
+        undefined,
+        activeClassSet
+      );
+      // 「小六國文加強班」已與 ERP 對齊，應消失，只剩 3 組
       expect(visible.length).toBe(3);
       expect(visible.some((c) => c.rawBaseName === '小六國文加強班')).toBe(false);
 
@@ -205,20 +208,18 @@ describe('D31 & D32-B: 設定頁 UX（未儲存提示＋候選已對齊隱藏）
       expect(visible.some((c) => c.rawBaseName === '小六數學加強班')).toBe(true);
     });
 
-    it('6. [RED D32-B] 目標班級停用或不存在時，候選依然可見但 isValid 為 false（維持失效提示紅字）', () => {
-      // 模擬將「小六加強班-數學」自有效班級中移除（停用）
-      const activeClassNames = SEED_BASE_NAMES.filter((n) => n !== '小六加強班-數學');
-      const activeClassSet = new Set(activeClassNames);
-
-      const visible = filterVisibleCandidates(NAMED_CANDIDATES, activeClassSet);
-      expect(visible.length).toBe(4);
-
-      const mathCandidate = visible.find((c) => c.rawBaseName === '小六數學加強班');
-      expect(mathCandidate).toBeDefined();
-      expect(mathCandidate?.isValid).toBe(false);
+    it('6. [D32-C] 候選行攜去重人數／筆數，reason 無寫死數字', () => {
+      const counts = new Map([
+        ['小六數學加強班', { studentCount: 4, tokenCount: 6 }],
+      ]);
+      const visible = buildDynamicCandidates(['小六數學加強班'], counts, new Set(SEED_BASE_NAMES));
+      expect(visible.length).toBe(1);
+      expect(visible[0]?.studentCount).toBe(4);
+      expect(visible[0]?.tokenCount).toBe(6);
+      expect(visible[0]?.reason ?? '').not.toMatch(/\d+\s*人/);
     });
 
-    it('7. [RED D32-B] classifyErpDualTrack 回傳的 candidates 應整合 D32-B 隱藏與有效性邏輯', () => {
+    it('7. [D32-C] classifyErpDualTrack 回傳的 candidates 應整合對齊消失語義', () => {
       const erpBaseNames = ['小六國文加強班', '小六數學加強班', '國小數學-一'];
       // 改名對齊小六國文加強班
       const activeClasses = SEED_BASE_NAMES.map((n) =>
@@ -228,7 +229,7 @@ describe('D31 & D32-B: 設定頁 UX（未儲存提示＋候選已對齊隱藏）
       const dual = classifyErpDualTrack(erpBaseNames, activeClasses);
       // 小六國文加強班候選應消失
       expect(dual.candidates.some((c) => c.rawBaseName === '小六國文加強班')).toBe(false);
-      expect(dual.candidates.length).toBe(3);
+      expect(dual.candidates.length).toBe(2);
     });
   });
 });
