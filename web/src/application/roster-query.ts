@@ -150,10 +150,17 @@ export function queryImportStudents(
     }
   }
 
-  // 3. 分校
+  // 3. 分校（D3 Task 5: 換行複值集合語義——整值相等或換行邊界精確匹配）
   if (params.branch) {
-    whereClauses.push(`s.branch = ?`);
-    queryArgs.push(params.branch);
+    const b = String(params.branch);
+    whereClauses.push(`(
+      s.branch = ?
+      OR s.branch LIKE ? ESCAPE '\\'
+      OR s.branch LIKE ? ESCAPE '\\'
+      OR s.branch LIKE ? ESCAPE '\\'
+    )`);
+    const esc = b.replace(/[\\%_]/g, (c) => '\\' + c);
+    queryArgs.push(b, `${esc}\n%`, `%\n${esc}`, `%\n${esc}\n%`);
   }
 
   // 4. 有無班級 (hasClass)

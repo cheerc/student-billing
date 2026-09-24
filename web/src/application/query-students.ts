@@ -56,6 +56,8 @@ export interface RunStudentQueryParams {
 export interface StudentCalculationItem extends StudentCalculationRecord {
   enrollments: ParsedToken[];
   sourceRow: number;
+  /** 班級全文：enrollments rawToken 依 token_index 升冪以換行拼回（不另立 DB 欄） */
+  classText: string | null;
 }
 
 export interface RunStudentsQueryResult {
@@ -239,10 +241,17 @@ export function queryRunStudents(
     queryArgs.push(params.tierComparison);
   }
 
-  // 8. branch 分校篩選
+  // 8. branch 分校篩選（D3 Task 5: 換行複值集合語義——整值相等或換行邊界精確匹配）
   if (params.branch) {
-    whereClauses.push('sc.branch = ?');
-    queryArgs.push(params.branch);
+    const b = String(params.branch);
+    whereClauses.push(`(
+      sc.branch = ?
+      OR sc.branch LIKE ? ESCAPE '\\'
+      OR sc.branch LIKE ? ESCAPE '\\'
+      OR sc.branch LIKE ? ESCAPE '\\'
+    )`);
+    const esc = b.replace(/[\\%_]/g, (c) => '\\' + c);
+    queryArgs.push(b, `${esc}\n%`, `%\n${esc}`, `%\n${esc}\n%`);
   }
 
   // 9. hasClass 有無班級篩選
@@ -390,13 +399,14 @@ export function queryRunStudents(
     }
   }
 
-  const items: StudentCalculationItem[] = itemRows.map((r) => ({
+  const items: StudentCalculationItem[] = itemRows.map((r) => {
+    const itemEnrollments = enrollmentsMap[r.person_code] || [];
+    return {
     id: r.id,
     runId: r.run_id,
     personCode: r.person_code,
     name: r.name,
-    branch: r.branch,
-    grade: r.grade,
+    branch: r.branch,    grade: r.grade,
     gradeRaw: r.grade_raw,
     subjectCount: r.subject_count,
     baseDiscountBps: r.base_discount_bps,
@@ -418,11 +428,19 @@ export function queryRunStudents(
     tierComparisons: JSON.parse(r.tier_comparisons),
     issues: JSON.parse(r.issues),
     hasIssues: Boolean(r.has_issues),
-    trace: JSON.parse(r.trace),
+    trace: (() => {
+      const t = JSON.parse(r.trace);
+      // D3 Task 5: 列表脫敏——備註全文不進列表，僅保留 hasNotes 布林；完整原文由明細端點按需查閱
+      const rawNotes = t?.rawNotes ?? null;
+      const { rawNotes: _dropped, ...rest } = t ?? {};
+      return { ...rest, hasNotes: rawNotes !== null && String(rawNotes).trim() !== '' };
+    })(),
     createdAt: r.created_at,
-    enrollments: enrollmentsMap[r.person_code] || [],
+    enrollments: itemEnrollments,
+    // D3 Task 4: 班級全文由 enrollments rawToken 依 token_index 升冪以換行拼回
+    classText: itemEnrollments.length > 0 ? itemEnrollments.map((e) => e.rawToken).join('\n') : null,
     sourceRow: r.source_row ?? 0,
-  }));
+  };});
 
   return {
     runId,
@@ -508,6 +526,8 @@ export function getStudentCalculationDetail(
     trace: JSON.parse(row.trace),
     createdAt: row.created_at,
     enrollments,
+    // D3 Task 4: 班級全文由 enrollments rawToken 依 token_index 升冪以換行拼回
+    classText: enrollments.length > 0 ? enrollments.map((e) => e.rawToken).join('\n') : null,
     sourceRow: row.source_row ?? 0,
   };
 }
