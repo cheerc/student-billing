@@ -151,7 +151,7 @@ export default function SettingsEditor({
     setApplied(null);
   };
 
-  // 星期欄位編輯（僅供顯示與點名表，不影響扣天）
+  // 星期欄位編輯（參與同星期衝堂計算與點名表）
   const updateRowWeekday = (rowId: string, weekday: string) => {
     setRows((prev) =>
       prev.map((r) => (r.rowId === rowId ? { ...r, weekday } : r))
@@ -473,7 +473,7 @@ export default function SettingsEditor({
           <div className="table-title">
             S 表平鋪排課設定（共 {rows.length} 筆時段列）
             <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 'normal', marginLeft: '8px' }}>
-              （五欄皆可逐列編輯；星期僅供顯示與點名表，不影響衝堂扣天）
+              （五欄皆可逐列編輯；同星期才計入衝堂，星期六自然為 0）
             </span>
           </div>
           <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
@@ -589,7 +589,7 @@ export default function SettingsEditor({
                           fontSize: '0.8125rem',
                           width: '55px',
                         }}
-                        title="星期僅供顯示與點名表，不影響衝堂扣天"
+                        title="同星期才計入衝堂，星期六不計入安親課輔衝堂"
                       />
                     </td>
                     <td>

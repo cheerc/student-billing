@@ -164,8 +164,8 @@ export function draftToAliasMap(draft: SettingsDraft): Map<string, string> {
  * 避免空陣列誤把全體 seed 時段清空。若 active=false 則覆寫為空時段（不扣天）。 */
 export function draftToScheduleOverride(
   draft: SettingsDraft
-): Map<string, Array<{ start: number; end: number }>> {
-  const map = new Map<string, Array<{ start: number; end: number }>>();
+): Map<string, Array<{ start: number; end: number; weekday?: string | null }>> {
+  const map = new Map<string, Array<{ start: number; end: number; weekday?: string | null }>>();
   for (const c of draft.classes) {
     if (!c.active) {
       map.set(c.baseName, []);
@@ -174,7 +174,7 @@ export function draftToScheduleOverride(
     if (c.sessions.length === 0) continue;
     map.set(
       c.baseName,
-      c.sessions.map((s) => ({ start: s.startMinutes, end: s.endMinutes }))
+      c.sessions.map((s) => ({ start: s.startMinutes, end: s.endMinutes, weekday: s.weekday }))
     );
   }
   return map;

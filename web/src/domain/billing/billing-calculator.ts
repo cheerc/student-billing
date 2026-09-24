@@ -17,12 +17,14 @@ import {
 } from '../schedules/overlap-calculator';
 import seedData from '../schedules/schedule-seed.json';
 
+export type RuleSetVersion = 'erp-tag-v1' | 'excel-v260922-compat' | 'erp-tag-v2';
+
 export interface CalculationOptions {
-  ruleSetVersion?: 'erp-tag-v1' | 'excel-v260922-compat';
+  ruleSetVersion?: RuleSetVersion;
   /** T05: alias 覆寫（rawToken baseName → seed baseName），不自動批准時為空 */
   aliasMap?: Map<string, string>;
   /** T05: schedule 覆寫（seed baseName → 時段 sessions），供設定維護自訂時段 */
-  scheduleOverride?: Map<string, Array<{ start: number; end: number }>>;
+  scheduleOverride?: Map<string, Array<{ start: number; end: number; weekday?: string | null }>>;
 }
 
 const seedClassMap = new Map<string, any>();
@@ -37,10 +39,10 @@ for (const cls of seedData.classes) {
 export function resolveClassSessions(
   token: ParsedToken | undefined,
   aliasMap: Map<string, string> | undefined,
-  scheduleOverride: Map<string, Array<{ start: number; end: number }>> | undefined,
+  scheduleOverride: Map<string, Array<{ start: number; end: number; weekday?: string | null }>> | undefined,
   classMap: Map<string, any> = seedClassMap
 ): {
-  sessions: Array<{ start: number; end: number }>;
+  sessions: Array<{ start: number; end: number; weekday?: string | null }>;
   status: string;
   resolvedBaseName: string | null;
 } {
@@ -71,7 +73,11 @@ export function resolveClassSessions(
     return { sessions: [], status: 'schedule_empty', resolvedBaseName };
   }
   return {
-    sessions: valid.map((s: any) => ({ start: s.startMinutes, end: s.endMinutes })),
+    sessions: valid.map((s: any) => ({
+      start: s.startMinutes,
+      end: s.endMinutes,
+      weekday: s.weekday ?? null,
+    })),
     status: 'calculated',
     resolvedBaseName,
   };
@@ -81,15 +87,19 @@ export function resolveClassSessions(
  * T05: 以已解析時段計算安親/課輔扣天。
  */
 function deductSessions(
-  sessions: Array<{ start: number; end: number }>,
-  isCompat: boolean
+  sessions: Array<{ start: number; end: number; weekday?: string | null }>,
+  ruleSetVersion: RuleSetVersion = 'erp-tag-v2'
 ): { anqin: number; tutoring: number } {
+  const isCompat = ruleSetVersion === 'excel-v260922-compat';
+  const sameWeekdayOnly = ruleSetVersion === 'erp-tag-v2';
+  const options = { sameWeekdayOnly };
+
   const anqinRes = isCompat
     ? calculateClassDeductionCompat(sessions, 'anqin')
-    : calculateClassDeductionD24(sessions, 'anqin');
+    : calculateClassDeductionD24(sessions, 'anqin', options);
   const tutoringRes = isCompat
     ? calculateClassDeductionCompat(sessions, 'tutoring')
-    : calculateClassDeductionD24(sessions, 'tutoring');
+    : calculateClassDeductionD24(sessions, 'tutoring', options);
   return { anqin: anqinRes.rounded, tutoring: tutoringRes.rounded };
 }
 
@@ -100,7 +110,8 @@ export function calculateStudentBilling(
   student: StudentSnapshot,
   options: CalculationOptions = {}
 ): StudentBillingCalculation {
-  const isCompat = options.ruleSetVersion === 'excel-v260922-compat';
+  const ruleSetVersion: RuleSetVersion = options.ruleSetVersion || 'erp-tag-v2';
+  const isCompat = ruleSetVersion === 'excel-v260922-compat';
 
   // 1. 標籤 / 備註折扣來源解析 (02 §1 & §5: formal 讀標籤, compat 讀備註)
   const discountSourceText = isCompat ? student.notesRaw : student.tagsRaw;
@@ -125,7 +136,7 @@ export function calculateStudentBilling(
   let mathScheduleStatus = mathSessions.status;
 
   if (mathSessions.status === 'calculated') {
-    const ded = deductSessions(mathSessions.sessions, isCompat);
+    const ded = deductSessions(mathSessions.sessions, ruleSetVersion);
     mathAnqinDed = ded.anqin;
     mathTutoringDed = ded.tutoring;
   }
@@ -139,7 +150,7 @@ export function calculateStudentBilling(
   let englishTutoringDed = 0;
 
   if (englishSessions.status === 'calculated') {
-    const ded = deductSessions(englishSessions.sessions, isCompat);
+    const ded = deductSessions(englishSessions.sessions, ruleSetVersion);
     englishAnqinDed = ded.anqin;
     englishTutoringDed = ded.tutoring;
   }

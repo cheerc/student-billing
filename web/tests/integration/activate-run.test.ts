@@ -157,4 +157,38 @@ describe('T04: 計算生命週期、CAS 409 啟用與總表查詢整合測試 (I
     expect(actRes.issueCounts['CONFLICTING_NOTE_SOURCE']).toBe(1);
     expect(actRes.issueCounts['SCHEDULE_NOT_FOUND']).toBe(13);
   });
+
+  it('D30 / I17: erp-tag-v2 與 erp-tag-v1 雙版本對照驗證，在 seed 基準下 477 筆學生計算天數完全一致且版本記錄精確', () => {
+    // 1. 啟用預設 erp-tag-v2 run
+    const actV2 = activateImport(db, {
+      importId: previewId,
+      expectedRevision: 0,
+      idempotencyKey: 'key-verify-v2',
+      ruleSetVersion: 'erp-tag-v2',
+    });
+    const runV2 = db.prepare('SELECT rule_set_version FROM calculation_runs WHERE id = ?').get(actV2.runId) as any;
+    expect(runV2.rule_set_version).toBe('erp-tag-v2');
+
+    // 2. 啟用 erp-tag-v1 run
+    const actV1 = activateImport(db, {
+      importId: previewId,
+      expectedRevision: 1,
+      idempotencyKey: 'key-verify-v1',
+      ruleSetVersion: 'erp-tag-v1',
+    });
+    const runV1 = db.prepare('SELECT rule_set_version FROM calculation_runs WHERE id = ?').get(actV1.runId) as any;
+    expect(runV1.rule_set_version).toBe('erp-tag-v1');
+
+    // 3. 比對兩 run 學生計算結果：因排課種子之數學/美語週六時段均在上午，全量 477 人計算結果位元相同
+    const studentsV2 = queryRunStudents(db, actV2.runId, { limit: 1000 }).items;
+    const studentsV1 = queryRunStudents(db, actV1.runId, { limit: 1000 }).items;
+
+    expect(studentsV2.length).toBe(studentsV1.length);
+    for (let i = 0; i < studentsV2.length; i++) {
+      expect(studentsV2[i].anqinDays).toBe(studentsV1[i].anqinDays);
+      expect(studentsV2[i].tutoringDays).toBe(studentsV1[i].tutoringDays);
+      expect(studentsV2[i].baseDiscountBps).toBe(studentsV1[i].baseDiscountBps);
+      expect(studentsV2[i].hasIssues).toBe(studentsV1[i].hasIssues);
+    }
+  });
 });
