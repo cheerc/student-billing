@@ -36,15 +36,20 @@ export interface TierTransition {
 }
 
 export interface SettingsPreviewResult {
+  /**
+   * 由 server 依 active_state 決定（09 §8.2.2／§8.2.3）：有現行名單 → with_students；
+   * 無現行名單 → settings_only（只存設定，學生影響欄位為 null，不能寫 0 當作驗過）。
+   */
+  mode: 'settings_only' | 'with_students';
   previewId: string;
   inputHash: string;
-  affectedStudents: number;
-  /** 各 -0.5 天等天數變化明細（personCode → [before, after]） */
-  dayDeltas: Array<{ personCode: string; name: string; before: number | null; after: number | null }>;
-  mismatchBefore: number;
-  mismatchAfter: number;
-  tierTransitions: TierTransition[];
-  issueDelta: { before: number; after: number };
+  affectedStudents: number | null;
+  /** 各 -0.5 天等天數變化明細（personCode → [before, after]）；settings_only 為 null */
+  dayDeltas: Array<{ personCode: string; name: string; before: number | null; after: number | null }> | null;
+  mismatchBefore: number | null;
+  mismatchAfter: number | null;
+  tierTransitions: TierTransition[] | null;
+  issueDelta: { before: number; after: number } | null;
   expiresAt: string;
 }
 
@@ -87,6 +92,47 @@ function loadStudents(db: Database.Database, importId: string): StudentSnapshot[
   }));
 }
 
+/** settings_only 預覽：無名單可比對，只保存預覽草稿（hash／revision／TTL 與 with_students 相同）。 */
+function saveSettingsOnlyPreview(
+  db: Database.Database,
+  draft: SettingsDraft,
+  expectedRevision: number,
+  settingsVersionId: string
+): SettingsPreviewResult {
+  const inputHash = hashSettingsDraft(draft);
+  const previewId = `setprev_${inputHash.slice(0, 12)}_${Date.now()}`;
+  const now = new Date().toISOString();
+  // TTL: 15 分鐘（與 with_students 相同）
+  const expiresAt = new Date(Date.now() + 15 * 60 * 1000).toISOString();
+
+  const result: SettingsPreviewResult = {
+    mode: 'settings_only',
+    previewId,
+    inputHash,
+    affectedStudents: null,
+    dayDeltas: null,
+    mismatchBefore: null,
+    mismatchAfter: null,
+    tierTransitions: null,
+    issueDelta: null,
+    expiresAt,
+  };
+
+  saveSettingsPreview(db, {
+    previewId,
+    inputHash,
+    draftJson: JSON.stringify(draft),
+    expectedRevision,
+    settingsVersionId,
+    importId: null,
+    resultJson: JSON.stringify(result),
+    createdAt: now,
+    expiresAt,
+  });
+
+  return result;
+}
+
 /**
  * T05: 設定草稿 dry-run 影響預覽（無副作用，不寫入 active 資料）。
  *
@@ -94,8 +140,8 @@ function loadStudents(db: Database.Database, importId: string): StudentSnapshot[
  * `clientImportId` 只是過渡期的一致性檢查：`undefined`（未帶）＝不檢查；其餘任何值（含 `null`、
  * 空字串、非字串）只要與 server 決定值不同即 400 IMPORT_MISMATCH，絕不採用 client 值，
  * 因此 client 無法藉預覽／套用偷換或啟用非 active 的批次。
- * 無 active import 時（R1a）維持拒絕 404 NO_ACTIVE_IMPORT，即使存在 ready 批次也不採用；
- * 無學生的 settings_only 儲存由 R1b 提供（09 §8.2.3）。
+ * 09 §8.2.3：無現行名單（active_import_id 為 null）→ settings_only，即使存在 ready 批次也不採用、不啟用；
+ * 預覽只驗草稿格式與 revision，學生影響為 null。
  */
 export function previewSettingsChange(
   db: Database.Database,
@@ -121,14 +167,6 @@ export function previewSettingsChange(
       'IMPORT_MISMATCH'
     );
   }
-  if (importId === null) {
-    throw new SettingsPreviewError(
-      404,
-      '尚無已啟用的現行名單，暫無法預覽並套用設定（不會啟用尚未啟用的匯入批次）。',
-      'NO_ACTIVE_IMPORT'
-    );
-  }
-
   if (active.revision !== expectedRevision) {
     throw new SettingsPreviewError(
       409,
@@ -139,6 +177,10 @@ export function previewSettingsChange(
 
   const latest = getLatestSettingsVersion(db);
   const baseDraft: SettingsDraft | null = latest ? (JSON.parse(latest.contentJson) as SettingsDraft) : null;
+
+  if (importId === null) {
+    return saveSettingsOnlyPreview(db, draft, expectedRevision, latest?.id ?? 'seed-v250922');
+  }
 
   const students = loadStudents(db, importId);
   if (students.length === 0) {
@@ -215,6 +257,7 @@ export function previewSettingsChange(
   const expiresAt = new Date(Date.now() + 15 * 60 * 1000).toISOString();
 
   const result: SettingsPreviewResult = {
+    mode: 'with_students',
     previewId,
     inputHash,
     affectedStudents: dayDeltas.length,

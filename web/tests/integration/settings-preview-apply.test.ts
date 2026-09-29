@@ -85,7 +85,7 @@ describe('T05: preview→apply 雙階段流程整合測試 (I10/I11/I15/I18/I20)
     expect(res.affectedStudents).toBe(13);
     // 13 人各 -0.5 天
     expect(res.dayDeltas).toHaveLength(13);
-    for (const d of res.dayDeltas) {
+    for (const d of res.dayDeltas!) {
       expect(d.after).toBe(d.before! - 0.5);
     }
     // mismatch 5→18
@@ -186,11 +186,11 @@ describe('T05: preview→apply 雙階段流程整合測試 (I10/I11/I15/I18/I20)
     expect(oldStudents.totalStudents).toBe(5);
 
     // 新 run 為 18 mismatch
-    const newStudents = queryRunStudents(db, applied.runId, { tierMismatch: true, limit: 100 });
+    const newStudents = queryRunStudents(db, applied.runId!, { tierMismatch: true, limit: 100 });
     expect(newStudents.totalStudents).toBe(18);
 
     // 離班學生仍保留（37 tokens 對應學生數不變）
-    const newAll = queryRunStudents(db, applied.runId, { limit: 200 });
+    const newAll = queryRunStudents(db, applied.runId!, { limit: 200 });
     expect(newAll.stats.totalStudents).toBe(477);
   });
 

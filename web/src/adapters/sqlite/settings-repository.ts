@@ -23,7 +23,8 @@ export interface SettingsPreviewRecord {
   draftJson: string;
   expectedRevision: number;
   settingsVersionId: string;
-  importId: string;
+  /** with_students＝鎖定的現行名單批次；settings_only＝null（09 §8.2.3，migration 0006 起可 null） */
+  importId: string | null;
   resultJson: string;
   createdAt: string;
   expiresAt?: string | null;
