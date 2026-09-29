@@ -149,90 +149,47 @@ export function saveImportBatch(
 }
 
 /**
- * 新舊名單差異（specs/09 §4）：比較本次上傳的學生與「現行名單」（active_state 的 active_import_id，
- * 無 active run 時取最新 ready 批次）之去重人員代碼與報名 token 集合。
- * 學生比較身分為 person_code ＋ 排序後的報名 token 集合（token 集合相同即為未異動，
- * 避免 token 順序造成假異動）；只回數量，不回學生個資。
+ * 讀回某匯入批次的學生快照（含報名 token），順序依來源列。
+ * 名單差異（application/import-roster-diff.ts）與設定影響預覽（settings-preview.ts）共用，
+ * 兩處都必須以同一種方式還原 StudentSnapshot，before/after 計算才會一致。
  */
-export interface RosterDiff {
-  /** 基準名單 id；null 表示尚無任何名單可比較 */
-  baseImportId: string | null;
-  newStudents: number;
-  changedStudents: number;
-  unchangedStudents: number;
-  /** 本次名單未出現的學生數（相對於基準名單） */
-  notAppearedStudents: number;
-}
-
-/** 某 import_id 下去重人員代碼 → 排序後報名 token 集合之指紋。 */
-function rosterFingerprints(db: Database.Database, importId: string): Map<string, string> {
+export function loadStudentsForImport(db: Database.Database, importId: string): StudentSnapshot[] {
   const studentRows = db
-    .prepare('SELECT DISTINCT person_code FROM imported_students WHERE import_id = ?')
-    .all(importId) as Array<{ person_code: string }>;
-  const tokenRows = db
-    .prepare('SELECT person_code, raw_token FROM student_enrollments WHERE import_id = ? ORDER BY person_code ASC, token_index ASC')
-    .all(importId) as Array<{ person_code: string; raw_token: string }>;
-
-  const tokens = new Map<string, string[]>();
-  for (const r of tokenRows) {
-    const arr = tokens.get(r.person_code) ?? [];
-    arr.push(r.raw_token);
-    tokens.set(r.person_code, arr);
+    .prepare('SELECT * FROM imported_students WHERE import_id = ? ORDER BY source_row ASC')
+    .all(importId) as any[];
+  const enrollmentRows = db
+    .prepare('SELECT * FROM student_enrollments WHERE import_id = ? ORDER BY person_code ASC, token_index ASC')
+    .all(importId) as any[];
+  const map: Record<string, any[]> = {};
+  for (const r of enrollmentRows) {
+    (map[r.person_code] ??= []).push({
+      rawToken: r.raw_token,
+      yearPrefix: r.year_prefix,
+      baseName: r.base_name,
+      groupFlag: r.group_flag,
+      modifiers: r.modifiers ? JSON.parse(r.modifiers) : [],
+      withdrawalDate: r.withdrawal_date,
+      erpBillingTierRaw: r.erp_billing_tier_raw,
+      erpBillingTier: r.erp_billing_tier,
+      tierParseStatus: r.tier_parse_status,
+      parseStatus: r.parse_status,
+    });
   }
-
-  const out = new Map<string, string>();
-  for (const s of studentRows) {
-    // 以排序去重後的 token 集合為指紋，token 順序變動不算異動
-    const fingerprint = [...new Set(tokens.get(s.person_code) ?? [])].sort().join('|');
-    out.set(s.person_code, fingerprint);
-  }
-  return out;
-}
-
-/**
- * 計算本次名單相對於現行名單的差異統計。
- * 尚無現行名單時回傳 baseImportId:null 與全為 null 的統計（由呼叫端決定如何呈現）。
- */
-export function computeRosterDiff(
-  db: Database.Database,
-  newImportId: string,
-  baseImportId: string | null
-): RosterDiff {
-  if (!baseImportId || baseImportId === newImportId) {
-    return {
-      baseImportId: null,
-      newStudents: 0,
-      changedStudents: 0,
-      unchangedStudents: 0,
-      notAppearedStudents: 0,
-    };
-  }
-
-  const incoming = rosterFingerprints(db, newImportId);
-  const baseline = rosterFingerprints(db, baseImportId);
-
-  let newStudents = 0;
-  let changedStudents = 0;
-  let unchangedStudents = 0;
-  for (const [personCode, fingerprint] of incoming) {
-    const before = baseline.get(personCode);
-    if (before === undefined) {
-      newStudents += 1;
-    } else if (before === fingerprint) {
-      unchangedStudents += 1;
-    } else {
-      changedStudents += 1;
-    }
-  }
-
-  let notAppearedStudents = 0;
-  for (const personCode of baseline.keys()) {
-    if (!incoming.has(personCode)) {
-      notAppearedStudents += 1;
-    }
-  }
-
-  return { baseImportId, newStudents, changedStudents, unchangedStudents, notAppearedStudents };
+  return studentRows.map((row) => ({
+    personCode: row.person_code,
+    name: row.name,
+    branch: row.branch,
+    gradeRaw: row.grade_raw,
+    grade: row.grade,
+    gradeStatus: row.grade_status,
+    contact: row.contact,
+    schoolInfo: row.school_info,
+    tagsRaw: row.tags_raw,
+    tags: row.tags_raw ? row.tags_raw.split(/[,;\s]+/).filter(Boolean) : [],
+    notesRaw: row.notes_raw,
+    enrollments: map[row.person_code] || [],
+    sourceRow: row.source_row,
+  }));
 }
 
 /**

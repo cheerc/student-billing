@@ -1216,6 +1216,105 @@ dialog.impact-dialog::backdrop {
   color: #0c4a6e;
 }
 
+/* R4 匯入預覽逐人異動明細（specs/09 §4）：折疊區，預設收合 */
+.roster-changes-wrap {
+  margin: 8px 20px 0;
+}
+
+.roster-changes-details {
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  background: var(--bg-card);
+  font-size: 13px;
+}
+
+.roster-changes-details > summary {
+  cursor: pointer;
+  padding: 10px 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.roster-changes-scroll {
+  overflow-x: auto;
+  border-top: 1px solid var(--border-color);
+}
+
+.roster-changes-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.roster-changes-table th,
+.roster-changes-table td {
+  padding: 8px 12px;
+  text-align: left;
+  border-bottom: 1px solid var(--border-color);
+  vertical-align: top;
+}
+
+.roster-changes-table th {
+  color: var(--text-secondary);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.roster-changes-table td[data-field] {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.roster-change-code {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.roster-change-breakdown td {
+  background: var(--bg-primary);
+  padding-top: 4px;
+  padding-bottom: 10px;
+}
+
+.roster-change-classes {
+  list-style: none;
+  display: grid;
+  gap: 4px;
+}
+
+.roster-change-classes li {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: baseline;
+}
+
+.roster-change-class-name {
+  font-weight: 600;
+}
+
+.roster-change-presence {
+  padding: 0 6px;
+  border-radius: 4px;
+  font-size: 12px;
+  background: var(--code-bg);
+  color: var(--text-secondary);
+}
+
+.roster-change-presence.presence-removed {
+  background: var(--danger-bg);
+  color: var(--danger-text);
+}
+
+.roster-change-presence.presence-added {
+  background: var(--success-bg);
+  color: var(--success-text);
+}
+
+.roster-change-class-values {
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
 /* 09 §5.1 人數一行：本班N人 · 符合篩選M人 · N位需確認（三者 scope 不同） */
 .counts-line {
   display: flex;

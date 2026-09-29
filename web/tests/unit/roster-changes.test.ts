@@ -209,7 +209,9 @@ describe('R4 operator 裁決：異動以 before/after 計算結果判定（非�
      *   國小數學-三A：週一 16:30–18:00、週三 18:00–19:30
      *     安親：不與 13:00–16:00 相交 → 扣 0 天
      *     課輔：週一 90 分＋週三 90 分＝180 分 → d=1.0、frac=0 → 扣 1.0 天
-     * 學生層（小一，R11/R12）：安親 max(3.5, 5−0.5)=4.5、課輔 5−0=5；換班後 安親 5、課輔 max(3, 5−1)=4。
+     * 學生層（小一，R11）：只算安親（課輔對 1–2 年級為 not_applicable → null）。
+     *   換班前 max(3.5, 5−0.5)=4.5；換班後 max(3.5, 5−0)=5。三A 的課輔扣 1.0 天對小一計費無影響，
+     *   但仍屬該班的逐班事實，明細照實列出。
      */
     it('明細含退掉的課與新報的課（聯集，數值逐項斷言）：一A→三A', () => {
       const { beforeCtx, afterCtx } = contexts();
@@ -219,11 +221,11 @@ describe('R4 operator 裁決：異動以 before/after 計算結果判定（非�
       const result = computeRosterChanges([before], [after], beforeCtx, afterCtx);
       const change = result.changes[0];
 
-      // 學生層天數
+      // 學生層天數：小一只有安親；課輔不適用（null）
       expect(change.dayChange!.beforeAnqinDays).toBe(4.5);
       expect(change.dayChange!.afterAnqinDays).toBe(5);
-      expect(change.dayChange!.beforeTutoringDays).toBe(5);
-      expect(change.dayChange!.afterTutoringDays).toBe(4);
+      expect(change.dayChange!.beforeTutoringDays).toBeNull();
+      expect(change.dayChange!.afterTutoringDays).toBeNull();
 
       // 逐班明細：兩門課都要出現，且各自標明是「退掉」或「新報」
       const rows = change.dayChange!.classBreakdown;
@@ -244,14 +246,23 @@ describe('R4 operator 裁決：異動以 before/after 計算結果判定（非�
       expect(added.afterTutoringDeduction).toBe(1);
     });
 
-    it('保留的課同時出現在 before 與 after，兩側數值相同（presence=kept）', () => {
+    /**
+     * 兒童美語-KA：週二 15:30–16:30、週四 15:00–16:00
+     *   安親（13:00–16:00）：週二 15:30–16:00＝30 分、週四 15:00–16:00＝60 分 → 90 分 → d=0.5 → 扣 0.5 天
+     *   課輔（16:30–19:30）：週二 15:30–16:30 與 16:30 只相接、週四早於窗 → 0 → 扣 0 天
+     * 小一：安親 before = max(3.5, 5−0.5(一A)−0.5(KA)) = 4；after 退掉 KA = max(3.5, 5−0.5) = 4.5。
+     */
+    it('保留的課兩側數值相同（presence=kept），退掉的美語課只有 before 側有值', () => {
       const { beforeCtx, afterCtx } = contexts();
-      const before = student('S1', ['國小數學-一A', '國小數學-三A'], { grade: 1 });
-      const after = student('S1', ['國小數學-一A'], { grade: 1 }); // 退掉三A、保留一A
+      const before = student('S1', ['國小數學-一A', '兒童美語-KA'], { grade: 1 });
+      const after = student('S1', ['國小數學-一A'], { grade: 1 }); // 退掉美語 KA、保留數學一A
 
       const change = computeRosterChanges([before], [after], beforeCtx, afterCtx).changes[0];
+      expect(change.dayChange!.beforeAnqinDays).toBe(4);
+      expect(change.dayChange!.afterAnqinDays).toBe(4.5);
+
       const rows = change.dayChange!.classBreakdown;
-      expect(rows.map((r) => r.baseName).sort()).toEqual(['國小數學-一A', '國小數學-三A']);
+      expect(rows.map((r) => r.baseName).sort()).toEqual(['兒童美語-KA', '國小數學-一A']);
 
       const kept = rows.find((r) => r.baseName === '國小數學-一A')!;
       expect(kept.presence).toBe('kept');
@@ -260,10 +271,49 @@ describe('R4 operator 裁決：異動以 before/after 計算結果判定（非�
       expect(kept.beforeTutoringDeduction).toBe(0);
       expect(kept.afterTutoringDeduction).toBe(0);
 
-      const dropped = rows.find((r) => r.baseName === '國小數學-三A')!;
+      const dropped = rows.find((r) => r.baseName === '兒童美語-KA')!;
       expect(dropped.presence).toBe('removed');
-      expect(dropped.beforeTutoringDeduction).toBe(1);
-      expect(dropped.afterTutoringDeduction).toBeNull();
+      expect(dropped.beforeAnqinDeduction).toBe(0.5);
+      expect(dropped.beforeTutoringDeduction).toBe(0);
+      expect(dropped.afterAnqinDeduction).toBeNull();
+      expect(dropped.statusAfter).toBe('no_enrollment');
+    });
+
+    /**
+     * domain 只取每位學生「第一個國小數學」與「第一個兒童美語」計算扣天（billing-calculator.ts）。
+     * 第二門數學不影響天數 → 退掉它不算異動；明細也不該把它當成造成變化的原因。
+     */
+    it('第二門數學不計入扣天：小三 [一A,三A]→[一A] 計費結果相同 → 不算異動', () => {
+      const { beforeCtx, afterCtx } = contexts();
+      const before = student('S1', ['國小數學-一A', '國小數學-三A'], { grade: 3 });
+      const after = student('S1', ['國小數學-一A'], { grade: 3 });
+
+      const result = computeRosterChanges([before], [after], beforeCtx, afterCtx);
+
+      expect(result.changes).toHaveLength(0);
+      expect(result.stats.unchangedCount).toBe(1);
+    });
+
+    it('第一門數學被換掉時，原本排第二的三A變成計入：明細標為 kept，但 before 側為 not_counted（不是扣 0 天）', () => {
+      const { beforeCtx, afterCtx } = contexts();
+      // 小三課輔：before 計入的是一A（課輔扣 0）→ 5；after 只剩三A（課輔扣 1.0）→ max(3, 5−1)=4
+      const before = student('S1', ['國小數學-一A', '國小數學-三A'], { grade: 3 });
+      const after = student('S1', ['國小數學-三A'], { grade: 3 });
+
+      const change = computeRosterChanges([before], [after], beforeCtx, afterCtx).changes[0];
+      expect(change.dayChange!.beforeTutoringDays).toBe(5);
+      expect(change.dayChange!.afterTutoringDays).toBe(4);
+
+      const rows = change.dayChange!.classBreakdown;
+      const first = rows.find((r) => r.baseName === '國小數學-一A')!;
+      expect(first.presence).toBe('removed');
+      expect(first.beforeTutoringDeduction).toBe(0);
+
+      const second = rows.find((r) => r.baseName === '國小數學-三A')!;
+      expect(second.presence).toBe('kept'); // 兩側都有報名
+      expect(second.statusBefore).toBe('not_counted'); // 但 before 時排第二、不計入
+      expect(second.beforeTutoringDeduction).toBeNull();
+      expect(second.afterTutoringDeduction).toBe(1);
     });
 
     it('折扣異動附科數與標籤 before & after（可查原因）', () => {

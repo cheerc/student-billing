@@ -131,7 +131,7 @@ const mockChanges = [
           afterAnqinDeduction: null,
           afterTutoringDeduction: null,
           statusBefore: 'calculated',
-          statusAfter: 'not_enrolled',
+          statusAfter: 'no_enrollment',
         },
         {
           baseName: '國小數學-三A',
@@ -141,7 +141,7 @@ const mockChanges = [
           beforeTutoringDeduction: null,
           afterAnqinDeduction: 0,
           afterTutoringDeduction: 1,
-          statusBefore: 'not_enrolled',
+          statusBefore: 'no_enrollment',
           statusAfter: 'calculated',
         },
       ],

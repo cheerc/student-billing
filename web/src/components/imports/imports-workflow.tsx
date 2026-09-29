@@ -3,11 +3,15 @@
 import React, { useState, useRef } from 'react';
 import Link from 'next/link';
 import { ImportPreviewResult } from '@/application/import-preview';
+import type { RosterChange } from '@/application/roster-changes';
 import { StudentSnapshot } from '@/domain/students';
+import { RosterChangesDetails } from './roster-changes-details';
 
 /**
  * 匯入預覽回應（含重複判重與相對於現行名單的差異統計，specs/09 §4）。
  * rosterDiff.baseImportId 為 null 表示尚無任何名單可比較，統計欄位此時不適用。
+ * 異動（changedStudents／changes）由 API 以 before/after 計算結果判定
+ * （operator 裁決 d-20260929111803466480-4／-5），畫面只呈現、不自行推導。
  */
 type PreviewWithDiff = ImportPreviewResult & {
   isDuplicate?: boolean;
@@ -18,6 +22,8 @@ type PreviewWithDiff = ImportPreviewResult & {
     changedStudents: number;
     unchangedStudents: number;
     notAppearedStudents: number;
+    /** 逐人明細：新增、異動、未出現（未異動者不列）。 */
+    changes?: RosterChange[];
   };
   /**
    * 實際保存的批次 id。重傳同檔時判重會回傳既有批次（此時與 previewId 不同），
@@ -25,6 +31,15 @@ type PreviewWithDiff = ImportPreviewResult & {
    */
   batchId?: string;
 };
+
+/**
+ * 啟用要用「實際保存的批次 id」（batchId）。重傳同檔時 saveImportBatch 判重會回傳既有批次，
+ * 此時 batchId 與本次 previewId 不同；用 previewId 呼叫 activate 會指向從未寫入的批次而失敗。
+ * 舊回應沒有 batchId 時退回 previewId。
+ */
+export function resolveActivationImportId(preview: { previewId: string; batchId?: string }): string {
+  return preview.batchId ?? preview.previewId;
+}
 
 interface ImportsWorkflowProps {
   initialStage?: 'upload' | 'preview' | 'success';
@@ -119,7 +134,7 @@ export function ImportsWorkflow({
     try {
       const idempotencyKey = `ui-act-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
       // 啟用以「實際保存的批次 id」：重傳同檔時 previewId 與 batchId 不同（判重回傳既有批次）
-      const batchId = preview.batchId ?? preview.previewId;
+      const batchId = resolveActivationImportId(preview);
       const res = await fetch(`/api/v1/imports/${batchId}/activate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -313,26 +328,25 @@ export function ImportsWorkflow({
               </div>
             )}
 
-            {/* 相對於現行名單的差異統計（specs/09 §4：需 API 真實提供） */}
+            {/* 相對於現行名單的差異統計（specs/09 §4：需 API 真實提供；異動以計算結果判定） */}
             {preview.rosterDiff && preview.rosterDiff.baseImportId !== null && (
-              <div className="roster-diff-bar" role="status">
-                <span className="roster-diff-label">與目前名單相比</span>
-                <span className="roster-diff-item">
-                  新增 <strong>{preview.rosterDiff.newStudents}</strong> 人
-                </span>
-                <span className="roster-diff-item">
-                  未出現 <strong>{preview.rosterDiff.notAppearedStudents}</strong> 人
-                </span>
-                {/*
-                  R4 operator 裁決：rosterDiff 的 changedStudents 是「報名 token 集合有變」的
-                  代理指標，會把「報名有變但計費不變」與「報名沒變但計費變（升年級、標籤變動）」
-                  都判錯，因此不再以「報名異動」呈現。正式異動以折扣與安親／課輔扣除天數的
-                  before & after 計算結果判定（application/roster-changes.ts），於核對結果頁呈現。
-                */}
-                <span className="roster-diff-item roster-diff-note">
-                  天數與折扣是否改變，將於核對結果頁逐位列出
-                </span>
-              </div>
+              <>
+                <div className="roster-diff-bar" role="status">
+                  <span className="roster-diff-label">與目前名單相比</span>
+                  <span className="roster-diff-item" data-diff="new">
+                    新增 <strong>{preview.rosterDiff.newStudents}</strong> 人
+                  </span>
+                  <span className="roster-diff-item" data-diff="changed">
+                    異動 <strong>{preview.rosterDiff.changedStudents}</strong> 人
+                  </span>
+                  <span className="roster-diff-item" data-diff="not-appeared">
+                    未出現 <strong>{preview.rosterDiff.notAppearedStudents}</strong> 人
+                  </span>
+                </div>
+                <div className="roster-changes-wrap">
+                  <RosterChangesDetails changes={preview.rosterDiff.changes ?? []} />
+                </div>
+              </>
             )}
 
             {/*

@@ -17,7 +17,7 @@ import {
   CARE_WINDOWS_MISMATCH_MESSAGE,
   resolveFormalRuleSetVersion,
 } from './schedule-preview';
-import { StudentSnapshot } from '@/domain/students';
+import { loadStudentsForImport } from '@/adapters/sqlite/import-repository';
 
 export class SettingsPreviewError extends Error {
   statusCode: number;
@@ -56,45 +56,6 @@ export interface SettingsPreviewResult {
   tierTransitions: TierTransition[] | null;
   issueDelta: { before: number; after: number } | null;
   expiresAt: string;
-}
-
-function loadStudents(db: Database.Database, importId: string): StudentSnapshot[] {
-  const studentRows = db
-    .prepare('SELECT * FROM imported_students WHERE import_id = ? ORDER BY source_row ASC')
-    .all(importId) as any[];
-  const enrollmentRows = db
-    .prepare('SELECT * FROM student_enrollments WHERE import_id = ? ORDER BY person_code ASC, token_index ASC')
-    .all(importId) as any[];
-  const map: Record<string, any[]> = {};
-  for (const r of enrollmentRows) {
-    (map[r.person_code] ??= []).push({
-      rawToken: r.raw_token,
-      yearPrefix: r.year_prefix,
-      baseName: r.base_name,
-      groupFlag: r.group_flag,
-      modifiers: r.modifiers ? JSON.parse(r.modifiers) : [],
-      withdrawalDate: r.withdrawal_date,
-      erpBillingTierRaw: r.erp_billing_tier_raw,
-      erpBillingTier: r.erp_billing_tier,
-      tierParseStatus: r.tier_parse_status,
-      parseStatus: r.parse_status,
-    });
-  }
-  return studentRows.map((row) => ({
-    personCode: row.person_code,
-    name: row.name,
-    branch: row.branch,
-    gradeRaw: row.grade_raw,
-    grade: row.grade,
-    gradeStatus: row.grade_status,
-    contact: row.contact,
-    schoolInfo: row.school_info,
-    tagsRaw: row.tags_raw,
-    tags: row.tags_raw ? row.tags_raw.split(/[,;\s]+/).filter(Boolean) : [],
-    notesRaw: row.notes_raw,
-    enrollments: map[row.person_code] || [],
-    sourceRow: row.source_row,
-  }));
 }
 
 /** settings_only 預覽：無名單可比對，只保存預覽草稿（hash／revision／TTL 與 with_students 相同）。 */
@@ -194,7 +155,7 @@ export function previewSettingsChange(
     return saveSettingsOnlyPreview(db, draft, expectedRevision, latest?.id ?? 'seed-v250922');
   }
 
-  const students = loadStudents(db, importId);
+  const students = loadStudentsForImport(db, importId);
   if (students.length === 0) {
     throw new SettingsPreviewError(404, `找不到匯入批次 ${importId} 之學生資料`);
   }

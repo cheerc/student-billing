@@ -16,6 +16,9 @@ import { StudentSnapshot } from '@/domain/students';
  *
  * 沿用 settings-preview.ts:218-256 既有的 before/after 比較模式（同一個 calculateStudentBilling），
  * 不新推導計費規則、不改 domain 公式。
+ *
+ * 呼叫端（application/import-roster-diff.ts → POST /api/v1/imports/preview）一律傳**整批**名單：
+ * before 名單 vs after 名單，新增／異動／退出三類在同一次呼叫內判定（Reviewer B1，PR #32）。
  */
 
 export interface RosterChangeContext {
@@ -24,14 +27,26 @@ export interface RosterChangeContext {
   ruleSetVersion?: CalculationOptions['ruleSetVersion'];
 }
 
-/** 單一課程（報名 token）在 before/after 的逐班衝堂結果。 */
+/**
+ * 單一課程（報名 token）在 before/after 的逐班衝堂結果。
+ *
+ * 明細是 before 名單與 after 名單各自**實際參與計費**的課的聯集（Reviewer B2，PR #32）：
+ * domain 只取每位學生「第一個國小數學」與「第一個兒童美語」計算扣天（billing-calculator.ts），
+ * 其餘課程（第二門數學、國小輔導等）不影響天數，列進來只會誤導，所以不列。
+ *   - presence（以**報名**判定）：removed＝只在 before（退掉）、added＝只在 after（新報）、kept＝兩側都有
+ *   - `*Deduction`：該側該班被照顧窗扣掉的天數（正值，D24 取整後）。**null＝該側沒有此課，或有報但不計入**
+ *     （不是「扣 0 天」）；statusBefore/After 說明原因：'no_enrollment' 未報名、'not_counted' 已報名但不計費
+ * `*Deduction` 是單班扣除量，不是學生的計費天數；學生層天數在 DayChange.before/afterAnqinDays 等欄位。
+ */
 export interface ClassBreakdown {
   baseName: string;
   rawToken: string;
-  beforeAnqinDays: number | null;
-  beforeTutoringDays: number | null;
-  afterAnqinDays: number | null;
-  afterTutoringDays: number | null;
+  presence: 'removed' | 'added' | 'kept';
+  beforeAnqinDeduction: number | null;
+  beforeTutoringDeduction: number | null;
+  afterAnqinDeduction: number | null;
+  afterTutoringDeduction: number | null;
+  /** 該側課表解析狀態：'calculated'、'schedule_empty'…；'no_enrollment'＝未報名；'not_counted'＝已報名但不計入扣天。 */
   statusBefore: string;
   statusAfter: string;
 }
@@ -82,9 +97,12 @@ export interface RosterChangesResult {
   stats: {
     newCount: number;
     removedCount: number;
+    /** 前後都在名單、且折扣／適用率／天數任一有變的人數（不含新增與退出）。 */
+    changedCount: number;
     dayChangedCount: number;
     discountChangedCount: number;
     unchangedCount: number;
+    /** 本次名單（after，依人員代碼去重）的人數。 */
     totalStudents: number;
   };
 }
@@ -113,59 +131,118 @@ const sideOf = (calc: ReturnType<typeof calculateStudentBilling>): RosterChangeS
   isEnrolledTutoring: calc.careDays.tutoring.isEnrolled,
 });
 
-/** 單一報名 token 的 before/after 逐班衝堂天數（用 resolveClassSessions + D24 規則，與 billing 同源）。 */
-function breakdownFor(
-  token: StudentSnapshot['enrollments'][number],
-  beforeCtx: RosterChangeContext,
-  afterCtx: RosterChangeContext
-): ClassBreakdown {
-  const single = (ctx: RosterChangeContext) => {
-    const resolved = resolveClassSessions(token, ctx.aliasMap, ctx.scheduleOverride);
-    const ruleSetVersion = ctx.ruleSetVersion ?? 'erp-tag-v2';
-    if (resolved.status !== 'calculated') {
-      return { status: resolved.status, anqin: null, tutoring: null };
-    }
-    // 以 domain 的 D24 單班扣除取逐堂天數，不另推公式（與 billing-calculator 同一套規則）
-    const options = { sameWeekdayOnly: ruleSetVersion !== 'excel-v260922-compat' };
-    return {
-      status: resolved.status,
-      anqin: Math.abs(calculateClassDeductionD24(resolved.sessions, 'anqin', options).rounded),
-      tutoring: Math.abs(calculateClassDeductionD24(resolved.sessions, 'tutoring', options).rounded),
-    };
-  };
-  const b = single(beforeCtx);
-  const a = single(afterCtx);
+type Token = StudentSnapshot['enrollments'][number];
+
+/** 單一報名 token 在某一側（名單＋課表 context）的逐班扣天數；token 不在該側名單時 status='no_enrollment'。 */
+function classSide(token: Token | undefined, ctx: RosterChangeContext) {
+  const resolved = resolveClassSessions(token, ctx.aliasMap, ctx.scheduleOverride);
+  if (!token || resolved.status !== 'calculated') {
+    return { status: resolved.status, anqin: null as number | null, tutoring: null as number | null };
+  }
+  const ruleSetVersion = ctx.ruleSetVersion ?? 'erp-tag-v2';
+  // 以 domain 的 D24 單班扣除取逐堂天數，不另推公式（與 billing-calculator 同一套規則）
+  const options = { sameWeekdayOnly: ruleSetVersion !== 'excel-v260922-compat' };
   return {
-    baseName: token.baseName,
-    rawToken: token.rawToken,
-    beforeAnqinDays: b.anqin,
-    beforeTutoringDays: b.tutoring,
-    afterAnqinDays: a.anqin,
-    afterTutoringDays: a.tutoring,
-    statusBefore: b.status,
-    statusAfter: a.status,
+    status: resolved.status,
+    anqin: Math.abs(calculateClassDeductionD24(resolved.sessions, 'anqin', options).rounded),
+    tutoring: Math.abs(calculateClassDeductionD24(resolved.sessions, 'tutoring', options).rounded),
   };
 }
 
 /**
- * 比較兩份名單（before：已儲存／上一批；after：本次上傳）並以計算結果判定異動。
- * afterStudents 為單筆或 null（測試用；正式呼叫端傳整批）。
+ * 學生名單中實際參與扣天計算的 token（rawToken 集合）。
+ * 鏡像 billing-calculator.ts 的取法：第一個 baseName 含「國小數學」者、第一個含「兒童美語」者。
+ * （不改 domain；一致性由 roster-changes.test.ts 的「第二門數學不計入」與逐班加總對照測試釘住。）
+ */
+function countedRawTokens(student: StudentSnapshot): Set<string> {
+  const out = new Set<string>();
+  const math = student.enrollments.find((e) => e.baseName.includes('國小數學'));
+  const english = student.enrollments.find((e) => e.baseName.includes('兒童美語'));
+  if (math) out.add(math.rawToken);
+  if (english) out.add(english.rawToken);
+  return out;
+}
+
+/**
+ * 逐班衝堂明細：before 與 after 兩側**計入扣天**的課的聯集，以 rawToken 為同一門課的身分。
+ * 順序＝先 before 側，再接 after 側新出現的課。
+ */
+function buildClassBreakdown(
+  before: StudentSnapshot,
+  after: StudentSnapshot,
+  beforeCtx: RosterChangeContext,
+  afterCtx: RosterChangeContext
+): ClassBreakdown[] {
+  const tokenOf = (s: StudentSnapshot) => {
+    const m = new Map<string, Token>();
+    for (const t of s.enrollments) if (!m.has(t.rawToken)) m.set(t.rawToken, t);
+    return m;
+  };
+  const beforeTokens = tokenOf(before);
+  const afterTokens = tokenOf(after);
+  const beforeCounted = countedRawTokens(before);
+  const afterCounted = countedRawTokens(after);
+
+  const side = (tok: Token | undefined, counted: boolean, ctx: RosterChangeContext) =>
+    counted ? classSide(tok, ctx) : { status: tok ? 'not_counted' : 'no_enrollment', anqin: null, tutoring: null };
+
+  const rows: ClassBreakdown[] = [];
+  const keys = [...beforeCounted, ...[...afterCounted].filter((k) => !beforeCounted.has(k))];
+  for (const key of keys) {
+    const b = beforeTokens.get(key);
+    const a = afterTokens.get(key);
+    const bSide = side(b, beforeCounted.has(key), beforeCtx);
+    const aSide = side(a, afterCounted.has(key), afterCtx);
+    rows.push({
+      baseName: (b ?? a)!.baseName,
+      rawToken: key,
+      presence: b && a ? 'kept' : b ? 'removed' : 'added',
+      beforeAnqinDeduction: bSide.anqin,
+      beforeTutoringDeduction: bSide.tutoring,
+      afterAnqinDeduction: aSide.anqin,
+      afterTutoringDeduction: aSide.tutoring,
+      statusBefore: bSide.status,
+      statusAfter: aSide.status,
+    });
+  }
+  return rows;
+}
+
+/** 依人員代碼去重，同代碼取第一列（與匯入預覽「去重人數」一致）。 */
+function uniqueByPersonCode(list: StudentSnapshot[]): Map<string, StudentSnapshot> {
+  const map = new Map<string, StudentSnapshot>();
+  for (const s of list) if (!map.has(s.personCode)) map.set(s.personCode, s);
+  return map;
+}
+
+/**
+ * 比較兩份**整批**名單（before：現行名單；after：本次上傳）並以計算結果判定異動。
+ *
+ * 三類在同一次呼叫內判定：
+ *   - 新增：after 有、before 無
+ *   - 退出（本次未出現）：before 有、after 無
+ *   - 異動：兩邊都有，且折扣、適用率或安親／課輔天數任一在 before/after 計算結果不同
+ * 兩邊都有但計算結果全部相同者不列入 changes，只計入 stats.unchangedCount。
+ * before 為空陣列時，after 全部是新增。
  */
 export function computeRosterChanges(
   beforeStudents: StudentSnapshot[],
-  afterStudents: StudentSnapshot | null,
+  afterStudents: StudentSnapshot[],
   beforeCtx: RosterChangeContext,
-  afterCtx: RosterChangeContext,
-  opts: { isFirstImport?: boolean } = {}
+  afterCtx: RosterChangeContext
 ): RosterChangesResult {
   const changes: RosterChange[] = [];
-  let newCount = 0, removedCount = 0, dayChangedCount = 0, discountChangedCount = 0, unchangedCount = 0;
+  let newCount = 0, removedCount = 0, changedCount = 0, dayChangedCount = 0, discountChangedCount = 0, unchangedCount = 0;
 
-  const beforeByCode = new Map(beforeStudents.map((s) => [s.personCode, s]));
-  const afterList = afterStudents ? [afterStudents] : [];
+  const beforeByCode = uniqueByPersonCode(beforeStudents);
+  const afterByCode = uniqueByPersonCode(afterStudents);
+  const calcBefore = (s: StudentSnapshot) =>
+    calculateStudentBilling(s, { ...beforeCtx, ruleSetVersion: beforeCtx.ruleSetVersion ?? 'erp-tag-v2' });
+  const calcAfter = (s: StudentSnapshot) =>
+    calculateStudentBilling(s, { ...afterCtx, ruleSetVersion: afterCtx.ruleSetVersion ?? 'erp-tag-v2' });
 
-  for (const after of afterList) {
-    const before = opts.isFirstImport ? undefined : beforeByCode.get(after.personCode);
+  for (const after of afterByCode.values()) {
+    const before = beforeByCode.get(after.personCode);
 
     if (!before) {
       newCount += 1;
@@ -175,7 +252,7 @@ export function computeRosterChanges(
         isNew: true,
         isRemoved: false,
         before: null,
-        after: sideOf(calculateStudentBilling(after, { ...afterCtx, ruleSetVersion: afterCtx.ruleSetVersion ?? 'erp-tag-v2' })),
+        after: sideOf(calcAfter(after)),
         discountChange: null,
         dayChange: null,
         reasons: ['新增學生'],
@@ -183,11 +260,8 @@ export function computeRosterChanges(
       continue;
     }
 
-    const bCalc = calculateStudentBilling(before, { ...beforeCtx, ruleSetVersion: beforeCtx.ruleSetVersion ?? 'erp-tag-v2' });
-    const aCalc = calculateStudentBilling(after, { ...afterCtx, ruleSetVersion: afterCtx.ruleSetVersion ?? 'erp-tag-v2' });
-
-    const bSide = sideOf(bCalc);
-    const aSide = sideOf(aCalc);
+    const bSide = sideOf(calcBefore(before));
+    const aSide = sideOf(calcAfter(after));
 
     const discountChanged = bSide.baseDiscountBps !== aSide.baseDiscountBps;
     const anqinChanged = bSide.anqinDays !== aSide.anqinDays;
@@ -200,6 +274,7 @@ export function computeRosterChanges(
       continue;
     }
 
+    changedCount += 1;
     const reasons: string[] = [];
     if (discountChanged) discountChangedCount += 1;
     if (dayChanged) dayChangedCount += 1;
@@ -208,8 +283,6 @@ export function computeRosterChanges(
     }
     if (dayChanged) reasons.push('安親／課輔扣除天數變動');
     if (rateChanged && !discountChanged) reasons.push('適用率變動');
-
-    const classBreakdown = after.enrollments.map((tok) => breakdownFor(tok, beforeCtx, afterCtx));
 
     changes.push({
       personCode: after.personCode,
@@ -233,31 +306,28 @@ export function computeRosterChanges(
             afterAnqinDays: aSide.anqinDays,
             beforeTutoringDays: bSide.tutoringDays,
             afterTutoringDays: aSide.tutoringDays,
-            classBreakdown,
+            classBreakdown: buildClassBreakdown(before, after, beforeCtx, afterCtx),
           }
         : null,
       reasons,
     });
   }
 
-  // 退出名單（before 有、after 無）
-  if (afterStudents === null && !opts.isFirstImport) {
-    for (const before of beforeStudents) {
-      if (!afterList.some((a) => a.personCode === before.personCode)) {
-        removedCount += 1;
-        changes.push({
-          personCode: before.personCode,
-          name: before.name,
-          isNew: false,
-          isRemoved: true,
-          before: sideOf(calculateStudentBilling(before, { ...beforeCtx, ruleSetVersion: beforeCtx.ruleSetVersion ?? 'erp-tag-v2' })),
-          after: null,
-          discountChange: null,
-          dayChange: null,
-          reasons: ['本次名單未出現'],
-        });
-      }
-    }
+  // 退出（本次名單未出現）：before 有、after 無
+  for (const before of beforeByCode.values()) {
+    if (afterByCode.has(before.personCode)) continue;
+    removedCount += 1;
+    changes.push({
+      personCode: before.personCode,
+      name: before.name,
+      isNew: false,
+      isRemoved: true,
+      before: sideOf(calcBefore(before)),
+      after: null,
+      discountChange: null,
+      dayChange: null,
+      reasons: ['本次名單未出現'],
+    });
   }
 
   return {
@@ -265,10 +335,11 @@ export function computeRosterChanges(
     stats: {
       newCount,
       removedCount,
+      changedCount,
       dayChangedCount,
       discountChangedCount,
       unchangedCount,
-      totalStudents: afterList.length || beforeStudents.length,
+      totalStudents: afterByCode.size,
     },
   };
 }
