@@ -1,0 +1,967 @@
+{
+  "_note": "UX18 golden（04 §8）：由 dd9f08d 版 overlap-calculator（其後至本 PR 未改）＋ schedule-seed.json 直接算出，未經 R1b 的 read model／draft 轉換。 僅含至少有一個完整時段的 seed 班級；每班：totalOverlapMinutes（分鐘）、raw（未取整，domain 負值）、rounded（D24 同班先合計再取整，負值）。",
+  "v1": {
+    "小六加強班-自然": {
+      "anqin": {
+        "totalOverlapMinutes": 60,
+        "raw": -0.3333333333333333,
+        "rounded": -0.5
+      },
+      "tutoring": {
+        "totalOverlapMinutes": 30,
+        "raw": -0.16666666666666666,
+        "rounded": 0
+      }
+    },
+    "小六加強班-國文": {
+      "anqin": {
+        "totalOverlapMinutes": 120,
+        "raw": -0.6666666666666666,
+        "rounded": -0.5
+      },
+      "tutoring": {
+        "totalOverlapMinutes": 0,
+        "raw": 0,
+        "rounded": 0
+      }
+    },
+    "小六加強班-數學": {
+      "anqin": {
+        "totalOverlapMinutes": 0,
+        "raw": 0,
+        "rounded": 0
+      },
+      "tutoring": {
+        "totalOverlapMinutes": 30,
+        "raw": -0.16666666666666666,
+        "rounded": 0
+      }
+    },
+    "兒童美語-Gino": {
+      "anqin": {
+        "totalOverlapMinutes": 110,
+        "raw": -0.611111111111111,
+        "rounded": -0.5
+      },
+      "tutoring": {
+        "totalOverlapMinutes": 70,
+        "raw": -0.3888888888888889,
+        "rounded": -0.5
+      }
+    },
+    "兒童美語-Archy": {
+      "anqin": {
+        "totalOverlapMinutes": 120,
+        "raw": -0.6666666666666666,
+        "rounded": -0.5
+      },
+      "tutoring": {
+        "totalOverlapMinutes": 120,
+        "raw": -1,
+        "rounded": -1
+      }
+    },
+    "兒童美語-Chevady": {
+      "anqin": {
+        "totalOverlapMinutes": 0,
+        "raw": 0,
+        "rounded": 0
+      },
+      "tutoring": {
+        "totalOverlapMinutes": 240,
+        "raw": -2,
+        "rounded": -2
+      }
+    },
+    "兒童美語-Cody": {
+      "anqin": {
+        "totalOverlapMinutes": 0,
+        "raw": 0,
+        "rounded": 0
+      },
+      "tutoring": {
+        "totalOverlapMinutes": 240,
+        "raw": -1.6666666666666665,
+        "rounded": -1.5
+      }
+    },
+    "兒童美語-Ali": {
+      "anqin": {
+        "totalOverlapMinutes": 70,
+        "raw": -0.3888888888888889,
+        "rounded": -0.5
+      },
+      "tutoring": {
+        "totalOverlapMinutes": 140,
+        "raw": -1.1111111111111112,
+        "rounded": -1
+      }
+    },
+    "兒童美語-Dommie": {
+      "anqin": {
+        "totalOverlapMinutes": 0,
+        "raw": 0,
+        "rounded": 0
+      },
+      "tutoring": {
+        "totalOverlapMinutes": 240,
+        "raw": -1.3333333333333333,
+        "rounded": -1.5
+      }
+    },
+    "兒童美語-EC": {
+      "anqin": {
+        "totalOverlapMinutes": 0,
+        "raw": 0,
+        "rounded": 0
+      },
+      "tutoring": {
+        "totalOverlapMinutes": 180,
+        "raw": -1,
+        "rounded": -1
+      }
+    },
+    "兒童美語-ED": {
+      "anqin": {
+        "totalOverlapMinutes": 0,
+        "raw": 0,
+        "rounded": 0
+      },
+      "tutoring": {
+        "totalOverlapMinutes": 180,
+        "raw": -1,
+        "rounded": -1
+      }
+    },
+    "兒童美語-Pluto": {
+      "anqin": {
+        "totalOverlapMinutes": 0,
+        "raw": 0,
+        "rounded": 0
+      },
+      "tutoring": {
+        "totalOverlapMinutes": 240,
+        "raw": -1.6666666666666665,
+        "rounded": -1.5
+      }
+    },
+    "兒童美語-EF": {
+      "anqin": {
+        "totalOverlapMinutes": 0,
+        "raw": 0,
+        "rounded": 0
+      },
+      "tutoring": {
+        "totalOverlapMinutes": 90,
+        "raw": -0.5,
+        "rounded": -0.5
+      }
+    },
+    "兒童美語-EG": {
+      "anqin": {
+        "totalOverlapMinutes": 0,
+        "raw": 0,
+        "rounded": 0
+      },
+      "tutoring": {
+        "totalOverlapMinutes": 180,
+        "raw": -1,
+        "rounded": -1
+      }
+    },
+    "兒童美語-EK": {
+      "anqin": {
+        "totalOverlapMinutes": 0,
+        "raw": 0,
+        "rounded": 0
+      },
+      "tutoring": {
+        "totalOverlapMinutes": 90,
+        "raw": -0.5,
+        "rounded": -0.5
+      }
+    },
+    "兒童美語-EL": {
+      "anqin": {
+        "totalOverlapMinutes": 0,
+        "raw": 0,
+        "rounded": 0
+      },
+      "tutoring": {
+        "totalOverlapMinutes": 90,
+        "raw": -0.5,
+        "rounded": -0.5
+      }
+    },
+    "兒童美語-EM": {
+      "anqin": {
+        "totalOverlapMinutes": 0,
+        "raw": 0,
+        "rounded": 0
+      },
+      "tutoring": {
+        "totalOverlapMinutes": 90,
+        "raw": -0.5,
+        "rounded": -0.5
+      }
+    },
+    "兒童美語-Kirra": {
+      "anqin": {
+        "totalOverlapMinutes": 120,
+        "raw": -0.6666666666666666,
+        "rounded": -0.5
+      },
+      "tutoring": {
+        "totalOverlapMinutes": 120,
+        "raw": -0.6666666666666666,
+        "rounded": -0.5
+      }
+    },
+    "兒童美語-Norma": {
+      "anqin": {
+        "totalOverlapMinutes": 0,
+        "raw": 0,
+        "rounded": 0
+      },
+      "tutoring": {
+        "totalOverlapMinutes": 240,
+        "raw": -1.3333333333333333,
+        "rounded": -1.5
+      }
+    },
+    "兒童美語-Hopper": {
+      "anqin": {
+        "totalOverlapMinutes": 150,
+        "raw": -0.8333333333333334,
+        "rounded": -1
+      },
+      "tutoring": {
+        "totalOverlapMinutes": 40,
+        "raw": -0.2222222222222222,
+        "rounded": 0
+      }
+    },
+    "兒童美語-Teffer": {
+      "anqin": {
+        "totalOverlapMinutes": 120,
+        "raw": -0.6666666666666666,
+        "rounded": -0.5
+      },
+      "tutoring": {
+        "totalOverlapMinutes": 60,
+        "raw": -0.3333333333333333,
+        "rounded": -0.5
+      }
+    },
+    "兒童美語-Toker": {
+      "anqin": {
+        "totalOverlapMinutes": 120,
+        "raw": -0.6666666666666666,
+        "rounded": -0.5
+      },
+      "tutoring": {
+        "totalOverlapMinutes": 60,
+        "raw": -0.3333333333333333,
+        "rounded": -0.5
+      }
+    },
+    "國小國語文-小三小四": {
+      "anqin": {
+        "totalOverlapMinutes": 120,
+        "raw": -0.6666666666666666,
+        "rounded": -0.5
+      },
+      "tutoring": {
+        "totalOverlapMinutes": 0,
+        "raw": 0,
+        "rounded": 0
+      }
+    },
+    "國小國語文-小五": {
+      "anqin": {
+        "totalOverlapMinutes": 60,
+        "raw": -0.3333333333333333,
+        "rounded": -0.5
+      },
+      "tutoring": {
+        "totalOverlapMinutes": 30,
+        "raw": -0.16666666666666666,
+        "rounded": 0
+      }
+    },
+    "國小數學-一A": {
+      "anqin": {
+        "totalOverlapMinutes": 60,
+        "raw": -0.3333333333333333,
+        "rounded": -0.5
+      },
+      "tutoring": {
+        "totalOverlapMinutes": 0,
+        "raw": 0,
+        "rounded": 0
+      }
+    },
+    "國小數學-二A": {
+      "anqin": {
+        "totalOverlapMinutes": 30,
+        "raw": -0.16666666666666666,
+        "rounded": 0
+      },
+      "tutoring": {
+        "totalOverlapMinutes": 30,
+        "raw": -0.16666666666666666,
+        "rounded": 0
+      }
+    },
+    "國小數學-二B": {
+      "anqin": {
+        "totalOverlapMinutes": 30,
+        "raw": -0.16666666666666666,
+        "rounded": 0
+      },
+      "tutoring": {
+        "totalOverlapMinutes": 30,
+        "raw": -0.16666666666666666,
+        "rounded": 0
+      }
+    },
+    "國小數學-三A": {
+      "anqin": {
+        "totalOverlapMinutes": 0,
+        "raw": 0,
+        "rounded": 0
+      },
+      "tutoring": {
+        "totalOverlapMinutes": 180,
+        "raw": -1,
+        "rounded": -1
+      }
+    },
+    "國小數學-三B": {
+      "anqin": {
+        "totalOverlapMinutes": 0,
+        "raw": 0,
+        "rounded": 0
+      },
+      "tutoring": {
+        "totalOverlapMinutes": 180,
+        "raw": -1,
+        "rounded": -1
+      }
+    },
+    "國小數學-五A": {
+      "anqin": {
+        "totalOverlapMinutes": 0,
+        "raw": 0,
+        "rounded": 0
+      },
+      "tutoring": {
+        "totalOverlapMinutes": 180,
+        "raw": -1,
+        "rounded": -1
+      }
+    },
+    "國小數學-五B": {
+      "anqin": {
+        "totalOverlapMinutes": 0,
+        "raw": 0,
+        "rounded": 0
+      },
+      "tutoring": {
+        "totalOverlapMinutes": 180,
+        "raw": -1,
+        "rounded": -1
+      }
+    },
+    "國小數學-六A": {
+      "anqin": {
+        "totalOverlapMinutes": 0,
+        "raw": 0,
+        "rounded": 0
+      },
+      "tutoring": {
+        "totalOverlapMinutes": 180,
+        "raw": -1,
+        "rounded": -1
+      }
+    },
+    "國小數學-六B": {
+      "anqin": {
+        "totalOverlapMinutes": 0,
+        "raw": 0,
+        "rounded": 0
+      },
+      "tutoring": {
+        "totalOverlapMinutes": 180,
+        "raw": -1,
+        "rounded": -1
+      }
+    },
+    "國小數學-四A": {
+      "anqin": {
+        "totalOverlapMinutes": 90,
+        "raw": -0.5,
+        "rounded": -0.5
+      },
+      "tutoring": {
+        "totalOverlapMinutes": 90,
+        "raw": -0.5,
+        "rounded": -0.5
+      }
+    },
+    "國小數學-四B": {
+      "anqin": {
+        "totalOverlapMinutes": 90,
+        "raw": -0.5,
+        "rounded": -0.5
+      },
+      "tutoring": {
+        "totalOverlapMinutes": 90,
+        "raw": -0.5,
+        "rounded": -0.5
+      }
+    },
+    "兒童美語-KA": {
+      "anqin": {
+        "totalOverlapMinutes": 90,
+        "raw": -0.5,
+        "rounded": -0.5
+      },
+      "tutoring": {
+        "totalOverlapMinutes": 0,
+        "raw": 0,
+        "rounded": 0
+      }
+    },
+    "兒童美語-KB": {
+      "anqin": {
+        "totalOverlapMinutes": 90,
+        "raw": -0.5,
+        "rounded": -0.5
+      },
+      "tutoring": {
+        "totalOverlapMinutes": 0,
+        "raw": 0,
+        "rounded": 0
+      }
+    },
+    "兒童美語-KC": {
+      "anqin": {
+        "totalOverlapMinutes": 0,
+        "raw": 0,
+        "rounded": 0
+      },
+      "tutoring": {
+        "totalOverlapMinutes": 120,
+        "raw": -0.6666666666666666,
+        "rounded": -0.5
+      }
+    },
+    "兒童美語-EA": {
+      "anqin": {
+        "totalOverlapMinutes": 0,
+        "raw": 0,
+        "rounded": 0
+      },
+      "tutoring": {
+        "totalOverlapMinutes": 180,
+        "raw": -1,
+        "rounded": -1
+      }
+    },
+    "兒童美語-EB": {
+      "anqin": {
+        "totalOverlapMinutes": 0,
+        "raw": 0,
+        "rounded": 0
+      },
+      "tutoring": {
+        "totalOverlapMinutes": 90,
+        "raw": -0.5,
+        "rounded": -0.5
+      }
+    }
+  },
+  "v2": {
+    "小六加強班-自然": {
+      "anqin": {
+        "totalOverlapMinutes": 0,
+        "raw": 0,
+        "rounded": 0
+      },
+      "tutoring": {
+        "totalOverlapMinutes": 0,
+        "raw": 0,
+        "rounded": 0
+      }
+    },
+    "小六加強班-國文": {
+      "anqin": {
+        "totalOverlapMinutes": 0,
+        "raw": 0,
+        "rounded": 0
+      },
+      "tutoring": {
+        "totalOverlapMinutes": 0,
+        "raw": 0,
+        "rounded": 0
+      }
+    },
+    "小六加強班-數學": {
+      "anqin": {
+        "totalOverlapMinutes": 0,
+        "raw": 0,
+        "rounded": 0
+      },
+      "tutoring": {
+        "totalOverlapMinutes": 30,
+        "raw": -0.16666666666666666,
+        "rounded": 0
+      }
+    },
+    "兒童美語-Gino": {
+      "anqin": {
+        "totalOverlapMinutes": 110,
+        "raw": -0.611111111111111,
+        "rounded": -0.5
+      },
+      "tutoring": {
+        "totalOverlapMinutes": 70,
+        "raw": -0.3888888888888889,
+        "rounded": -0.5
+      }
+    },
+    "兒童美語-Archy": {
+      "anqin": {
+        "totalOverlapMinutes": 120,
+        "raw": -0.6666666666666666,
+        "rounded": -0.5
+      },
+      "tutoring": {
+        "totalOverlapMinutes": 120,
+        "raw": -1,
+        "rounded": -1
+      }
+    },
+    "兒童美語-Chevady": {
+      "anqin": {
+        "totalOverlapMinutes": 0,
+        "raw": 0,
+        "rounded": 0
+      },
+      "tutoring": {
+        "totalOverlapMinutes": 240,
+        "raw": -2,
+        "rounded": -2
+      }
+    },
+    "兒童美語-Cody": {
+      "anqin": {
+        "totalOverlapMinutes": 0,
+        "raw": 0,
+        "rounded": 0
+      },
+      "tutoring": {
+        "totalOverlapMinutes": 240,
+        "raw": -1.6666666666666665,
+        "rounded": -1.5
+      }
+    },
+    "兒童美語-Ali": {
+      "anqin": {
+        "totalOverlapMinutes": 70,
+        "raw": -0.3888888888888889,
+        "rounded": -0.5
+      },
+      "tutoring": {
+        "totalOverlapMinutes": 140,
+        "raw": -1.1111111111111112,
+        "rounded": -1
+      }
+    },
+    "兒童美語-Dommie": {
+      "anqin": {
+        "totalOverlapMinutes": 0,
+        "raw": 0,
+        "rounded": 0
+      },
+      "tutoring": {
+        "totalOverlapMinutes": 240,
+        "raw": -1.3333333333333333,
+        "rounded": -1.5
+      }
+    },
+    "兒童美語-EC": {
+      "anqin": {
+        "totalOverlapMinutes": 0,
+        "raw": 0,
+        "rounded": 0
+      },
+      "tutoring": {
+        "totalOverlapMinutes": 180,
+        "raw": -1,
+        "rounded": -1
+      }
+    },
+    "兒童美語-ED": {
+      "anqin": {
+        "totalOverlapMinutes": 0,
+        "raw": 0,
+        "rounded": 0
+      },
+      "tutoring": {
+        "totalOverlapMinutes": 180,
+        "raw": -1,
+        "rounded": -1
+      }
+    },
+    "兒童美語-Pluto": {
+      "anqin": {
+        "totalOverlapMinutes": 0,
+        "raw": 0,
+        "rounded": 0
+      },
+      "tutoring": {
+        "totalOverlapMinutes": 240,
+        "raw": -1.6666666666666665,
+        "rounded": -1.5
+      }
+    },
+    "兒童美語-EF": {
+      "anqin": {
+        "totalOverlapMinutes": 0,
+        "raw": 0,
+        "rounded": 0
+      },
+      "tutoring": {
+        "totalOverlapMinutes": 90,
+        "raw": -0.5,
+        "rounded": -0.5
+      }
+    },
+    "兒童美語-EG": {
+      "anqin": {
+        "totalOverlapMinutes": 0,
+        "raw": 0,
+        "rounded": 0
+      },
+      "tutoring": {
+        "totalOverlapMinutes": 180,
+        "raw": -1,
+        "rounded": -1
+      }
+    },
+    "兒童美語-EK": {
+      "anqin": {
+        "totalOverlapMinutes": 0,
+        "raw": 0,
+        "rounded": 0
+      },
+      "tutoring": {
+        "totalOverlapMinutes": 90,
+        "raw": -0.5,
+        "rounded": -0.5
+      }
+    },
+    "兒童美語-EL": {
+      "anqin": {
+        "totalOverlapMinutes": 0,
+        "raw": 0,
+        "rounded": 0
+      },
+      "tutoring": {
+        "totalOverlapMinutes": 90,
+        "raw": -0.5,
+        "rounded": -0.5
+      }
+    },
+    "兒童美語-EM": {
+      "anqin": {
+        "totalOverlapMinutes": 0,
+        "raw": 0,
+        "rounded": 0
+      },
+      "tutoring": {
+        "totalOverlapMinutes": 90,
+        "raw": -0.5,
+        "rounded": -0.5
+      }
+    },
+    "兒童美語-Kirra": {
+      "anqin": {
+        "totalOverlapMinutes": 120,
+        "raw": -0.6666666666666666,
+        "rounded": -0.5
+      },
+      "tutoring": {
+        "totalOverlapMinutes": 120,
+        "raw": -0.6666666666666666,
+        "rounded": -0.5
+      }
+    },
+    "兒童美語-Norma": {
+      "anqin": {
+        "totalOverlapMinutes": 0,
+        "raw": 0,
+        "rounded": 0
+      },
+      "tutoring": {
+        "totalOverlapMinutes": 240,
+        "raw": -1.3333333333333333,
+        "rounded": -1.5
+      }
+    },
+    "兒童美語-Hopper": {
+      "anqin": {
+        "totalOverlapMinutes": 150,
+        "raw": -0.8333333333333334,
+        "rounded": -1
+      },
+      "tutoring": {
+        "totalOverlapMinutes": 40,
+        "raw": -0.2222222222222222,
+        "rounded": 0
+      }
+    },
+    "兒童美語-Teffer": {
+      "anqin": {
+        "totalOverlapMinutes": 120,
+        "raw": -0.6666666666666666,
+        "rounded": -0.5
+      },
+      "tutoring": {
+        "totalOverlapMinutes": 60,
+        "raw": -0.3333333333333333,
+        "rounded": -0.5
+      }
+    },
+    "兒童美語-Toker": {
+      "anqin": {
+        "totalOverlapMinutes": 120,
+        "raw": -0.6666666666666666,
+        "rounded": -0.5
+      },
+      "tutoring": {
+        "totalOverlapMinutes": 60,
+        "raw": -0.3333333333333333,
+        "rounded": -0.5
+      }
+    },
+    "國小國語文-小三小四": {
+      "anqin": {
+        "totalOverlapMinutes": 0,
+        "raw": 0,
+        "rounded": 0
+      },
+      "tutoring": {
+        "totalOverlapMinutes": 0,
+        "raw": 0,
+        "rounded": 0
+      }
+    },
+    "國小國語文-小五": {
+      "anqin": {
+        "totalOverlapMinutes": 0,
+        "raw": 0,
+        "rounded": 0
+      },
+      "tutoring": {
+        "totalOverlapMinutes": 0,
+        "raw": 0,
+        "rounded": 0
+      }
+    },
+    "國小數學-一A": {
+      "anqin": {
+        "totalOverlapMinutes": 60,
+        "raw": -0.3333333333333333,
+        "rounded": -0.5
+      },
+      "tutoring": {
+        "totalOverlapMinutes": 0,
+        "raw": 0,
+        "rounded": 0
+      }
+    },
+    "國小數學-二A": {
+      "anqin": {
+        "totalOverlapMinutes": 30,
+        "raw": -0.16666666666666666,
+        "rounded": 0
+      },
+      "tutoring": {
+        "totalOverlapMinutes": 30,
+        "raw": -0.16666666666666666,
+        "rounded": 0
+      }
+    },
+    "國小數學-二B": {
+      "anqin": {
+        "totalOverlapMinutes": 30,
+        "raw": -0.16666666666666666,
+        "rounded": 0
+      },
+      "tutoring": {
+        "totalOverlapMinutes": 30,
+        "raw": -0.16666666666666666,
+        "rounded": 0
+      }
+    },
+    "國小數學-三A": {
+      "anqin": {
+        "totalOverlapMinutes": 0,
+        "raw": 0,
+        "rounded": 0
+      },
+      "tutoring": {
+        "totalOverlapMinutes": 180,
+        "raw": -1,
+        "rounded": -1
+      }
+    },
+    "國小數學-三B": {
+      "anqin": {
+        "totalOverlapMinutes": 0,
+        "raw": 0,
+        "rounded": 0
+      },
+      "tutoring": {
+        "totalOverlapMinutes": 180,
+        "raw": -1,
+        "rounded": -1
+      }
+    },
+    "國小數學-五A": {
+      "anqin": {
+        "totalOverlapMinutes": 0,
+        "raw": 0,
+        "rounded": 0
+      },
+      "tutoring": {
+        "totalOverlapMinutes": 180,
+        "raw": -1,
+        "rounded": -1
+      }
+    },
+    "國小數學-五B": {
+      "anqin": {
+        "totalOverlapMinutes": 0,
+        "raw": 0,
+        "rounded": 0
+      },
+      "tutoring": {
+        "totalOverlapMinutes": 180,
+        "raw": -1,
+        "rounded": -1
+      }
+    },
+    "國小數學-六A": {
+      "anqin": {
+        "totalOverlapMinutes": 0,
+        "raw": 0,
+        "rounded": 0
+      },
+      "tutoring": {
+        "totalOverlapMinutes": 180,
+        "raw": -1,
+        "rounded": -1
+      }
+    },
+    "國小數學-六B": {
+      "anqin": {
+        "totalOverlapMinutes": 0,
+        "raw": 0,
+        "rounded": 0
+      },
+      "tutoring": {
+        "totalOverlapMinutes": 180,
+        "raw": -1,
+        "rounded": -1
+      }
+    },
+    "國小數學-四A": {
+      "anqin": {
+        "totalOverlapMinutes": 90,
+        "raw": -0.5,
+        "rounded": -0.5
+      },
+      "tutoring": {
+        "totalOverlapMinutes": 90,
+        "raw": -0.5,
+        "rounded": -0.5
+      }
+    },
+    "國小數學-四B": {
+      "anqin": {
+        "totalOverlapMinutes": 90,
+        "raw": -0.5,
+        "rounded": -0.5
+      },
+      "tutoring": {
+        "totalOverlapMinutes": 90,
+        "raw": -0.5,
+        "rounded": -0.5
+      }
+    },
+    "兒童美語-KA": {
+      "anqin": {
+        "totalOverlapMinutes": 90,
+        "raw": -0.5,
+        "rounded": -0.5
+      },
+      "tutoring": {
+        "totalOverlapMinutes": 0,
+        "raw": 0,
+        "rounded": 0
+      }
+    },
+    "兒童美語-KB": {
+      "anqin": {
+        "totalOverlapMinutes": 90,
+        "raw": -0.5,
+        "rounded": -0.5
+      },
+      "tutoring": {
+        "totalOverlapMinutes": 0,
+        "raw": 0,
+        "rounded": 0
+      }
+    },
+    "兒童美語-KC": {
+      "anqin": {
+        "totalOverlapMinutes": 0,
+        "raw": 0,
+        "rounded": 0
+      },
+      "tutoring": {
+        "totalOverlapMinutes": 120,
+        "raw": -0.6666666666666666,
+        "rounded": -0.5
+      }
+    },
+    "兒童美語-EA": {
+      "anqin": {
+        "totalOverlapMinutes": 0,
+        "raw": 0,
+        "rounded": 0
+      },
+      "tutoring": {
+        "totalOverlapMinutes": 180,
+        "raw": -1,
+        "rounded": -1
+      }
+    },
+    "兒童美語-EB": {
+      "anqin": {
+        "totalOverlapMinutes": 0,
+        "raw": 0,
+        "rounded": 0
+      },
+      "tutoring": {
+        "totalOverlapMinutes": 90,
+        "raw": -0.5,
+        "rounded": -0.5
+      }
+    }
+  }
+}
