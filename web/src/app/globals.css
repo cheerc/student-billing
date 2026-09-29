@@ -1063,7 +1063,17 @@ dialog.impact-dialog::backdrop {
     border-bottom: 1px solid var(--border-color);
     overflow-x: auto;
   }
-  .brand, .sidefoot {
+  .brand {
+    display: none;
+  }
+  /* 「匯入紀錄」入口在 sidefoot：768 收合時必須保留（UX20 導覽可達），只隱藏說明小字 */
+  .sidefoot {
+    margin-top: 0;
+    padding-top: 0;
+    border-top: 0;
+    flex-shrink: 0;
+  }
+  .sidefoot-hint {
     display: none;
   }
   .nav-list {
@@ -1750,12 +1760,23 @@ details > summary {
   padding-block: 4px;
 }
 
-.link-button,
-.results-table .link-button,
-.deductions-table .link-button {
+/* 連結樣式的按鈕（學生姓名、展開班級）：全站一致，不吃瀏覽器預設的灰框按鈕外觀；目標高度 ≥ 24px */
+.link-button {
   display: inline-flex;
   align-items: center;
   min-height: 28px;
+  border: 0;
+  background: none;
+  color: var(--primary-color);
+  cursor: pointer;
+  padding: 0;
+  font: inherit;
+  font-weight: 600;
+  text-align: left;
+}
+
+.link-button:hover {
+  text-decoration: underline;
 }
 
 .btn-danger-icon {
@@ -1831,4 +1852,58 @@ details > summary {
 input.search,
 select {
   min-height: 32px;
+}
+
+/* 班名對應表（R2 交付時沒有樣式；R5 依 09 §6 補上：列高 ≥44px、輸入框 36–40px、核取方塊目標 ≥24px） */
+.mapping-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+
+.mapping-table th {
+  padding: 10px 12px;
+  text-align: left;
+  font-weight: 600;
+  white-space: nowrap;
+  color: var(--text-muted);
+  background: #f8fafc;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.mapping-table td {
+  padding: 8px 12px;
+  vertical-align: middle;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.mapping-table tbody tr {
+  height: 48px;
+}
+
+.mapping-table tbody tr:hover {
+  background: #fafcff;
+}
+
+.mapping-table input[type='checkbox'] {
+  width: 24px;
+  height: 24px;
+  margin: 0;
+  cursor: pointer;
+  accent-color: var(--primary-color);
+}
+
+.mapping-table input[type='checkbox']:disabled {
+  cursor: not-allowed;
+}
+
+.input-target-classname {
+  width: 100%;
+  min-width: 220px;
+  height: 36px;
+  padding: 6px 10px;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  font-size: 13px;
+  background: #ffffff;
 }

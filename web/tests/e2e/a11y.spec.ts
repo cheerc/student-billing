@@ -21,7 +21,7 @@ import path from 'path';
  */
 
 const FIXTURE = path.resolve(__dirname, '../fixtures/conforming-erp-fixture.xlsx');
-const EXPECTED_STATES = 11;
+const EXPECTED_STATES = 12;
 
 interface Finding {
   where: string;
@@ -170,6 +170,13 @@ test.describe('R5 可及性稽核（09 §6）', () => {
     await expect(page.locator('.deductions-table')).toBeVisible();
     await page.locator('.deductions-table tbody tr').first().locator('button').first().click();
     await audit(page, '核對結果｜班級扣天（展開）', findings, seen);
+
+    // 有待處理班名的班名對應頁（有候選列、核取方塊與輸入框）——空 DB 的班名對應頁沒有這些控制項，審不到
+    await page.goto('/settings');
+    await expect(page.locator('h1', { hasText: '課表設定' })).toBeVisible({ timeout: 10000 });
+    await page.locator('button[role="tab"]', { hasText: '班名對應' }).click();
+    await expect(page.locator('.mapping-table tbody tr').first()).toBeVisible({ timeout: 10000 });
+    await audit(page, '課表設定｜班名對應頁籤（有待處理班名）', findings, seen);
 
     await page.goto('/history');
     await expect(page.locator('tbody tr[data-status="current"]')).toHaveCount(1);
