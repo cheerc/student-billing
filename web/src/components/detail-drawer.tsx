@@ -1,6 +1,6 @@
 'use client';
 
-import React from 'react';
+import React, { useEffect } from 'react';
 import { StudentCalculationItem } from '@/application/query-students';
 
 interface DetailDrawerProps {
@@ -15,6 +15,9 @@ export default function DetailDrawer({ student, onClose }: DetailDrawerProps) {
 
   return (
     <div
+      role="dialog"
+      aria-modal="true"
+      aria-label={`${student.name} 的學生明細`}
       style={{
         position: 'fixed',
         top: 0,
@@ -27,6 +30,10 @@ export default function DetailDrawer({ student, onClose }: DetailDrawerProps) {
         backgroundColor: 'rgba(15, 23, 42, 0.4)',
       }}
       onClick={onClose}
+      onKeyDown={(e) => {
+        // UX16：Esc 可關閉 drawer（背景 div 預設不可聚焦，故明確綁定）
+        if (e.key === 'Escape') onClose();
+      }}
     >
       <div
         style={{

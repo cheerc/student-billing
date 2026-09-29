@@ -67,6 +67,16 @@ export default function ActiveRunView({
   // 抽屜狀態
   const [selectedStudent, setSelectedStudent] = useState<StudentCalculationItem | null>(null);
 
+  // UX16：Esc 關閉學生明細抽屜
+  useEffect(() => {
+    if (!selectedStudent) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setSelectedStudent(null);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [selectedStudent]);
+
   const fetchWithParams = useCallback(
     async (
       targetCursor: string | null,
@@ -314,22 +324,25 @@ export default function ActiveRunView({
 
       {/* 人數一行（09 §5.1）：本班N人 · 符合篩選M人 · N位需確認 —— 三者 scope 不同，不可互相冒充 */}
       <div className="counts-line" role="status" aria-live="polite">
+        {/* 數字另以 data 屬性供自動化與螢幕閱讀器取用（文字節點間有標籤，不宜以純文字正則解析） */}
         <span className="counts-item">
-          本班 <strong>{stats.classScopeTotal}</strong> 人
+          本班{' '}
+          <strong data-count="class-scope">{stats.classScopeTotal}</strong> 人
         </span>
         <span className="counts-sep" aria-hidden="true">·</span>
         <span className="counts-item">
-          符合篩選 <strong>{data?.totalStudents ?? 0}</strong> 人
+          符合篩選{' '}
+          <strong data-count="matched">{data?.totalStudents ?? 0}</strong> 人
         </span>
         <span className="counts-sep" aria-hidden="true">·</span>
         <span className="counts-item">
-          <strong>{stats.issuesCount}</strong> 位需確認
+          <strong data-count="needs-review">{stats.issuesCount}</strong> 位需確認
         </span>
         {stats.mismatchCount > 0 && (
           <>
             <span className="counts-sep" aria-hidden="true">·</span>
             <span className="counts-item">
-              <strong>{stats.mismatchCount}</strong> 位計算天數與 ERP 登記不符
+              <strong data-count="mismatch">{stats.mismatchCount}</strong> 位計算天數與 ERP 登記不符
             </span>
           </>
         )}

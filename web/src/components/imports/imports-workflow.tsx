@@ -19,6 +19,11 @@ type PreviewWithDiff = ImportPreviewResult & {
     unchangedStudents: number;
     notAppearedStudents: number;
   };
+  /**
+   * 實際保存的批次 id。重傳同檔時判重會回傳既有批次（此時與 previewId 不同），
+   * 啟用必須用這個 id，否則會以不存在的批次呼叫 activate 而失敗。
+   */
+  batchId?: string;
 };
 
 interface ImportsWorkflowProps {
@@ -113,7 +118,9 @@ export function ImportsWorkflow({
 
     try {
       const idempotencyKey = `ui-act-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-      const res = await fetch(`/api/v1/imports/${preview.previewId}/activate`, {
+      // 啟用以「實際保存的批次 id」：重傳同檔時 previewId 與 batchId 不同（判重回傳既有批次）
+      const batchId = preview.batchId ?? preview.previewId;
+      const res = await fetch(`/api/v1/imports/${batchId}/activate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
