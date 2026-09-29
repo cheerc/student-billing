@@ -314,11 +314,29 @@ export function ImportsWorkflow({
                   新增 <strong>{preview.rosterDiff.newStudents}</strong> 人
                 </span>
                 <span className="roster-diff-item">
-                  異動 <strong>{preview.rosterDiff.changedStudents}</strong> 人
+                  報名異動 <strong>{preview.rosterDiff.changedStudents}</strong> 人
                 </span>
                 <span className="roster-diff-item">
                   未出現 <strong>{preview.rosterDiff.notAppearedStudents}</strong> 人
                 </span>
+              </div>
+            )}
+
+            {/*
+              匯入注意事項（Rework B1，PR #31 REJECTED）：
+              erp-reader 對空白人員代碼等狀況會記 issue 後略過該列，該列不進名冊。
+              這裡必須照實呈現（含列號／欄名／原因），否則畫面只顯示總人數、
+              使用者無從得知有學生被略過而未計入（違反 D17 照實呈現、specs/09 §4）。
+              刻意放在班級名稱提示之前：被略過的資料列比班名待確認更需要優先處理。
+            */}
+            {preview.issues.length > 0 && (
+              <div className="alert alert-warning issues-alert" style={{ margin: '16px 20px 0' }}>
+                <strong>匯入注意事項：</strong>
+                <ul style={{ paddingLeft: '20px', marginTop: '6px' }}>
+                  {preview.issues.map((issue, idx) => (
+                    <li key={idx}>{issue}</li>
+                  ))}
+                </ul>
               </div>
             )}
 
@@ -396,6 +414,21 @@ export function ImportsWorkflow({
                                   {enr.erpBillingTier !== null && (
                                     <span className="badge badge-tier">
                                       級距: {enr.erpBillingTier} 天
+                                      {/*
+                                        Rework B2：(預設) 表示該級距是解析失敗後採用的預設值，
+                                        非 ERP 原始登記值。移除此標記會讓使用者把預設值
+                                        誤認為實登值，直接影響級距差異的判讀基礎。
+                                      */}
+                                      {enr.tierParseStatus === 'defaulted' ? ' (預設)' : ''}
+                                    </span>
+                                  )}
+                                  {/*
+                                    Rework B2：離班徽章。篩選器與統計卡雖有離班資訊，
+                                    但表格必須看得出是哪幾位學生離班。
+                                  */}
+                                  {enr.withdrawalDate && (
+                                    <span className="badge badge-withdrawal">
+                                      離班: {enr.withdrawalDate}
                                     </span>
                                   )}
                                 </div>
