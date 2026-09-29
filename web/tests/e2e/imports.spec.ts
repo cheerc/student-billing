@@ -96,9 +96,16 @@ test.describe('Imports Page E2E Test (R3 匯入頁一次完成使用名單)', ()
     await expect(startReviewBtn).toBeVisible();
     await startReviewBtn.click();
 
-    // 首頁應切換為已啟用正式計算 Run 狀態
+    // 首頁應切換為「目前使用的資料」狀態（R5 文案：不再稱「已啟用正式計算 Run」）
     await expect(page).toHaveURL('/');
-    await expect(page.locator('text=已啟用正式計算 Run')).toBeVisible({ timeout: 15000 });
+    const banner = page.locator('.data-banner-current', { hasText: '目前使用的資料' });
+    await expect(banner).toBeVisible({ timeout: 15000 });
+    // 來源清楚（09 §2）：檔名、資料更新時間、核對基準日；日常橫幅不出現 Run／rev／長 ID
+    await expect(banner).toContainText('conforming-erp-fixture.xlsx');
+    await expect(banner).toContainText('資料更新於');
+    await expect(banner).toContainText('核對基準日');
+    await expect(banner).not.toContainText(/Run|rev/);
+    await expect(page.locator('h1')).toHaveText('核對結果');
   });
 
   /**
@@ -108,7 +115,7 @@ test.describe('Imports Page E2E Test (R3 匯入頁一次完成使用名單)', ()
   test('第二份名單預覽：顯示新增／異動／未出現三個數字與逐人明細（B1）', async ({ page }) => {
     // 前置：確保 fixture 已是現行名單（本檔共用同一個隔離 DB；重傳同檔會走判重路徑，故只在尚無 active 時建立）
     await page.goto('/');
-    if ((await page.locator('text=已啟用正式計算 Run').count()) === 0) {
+    if ((await page.locator('.data-banner-current', { hasText: '目前使用的資料' }).count()) === 0) {
       await page.goto('/imports');
       await page
         .locator('input[type="file"]')

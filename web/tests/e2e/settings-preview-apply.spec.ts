@@ -24,7 +24,7 @@ test.describe('T05 設定 preview→apply E2E（R2 課表與班名對應工作�
     if (await activateBtn.isVisible()) {
       await activateBtn.click();
     }
-    await expect(page.locator('text=已啟用正式計算 Run')).toBeVisible({ timeout: 15000 });
+    await expect(page.locator('.data-banner-current', { hasText: '目前使用的資料' })).toBeVisible({ timeout: 15000 });
 
     // 3. 進入課表設定頁（R2 新標題：課表設定）
     await page.goto('/settings');

@@ -35,7 +35,7 @@ test.describe('R4 重寫：核對結果頁 E2E 驗收（學生總表 12 欄 + �
     await page.locator('button', { hasText: '使用這份名單' }).click();
     await expect(page.getByText(/\d+ 位學生資料已備妥/)).toBeVisible({ timeout: 15000 });
     await page.locator('a', { hasText: '開始核對' }).click();
-    await expect(page.locator('text=已啟用正式計算 Run')).toBeVisible({ timeout: 15000 });
+    await expect(page.locator('.data-banner-current', { hasText: '目前使用的資料' })).toBeVisible({ timeout: 15000 });
 
     // 3. 結果雙頁籤（09 §2／§5.2）
     await expect(page.locator('button[role="tab"]', { hasText: '學生總表' })).toBeVisible();
@@ -122,7 +122,7 @@ test.describe('R4 重寫：核對結果頁 E2E 驗收（學生總表 12 欄 + �
       await expect(page.getByText(/\d+ 位學生資料已備妥/)).toBeVisible({ timeout: 15000 });
       await page.locator('a', { hasText: '開始核對' }).click();
     }
-    await expect(page.locator('text=已啟用正式計算 Run')).toBeVisible({ timeout: 15000 });
+    await expect(page.locator('.data-banner-current', { hasText: '目前使用的資料' })).toBeVisible({ timeout: 15000 });
   }
 
   test('UX13: 搜尋／需確認篩選後人數與清單一致，且「本班N人」不受其他條件收斂', async ({ page }) => {

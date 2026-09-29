@@ -18,9 +18,17 @@ const FIXTURE_SCHEDULE_NOT_FOUND = 13;
  *       ＋ 每一列都含 SCHEDULE_NOT_FOUND（比舊版更嚴）
  *   舊：抽屜 `來源試算表第` 與 `排課缺漏，採相容 fallback 數值比較` → 新：仍斷言（來源列在「原始資料」摺疊區，先展開）
  *   舊：`重置篩選 ✕` 必須可見並可點 → 新：同（不是「有才點」的條件式）；重置後「共 477 人」
- *   舊：選班級「國小數學-一」→「待設定班級提示：」與「前往課程設定」連結 → 新：同（產品仍有此提示）
  *   舊：首頁 .stat-card「符合篩選學生數 477」→ 新：09 §5.1 人數一行 data-count="matched"
- *   舊：歷程／批次查閱段落 → **保持原樣**（歷史與空狀態仍屬 R5／UX21，本 PR 不碰）
+ *
+ * R5 更新（UX21、09 §7／§8.3；Lead 裁決：斷言不得刪，改為驗證動態判斷本身）：
+ *   舊：選班級「國小數學-一」→「待設定班級提示：」＋「前往課程設定」連結（靠 active-run-view 12 個硬寫班名才會過）
+ *   新：待設定班級改由該 run 課表快照＋班名對應動態判斷，斷言兩種情境——
+ *       ① 選一個**不在**課表快照的班級（國小數學-一）→ 提示出現，連結導向課表設定
+ *       ② 選一個**在**課表快照的班級（國小數學-三A）→ 提示**不**出現
+ *       （班名對應解析後的情境由 tests/integration/unmapped-classes.test.ts 涵蓋）
+ *   舊：「已啟用正式計算 Run」→ 新：橫幅「目前使用的資料」（09 §7：Run／rev／長ID 降層）
+ *   舊：/history「批次清單與歷史 Run 查閱」、批次表 `ready`、Run 表「現行 Active」
+ *   新：/history「匯入紀錄」；狀態改中文「尚未使用」「目前使用」；技術資訊收摺疊區（完整流程見 history.spec.ts）
  */
 
 /**
@@ -48,13 +56,13 @@ async function activateFromPreview(page: import('@playwright/test').Page) {
   await useBtn.click();
   await expect(page.getByText(/\d+ 位學生資料已備妥/)).toBeVisible({ timeout: 15000 });
   await page.locator('a', { hasText: '開始核對' }).click();
-  await expect(page.locator('text=已啟用正式計算 Run')).toBeVisible({ timeout: 15000 });
+  await expect(page.locator('.data-banner-current', { hasText: '目前使用的資料' })).toBeVisible({ timeout: 15000 });
 }
 
 /** 已在結果頁則直接返回（冪等）。 */
 async function ensureActivated(page: import('@playwright/test').Page) {
   await page.goto('/');
-  if ((await page.locator('text=已啟用正式計算 Run').count()) > 0) return;
+  if ((await page.locator('.data-banner-current', { hasText: '目前使用的資料' }).count()) > 0) return;
   await uploadAndPreview(page);
   await activateFromPreview(page);
 }
@@ -67,15 +75,17 @@ test.describe('R4 重寫：T06 故障恢復與歷程查閱 E2E 驗收', () => {
     // 1. 上傳 ERP 名冊（進入「確認名單」階段）
     await uploadAndPreview(page);
 
-    // 2. 查閱批次與歷程頁面（UX21：唯讀、來源日期清楚；本段保持原樣）
+    // 2. 查閱匯入紀錄（UX21：唯讀、來源日期清楚）：剛上傳、尚未啟用 → 「尚未使用」
     await page.goto('/history');
-    await expect(page.locator('h2', { hasText: '批次清單與歷史 Run 查閱' })).toBeVisible();
-    const batchTable = page.locator('.table-container', { hasText: '匯入批次歷程清單' });
-    await expect(batchTable.locator('.data-table tbody')).toContainText('477 人');
-    await expect(batchTable.locator('.data-table tbody')).toContainText('ready');
-    await expect(batchTable.locator('.data-table tbody')).toHaveText(
-      /.*(sample\.xlsx|conforming-erp-fixture\.xlsx).*/
-    );
+    await expect(page.locator('h1')).toHaveText('匯入紀錄');
+    const unusedRow = page.locator('tbody tr[data-status="unused"]');
+    await expect(unusedRow).toHaveCount(1);
+    await expect(unusedRow).toContainText('477 人');
+    await expect(unusedRow).toContainText('尚未使用');
+    // 檔名：瀏覽器可能以原檔名或 sample.xlsx 呈現
+    await expect(unusedRow).toHaveText(/.*(sample\.xlsx|conforming-erp-fixture\.xlsx).*/);
+    // 尚未使用者沒有核對結果可看
+    await expect(unusedRow.locator('a', { hasText: '查看當時結果' })).toHaveCount(0);
 
     // 3. 頁內啟用正式 Run（R3 已整合至匯入頁）
     // 預覽是 client state：離開 /imports 會重置，故先回頁再啟用（不重複上傳）
@@ -88,10 +98,12 @@ test.describe('R4 重寫：T06 故障恢復與歷程查閱 E2E 驗收', () => {
     }
     await activateFromPreview(page);
 
-    // 4. 歷史 Run 歷程清單（保持原樣）
+    // 4. 啟用後：同一份名單成為「目前使用」，摘要一行說明目前使用的資料
     await page.goto('/history');
-    const runTable = page.locator('.table-container', { hasText: '正式計算 Run 歷程清單' });
-    await expect(runTable.locator('.data-table tbody')).toContainText('現行 Active');
+    const currentRow = page.locator('tbody tr[data-status="current"]');
+    await expect(currentRow).toHaveCount(1);
+    await expect(currentRow).toContainText('目前使用');
+    await expect(page.locator('.history-current')).toContainText('目前使用的資料：');
 
     // 5. 問題類型篩選（09 §7／UX15）：選項標籤不得硬寫筆數（產品端），但測試可斷言 fixture 的實際值
     await page.goto('/');
@@ -139,11 +151,22 @@ test.describe('R4 重寫：T06 故障恢復與歷程查閱 E2E 驗收', () => {
     await expect(page.locator('text=共 477 人')).toBeVisible();
     await expect(counts.locator('[data-count="matched"]')).toHaveText(String(FIXTURE_TOTAL_STUDENTS));
 
-    // 9. 待設定班級選取與提示橫幅（舊版斷言，產品仍有此提示，恢復）
+    // 9. 待設定班級提示（09 §8.3：動態判斷，不是寫死班名）。兩種情境都要驗：
     const classSelect = page.locator('select', { has: page.locator('option', { hasText: '全部班級' }) });
+    const unmappedNotice = page.locator('.notice-warn', { hasText: '待設定班級提示：' });
+
+    //   ① 不在課表快照的班級（fixture 有「國小數學-一」，課表只有一A／一B…）→ 提示出現，且導向課表設定
     await classSelect.selectOption({ label: '國小數學-一' });
-    await expect(page.locator('text=待設定班級提示：')).toBeVisible();
-    await expect(page.locator('a', { hasText: '前往課程設定' })).toBeVisible();
+    await expect(unmappedNotice).toBeVisible();
+    await expect(unmappedNotice).toContainText('國小數學-一');
+    const goSettings = unmappedNotice.locator('a', { hasText: '前往課表設定' });
+    await expect(goSettings).toBeVisible();
+    await expect(goSettings).toHaveAttribute('href', '/settings');
+
+    //   ② 在課表快照的班級（課表有「國小數學-三A」）→ 提示不出現
+    await classSelect.selectOption({ label: '國小數學-三A' });
+    await expect(counts.locator('[data-count="class-scope"]')).not.toHaveText(String(FIXTURE_TOTAL_STUDENTS));
+    await expect(unmappedNotice).toHaveCount(0);
   });
 
   test('UX21: 篩選可清除、清除不改 run；人數行回到全批基準', async ({ page }) => {
@@ -169,6 +192,6 @@ test.describe('R4 重寫：T06 故障恢復與歷程查閱 E2E 驗收', () => {
     await expect(search).toHaveValue('');
 
     // 清除篩選不得改變 run（仍是同一個啟用的 Run）
-    await expect(page.locator('text=已啟用正式計算 Run')).toBeVisible();
+    await expect(page.locator('.data-banner-current', { hasText: '目前使用的資料' })).toBeVisible();
   });
 });
