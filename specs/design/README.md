@@ -16,3 +16,7 @@
 - 文件表格與相對連結、git diff --check通過。未執行或宣稱新增UI的產品unit／integration／E2E已通過；10是後續實作驗收計畫。
 
 以上圖片均取自合成示意，不含使用者真實學生／老師資料。現有UI的私人截圖僅留本機/tmp，不提交repo。
+
+## 與09的差異
+
+示意稿課表頁有「調整時段」按鈕（`ui-workflow-prototype.html`，`schedule-preview.png`亦可見），與09 §3.1不符：產品中的安親／課輔窗口唯讀（值來自ruleSet），窗口編輯不在範圍，需未來operator決策（06 D33）。示意稿不重畫，一律以09為準。
