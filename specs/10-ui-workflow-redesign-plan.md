@@ -7,7 +7,7 @@
 |PR|範圍／主要檔案|先測／完成條件|可見成果|review_class|
 |---|---|---|---|---|
 |R0|現況baseline、合成fixtures、API欄位盤點；隔離E2E config與scripts（§4）；讀web/AGENTS與Next本地docs|既有typecheck/lint/test/build與**隔離**E2E各跑一次，逐檔記錄原有失敗（§4清單），不修產品行為|有可追溯回歸基準，不重啟需求研究|single|
-|R1a|activate採最新已儲存設定、preview／apply的import由server決定（09 §8.2.1／§8.2.2）；activate-import／calculate-run／apply-settings／settings-preview與preview route|UX02／UX03／UX18／UX22（先RED）與UX04的importId case，真SQLite，不改domain公式|「套用設定→匯入新名單→啟用」採新設定；儲存設定不再順便啟用別批名單|dual|
+|R1a|activate採最新已儲存設定（09 §8.2.1，B1，由issue #24落地）、preview／apply的import由server決定（09 §8.2.2，B5，尚待）；activate-import／calculate-run／apply-settings／settings-preview與preview route|UX02／UX03／UX18／UX22（先RED）與UX04的importId case，真SQLite，不改domain公式|「套用設定→匯入新名單→啟用」採新設定；儲存設定不再順便啟用別批名單|dual|
 |R1b|schedule-preview application、calculate POST／deductions GET、settings_only、table rebuild migration、空sessions／整班移除語意（09 §8.1／§8.2.3／§8.2.4）、settings頁解除import封鎖|UX01／UX04–08／UX17–19／UX23／UX24，真SQLite，不改domain公式|空DB可先存課表及讀計算值；逐堂／班級／學生同源|dual|
 |R2|layout/globals、app-shell；settings-editor拆schedule-grid/window-editor/impact-dialog/mapping-panel（window-editor只留唯讀顯示）|UX01–10／14–16／24，指定尺寸檢查|展示一：課表主畫面＋即時重疊＋先課表後匯入|single|
 |R3|imports頁整合roster-view的activate；預覽、日期、成功導向|UX09–12／19／22，既有imports/active-run測試|匯入頁一次完成使用名單|single|
@@ -22,7 +22,7 @@ review_class依根CLAUDE.md §7：T04（啟用Run）屬dual。R1a改動activate�
 
 R1a：
 
-- 每一次activate由server解析最新已儲存settings version，寫入run.scheduleVersionId並套用其alias／時段；忽略client傳入的scheduleVersionId；尚無任何已儲存設定才用seed（09 §8.2.1，現況缺陷，UX22先RED）。
+- （B1，issue #24落地）每一次activate由server解析最新已儲存settings version，寫入run.scheduleVersionId並套用其alias／時段；忽略client傳入的scheduleVersionId；尚無任何已儲存設定才用seed（09 §8.2.1，現況缺陷，UX22先RED）。
 - preview／apply的import由`active_state`決定，不信任client importId；不一致即拒絕。無active時維持現行拒絕，settings_only由R1b提供（09 §8.2.2）。UX02、UX04須含「client傳非active的ready批次」case，且不得啟用該批。
 - 不改domain公式、不動migration。
 

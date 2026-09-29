@@ -3,6 +3,15 @@ import { StudentSnapshot, ParsedToken } from '@/domain/students';
 import { calculateStudentBilling, RuleSetVersion } from '@/domain/billing/billing-calculator';
 import { CalculationRunRecord, StudentCalculationRecord } from '@/adapters/sqlite/runs-repository';
 import seedData from '@/domain/schedules/schedule-seed.json';
+import { SettingsDraft } from '@/contracts/settings';
+import {
+  getLatestSettingsVersion,
+  draftToAliasMap,
+  draftToScheduleOverride,
+} from '@/adapters/sqlite/settings-repository';
+
+/** 尚無任何已儲存設定時的課表版本 id（seed 預設課表）。 */
+export const SEED_SCHEDULE_VERSION_ID = 'seed-v250922';
 
 const seedMap = new Map<string, any>();
 for (const cls of seedData.classes) {
@@ -19,13 +28,34 @@ export interface CalculateRunOptions {
   scheduleOverride?: Map<string, Array<{ start: number; end: number; weekday?: string | null }>>;
 }
 
+/**
+ * 解析最新已儲存設定供正式 run 計算使用（09 §8.2.1）。
+ * 有已儲存設定版本時回傳其 id 與由其 draft 轉出的 alias／時段覆寫（與 apply 同一組轉換）；
+ * 尚無任何已儲存設定時回傳 seed 版本 id 且不帶覆寫。
+ * 呼叫端須在與 run 建立相同的交易內呼叫，使解析結果與 run 記錄的 scheduleVersionId 一致。
+ */
+export function resolveLatestSavedSettings(
+  db: Database.Database
+): Pick<CalculateRunOptions, 'scheduleVersionId' | 'aliasMap' | 'scheduleOverride'> {
+  const latest = getLatestSettingsVersion(db);
+  if (!latest) {
+    return { scheduleVersionId: SEED_SCHEDULE_VERSION_ID };
+  }
+  const draft = JSON.parse(latest.contentJson) as SettingsDraft;
+  return {
+    scheduleVersionId: latest.id,
+    aliasMap: draftToAliasMap(draft),
+    scheduleOverride: draftToScheduleOverride(draft),
+  };
+}
+
 export function executeCalculationRun(
   db: Database.Database,
   importId: string,
   runId: string,
   options: CalculateRunOptions = {}
 ): { run: CalculationRunRecord; results: StudentCalculationRecord[] } {
-  const scheduleVersionId = options.scheduleVersionId || 'seed-v250922';
+  const scheduleVersionId = options.scheduleVersionId || SEED_SCHEDULE_VERSION_ID;
   const ruleSetVersion = options.ruleSetVersion || 'erp-tag-v2';
   const numericPolicy = options.numericPolicy || 'integer-minute-rational-v1';
   const asOfDate = options.asOfDate || new Date().toISOString().split('T')[0];

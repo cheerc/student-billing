@@ -1,6 +1,6 @@
 import Database from 'better-sqlite3';
 import crypto from 'crypto';
-import { executeCalculationRun, CalculateRunOptions } from './calculate-run';
+import { executeCalculationRun, resolveLatestSavedSettings, CalculateRunOptions } from './calculate-run';
 import { saveCalculationRun } from '@/adapters/sqlite/runs-repository';
 
 export class ActivateConflictError extends Error {
@@ -23,7 +23,12 @@ export class ActivateError extends Error {
   }
 }
 
-export interface ActivateOptions extends CalculateRunOptions {
+/**
+ * activate 不接受 client 指定課表版本或設定覆寫（09 §8.2.1）：
+ * scheduleVersionId／aliasMap／scheduleOverride 一律由 server 解析最新已儲存設定決定。
+ */
+export interface ActivateOptions
+  extends Omit<CalculateRunOptions, 'scheduleVersionId' | 'aliasMap' | 'scheduleOverride'> {
   importId: string;
   expectedRevision: number;
   idempotencyKey: string;
@@ -65,7 +70,6 @@ export function activateImport(
         importId,
         expectedRevision,
         asOfDate: options.asOfDate || '',
-        scheduleVersionId: options.scheduleVersionId || '',
         ruleSetVersion: (options as any).ruleSetVersion || 'erp-tag-v2',
       })
     )
@@ -83,33 +87,39 @@ export function activateImport(
     }
   }
 
-  // 2. 檢查 ActiveState revision (CAS)
-  const activeState = db.prepare('SELECT revision, active_import_id, active_run_id FROM active_state WHERE id = 1').get() as {
-    revision: number;
-    active_import_id: string | null;
-    active_run_id: string | null;
-  };
-
-  if (!activeState) {
-    throw new ActivateError(500, 'ActiveState 未初始化');
-  }
-
-  if (activeState.revision !== expectedRevision) {
-    throw new ActivateConflictError(
-      `版本衝突 (CAS Conflict)：目前系統版本為 ${activeState.revision}，而請求帶入之 expectedRevision 為 ${expectedRevision}。請重新整理取得最新狀態後再試。`
-    );
-  }
-
-  // 3. 在原子交易內執行計算與 ActiveState 更新
+  // 2. 單一原子交易：CAS 檢查 → 解析最新已儲存設定 → 全量計算 → 切換 ActiveState → 寫冪等紀錄。
+  //    設定解析與 run 建立同交易，run.scheduleVersionId 才會是實際用於計算的版本（09 §8.2.1）。
   const runId = `run_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`;
-  const nextRevision = activeState.revision + 1;
   const now = new Date().toISOString();
 
   let activateResult!: ActivateResult;
 
   const transaction = db.transaction(() => {
-    // 執行全量計算
-    const { run, results } = executeCalculationRun(db, importId, runId, options);
+    // 檢查 ActiveState revision (CAS)
+    const activeState = db.prepare('SELECT revision FROM active_state WHERE id = 1').get() as
+      | { revision: number }
+      | undefined;
+
+    if (!activeState) {
+      throw new ActivateError(500, 'ActiveState 未初始化');
+    }
+
+    if (activeState.revision !== expectedRevision) {
+      throw new ActivateConflictError(
+        `版本衝突 (CAS Conflict)：目前系統版本為 ${activeState.revision}，而請求帶入之 expectedRevision 為 ${expectedRevision}。請重新整理取得最新狀態後再試。`
+      );
+    }
+
+    const nextRevision = activeState.revision + 1;
+
+    // 執行全量計算：每一次 activate 由 server 解析最新已儲存設定，
+    // 忽略 client 傳入的 scheduleVersionId／alias／時段覆寫（09 §8.2.1）
+    const { run, results } = executeCalculationRun(db, importId, runId, {
+      ruleSetVersion: options.ruleSetVersion,
+      numericPolicy: options.numericPolicy,
+      asOfDate: options.asOfDate,
+      ...resolveLatestSavedSettings(db),
+    });
 
     // 儲存計算結果與 run
     saveCalculationRun(db, run, results);
