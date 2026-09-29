@@ -1,9 +1,18 @@
 import { test, expect } from '@playwright/test';
 import path from 'path';
 
-test.describe('T05 設定 preview→apply E2E', () => {
-  test('上傳 → 啟用 → 設定頁勾選數學一→一A → preview 13人/-0.5/5→18 → 套用並重算', async ({ page }) => {
-    // 1. 上傳 ERP
+/**
+ * specs/10 §4（T05 重寫對照 R2 UX03／UX09／UX10）：
+ * 舊 spec（T05：勾選數學一→一A → preview 13人/-0.5/5→18 → 套用）對齊 R2 新工作流程：
+ * - 舊版在同一頁面展開待設定清單並以「預覽影響」／「套用並重算」按鈕提交；
+ * - 新版（R2）按 specs/09 §3 採用「課表」與「班名對應」頁籤，由底部操作列「確認變更」開啟 ImpactDialog，
+ *   在確認視窗內顯示 13 人天數變化與 18 筆級距差異 (mismatch 5 → 18)，再點擊「儲存並更新結果」完成原子套用與重算。
+ */
+test.describe('T05 設定 preview→apply E2E（R2 課表與班名對應工作流程）', () => {
+  test('T05 (UX03/UX09/UX10): 上傳 → 啟用 → 班名對應勾選數學一→一A → ImpactDialog 預覽 13人/18筆差異 → 儲存並更新結果', async ({
+    page,
+  }) => {
+    // 1. 上傳 ERP 名冊
     await page.goto('/imports');
     const fixturePath = path.resolve(__dirname, '../fixtures/conforming-erp-fixture.xlsx');
     await page.locator('input[type="file"]').setInputFiles(fixturePath);
@@ -17,28 +26,35 @@ test.describe('T05 設定 preview→apply E2E', () => {
     }
     await expect(page.locator('text=已啟用正式計算 Run')).toBeVisible({ timeout: 15000 });
 
-    // 3. 進入設定頁
+    // 3. 進入課表設定頁（R2 新標題：課表設定）
     await page.goto('/settings');
-    await expect(page.locator('h2', { hasText: '課程、時段與 alias 設定' })).toBeVisible({ timeout: 10000 });
+    await expect(page.locator('h1', { hasText: '課表設定' })).toBeVisible({ timeout: 10000 });
 
-    // 4. 雙向對照同畫面並列：待設定 12、seed 未出現 7
-    await expect(page.locator('.table-title', { hasText: '待設定清單（12）' })).toBeVisible();
-    await expect(page.locator('.table-title', { hasText: 'seed 本批未出現（7）' })).toBeVisible();
+    // 4. 切換至「班名對應」頁籤
+    await page.locator('button', { hasText: '班名對應' }).click();
+    await expect(page.locator('.mapping-table')).toBeVisible({ timeout: 10000 });
 
-    // 5. D32-C 動態候選：為「國小數學-一」填目標「國小數學-一A」後勾選
-    const d18 = page.locator('label', { hasText: '國小數學-一' }).first();
-    await d18.locator('input[type="text"]').fill('國小數學-一A');
-    await d18.locator('input[type="checkbox"]').check();
+    // 5. D32-C 動態候選：為「國小數學-一」填目標「國小數學-一A」後核取對應
+    const row = page.locator('tr', { hasText: '國小數學-一' });
+    await expect(row).toBeVisible();
+    const targetInput = row.locator('input.input-target-classname');
+    await targetInput.fill('國小數學-一A');
+    await row.locator('input[type="checkbox"]').check();
 
-    // 6. 預覽影響
-    await page.locator('button', { hasText: '預覽影響' }).click();
-    await expect(page.locator('.table-title', { hasText: '影響預覽' })).toBeVisible({ timeout: 15000 });
-    await expect(page.locator('.table-title', { hasText: '影響預覽' })).toContainText('13 人天數變化');
-    await expect(page.locator('.table-title', { hasText: '影響預覽' })).toContainText('mismatch 5 → 18');
+    // 6. 點擊底部操作列「確認變更」開啟 ImpactDialog 預覽影響 (D18)
+    await page.locator('button', { hasText: '確認變更' }).click();
+    const dialog = page.locator('dialog.impact-dialog');
+    await expect(dialog).toBeVisible({ timeout: 15000 });
 
-    // 7. 套用並重算
-    await page.locator('button', { hasText: '套用並重算' }).click();
-    await expect(page.locator('.alert-success')).toBeVisible({ timeout: 15000 });
-    await expect(page.locator('.alert-success')).toContainText('mismatch 18 筆');
+    // 斷言 D18 預期結果：13 人天數變化、18 筆級距差異
+    await expect(dialog).toContainText('13 人');
+    await expect(dialog).toContainText('18 筆');
+
+    // 7. 點擊確認視窗內主按鈕「儲存並更新結果」完成套用與重算
+    await dialog.locator('button', { hasText: '儲存並更新結果' }).click();
+
+    // 驗證套用成功 toast 通知且確認視窗已關閉
+    await expect(page.locator('#toast')).toContainText('課表已套用並完成重算', { timeout: 15000 });
+    await expect(dialog).not.toBeVisible();
   });
 });

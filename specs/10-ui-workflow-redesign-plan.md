@@ -43,6 +43,14 @@ R1b：
   - 影響預覽的「前」改為目前生效設定（最新已儲存設定，尚無才是seed），不再永遠比對seed。
   - UI不在本PR：settings頁仍在無現行名單時擋下並送`active ?? 最新ready`的importId；設定編輯器尚未處理`mode:"settings_only"`的null欄位，R2須改為不送importId並處理`mode`與null欄位。
 
+R2：
+- 側邊導覽序號化與 App Shell（1 課表設定、2 匯入學生、3 核對結果、匯入紀錄），去除日常介面中顯眼的技術標籤。
+- 課表設定頁（`/settings`）：解除無名單時的阻擋卡片，空 DB 直接進入排課；預設課表頁籤，唯讀安親／課輔窗口（D33 窗口固定無編輯）；89 列平鋪排課網格，左側 5 編輯欄＋右側 5 唯讀計算欄；編輯時段 250ms debounce 呼叫 `/api/v1/settings/calculate` 即時計算，requestKey 晚到取消保護；不完整列標「待補」與 `SCHEDULE_INCOMPLETE`。
+- 固定底部操作列：有未儲存變更提示，取消修改還原 baseline，確認變更開啟 ImpactDialog。
+- ImpactDialog 儲存確認視窗：無學生時顯示「尚未匯入學生」，受影響人數為 null，主按鈕「儲存課表」（送 `mode: "settings_only"` 不帶 `importId`，落地先課表後匯入）；有 active 學生時顯示受影響去重人數與天數明細，主按鈕「儲存並更新結果」。
+- 班名對應頁籤：無名單時提示「匯入名單後，可確認ERP班名」，不阻擋課表維護；有名單時保留動態差集與已對齊隱藏。
+- 響應式 1440/1280/1024/768 支援，寬表表內捲動，姓名 sticky，Esc 關閉 dialog。
+
 ## 3. TDD矩陣
 
 UX01–UX24的矩陣正本在[04 §8](04-tdd-acceptance.md)，此處不再複製，避免兩處漂移；各PR對應的UX見§1表。UX22、UX23的RED對應09 §8.2.1、§8.2.4記載的現況缺陷，先證明失敗再修。保留原U/I及08測試；每個可觀察行為先red再green，expected來自既有domain固定案例／已確認案例，不用新UI自己生成。

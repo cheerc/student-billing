@@ -1,11 +1,12 @@
 'use client';
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import {
   SettingsDraft,
   ScheduleGridRow,
   classesToGridRows,
   gridRowsToClasses,
+  gridRowsToCalculateClasses,
   timeStringToMinutes,
   minutesToTimeString,
   buildSeedGridRows,
@@ -14,35 +15,41 @@ import {
   isSettingsDirty,
 } from '@/contracts/settings';
 import { DynamicCandidate } from '@/domain/schedules/seed-manifest';
-
-const TIME_FORMAT_REGEX = /^([01]\d|2[0-3]):([0-5]\d)$/;
+import { CalculatePreviewResponse } from '@/application/schedule-preview';
+import { WindowSummary } from '@/components/settings/window-summary';
+import { ScheduleGrid } from '@/components/settings/schedule-grid';
+import { ImpactDialog, SettingsPreviewData } from '@/components/settings/impact-dialog';
+import { MappingPanel } from '@/components/settings/mapping-panel';
 
 interface SettingsEditorProps {
-  importId: string;
+  importId: string | null;
   currentRevision: number;
   initialDraft: SettingsDraft;
-  unmatched: string[];
-  seedNotAppeared: string[];
-  matchedCount: number;
-  candidates: DynamicCandidate[];
+  unmatched?: string[];
+  seedNotAppeared?: string[];
+  matchedCount?: number;
+  candidates?: DynamicCandidate[];
   lastAppliedRevision?: number;
   lastAppliedAt?: string | null;
+  hasActiveImport?: boolean;
 }
 
 export default function SettingsEditor({
   importId,
   currentRevision,
   initialDraft,
-  unmatched,
-  seedNotAppeared,
-  matchedCount,
-  candidates,
+  unmatched = [],
+  seedNotAppeared = [],
+  matchedCount = 0,
+  candidates = [],
   lastAppliedRevision,
   lastAppliedAt,
+  hasActiveImport = false,
 }: SettingsEditorProps) {
+  const [activeTab, setActiveTab] = useState<'schedule' | 'mapping'>('schedule');
   const [draft, setDraft] = useState<SettingsDraft>(initialDraft);
 
-  // 初始化平鋪時段列（對齊 S 表 R4:E96 89 筆）
+  // 初始化平鋪排課時段列（對齊 S 表 89 筆）
   const initialRows = useMemo(() => {
     const fromClasses = classesToGridRows(initialDraft.classes);
     if (fromClasses.length > 0) return fromClasses;
@@ -50,28 +57,48 @@ export default function SettingsEditor({
   }, [initialDraft]);
 
   const [rows, setRows] = useState<ScheduleGridRow[]>(initialRows);
-  const [preview, setPreview] = useState<any>(null);
-  const [applied, setApplied] = useState<any>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [guideMessage, setGuideMessage] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
 
-  // D31: 基準狀態與 dirty 追蹤
+  // D31: 基準狀態與未儲存 (dirty) 追蹤
   const [baseline, setBaseline] = useState<SettingsBaseline>(() => ({
     rows: initialRows,
     aliases: initialDraft.aliases,
   }));
 
-  const [lastApplied, setLastApplied] = useState<{ revision: number; appliedAt: string | null }>({
-    revision: lastAppliedRevision ?? currentRevision,
-    appliedAt: lastAppliedAt ?? null,
-  });
-
   const isDirty = useMemo(() => {
     return isSettingsDirty(baseline, rows, draft.aliases);
   }, [baseline, rows, draft.aliases]);
 
-  // D32-B: 當前有效班級名稱集合（已停用或未填名稱者不計入）
+  // 即時計算狀態
+  const [calculateResult, setCalculateResult] = useState<CalculatePreviewResponse | null>(null);
+  const [calculating, setCalculating] = useState(false);
+  const reqSeqRef = useRef(0);
+  const latestReqKeyRef = useRef<string>('');
+
+  // 儲存確認視窗狀態
+  const [isImpactDialogOpen, setIsImpactDialogOpen] = useState(false);
+  const [preview, setPreview] = useState<SettingsPreviewData | null>(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const [applying, setApplying] = useState(false);
+  const [dialogError, setDialogError] = useState<string | null>(null);
+
+  // Toast 通知
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const toastTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  const showToast = useCallback((msg: string) => {
+    if (toastTimeoutRef.current) clearTimeout(toastTimeoutRef.current);
+    setToastMessage(msg);
+    toastTimeoutRef.current = setTimeout(() => {
+      setToastMessage(null);
+    }, 3000);
+  }, []);
+
+  // 班級改散警告 (D28)
+  const splitWarnings = useMemo(() => {
+    return detectSplitClasses(baseline.rows, rows);
+  }, [baseline.rows, rows]);
+
+  // 當前有效班級名稱集合
   const currentActiveBaseNames = useMemo(() => {
     return new Set(
       rows
@@ -80,73 +107,15 @@ export default function SettingsEditor({
     );
   }, [rows]);
 
-  // D32-C: 動態候選已由引擎按當批差集組裝（含 D32-B 隱藏語義：raw 已對齊即不進候選）。
-  // 渲染直接使用傳入 candidates；目標由人工於下方輸入框填寫後核取（軟體不自動批准）。
-  const visibleCandidates = useMemo(() => candidates, [candidates]);
-
-  // D32-C: 每行候選的人工目標輸入（初始為引擎 suggestedTarget，凍結為空由人工填）
+  // 候選人填寫之目標映射
   const [candidateTargets, setCandidateTargets] = useState<Record<string, string>>({});
 
-  const getCandidateTarget = (c: DynamicCandidate) =>
-    candidateTargets[c.rawBaseName] ?? c.suggestedTarget;
-
-  const setCandidateTarget = (raw: string, target: string) => {
+  const handleUpdateCandidateTarget = (raw: string, target: string) => {
     setCandidateTargets((prev) => ({ ...prev, [raw]: target }));
     setPreview(null);
-    setApplied(null);
   };
 
-  // 目標有效性：為空（待填）或存在於目前有效班級中
-  const isCandidateTargetValid = (c: DynamicCandidate) => {
-    const t = getCandidateTarget(c).trim();
-    if (t === '') return true;
-    return currentActiveBaseNames.has(t);
-  };
-
-  // 新增時段列輸入狀態
-  const [newClassName, setNewClassName] = useState('');
-  const [newTeacher, setNewTeacher] = useState('');
-  const [newWeekday, setNewWeekday] = useState('六');
-  const [newStartTime, setNewStartTime] = useState('13:00');
-  const [newEndTime, setNewEndTime] = useState('15:00');
-
-  // N1: 起訖時間檢驗 (格式合法性 + 起 < 迄)
-  const rowTimeErrors = useMemo(() => {
-    const errMap = new Map<string, string>();
-    for (const r of rows) {
-      if (r.startTime !== '' && !TIME_FORMAT_REGEX.test(r.startTime)) {
-        errMap.set(r.rowId, '起始時間格式必須為 HH:mm');
-        continue;
-      }
-      if (r.endTime !== '' && !TIME_FORMAT_REGEX.test(r.endTime)) {
-        errMap.set(r.rowId, '結束時間格式必須為 HH:mm');
-        continue;
-      }
-      if (r.startMinutes !== null && r.endMinutes !== null && r.startMinutes >= r.endMinutes) {
-        errMap.set(r.rowId, '結束時間 (迄) 必須大於起始時間 (起)');
-        continue;
-      }
-      if ((r.startMinutes !== null && r.endMinutes === null) || (r.startMinutes === null && r.endMinutes !== null)) {
-        errMap.set(r.rowId, '時段起訖必須同時填寫');
-        continue;
-      }
-    }
-    return errMap;
-  }, [rows]);
-
-  // D28: 班級改散警告（原同名多時段班級被拆散改名）
-  const splitWarnings = useMemo(() => {
-    return detectSplitClasses(initialRows, rows);
-  }, [initialRows, rows]);
-
-  const hasTimeErrors = rowTimeErrors.size > 0;
-
-  // F1 rework: 班級名稱清空檢查（與 hasTimeErrors 同級阻擋 preview）
-  const hasEmptyClassName = useMemo(() => {
-    return rows.some((r) => r.className.trim() === '');
-  }, [rows]);
-
-  const toggleAlias = (raw: string, target: string) => {
+  const handleToggleAlias = (raw: string, target: string) => {
     setDraft((prev) => {
       const exists = prev.aliases.some((a) => a.rawBaseName === raw && a.targetBaseName === target);
       return {
@@ -157,138 +126,140 @@ export default function SettingsEditor({
       };
     });
     setPreview(null);
-    setApplied(null);
   };
 
-  // D28: 逐列改名
-  const updateRowClassName = (rowId: string, className: string) => {
-    setRows((prev) =>
-      prev.map((r) => (r.rowId === rowId ? { ...r, className } : r))
-    );
-    setPreview(null);
-    setApplied(null);
-  };
+  // 呼叫唯讀計算 API (POST /api/v1/settings/calculate，250ms debounce，帶 requestKey 防晚到覆蓋)
+  useEffect(() => {
+    const timer = setTimeout(async () => {
+      const seq = ++reqSeqRef.current;
+      const requestKey = `req-${Date.now()}-${seq}`;
+      latestReqKeyRef.current = requestKey;
 
-  // 星期欄位編輯（參與同星期衝堂計算與點名表）
-  const updateRowWeekday = (rowId: string, weekday: string) => {
-    setRows((prev) =>
-      prev.map((r) => (r.rowId === rowId ? { ...r, weekday } : r))
-    );
-    setPreview(null);
-    setApplied(null);
-  };
+      setCalculating(true);
+      try {
+        const calcClasses = gridRowsToCalculateClasses(rows, draft.classes);
+        const calcDraft = {
+          ...draft,
+          classes: calcClasses,
+        };
 
-  // D29: 單列刪除時段
-  const deleteSessionRow = (rowId: string) => {
-    setRows((prev) => prev.filter((r) => r.rowId !== rowId));
-    setPreview(null);
-    setApplied(null);
-  };
+        const res = await fetch('/api/v1/settings/calculate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ requestKey, draft: calcDraft }),
+        });
 
-  const updateRowTeacher = (rowId: string, teacher: string) => {
-    setRows((prev) =>
-      prev.map((r) => (r.rowId === rowId ? { ...r, teacher: teacher || null } : r))
-    );
-    setPreview(null);
-    setApplied(null);
-  };
+        if (!res.ok) return;
 
-  // N1: 即時同步計算分鐘數，非法格式時將分鐘設為 null 以觸發檢驗錯誤
-  const updateRowTime = (rowId: string, field: 'startTime' | 'endTime', value: string) => {
+        const data = await res.json();
+        // 晚到請求保護 (UX08)：只有當前最新 requestKey 的回應才生效
+        if (data.requestKey === latestReqKeyRef.current) {
+          setCalculateResult(data);
+        }
+      } catch {
+        // 唯讀計算異常靜默處理，不中斷 UI
+      } finally {
+        if (requestKey === latestReqKeyRef.current) {
+          setCalculating(false);
+        }
+      }
+    }, 250);
+
+    return () => clearTimeout(timer);
+  }, [rows, draft]);
+
+  // 更新時段列
+  const handleUpdateRow = (rowId: string, updates: Partial<ScheduleGridRow>) => {
     setRows((prev) =>
       prev.map((r) => {
         if (r.rowId !== rowId) return r;
-        const updated = { ...r, [field]: value };
-        const startVal = field === 'startTime' ? value : r.startTime;
-        const endVal = field === 'endTime' ? value : r.endTime;
-        updated.startMinutes = timeStringToMinutes(startVal);
-        updated.endMinutes = timeStringToMinutes(endVal);
+        const updated = { ...r, ...updates };
+        if (updates.startTime !== undefined) {
+          updated.startMinutes = timeStringToMinutes(updates.startTime);
+        }
+        if (updates.endTime !== undefined) {
+          updated.endMinutes = timeStringToMinutes(updates.endTime);
+        }
         return updated;
       })
     );
     setPreview(null);
-    setApplied(null);
   };
 
-  // 停用班級一律軟停用（active=false），停用不硬刪
-  const toggleClassActive = (className: string) => {
-    setRows((prev) => {
-      const isCurrentlyActive = prev.some((r) => r.className === className && r.active);
-      return prev.map((r) =>
-        r.className === className ? { ...r, active: !isCurrentlyActive } : r
-      );
-    });
+  // 刪除時段列
+  const handleDeleteRow = (rowId: string) => {
+    setRows((prev) => prev.filter((r) => r.rowId !== rowId));
     setPreview(null);
-    setApplied(null);
   };
 
-  const addSessionRow = () => {
-    const name = newClassName.trim();
-    if (!name) return;
-    const startMin = timeStringToMinutes(newStartTime) ?? 780;
-    const endMin = timeStringToMinutes(newEndTime) ?? 900;
+  // 新增時段列
+  const handleAddRow = (row: Omit<ScheduleGridRow, 'rowId'>) => {
+    const startMin = timeStringToMinutes(row.startTime);
+    const endMin = timeStringToMinutes(row.endTime);
     const newRow: ScheduleGridRow = {
+      ...row,
       rowId: `user-row-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-      className: name,
-      teacher: newTeacher.trim() || null,
-      weekday: newWeekday.trim() || '六',
-      startTime: minutesToTimeString(startMin),
-      endTime: minutesToTimeString(endMin),
       startMinutes: startMin,
       endMinutes: endMin,
-      active: true,
     };
     setRows((prev) => [...prev, newRow]);
-    setNewClassName('');
-    setNewTeacher('');
     setPreview(null);
-    setApplied(null);
   };
 
-  const doPreview = async () => {
-    if (hasEmptyClassName) {
-      setError('排課表格中存在班級名稱為空的時段列，請填寫班級名稱後再行預覽。');
-      return;
-    }
-    if (hasTimeErrors) {
-      setError('排課表格中存在起訖時間倒置（起大於等於迄），請修正後再行預覽。');
-      return;
-    }
-    setBusy(true);
-    setError(null);
-    setGuideMessage(null);
+  // 取消修改（還原到 baseline）
+  const handleDiscard = () => {
+    setRows(baseline.rows);
+    setDraft((prev) => ({ ...prev, aliases: baseline.aliases }));
+    setPreview(null);
+    showToast('已取消未儲存的變更');
+  };
+
+  // 開啟確認視窗並載入影響預覽
+  const handleOpenReview = async () => {
+    setIsImpactDialogOpen(true);
+    setPreviewLoading(true);
+    setDialogError(null);
+
     try {
       const currentClasses = gridRowsToClasses(rows, draft.classes);
       const updatedDraft: SettingsDraft = {
         ...draft,
         classes: currentClasses,
       };
+
+      // 依 server 決定的模式：無 active 名單時不傳送 importId（走 settings_only）
+      const payload: Record<string, unknown> = {
+        draft: updatedDraft,
+        expectedRevision: currentRevision,
+      };
+      if (hasActiveImport && importId) {
+        payload.importId = importId;
+      }
+
       const res = await fetch('/api/v1/settings/preview', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ importId, draft: updatedDraft, expectedRevision: currentRevision }),
+        body: JSON.stringify(payload),
       });
+
       const json = await res.json();
-      if (!res.ok) throw new Error(json.error || '預覽失敗');
+      if (!res.ok) throw new Error(json.error || '載入預覽失敗');
       setPreview(json);
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setDialogError(e instanceof Error ? e.message : String(e));
     } finally {
-      setBusy(false);
+      setPreviewLoading(false);
     }
   };
 
-  const doApply = async () => {
-    if (!preview) {
-      setGuideMessage('請先點擊「預覽影響 (dry-run)」查看變更影響，確認無誤後方可套用並重算。');
-      return;
-    }
-    setBusy(true);
-    setError(null);
-    setGuideMessage(null);
+  // 套用並儲存設定
+  const handleApply = async () => {
+    if (!preview) return;
+    setApplying(true);
+    setDialogError(null);
+
     try {
-      // idempotencyKey 附加隨機後綴防範衝突
-      const idempotencyKey = `ui-apply-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      const idempotencyKey = `apply-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
       const res = await fetch('/api/v1/settings/apply', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -298,462 +269,155 @@ export default function SettingsEditor({
           idempotencyKey,
         }),
       });
+
       const json = await res.json();
       if (!res.ok) {
         if (res.status === 409) {
-          throw new Error(
-            '設定版本衝突 (409)：目前系統版本已推進，先前預覽草稿已過期 (stale preview)。請重新點擊「預覽影響 (dry-run)」更新草稿後再行套用。'
-          );
+          throw new Error('設定版本已變更，請重新確認變更後再行套用。');
         }
-        if (res.status === 400 && (json.error?.includes('PREVIEW_EXPIRED') || json.error?.includes('逾期'))) {
-          throw new Error(
-            '設定預覽已逾期 (400 PREVIEW_EXPIRED)：預覽有效期限為 15 分鐘，請重新點擊「預覽影響 (dry-run)」後再行套用。'
-          );
+        if (res.status === 400 && json.error?.includes('PREVIEW_EXPIRED')) {
+          throw new Error('預覽已逾期，請重新確認變更後再行套用。');
         }
         throw new Error(json.error || '套用失敗');
       }
-      setApplied(json);
-      setPreview(null);
-      if (json.revision) {
-        setLastApplied({
-          revision: json.revision,
-          appliedAt: json.appliedAt || new Date().toISOString(),
-        });
-      }
+
+      // 套用成功：更新 baseline，清除 dirty 狀態
       setBaseline({
         rows: [...rows],
         aliases: [...draft.aliases],
       });
+      setIsImpactDialogOpen(false);
+      setPreview(null);
+      showToast(preview.mode === 'settings_only' ? '課表已成功儲存' : '課表已套用並完成重算');
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setDialogError(e instanceof Error ? e.message : String(e));
     } finally {
-      setBusy(false);
+      setApplying(false);
     }
   };
 
   return (
-    <div>
-      {/* D31: 未儲存提示條 */}
-      {isDirty && (
-        <div
-          className="alert alert-warning"
-          style={{
-            background: '#fef3c7',
-            color: '#92400e',
-            border: '1px solid #fde68a',
-            padding: '10px 16px',
-            borderRadius: '6px',
-            marginBottom: '16px',
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center',
-            flexWrap: 'wrap',
-            gap: '8px',
-          }}
+    <div className="settings-workflow-root">
+      {/* 頁面標題與快速導引 */}
+      <header className="page-header" style={{ marginBottom: '20px' }}>
+        <div>
+          <h1 style={{ fontSize: '24px', fontWeight: 700, margin: '0 0 6px' }}>課表設定</h1>
+          <p className="note" style={{ margin: 0 }}>
+            設定各班上課時段與老師，即時預覽與安親、課輔窗口的重疊與扣除天數。
+          </p>
+        </div>
+      </header>
+
+      {/* 頁籤切換 */}
+      <div className="tabs" role="tablist">
+        <button
+          type="button"
+          role="tab"
+          aria-selected={activeTab === 'schedule'}
+          className={activeTab === 'schedule' ? 'selected' : ''}
+          onClick={() => setActiveTab('schedule')}
         >
-          <div>
-            <strong>⚠ 有未儲存的變更：</strong>
-            <span>排課表格或 alias 設定已修改，尚未套用至正式設定。</span>
-          </div>
-          <div style={{ fontSize: '0.8125rem', color: '#78350f' }}>
-            上次套用：版本 rev {lastApplied.revision}
-            {lastApplied.appliedAt ? ` (${new Date(lastApplied.appliedAt).toLocaleString()})` : '（初始設定）'}
-          </div>
-        </div>
-      )}
-
-      {/* 操作引導提示 */}
-      {guideMessage && (
-        <div
-          className="alert alert-info"
-          style={{
-            background: '#e0f2fe',
-            color: '#0369a1',
-            border: '1px solid #bae6fd',
-            padding: '10px 16px',
-            borderRadius: '6px',
-            marginBottom: '16px',
-          }}
+          課表
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={activeTab === 'mapping'}
+          className={activeTab === 'mapping' ? 'selected' : ''}
+          onClick={() => setActiveTab('mapping')}
         >
-          💡 <strong>操作引導：</strong> {guideMessage}
-        </div>
-      )}
-
-      {error && (
-        <div className="alert alert-danger" role="alert">
-          {error}
-        </div>
-      )}
-
-      {/* 全科別初始總量 */}
-      <div className="meta-panel">
-        <div className="meta-item">
-          <span className="meta-item-label">自動候選</span>
-          <span className="meta-item-val">{matchedCount} 個 baseName</span>
-        </div>
-        <div className="meta-item">
-          <span className="meta-item-label">待設定</span>
-          <span className="meta-item-val">{unmatched.length} 個 baseName</span>
-        </div>
-        <div className="meta-item">
-          <span className="meta-item-label">seed 本批未出現</span>
-          <span className="meta-item-val">{seedNotAppeared.length} 個 baseName</span>
-        </div>
-        <div className="meta-item">
-          <span className="meta-item-label">目前 revision</span>
-          <span className="meta-item-val">rev {currentRevision}</span>
-        </div>
+          班名對應 {candidates.length > 0 && <span className="pill warn">{candidates.length}</span>}
+        </button>
       </div>
 
-      {/* D32-C 動態候選確認（當批差集自動產生，需人工填目標＋逐項確認，軟體不自動批准） */}
-      <div className="table-container" style={{ marginBottom: '20px' }}>
-        <div className="table-header">
-          <div className="table-title">待設定候選確認（D32-C 動態產生，需人工填目標＋逐項確認，軟體不自動批准）</div>
-        </div>
-        <div style={{ padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
-          {visibleCandidates.length === 0 ? (
-            <div style={{ fontSize: '0.875rem', color: 'var(--text-muted)' }}>
-              本批 ERP 與系統設定已完全對齊，無待設定候選。
-            </div>
+      {/* 頁籤內容一：課表平鋪排課主畫面 */}
+      {activeTab === 'schedule' && (
+        <section aria-label="排課時段設定">
+          {/* 唯讀照顧窗口摘要 */}
+          <WindowSummary />
+
+          {/* 89 筆平鋪時段表格 */}
+          <ScheduleGrid
+            rows={rows}
+            onUpdateRow={handleUpdateRow}
+            onDeleteRow={handleDeleteRow}
+            onAddRow={handleAddRow}
+            calculating={calculating}
+            calculateResult={calculateResult}
+          />
+        </section>
+      )}
+
+      {/* 頁籤內容二：班名對應 */}
+      {activeTab === 'mapping' && (
+        <section aria-label="班名對應設定">
+          <MappingPanel
+            hasStudents={Boolean(importId || hasActiveImport)}
+            candidates={candidates}
+            aliases={draft.aliases}
+            currentActiveBaseNames={currentActiveBaseNames}
+            candidateTargets={candidateTargets}
+            onUpdateCandidateTarget={handleUpdateCandidateTarget}
+            onToggleAlias={handleToggleAlias}
+            seedNotAppeared={seedNotAppeared}
+          />
+        </section>
+      )}
+
+      {/* 固定底部操作列 */}
+      <div className="savebar">
+        <div className="savebar-status">
+          {isDirty ? (
+            <span className="save-status-dirty">
+              <span className="dot dot-dirty" aria-hidden="true" />
+              有未儲存的變更 · 請確認變更後儲存
+            </span>
           ) : (
-            visibleCandidates.map((c) => {
-              const target = getCandidateTarget(c);
-              const targetTrimmed = target.trim();
-              const checked = targetTrimmed !== '' && draft.aliases.some(
-                (a) => a.rawBaseName === c.rawBaseName && a.targetBaseName === targetTrimmed
-              );
-              const isTargetValid = isCandidateTargetValid(c);
-              return (
-                <label
-                  key={c.rawBaseName}
-                  style={{
-                    display: 'flex',
-                    gap: '8px',
-                    alignItems: 'center',
-                    fontSize: '0.875rem',
-                    opacity: isTargetValid ? 1 : 0.6,
-                    flexWrap: 'wrap',
-                  }}
-                >
-                  <input
-                    type="checkbox"
-                    checked={checked}
-                    disabled={targetTrimmed === '' || !isTargetValid}
-                    onChange={() => targetTrimmed !== '' && isTargetValid && toggleAlias(c.rawBaseName, targetTrimmed)}
-                    title={targetTrimmed === '' ? '請先填寫對應目標班級' : `核取後納入一次整表 preview：${c.rawBaseName}→${targetTrimmed}`}
-                  />
-                  <span>
-                    <strong>{c.rawBaseName}</strong>
-                    <span style={{ color: 'var(--text-muted)', margin: '0 6px' }}>
-                      {c.studentCount} 人／{c.tokenCount} 筆 →
-                    </span>
-                    <input
-                      type="text"
-                      value={target}
-                      placeholder="請填目標班級"
-                      onChange={(e) => setCandidateTarget(c.rawBaseName, e.target.value)}
-                      style={{ padding: '4px 8px', borderRadius: '4px', border: '1px solid var(--border-color)', fontSize: '0.8125rem', width: '180px' }}
-                    />
-                    <span style={{ color: 'var(--text-muted)', marginLeft: '8px' }}>{c.reason}</span>
-                    {targetTrimmed !== '' && !isTargetValid && (
-                      <span style={{ color: '#ef4444', fontSize: '0.75rem', marginLeft: '6px' }}>
-                        （目標班級已停用或未設定）
-                      </span>
-                    )}
-                  </span>
-                </label>
-              );
-            })
+            <span className="save-status-clean">
+              <span className="dot dot-clean" aria-hidden="true" />
+              課表已為最新儲存狀態
+              {lastAppliedAt && ` · ${new Date(lastAppliedAt).toLocaleTimeString()}`}
+            </span>
           )}
         </div>
-      </div>
-
-      {/* 雙向對照同畫面並列 */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '20px' }}>
-        <div className="table-container">
-          <div className="table-header">
-            <div className="table-title">待設定清單（{unmatched.length}）</div>
-          </div>
-          <div style={{ padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: '6px', maxHeight: '260px', overflowY: 'auto' }}>
-            {unmatched.map((b) => (
-              <div key={b} style={{ fontSize: '0.8125rem' }}>
-                <span className="badge badge-class">{b}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-        <div className="table-container">
-          <div className="table-header">
-            <div className="table-title">seed 本批未出現（{seedNotAppeared.length}）</div>
-          </div>
-          <div style={{ padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: '6px', maxHeight: '260px', overflowY: 'auto' }}>
-            {seedNotAppeared.map((b) => (
-              <div key={b} style={{ fontSize: '0.8125rem' }}>
-                <span className="badge badge-class">{b}</span>
-              </div>
-            ))}
-          </div>
+        <div className="actions">
+          <button
+            type="button"
+            className="btn-secondary"
+            disabled={!isDirty || calculating}
+            onClick={handleDiscard}
+          >
+            取消修改
+          </button>
+          <button
+            type="button"
+            className="btn-primary"
+            disabled={!isDirty || calculating}
+            onClick={handleOpenReview}
+          >
+            確認變更
+          </button>
         </div>
       </div>
 
-      {/* D1: S表五欄平鋪排課設定表格 */}
-      <div className="table-container" style={{ marginBottom: '20px' }}>
-        <div className="table-header">
-          <div className="table-title">
-            S 表平鋪排課設定（共 {rows.length} 筆時段列）
-            <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 'normal', marginLeft: '8px' }}>
-              （五欄皆可逐列編輯；同星期才計入衝堂，星期六自然為 0）
-            </span>
-          </div>
-          <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
-            <input
-              type="text"
-              placeholder="班級名稱 (如 兒童美語-Gino)"
-              value={newClassName}
-              onChange={(e) => setNewClassName(e.target.value)}
-              style={{ padding: '6px 10px', borderRadius: '4px', border: '1px solid var(--border-color)', fontSize: '0.8125rem' }}
-            />
-            <input
-              type="text"
-              placeholder="老師 (選填)"
-              value={newTeacher}
-              onChange={(e) => setNewTeacher(e.target.value)}
-              style={{ padding: '6px 10px', borderRadius: '4px', border: '1px solid var(--border-color)', fontSize: '0.8125rem', width: '100px' }}
-            />
-            <input
-              type="text"
-              placeholder="星期 (如 六)"
-              value={newWeekday}
-              onChange={(e) => setNewWeekday(e.target.value)}
-              style={{ padding: '6px 10px', borderRadius: '4px', border: '1px solid var(--border-color)', fontSize: '0.8125rem', width: '70px' }}
-            />
-            <input
-              type="text"
-              placeholder="起 (13:00)"
-              value={newStartTime}
-              onChange={(e) => setNewStartTime(e.target.value)}
-              style={{ padding: '6px 10px', borderRadius: '4px', border: '1px solid var(--border-color)', fontSize: '0.8125rem', width: '75px' }}
-            />
-            <input
-              type="text"
-              placeholder="迄 (15:00)"
-              value={newEndTime}
-              onChange={(e) => setNewEndTime(e.target.value)}
-              style={{ padding: '6px 10px', borderRadius: '4px', border: '1px solid var(--border-color)', fontSize: '0.8125rem', width: '75px' }}
-            />
-            <button type="button" className="btn-secondary" onClick={addSessionRow}>
-              新增時段
-            </button>
-          </div>
-        </div>
-        {splitWarnings.length > 0 && (
-          <div style={{ padding: '8px 16px', background: '#fef3c7', color: '#92400e', fontSize: '0.8125rem', borderBottom: '1px solid #fde68a' }}>
-            <strong>⚠ 班級改散警告 (D28)：</strong> 偵測到以下多時段班級被拆散改名為不同班名，請確認是否為業務本意：
-            <ul style={{ margin: '4px 0 0 16px', padding: 0 }}>
-              {splitWarnings.map((w) => (
-                <li key={w.originalName}>
-                  原班名 <strong>{w.originalName}</strong> 已拆為：{w.splitNames.join('、')}
-                </li>
-              ))}
-            </ul>
-          </div>
-        )}
-        {hasTimeErrors && (
-          <div style={{ padding: '8px 16px', background: '#fee2e2', color: '#b91c1c', fontSize: '0.8125rem' }}>
-            ⚠ 表格中存在結束時間 (迄) 小於或等於起始時間 (起) 之無效時段，請修正紅框欄位。
-          </div>
-        )}
-        <div className="table-scroll" style={{ maxHeight: '480px' }}>
-          <table className="data-table">
-            <thead>
-              <tr>
-                <th style={{ width: '200px' }}>班級名稱</th>
-                <th style={{ width: '130px' }}>帶班老師</th>
-                <th style={{ width: '80px' }}>星期</th>
-                <th style={{ width: '110px' }}>上課時間(起)</th>
-                <th style={{ width: '110px' }}>上課時間(迄)</th>
-                <th style={{ width: '120px' }}>操作</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((r) => {
-                const hasErr = rowTimeErrors.has(r.rowId);
-                return (
-                  <tr key={r.rowId} style={{ opacity: r.active ? 1 : 0.55 }}>
-                    <td>
-                      <input
-                        type="text"
-                        value={r.className}
-                        onChange={(e) => updateRowClassName(r.rowId, e.target.value)}
-                        placeholder="班級名稱"
-                        style={{
-                          padding: '4px 8px',
-                          borderRadius: '4px',
-                          border: r.className.trim() === '' ? '1px solid #ef4444' : '1px solid var(--border-color)',
-                          fontSize: '0.8125rem',
-                          width: '100%',
-                          fontWeight: 600,
-                        }}
-                      />
-                    </td>
-                    <td>
-                      <input
-                        type="text"
-                        value={r.teacher ?? ''}
-                        placeholder="未設定"
-                        onChange={(e) => updateRowTeacher(r.rowId, e.target.value)}
-                        style={{ padding: '4px 8px', borderRadius: '4px', border: '1px solid var(--border-color)', fontSize: '0.8125rem', width: '100%' }}
-                      />
-                    </td>
-                    <td>
-                      <input
-                        type="text"
-                        value={r.weekday}
-                        onChange={(e) => updateRowWeekday(r.rowId, e.target.value)}
-                        placeholder="星期"
-                        style={{
-                          padding: '4px 6px',
-                          borderRadius: '4px',
-                          border: '1px solid var(--border-color)',
-                          fontSize: '0.8125rem',
-                          width: '55px',
-                        }}
-                        title="同星期才計入衝堂，星期六不計入安親課輔衝堂"
-                      />
-                    </td>
-                    <td>
-                      <input
-                        type="text"
-                        value={r.startTime}
-                        onChange={(e) => updateRowTime(r.rowId, 'startTime', e.target.value)}
-                        style={{
-                          padding: '4px 8px',
-                          borderRadius: '4px',
-                          border: hasErr ? '1px solid #ef4444' : '1px solid var(--border-color)',
-                          background: hasErr ? '#fef2f2' : undefined,
-                          fontSize: '0.8125rem',
-                          width: '75px',
-                        }}
-                      />
-                    </td>
-                    <td>
-                      <input
-                        type="text"
-                        value={r.endTime}
-                        onChange={(e) => updateRowTime(r.rowId, 'endTime', e.target.value)}
-                        style={{
-                          padding: '4px 8px',
-                          borderRadius: '4px',
-                          border: hasErr ? '1px solid #ef4444' : '1px solid var(--border-color)',
-                          background: hasErr ? '#fef2f2' : undefined,
-                          fontSize: '0.8125rem',
-                          width: '75px',
-                        }}
-                      />
-                      {hasErr && (
-                        <div style={{ color: '#ef4444', fontSize: '0.6875rem', marginTop: '2px' }}>
-                          起≥迄倒置
-                        </div>
-                      )}
-                    </td>
-                    <td>
-                      <div style={{ display: 'flex', gap: '4px' }}>
-                        <button
-                          type="button"
-                          className="btn-secondary"
-                          style={{ padding: '2px 8px', fontSize: '0.75rem' }}
-                          onClick={() => toggleClassActive(r.className)}
-                          title="停用班級保留歷史（不硬刪）"
-                        >
-                          {r.active ? '停用' : '啟用'}
-                        </button>
-                        <button
-                          type="button"
-                          className="btn-secondary"
-                          style={{ padding: '2px 8px', fontSize: '0.75rem', color: '#b91c1c' }}
-                          onClick={() => deleteSessionRow(r.rowId)}
-                          title="刪除此時段列"
-                        >
-                          刪除
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      </div>
+      {/* 儲存確認視窗 (Impact Dialog) */}
+      <ImpactDialog
+        isOpen={isImpactDialogOpen}
+        mode={hasActiveImport ? 'with_students' : 'settings_only'}
+        preview={preview}
+        splitWarnings={splitWarnings}
+        onClose={() => {
+          setIsImpactDialogOpen(false);
+          setPreview(null);
+        }}
+        onApply={handleApply}
+        applying={applying || previewLoading}
+      />
 
-      {/* preview / apply 操作 */}
-      <div style={{ display: 'flex', gap: '12px', marginBottom: '20px' }}>
-        <button
-          type="button"
-          className="btn-primary"
-          onClick={doPreview}
-          disabled={busy || hasTimeErrors || hasEmptyClassName}
-        >
-          {busy ? '處理中...' : '預覽影響 (dry-run)'}
-        </button>
-        <button
-          type="button"
-          className="btn-secondary"
-          onClick={doApply}
-          disabled={busy}
-          style={{
-            opacity: !preview ? 0.6 : 1,
-            cursor: !preview ? 'not-allowed' : 'pointer',
-          }}
-          title={!preview ? '請先點擊「預覽影響 (dry-run)」' : '套用設定並重新計算'}
-        >
-          套用並重算
-        </button>
-        {preview && (
-          <span style={{ fontSize: '0.8125rem', color: 'var(--text-secondary)', alignSelf: 'center' }}>
-            previewId: {preview.previewId} · expiresAt: {preview.expiresAt?.slice(11, 19)} · inputHash: {String(preview.inputHash).slice(0, 12)}…
-          </span>
-        )}
-      </div>
-
-      {/* preview 結果 */}
-      {preview && (
-        <div className="table-container" style={{ marginBottom: '20px' }}>
-          <div className="table-header">
-            <div className="table-title">
-              影響預覽：{preview.affectedStudents} 人天數變化 · mismatch {preview.mismatchBefore} → {preview.mismatchAfter}
-            </div>
-          </div>
-          <div className="table-scroll">
-            <table className="data-table">
-              <thead>
-                <tr>
-                  <th>人員代碼</th>
-                  <th>姓名</th>
-                  <th>變更前天數</th>
-                  <th>變更後天數</th>
-                </tr>
-              </thead>
-              <tbody>
-                {(preview.dayDeltas as any[]).slice(0, 50).map((d) => (
-                  <tr key={d.personCode}>
-                    <td style={{ fontFamily: 'monospace' }}>{d.personCode}</td>
-                    <td>{d.name}</td>
-                    <td>{d.before ?? '-'}</td>
-                    <td style={{ fontWeight: 700 }}>{d.after ?? '-'}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
-
-      {/* apply 結果 */}
-      {applied && (
-        <div className="alert alert-success">
-          已套用並重算：settingsVersion {applied.settingsVersionId} · 新 run {applied.runId} ·
-          revision {applied.revision} · mismatch {applied.mismatchCount} 筆
+      {/* Toast 訊息 */}
+      {toastMessage && (
+        <div id="toast" role="status" aria-live="polite">
+          {toastMessage}
         </div>
       )}
     </div>

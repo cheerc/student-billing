@@ -1,10 +1,10 @@
 import type { Metadata } from 'next';
-import Link from 'next/link';
 import './globals.css';
+import AppNav from '@/components/app-nav';
 
 export const metadata: Metadata = {
-  title: '學生收費核對工具 (student-billing)',
-  description: 'localhost P1 原型工具 - 學生收費核對與名單篩選',
+  title: '學生收費核對工具',
+  description: '學生收費核對與排課衝堂計算工具',
 };
 
 export default function RootLayout({
@@ -15,23 +15,16 @@ export default function RootLayout({
   return (
     <html lang="zh-TW">
       <body>
-        <div className="container">
-          <header className="header">
-            <div className="header-title">
-              <span className="logo-badge">P1</span>
-              <h1>學生收費核對工具</h1>
-            </div>
-            <nav className="nav">
-              <Link href="/" className="nav-link">首頁核對</Link>
-              <Link href="/imports" className="nav-link">名單匯入</Link>
-              <Link href="/settings" className="nav-link">課程設定</Link>
-              <Link href="/history" className="nav-link">批次與歷程</Link>
-            </nav>
-          </header>
-          <main className="main">{children}</main>
-          <footer className="footer">
-            <p>學生收費核對工具 · localhost 原型模式 · 嚴格隔離敏感個資</p>
-          </footer>
+        <div className="app-shell">
+          <AppNav />
+          <div className="main-wrapper">
+            <main className="main" id="main-content">
+              {children}
+            </main>
+            <footer className="footer">
+              <p>學生收費核對工具 · 本機模式 · 嚴格隔離敏感個資</p>
+            </footer>
+          </div>
         </div>
       </body>
     </html>

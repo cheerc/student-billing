@@ -11,7 +11,8 @@ import { WindowSummary } from '@/components/settings/window-summary';
 import { ScheduleGrid } from '@/components/settings/schedule-grid';
 import { ImpactDialog } from '@/components/settings/impact-dialog';
 import { MappingPanel } from '@/components/settings/mapping-panel';
-import { buildSeedGridRows, buildSeedDraft } from '@/contracts/settings';
+import { buildSeedGridRows } from '@/contracts/settings';
+import { CARE_WINDOWS_VIEW } from '@/application/schedule-preview';
 
 /**
  * 09 §2、§3、§6、§7／04 §8 UX01–UX10、UX14–UX16、UX24：
@@ -124,6 +125,10 @@ describe('R2 UI 元件與排課工作流程（RED 測試）', () => {
           onAddRow: () => {},
           calculating: false,
           calculateResult: {
+            requestKey: 'mock-1',
+            draftHash: 'hash',
+            ruleSetVersion: 'erp-tag-v2',
+            windows: CARE_WINDOWS_VIEW,
             rows: [
               {
                 rowId: 'row-incomplete-1',
