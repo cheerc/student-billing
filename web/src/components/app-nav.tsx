@@ -16,9 +16,9 @@ export function AppNav() {
     <aside className="side" aria-label="主要導覽">
       <div className="brand">
         <Link href="/" style={{ textDecoration: 'none', color: 'inherit' }}>
-          <h1 style={{ margin: 0, fontSize: '16px', fontWeight: 750, color: 'inherit' }}>
+          <div className="brand-title" style={{ margin: 0, fontSize: '16px', fontWeight: 750, color: 'inherit' }}>
             學生收費核對工具
-          </h1>
+          </div>
           <small>CLASS & STUDENT REVIEW</small>
         </Link>
       </div>

@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
 import path from 'path';
 
-test.describe('展示B (Demo B) E2E 驗收測試', () => {
+test.describe('核對結果頁 E2E 驗收測試', () => {
   test('上傳 → 啟用正式 Run → 核對總表八欄 → 篩選 5 筆差異 → 展開明細 Drawer', async ({ page }) => {
     // 1. 上傳 ERP 試算表
     await page.goto('/imports');
@@ -14,15 +14,18 @@ test.describe('展示B (Demo B) E2E 驗收測試', () => {
     // 2. 返回首頁
     await page.goto('/');
 
-    // 3. 點擊啟用為正式 Run (進入展示B)
+    // 3. 點擊啟用為正式 Run
     const activateBtn = page.locator('button', { hasText: '啟用為正式 Run' });
     if (await activateBtn.isVisible()) {
       await activateBtn.click();
     }
 
-    // 4. 首頁應切換為正式 Run 狀態 (展示B)
+    // 4. 首頁應切換為正式 Run 狀態
+    // R3：日常介面去除「展示A/B」技術字與長 ID（specs/09 §7），版本識別收納於技術資訊摺疊區
     await expect(page.locator('text=已啟用正式計算 Run')).toBeVisible({ timeout: 15000 });
-    await expect(page.locator('text=展示B')).toBeVisible();
+    await expect(page.locator('text=展示B')).toHaveCount(0);
+    await expect(page.locator('summary', { hasText: '技術資訊' })).toBeVisible();
+    await expect(page.locator('text=核對基準日')).toBeVisible();
 
     // 驗證八欄標頭
     const table = page.locator('.data-table');
