@@ -186,6 +186,9 @@ export function previewSettingsChange(
 
   const latest = getLatestSettingsVersion(db);
   const baseDraft: SettingsDraft | null = latest ? (JSON.parse(latest.contentJson) as SettingsDraft) : null;
+  // 影響預覽的「前」＝目前生效的設定（最新已儲存設定；尚無才是 seed），不是永遠的 seed（09 §3.2）
+  const baseAliasMap = baseDraft ? draftToAliasMap(baseDraft) : undefined;
+  const baseScheduleOverride = baseDraft ? draftToScheduleOverride(baseDraft) : undefined;
 
   if (importId === null) {
     return saveSettingsOnlyPreview(db, draft, expectedRevision, latest?.id ?? 'seed-v250922');
@@ -211,7 +214,11 @@ export function previewSettingsChange(
 
   for (const stu of students) {
     // 預覽僅跑正式軌（不跑 compat 診斷以保證反應速度）
-    const before = calculateStudentBilling(stu, { ruleSetVersion: formalRuleSetVersion as any });
+    const before = calculateStudentBilling(stu, {
+      aliasMap: baseAliasMap,
+      scheduleOverride: baseScheduleOverride,
+      ruleSetVersion: formalRuleSetVersion as any,
+    });
     const after = calculateStudentBilling(stu, { aliasMap, scheduleOverride, ruleSetVersion: formalRuleSetVersion as any });
 
     const beforeDays = stu.grade !== null && stu.grade <= 2
