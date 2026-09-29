@@ -16,6 +16,7 @@ import {
   draftToScheduleOverride,
 } from '@/adapters/sqlite/settings-repository';
 import { getCalculationRun } from '@/adapters/sqlite/runs-repository';
+import { buildSchedulePreview } from '@/application/schedule-preview';
 import {
   buildSeedGridRows,
   gridRowsToClasses,
@@ -226,5 +227,48 @@ describe('UX23：空時段與整班移除（09 §8.2.4 方案 A）——run 計�
     const days = new Map<string, DayRow>(rows.map((r) => [r.person_code, { anqin: r.anqin_days, tutoring: r.tutoring_days }]));
     expect(differing(days)).toEqual([]);
     expect(getCalculationRun(db, applied.runId!)!.scheduleVersionId).toBe(applied.settingsVersionId);
+  });
+  it('三者一致（逐堂預覽／班級扣天／學生 run）：對照組——一A 有時段：班級實扣 −0.5 ＝ 13 位學生各 −0.5', () => {
+    const draft = seedDraftWithAlias();
+    const preview = buildSchedulePreview(draft, 'erp-tag-v2');
+    const c = preview.classes.find((k) => k.classKey === CLASS_1A)!;
+    expect(c.anqin.rounded).toBe(-0.5);
+    const days = daysOf(runWith(draft).results);
+    for (const code of math1Students) {
+      expect((days.get(code)!.anqin ?? 0) - (baseline.get(code)!.anqin ?? 0)).toBeCloseTo(c.anqin.rounded, 9);
+    }
+  });
+
+  it('三者一致：刪光時段——逐堂預覽回一列 null 佔位＋SCHEDULE_EMPTY；班級 0／missing_time；學生 run 不扣天且帶 SCHEDULE_EMPTY', () => {
+    const draft = draftEmptiedClass();
+    const preview = buildSchedulePreview(draft, 'erp-tag-v2');
+    const rows = preview.rows.filter((r) => r.classKey === CLASS_1A);
+    expect(rows).toHaveLength(1);
+    expect(rows[0].anqin.overlapMinutes).toBeNull();
+    const c = preview.classes.find((k) => k.classKey === CLASS_1A)!;
+    expect([c.anqin.rounded, c.anqin.status]).toEqual([0, 'missing_time']);
+    expect(preview.issues).toContainEqual(expect.objectContaining({ code: 'SCHEDULE_EMPTY', classKey: CLASS_1A }));
+
+    const { results } = runWith(draft);
+    expect(differing(daysOf(results))).toEqual([]);
+    const byCode = new Map(results.map((r) => [r.personCode, r]));
+    for (const code of math1Students) {
+      const mathComp = byCode.get(code)!.tierComparisons.find((k) => k.baseName.includes('國小數學'))!;
+      expect(mathComp.issues).toContain('SCHEDULE_EMPTY');
+    }
+  });
+
+  it('三者一致：整班移除——逐堂預覽與班級表都沒有該班；學生 run 落 SCHEDULE_NOT_FOUND 且不扣天（不退回 seed）', () => {
+    const draft = draftRemovedClass();
+    const preview = buildSchedulePreview(draft, 'erp-tag-v2');
+    expect(preview.classes.some((k) => k.classKey === CLASS_1A)).toBe(false);
+    expect(preview.rows.some((r) => r.classKey === CLASS_1A)).toBe(false);
+
+    const { results } = runWith(draft);
+    expect(differing(daysOf(results))).toEqual([]);
+    const byCode = new Map(results.map((r) => [r.personCode, r]));
+    for (const code of math1Students) {
+      expect(byCode.get(code)!.issues.map((i) => i.code)).toContain('SCHEDULE_NOT_FOUND');
+    }
   });
 });
