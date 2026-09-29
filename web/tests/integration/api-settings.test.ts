@@ -96,13 +96,7 @@ describe('T05: 設定 preview/apply API 契約測試', () => {
     expect(body.mismatchAfter).toBe(18);
   });
 
-  it('POST /api/v1/settings/preview 缺 importId 回 400；過期 revision 回 409', async () => {
-    const badReq = new NextRequest('http://127.0.0.1:3000/api/v1/settings/preview', {
-      method: 'POST',
-      body: JSON.stringify({ draft: seedDraft(), expectedRevision: 1 }),
-    });
-    expect((await previewPOST(badReq)).status).toBe(400);
-
+  it('POST /api/v1/settings/preview 過期 revision 回 409（importId 不再必填：09 §8.2.2，缺／不符行為見 settings-import-server-decided.test.ts）', async () => {
     const staleReq = new NextRequest('http://127.0.0.1:3000/api/v1/settings/preview', {
       method: 'POST',
       body: JSON.stringify({ importId: previewId, draft: seedDraft(), expectedRevision: 0 }),

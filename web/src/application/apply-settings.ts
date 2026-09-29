@@ -89,16 +89,6 @@ export function applySettingsPreview(
     );
   }
 
-  const active = db.prepare('SELECT revision FROM active_state WHERE id = 1').get() as any;
-  if (!active) throw new SettingsApplyError(500, 'ActiveState 未初始化');
-  if (active.revision !== expectedRevision) {
-    throw new SettingsApplyError(
-      409,
-      `版本衝突：目前 revision 為 ${active.revision}，請求為 ${expectedRevision}`,
-      'REVISION_CONFLICT'
-    );
-  }
-
   const draft = JSON.parse(preview.draftJson);
   const inputHash = hashSettingsDraft(draft);
   if (inputHash !== preview.inputHash) {
@@ -107,12 +97,35 @@ export function applySettingsPreview(
 
   const settingsVersionId = `setv_${inputHash.slice(0, 12)}_${Date.now()}`;
   const runId = `run_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`;
-  const nextRevision = active.revision + 1;
+  const nextRevision = expectedRevision + 1;
   const now = new Date().toISOString();
 
   let result!: SettingsApplyResult;
 
   const txn = db.transaction(() => {
+    // CAS 與 import 一致性檢查與後續寫入在同一交易內（與 activate 同構），
+    // 避免「檢查後、寫入前」active_state 被另一請求改動而覆蓋其結果。
+    const active = db
+      .prepare('SELECT revision, active_import_id FROM active_state WHERE id = 1')
+      .get() as { revision: number; active_import_id: string | null } | undefined;
+    if (!active) throw new SettingsApplyError(500, 'ActiveState 未初始化');
+    if (active.revision !== expectedRevision) {
+      throw new SettingsApplyError(
+        409,
+        `版本衝突：目前 revision 為 ${active.revision}，請求為 ${expectedRevision}`,
+        'REVISION_CONFLICT'
+      );
+    }
+    // 09 §8.2.2：套用只針對「現行 active import」。預覽鎖定的批次若不是它（舊資料、竄改或已切換），
+    // 一律拒絕；apply 不得藉儲存設定順便啟用別批名單。
+    if (active.active_import_id !== preview.importId) {
+      throw new SettingsApplyError(
+        409,
+        '預覽鎖定的名單批次與目前現行名單不符；儲存設定不會啟用或切換名單，請重新預覽。',
+        'IMPORT_MISMATCH'
+      );
+    }
+
     // 封存設定快照
     saveSettingsVersion(db, {
       id: settingsVersionId,
@@ -137,9 +150,10 @@ export function applySettingsPreview(
 
     const mismatchCount = results.filter((r) => r.tierMismatch).length;
 
+    // 不寫 active_import_id：apply 結構上不會改變哪一批是現行名單（上方已驗證 preview.importId 即現行）。
     db.prepare(
-      `UPDATE active_state SET active_import_id = ?, active_run_id = ?, revision = ?, updated_at = ? WHERE id = 1`
-    ).run(preview.importId, runId, nextRevision, now);
+      `UPDATE active_state SET active_run_id = ?, revision = ?, updated_at = ? WHERE id = 1`
+    ).run(runId, nextRevision, now);
 
     result = {
       settingsVersionId,

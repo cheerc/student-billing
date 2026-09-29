@@ -13,14 +13,9 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json().catch(() => ({}));
+    // 09 §8.2.2：import 由 server 依 active_state 決定，importId 不再是必填。
+    // 過渡期若 client 仍帶（含 null），只做一致性檢查，與 server 決定值不符即 400 IMPORT_MISMATCH。
     const { importId, draft, expectedRevision } = body;
-
-    if (!importId || typeof importId !== 'string') {
-      return NextResponse.json(
-        { error: '缺少必要參數 importId', code: 'MISSING_IMPORT_ID' },
-        { status: 400 }
-      );
-    }
 
     const db = getDatabase();
     const result = previewSettingsChange(db, importId, { draft, expectedRevision });
