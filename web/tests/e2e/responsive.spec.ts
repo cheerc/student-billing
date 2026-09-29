@@ -81,6 +81,31 @@ test.describe('R5 UX20 響應式驗收', () => {
     if (shotDir) fs.mkdirSync(shotDir, { recursive: true });
     const rows: Row[] = [];
 
+    const shot = async (vp: string, name: string) => {
+      if (shotDir) await page.screenshot({ path: path.join(shotDir, `${vp}-${name}.jpg`), type: 'jpeg', quality: 72 });
+    };
+    const makeCheck = (vp: (typeof VIEWPORTS)[number]) => async (name: string, note?: string) => {
+      const m = await measure(page);
+      rows.push({ viewport: vp.name, page: name, pageOverflowPx: m.overflow, scrollContainers: m.containers, note });
+      // 1. 無整頁橫向溢出
+      expect(m.overflow, `[${vp.name}｜${name}] 整頁橫向溢出 ${m.overflow}px`).toBeLessThanOrEqual(1);
+      // 5. 無死遮罩
+      expect(await findDeadOverlays(page), `[${vp.name}｜${name}] 有覆蓋大半視窗的固定定位元素`).toEqual([]);
+      await shot(vp.name, name);
+    };
+
+    // ── 全新資料庫的空狀態（必須在建立資料前量測）────────────────
+    for (const vp of VIEWPORTS) {
+      await page.setViewportSize({ width: vp.width, height: vp.height });
+      const check = makeCheck(vp);
+      await page.goto('/');
+      await expect(page.locator('h2', { hasText: '還沒有可核對的學生資料' })).toBeVisible();
+      await check('home-empty');
+      await page.goto('/history');
+      await expect(page.getByText('還沒有匯入紀錄')).toBeVisible({ timeout: 15000 });
+      await check('history-empty');
+    }
+
     // ── 準備資料：上傳並使用（合成 fixture）─────────────────────
     await page.setViewportSize({ width: 1440, height: 900 });
     await page.goto('/imports');
@@ -88,10 +113,6 @@ test.describe('R5 UX20 響應式驗收', () => {
     await expect(page.locator('button', { hasText: '使用這份名單' })).toBeVisible({ timeout: 15000 });
     await page.locator('button', { hasText: '使用這份名單' }).click();
     await expect(page.locator('.success-stage-card')).toBeVisible({ timeout: 15000 });
-
-    const shot = async (vp: string, name: string) => {
-      if (shotDir) await page.screenshot({ path: path.join(shotDir, `${vp}-${name}.jpg`), type: 'jpeg', quality: 72 });
-    };
 
     // 歷史檢視的網址（取自匯入紀錄的連結）
     await page.goto('/history');
@@ -101,15 +122,7 @@ test.describe('R5 UX20 響應式驗收', () => {
     for (const vp of VIEWPORTS) {
       await page.setViewportSize({ width: vp.width, height: vp.height });
 
-      const check = async (name: string, note?: string) => {
-        const m = await measure(page);
-        rows.push({ viewport: vp.name, page: name, pageOverflowPx: m.overflow, scrollContainers: m.containers, note });
-        // 1. 無整頁橫向溢出
-        expect(m.overflow, `[${vp.name}｜${name}] 整頁橫向溢出 ${m.overflow}px`).toBeLessThanOrEqual(1);
-        // 5. 無死遮罩
-        expect(await findDeadOverlays(page), `[${vp.name}｜${name}] 有覆蓋大半視窗的固定定位元素`).toEqual([]);
-        await shot(vp.name, name);
-      };
+      const check = makeCheck(vp);
 
       // ── 導覽在此尺寸可達 ─────────────────────────────────────
       await page.goto('/');
@@ -151,6 +164,13 @@ test.describe('R5 UX20 響應式驗收', () => {
       });
       expect(Math.abs(headTop), `[${vp.name}] 表頭捲動後偏離容器上緣 ${headTop}px`).toBeLessThanOrEqual(2);
       await tableScroll.evaluate((el) => (el.scrollTop = 0));
+
+      // ── 核對結果：學生明細抽屜（modal 不得造成整頁溢出，也不算死遮罩）──
+      await page.locator('.results-table tbody tr').first().locator('button.link-button').click();
+      await expect(page.locator('[role="dialog"]')).toBeVisible();
+      await check('results-drawer');
+      await page.keyboard.press('Escape');
+      await expect(page.locator('[role="dialog"]')).toHaveCount(0);
 
       // ── 核對結果：班級扣天 ────────────────────────────────────
       await page.locator('button[role="tab"]', { hasText: '班級扣天' }).click();
@@ -219,7 +239,7 @@ test.describe('R5 UX20 響應式驗收', () => {
       fs.mkdirSync(path.dirname(resultFile), { recursive: true });
       fs.writeFileSync(resultFile, JSON.stringify(rows, null, 2));
     }
-    // 每個尺寸 × 每個頁面都有量測（4 × 8）
-    expect(rows).toHaveLength(VIEWPORTS.length * 8);
+    // 每個尺寸 × 每個頁面都有量測（4 × 11：空狀態 2、結果 3、設定 2、匯入 2、紀錄 2）
+    expect(rows).toHaveLength(VIEWPORTS.length * 11);
   });
 });
