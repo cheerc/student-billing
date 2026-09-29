@@ -53,7 +53,7 @@ R2：
 
 R3：
 - 匯入頁三態流程（`/imports`）：選擇檔案 → 確認名單 → 完成，頂部顯示課表儲存時間與查看連結；文案去技術化（「上傳ERP匯出的學生Excel」，移除 OOXML／inlineStr 等開發術語）。
-- 名單預覽：顯示檔名、總人數、有班／無班／離班人數；新增 `rosterDiff` 差異統計（相對於現行名單的新增／異動／未出現，person_code ＋ 排序去重 token 集合指紋，token 順序變動不誤判為異動）；重傳同檔判重提示（`isDuplicate`／`duplicateReason`）不阻擋；未知班名提示「N 個班名待確認」。
+- 名單預覽：顯示檔名、總人數、有班／無班／離班人數；新增 `rosterDiff` 差異統計（相對於現行名單的新增／異動／未出現）。R4 起「異動」不再用 person_code ＋ 報名 token 指紋，改以 before/after **計算結果**判定（折扣與安親／課輔扣除天數，operator 裁決 d-20260929111803466480-4／-5）：報名改但計費不變不算異動，年級或標籤變而計費變才算；API 整批計算並附逐人明細（折扣、天數 before → after、逐班扣天），預覽以三個數字與可展開明細呈現；重傳同檔判重提示（`isDuplicate`／`duplicateReason`）不阻擋；未知班名提示「N 個班名待確認」。
 - 頁內閉環啟用：主按鈕「使用這份名單」直接呼叫 `/api/v1/imports/[previewId]/activate`（expectedRevision、idempotencyKey、asOfDate 核對基準日），不需返回首頁；伺服器自動套用最新已儲存課表與班名對應（#24 契約）。
 - 完成導向：顯示「N 位學生資料已備妥」＋主要動作「開始核對 →」導向核對結果頁。
 - 去技術化補完（specs/09 §7）：`roster-view`「展示A／預覽名冊」改「尚未啟用」、啟用按鈕改「啟用為正式 Run ▶」；`active-run-view`「展示B／版本 rev N」改「核對基準日」，Run ID／rev 收納進「技術資訊」摺疊區。

@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { generateImportPreview } from '@/application/import-preview';
 import { ErpReaderError } from '@/adapters/xlsx/erp-reader';
 import { getDatabase } from '@/adapters/sqlite';
-import { saveImportBatch, getLatestReadyBatch, computeRosterDiff } from '@/adapters/sqlite/import-repository';
+import { saveImportBatch, getLatestReadyBatch } from '@/adapters/sqlite/import-repository';
+import { computeImportRosterChanges } from '@/application/import-roster-diff';
 import { getCurrentActiveRun } from '@/adapters/sqlite/runs-repository';
 import { validateSameOrigin, maskSensitiveInfo } from '@/contracts/security';
 
@@ -56,9 +57,10 @@ export async function POST(request: Request | NextRequest) {
       preview.students
     );
 
-    // 差異統計以「實際保存的批次」對比基準名單；重複上傳時 batchId 為既有批次，
-    // 差異自然為全 0（內容未變），不會把本批當成基準自我比較
-    const rosterDiff = computeRosterDiff(db, saveResult.batchId, baseImportId);
+    // 名單差異以「實際保存的批次」整批對比基準名單，並以 before/after 計算結果判定異動
+    // （operator 裁決 d-20260929111803466480-4／-5，不是報名 token 指紋）。
+    // 重複上傳時 batchId 為既有批次；若它就是基準則不自我比較（baseImportId:null）。
+    const rosterDiff = computeImportRosterChanges(db, saveResult.batchId, baseImportId);
 
     return NextResponse.json(
       {

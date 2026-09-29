@@ -1,8 +1,11 @@
 'use client';
 
 import React, { useState, useEffect, useCallback } from 'react';
+import { useRouter } from 'next/navigation';
 import SummaryTable from './summary-table';
 import DetailDrawer from './detail-drawer';
+import ClassDeductionsPanel from './results/class-deductions-panel';
+import { DeductionsResponse } from '@/application/schedule-deductions';
 import {
   RunStudentsQueryResult,
   StudentCalculationItem,
@@ -14,6 +17,8 @@ interface ActiveRunViewProps {
   asOfDate: string;
   initialAvailableClasses: string[];
   initialData: RunStudentsQueryResult;
+  /** 班級扣天 read model（09 §5.2；有 active run 時與學生總表同一份快照） */
+  initialDeductions: DeductionsResponse;
 }
 
 const UNMAPPED_CLASSES = new Set([
@@ -37,7 +42,11 @@ export default function ActiveRunView({
   asOfDate,
   initialAvailableClasses,
   initialData,
+  initialDeductions,
 }: ActiveRunViewProps) {
+  // 結果雙頁籤（09 §2／§5.2）：學生總表、班級扣天
+  const [resultTab, setResultTab] = useState<'students' | 'deductions'>('students');
+  const router = useRouter();
   const [loading, setLoading] = useState(false);
   const [data, setData] = useState<RunStudentsQueryResult>(initialData);
   const [error, setError] = useState<string | null>(null);
@@ -57,6 +66,16 @@ export default function ActiveRunView({
 
   // 抽屜狀態
   const [selectedStudent, setSelectedStudent] = useState<StudentCalculationItem | null>(null);
+
+  // UX16：Esc 關閉學生明細抽屜
+  useEffect(() => {
+    if (!selectedStudent) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setSelectedStudent(null);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [selectedStudent]);
 
   const fetchWithParams = useCallback(
     async (
@@ -229,6 +248,7 @@ export default function ActiveRunView({
     totalStudents: 0,
     mismatchCount: 0,
     issuesCount: 0,
+    classScopeTotal: 0,
   };
 
   return (
@@ -302,27 +322,30 @@ export default function ActiveRunView({
         </div>
       </details>
 
-      {/* 統計指標卡片 */}
-      <div className="stats-grid">
-        <div className="stat-card">
-          <span className="stat-label">符合篩選學生數</span>
-          <span className="stat-value">{data?.totalStudents ?? 0}</span>
-          <span className="stat-sub">去重學生總數</span>
-        </div>
-        <div className="stat-card">
-          <span className="stat-label">ERP 級距差異學生數</span>
-          <span className="stat-value" style={{ color: stats.mismatchCount > 0 ? '#dc2626' : '#166534' }}>
-            {stats.mismatchCount}
-          </span>
-          <span className="stat-sub">計算天數與 ERP 標記不符 (預期 5 人)</span>
-        </div>
-        <div className="stat-card">
-          <span className="stat-label">待確認事項學生數</span>
-          <span className="stat-value" style={{ color: '#d97706' }}>
-            {stats.issuesCount}
-          </span>
-          <span className="stat-sub">包含缺排課、重複科別、備註衝突</span>
-        </div>
+      {/* 人數一行（09 §5.1）：本班N人 · 符合篩選M人 · N位需確認 —— 三者 scope 不同，不可互相冒充 */}
+      <div className="counts-line" role="status" aria-live="polite">
+        {/* 數字另以 data 屬性供自動化與螢幕閱讀器取用（文字節點間有標籤，不宜以純文字正則解析） */}
+        <span className="counts-item">
+          本班{' '}
+          <strong data-count="class-scope">{stats.classScopeTotal}</strong> 人
+        </span>
+        <span className="counts-sep" aria-hidden="true">·</span>
+        <span className="counts-item">
+          符合篩選{' '}
+          <strong data-count="matched">{data?.totalStudents ?? 0}</strong> 人
+        </span>
+        <span className="counts-sep" aria-hidden="true">·</span>
+        <span className="counts-item">
+          <strong data-count="needs-review">{stats.issuesCount}</strong> 位需確認
+        </span>
+        {stats.mismatchCount > 0 && (
+          <>
+            <span className="counts-sep" aria-hidden="true">·</span>
+            <span className="counts-item">
+              <strong data-count="mismatch">{stats.mismatchCount}</strong> 位計算天數與 ERP 登記不符
+            </span>
+          </>
+        )}
       </div>
 
       {/* 錯誤警告 */}
@@ -417,7 +440,7 @@ export default function ActiveRunView({
               <option value="寫功課">寫功課</option>
             </select>
 
-            {/* 級距比對篩選 (展示B 驗收重點: 篩出 5 筆級距差異) */}
+            {/* 級距比對篩選（筆數由查詢結果決定，不在文案寫死；09 §7） */}
             <select
               value={selectedMismatch}
               onChange={(e) => handleMismatchChange(e.target.value)}
@@ -431,7 +454,7 @@ export default function ActiveRunView({
               }}
             >
               <option value="">全部級距狀態</option>
-              <option value="true">⚠ 僅顯示級距差異 (5筆)</option>
+              <option value="true">⚠ 僅顯示級距差異</option>
               <option value="false">✓ 僅顯示級距吻合</option>
             </select>
 
@@ -465,13 +488,16 @@ export default function ActiveRunView({
                 maxWidth: '180px',
               }}
             >
-              <option value="">問題代碼定位...</option>
-              <option value="SCHEDULE_NOT_FOUND">排課缺漏 (SCHEDULE_NOT_FOUND, 13人)</option>
-              <option value="DUPLICATE_SUBJECT_ENROLLMENT">重複報名 (DUPLICATE_SUBJECT, 2人)</option>
-              <option value="STAFF_FAMILY_NO_DISCOUNT">員工家屬無折扣 (STAFF_FAMILY, 5人)</option>
-              <option value="CONFLICTING_NOTE_SOURCE">備註衝突 (CONFLICTING_NOTE, 1人)</option>
-              <option value="NUMERIC_POLICY_DIFFERENCE">數值政策差異 (NUMERIC_POLICY)</option>
-              <option value="SCHEDULE_EMPTY">排課空時段 (SCHEDULE_EMPTY)</option>
+              <option value="">問題類型...</option>
+              {/* 選項不硬寫筆數（09 §7：預期N人只屬 fixture）。
+                  實際筆數由篩選後的同範圍查詢結果即時回填到「符合篩選／需確認」欄。 */}
+              <option value="SCHEDULE_NOT_FOUND">排課缺漏（SCHEDULE_NOT_FOUND）</option>
+              <option value="DUPLICATE_SUBJECT_ENROLLMENT">重複報名（DUPLICATE_SUBJECT_ENROLLMENT）</option>
+              <option value="STAFF_FAMILY_NO_DISCOUNT">員工家屬無折扣（STAFF_FAMILY_NO_DISCOUNT）</option>
+              <option value="CONFLICTING_NOTE_SOURCE">備註衝突（CONFLICTING_NOTE_SOURCE）</option>
+              <option value="NUMERIC_POLICY_DIFFERENCE">數值政策差異（NUMERIC_POLICY_DIFFERENCE）</option>
+              <option value="SCHEDULE_EMPTY">排課空時段（SCHEDULE_EMPTY）</option>
+              <option value="UNKNOWN_WEEKDAY">未知星期（UNKNOWN_WEEKDAY）</option>
             </select>
 
             {/* 重置按鈕 */}
@@ -542,13 +568,41 @@ export default function ActiveRunView({
           </div>
         )}
 
-        {/* 核對總表 */}
-        <SummaryTable
-          students={data?.items || []}
-          loading={loading}
-          onSelectStudent={(s) => setSelectedStudent(s)}
-          onResetFilters={handleResetFilters}
-        />
+        {/* 結果雙頁籤（09 §2） */}
+        <div className="tabs" role="tablist" aria-label="結果頁籤">
+          <button
+            type="button"
+            role="tab"
+            aria-selected={resultTab === 'students'}
+            className={resultTab === 'students' ? 'selected' : ''}
+            onClick={() => setResultTab('students')}
+          >
+            學生總表
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={resultTab === 'deductions'}
+            className={resultTab === 'deductions' ? 'selected' : ''}
+            onClick={() => setResultTab('deductions')}
+          >
+            班級扣天
+          </button>
+        </div>
+
+        {resultTab === 'students' ? (
+          <SummaryTable
+            students={data?.items || []}
+            loading={loading}
+            onSelectStudent={(s) => setSelectedStudent(s)}
+            onResetFilters={handleResetFilters}
+          />
+        ) : (
+          <ClassDeductionsPanel
+            data={initialDeductions}
+            onEditClass={() => router.push('/settings?tab=schedule')}
+          />
+        )}
       </div>
 
       {/* 學生計算明細側欄 Drawer */}

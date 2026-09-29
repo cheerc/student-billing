@@ -1215,3 +1215,272 @@ dialog.impact-dialog::backdrop {
   font-variant-numeric: tabular-nums;
   color: #0c4a6e;
 }
+
+/* R4 匯入預覽逐人異動明細（specs/09 §4）：折疊區，預設收合 */
+.roster-changes-wrap {
+  margin: 8px 20px 0;
+}
+
+.roster-changes-details {
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  background: var(--bg-card);
+  font-size: 13px;
+}
+
+.roster-changes-details > summary {
+  cursor: pointer;
+  padding: 10px 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.roster-changes-scroll {
+  overflow-x: auto;
+  border-top: 1px solid var(--border-color);
+}
+
+.roster-changes-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.roster-changes-table th,
+.roster-changes-table td {
+  padding: 8px 12px;
+  text-align: left;
+  border-bottom: 1px solid var(--border-color);
+  vertical-align: top;
+}
+
+.roster-changes-table th {
+  color: var(--text-secondary);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.roster-changes-table td[data-field] {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.roster-change-code {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.roster-change-breakdown td {
+  background: var(--bg-primary);
+  padding-top: 4px;
+  padding-bottom: 10px;
+}
+
+.roster-change-classes {
+  list-style: none;
+  display: grid;
+  gap: 4px;
+}
+
+.roster-change-classes li {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: baseline;
+}
+
+.roster-change-class-name {
+  font-weight: 600;
+}
+
+.roster-change-presence {
+  padding: 0 6px;
+  border-radius: 4px;
+  font-size: 12px;
+  background: var(--code-bg);
+  color: var(--text-secondary);
+}
+
+.roster-change-presence.presence-removed {
+  background: var(--danger-bg);
+  color: var(--danger-text);
+}
+
+.roster-change-presence.presence-added {
+  background: var(--success-bg);
+  color: var(--success-text);
+}
+
+.roster-change-class-values {
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+/* 09 §5.1 人數一行：本班N人 · 符合篩選M人 · N位需確認（三者 scope 不同） */
+.counts-line {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 12px 2px 16px;
+  font-size: 0.875rem;
+  color: var(--text-secondary);
+}
+
+.counts-line .counts-item strong {
+  font-variant-numeric: tabular-nums;
+  color: var(--text-primary);
+  font-weight: 700;
+}
+
+.counts-line .counts-sep {
+  color: var(--text-muted);
+}
+
+/* 09 §5.1／§6：學生總表 12 欄（姓名 sticky、數字 tabular-nums 靠右） */
+.results-table {
+  min-width: 1100px;
+}
+
+.results-table .sticky-name {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  background: #fff;
+  min-width: 96px;
+}
+
+.results-table tbody tr:hover .sticky-name {
+  background: #fafcff;
+}
+
+.results-table .number {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.results-table .cblue {
+  background: var(--cblue-bg);
+  color: var(--cblue-text);
+}
+
+.results-table .link-button {
+  border: 0;
+  background: none;
+  color: var(--primary-color);
+  cursor: pointer;
+  padding: 0;
+  font: inherit;
+  font-weight: 600;
+  text-align: left;
+}
+
+.results-table .link-button:hover {
+  text-decoration: underline;
+}
+
+.results-table .subtle {
+  color: var(--text-muted);
+}
+
+.badge-ok {
+  background-color: var(--success-bg);
+  color: var(--success-text);
+}
+
+.badge-warn {
+  background-color: var(--warning-bg);
+  color: var(--warning-text);
+  margin-right: 4px;
+}
+
+/* 09 §5.2 班級扣天面板 */
+.deductions-table {
+  min-width: 1000px;
+}
+
+.deductions-table .th-unit {
+  display: block;
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--text-muted);
+}
+
+.deductions-table .ded-status {
+  font-size: 12px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: var(--code-bg);
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.deductions-table .ded-status[data-status="no_overlap"] {
+  background: #fff;
+  color: var(--text-muted);
+}
+
+.deductions-table .ded-status[data-status="missing_time"],
+.deductions-table .ded-status[data-status="incomplete"] {
+  background: var(--warning-bg);
+  color: var(--warning-text);
+}
+
+.deductions-table .ded-status[data-status="unknown_weekday"] {
+  background: var(--warning-bg);
+  color: var(--warning-text);
+}
+
+.ded-expanded td {
+  background: #f8fafc;
+  padding: 12px 16px;
+}
+
+.ded-detail {
+  font-size: 12px;
+}
+
+.ded-detail-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-weight: 600;
+  margin-bottom: 8px;
+  color: var(--text-secondary);
+}
+
+.ded-session-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.ded-session-table th,
+.ded-session-table td {
+  padding: 5px 8px;
+  border-bottom: 1px solid var(--border-color);
+  text-align: left;
+}
+
+.ded-session-table th {
+  color: var(--text-muted);
+  font-weight: 600;
+}
+
+.ded-session-table .number {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.notice-inline {
+  padding: 10px 14px;
+  background: var(--warning-bg);
+  color: var(--warning-text);
+  border-radius: 8px;
+  font-size: 13px;
+  margin-bottom: 16px;
+}
+
+.roster-diff-note {
+  color: var(--text-muted);
+  font-size: 12px;
+}

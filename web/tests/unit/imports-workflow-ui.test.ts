@@ -87,7 +87,91 @@ const mockPreview: ImportPreviewResult = {
   scopeNote: '測試批次',
 };
 
-/** 差異統計：基準名單存在時 UI 應呈現新增／報名異動／未出現。 */
+/** 差異統計：基準名單存在時 UI 應呈現新增／異動／未出現，並附逐人明細（B1）。 */
+const side = (over: Record<string, unknown> = {}) => ({
+  subjectCount: 2,
+  baseDiscountBps: 9500,
+  applicableAnqinBps: 9500,
+  applicableTutoringBps: 9500,
+  anqinDays: 5,
+  tutoringDays: 5,
+  isEnrolledAnqin: false,
+  isEnrolledTutoring: true,
+  ...over,
+});
+
+const mockChanges = [
+  {
+    // 異動：折扣 95折→9折、課輔天數 5→4（含退掉／新報的逐班明細）
+    personCode: 'CHG001',
+    name: '異動同學',
+    isNew: false,
+    isRemoved: false,
+    before: side(),
+    after: side({ subjectCount: 3, baseDiscountBps: 9000, tutoringDays: 4 }),
+    discountChange: {
+      beforeBps: 9500,
+      afterBps: 9000,
+      beforeLabel: '95折',
+      afterLabel: '9折',
+      reason: '已補科數變動',
+    },
+    dayChange: {
+      beforeAnqinDays: 5,
+      afterAnqinDays: 5,
+      beforeTutoringDays: 5,
+      afterTutoringDays: 4,
+      classBreakdown: [
+        {
+          baseName: '國小數學-一A',
+          rawToken: '國小數學-一A[團]',
+          presence: 'removed',
+          beforeAnqinDeduction: 0.5,
+          beforeTutoringDeduction: 0,
+          afterAnqinDeduction: null,
+          afterTutoringDeduction: null,
+          statusBefore: 'calculated',
+          statusAfter: 'no_enrollment',
+        },
+        {
+          baseName: '國小數學-三A',
+          rawToken: '國小數學-三A[團]',
+          presence: 'added',
+          beforeAnqinDeduction: null,
+          beforeTutoringDeduction: null,
+          afterAnqinDeduction: 0,
+          afterTutoringDeduction: 1,
+          statusBefore: 'no_enrollment',
+          statusAfter: 'calculated',
+        },
+      ],
+    },
+    reasons: ['已補科數變動', '安親／課輔扣除天數變動'],
+  },
+  {
+    personCode: 'NEW001',
+    name: '新增同學',
+    isNew: true,
+    isRemoved: false,
+    before: null,
+    after: side(),
+    discountChange: null,
+    dayChange: null,
+    reasons: ['新增學生'],
+  },
+  {
+    personCode: 'GONE001',
+    name: '未出現同學',
+    isNew: false,
+    isRemoved: true,
+    before: side(),
+    after: null,
+    discountChange: null,
+    dayChange: null,
+    reasons: ['本次名單未出現'],
+  },
+];
+
 const withDiff = (over: Record<string, unknown>) => ({
   ...mockPreview,
   rosterDiff: {
@@ -96,6 +180,7 @@ const withDiff = (over: Record<string, unknown>) => ({
     changedStudents: 2,
     unchangedStudents: 0,
     notAppearedStudents: 3,
+    changes: mockChanges,
     ...over,
   },
 });
@@ -285,36 +370,79 @@ describe('R3 匯入頁工作流程與 UI 元件（RED 測試）', () => {
   });
 
   /**
-   * Lead 裁決（decision d-20260929110117338263-3）：rosterDiff 的「異動」只比對
-   * person_code ＋ 報名 token 集合，未涵蓋 grade／tagsRaw（兩者都會改變計費結果）。
-   * 本輪不擴大指紋比對範圍，僅以文案標示比對範圍，避免使用者誤讀。
+   * R3 曾以「報名異動」標示 rosterDiff 的比對範圍（decision d-20260929110117338263-3）。
+   * R4 operator 裁決（d-20260929111803466480-4 / d-20260929111814541876-5）：「異動」是匯入預覽的
+   * 折扣與安親／課輔扣除天數 before & after 計算結果；Reviewer B1（PR #32）指出該功能只寫成函式、
+   * 沒有接到畫面。本區塊從 UI 驗證三個數字與逐人明細真的顯示，且沒有留下未兌現的承諾文案。
    */
-  describe('Lead 裁決：差異統計文案改為「報名異動」', () => {
-    it('顯示「報名異動」而非籠統的「異動」', () => {
-      const html = renderToStaticMarkup(
+  describe('R4 裁決＋B1：預覽顯示新增／異動／未出現三個數字與逐人明細', () => {
+    const render = (preview: unknown) =>
+      renderToStaticMarkup(
         React.createElement(ImportsWorkflow, {
           initialStage: 'preview',
-          initialPreview: withDiff({}),
+          initialPreview: preview as any,
           currentRevision: 0,
           lastScheduleSavedAt: null,
         })
       );
 
-      expect(html).toContain('報名異動');
-      // 不可出現孤立的「異動」字樣（避免與「報名異動」混用造成誤讀）
-      expect(html).not.toMatch(/>異動</);
+    it('三個數字都顯示（新增／異動／未出現），數字取自 API 而非畫面自算', () => {
+      const html = render(withDiff({ newStudents: 7, changedStudents: 11, notAppearedStudents: 13 }));
+
+      expect(html).toMatch(/data-diff="new"[^>]*>新增 <strong>7<\/strong> 人/);
+      expect(html).toMatch(/data-diff="changed"[^>]*>異動 <strong>11<\/strong> 人/);
+      expect(html).toMatch(/data-diff="not-appeared"[^>]*>未出現 <strong>13<\/strong> 人/);
+    });
+
+    it('沒有未兌現的承諾：不再出現「將於核對結果頁逐位列出」，也不出現「報名異動」代理指標', () => {
+      const html = render(withDiff({}));
+
+      expect(html).not.toContain('核對結果頁');
+      expect(html).not.toContain('逐位列出');
+      expect(html).not.toContain('報名異動');
+    });
+
+    it('逐人明細：異動者顯示折扣與天數 before → after，並標明退掉／新報的課', () => {
+      const html = render(withDiff({}));
+
+      // 明細容器與人員
+      expect(html).toContain('roster-changes-details');
+      expect(html).toContain('異動同學');
+      expect(html).toContain('CHG001');
+      // 折扣 95折 → 9折（B1：使用者看得到 operator 裁決要的對照）
+      expect(html).toContain('95折');
+      expect(html).toContain('9折');
+      // 課輔天數 5 → 4（以 data-field 標記欄位，避免以文字順序猜測）
+      expect(html).toMatch(/data-field="tutoring-days"[^>]*>5 → 4</);
+      expect(html).toMatch(/data-field="discount"[^>]*>95折 → 9折</);
+      // 逐班明細（B2）：退掉的課與新報的課都要列出，並附各自的扣天數
+      expect(html).toContain('國小數學-一A');
+      expect(html).toContain('退掉');
+      expect(html).toContain('國小數學-三A');
+      expect(html).toContain('新報');
+    });
+
+    it('新增與未出現的學生也在明細中，可對照計數', () => {
+      const html = render(withDiff({}));
+
+      expect(html).toContain('新增同學');
+      expect(html).toContain('未出現同學');
+      expect(html).toContain('NEW001');
+      expect(html).toContain('GONE001');
+    });
+
+    it('沒有任何異動明細時不出現明細區塊（但三個數字仍顯示）', () => {
+      const html = render(withDiff({ newStudents: 0, changedStudents: 0, notAppearedStudents: 0, changes: [] }));
+
+      expect(html).toContain('與目前名單相比');
+      expect(html).not.toContain('roster-changes-details');
     });
 
     it('基準名單為 null（首次匯入）時不呈現差異統計區塊', () => {
-      const html = renderToStaticMarkup(
-        React.createElement(ImportsWorkflow, {
-          initialStage: 'preview',
-          initialPreview: withDiff({ baseImportId: null }),
-          currentRevision: 0,
-          lastScheduleSavedAt: null,
-        })
-      );
+      const html = render(withDiff({ baseImportId: null, changes: [] }));
 
+      expect(html).not.toContain('與目前名單相比');
+      expect(html).not.toContain('roster-changes-details');
       expect(html).not.toContain('報名異動');
     });
   });

@@ -66,9 +66,17 @@ export interface RunStudentsQueryResult {
   totalStudents: number;
   nextCursor: string | null;
   stats: {
+    /** 符合目前篩選條件的人數（同範圍） */
     totalStudents: number;
     mismatchCount: number;
     issuesCount: number;
+    /**
+     * 本班人數：僅套用班級（enrollmentKey／classId）條件後的人數，不含其他篩選條件。
+     * 09 §5.1「本班N人 · 符合篩選M人 · N位需確認」中的「本班N人」——
+     * 它的 scope 是「這個班」，不是「全部條件篩完的結果」。
+     * 未選班時為全批人數。
+     */
+    classScopeTotal: number;
   };
 }
 
@@ -190,7 +198,9 @@ export function queryRunStudents(
 
   // 1. 班級 / enrollmentKey
   const targetClass = params.enrollmentKey || params.classId;
+  let classArgsIndex = -1;
   if (targetClass) {
+    classArgsIndex = queryArgs.length;
     whereClauses.push(`
       EXISTS (
         SELECT 1 FROM student_enrollments e
@@ -337,6 +347,30 @@ export function queryRunStudents(
     .prepare(`SELECT COUNT(*) as total FROM student_calculations sc WHERE ${baseWhereSql} AND sc.has_issues = 1`)
     .get(...queryArgs) as { total: number };
 
+  // 本班人數（09 §5.1「本班N人」）：scope 只到班級，不含其他篩選。
+  //   已選班 → 該班人數
+  //   未選班 → 全批人數（「本班」退為整份名冊；不可拿其他條件篩完的數字冒充）
+  // 刻意不重用 baseWhereSql 再扣除班級：那是「全批套其他條件」，scope 不同。
+  let classScopeTotal: number;
+  if (classArgsIndex === -1) {
+    const rosterRow = db
+      .prepare('SELECT COUNT(*) as total FROM student_calculations sc WHERE sc.run_id = ?')
+      .get(runId) as { total: number };
+    classScopeTotal = rosterRow ? rosterRow.total : 0;
+  } else {
+    const classScopeRow = db
+      .prepare(`
+        SELECT COUNT(*) as total
+        FROM student_calculations sc
+        WHERE sc.run_id = ? AND EXISTS (
+          SELECT 1 FROM student_enrollments e
+          WHERE e.import_id = ? AND e.person_code = sc.person_code AND e.base_name = ?
+        )
+      `)
+      .get(runId, run.importId, targetClass) as { total: number };
+    classScopeTotal = classScopeRow ? classScopeRow.total : 0;
+  }
+
   // 分頁查詢
   const pagedWhere = [...whereClauses];
   const pagedArgs = [...queryArgs];
@@ -452,6 +486,7 @@ export function queryRunStudents(
       totalStudents,
       mismatchCount: mismatchRow ? mismatchRow.total : 0,
       issuesCount: issuesRow ? issuesRow.total : 0,
+      classScopeTotal,
     },
   };
 }
