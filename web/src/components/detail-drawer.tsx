@@ -53,11 +53,10 @@ export default function DetailDrawer({ student, onClose }: DetailDrawerProps) {
           }}
         >
           <div>
-            <h3 style={{ fontSize: '1.125rem', fontWeight: 700 }}>
-              {student.name} ({student.personCode})
-            </h3>
+            <h3 style={{ fontSize: '1.125rem', fontWeight: 700 }}>{student.name}</h3>
             <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-              來源試算表第 {student.sourceRow} 列 · {student.grade ? `${student.grade}年級` : student.gradeRaw || '未識別'}
+              {student.grade ? `${student.grade}年級` : student.gradeRaw || '未識別'}
+              {student.enrollments.length > 0 ? ` · ${student.enrollments[0].baseName}` : ''}
             </span>
           </div>
           <button
@@ -96,7 +95,7 @@ export default function DetailDrawer({ student, onClose }: DetailDrawerProps) {
             }}
           >
             <h4 style={{ fontSize: '0.875rem', fontWeight: 700, marginBottom: '12px' }}>
-              八項每週收費天數結果
+              收費結果：每週收費天數
             </h4>
             <div
               style={{
@@ -190,7 +189,7 @@ export default function DetailDrawer({ student, onClose }: DetailDrawerProps) {
           {/* ERP 登記級距比對 */}
           <div>
             <h4 style={{ fontSize: '0.875rem', fontWeight: 700, marginBottom: '8px' }}>
-              ERP 登記級距比對清單 (U43, U47)
+              課程與扣天：ERP 登記級距比對
             </h4>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
               {student.tierComparisons.map((comp, idx) => (
@@ -245,8 +244,8 @@ export default function DetailDrawer({ student, onClose }: DetailDrawerProps) {
             </div>
           </div>
 
-          {/* 原始標籤與備註 */}
-          <div
+          {/* 原始資料（摺疊）：來源列、人員代碼、標籤與備註全文；列表不預設倒出（D27 脫敏） */}
+          <details
             style={{
               backgroundColor: '#f8fafc',
               border: '1px solid var(--border-color)',
@@ -255,13 +254,50 @@ export default function DetailDrawer({ student, onClose }: DetailDrawerProps) {
               fontSize: '0.8125rem',
             }}
           >
-            <div style={{ marginBottom: '6px' }}>
-              <strong>標籤 (Tags)：</strong> {trace?.rawTags || '-'}
+            <summary style={{ cursor: 'pointer', fontWeight: 600 }}>原始資料</summary>
+            <div style={{ marginTop: '10px' }}>
+              <div style={{ marginBottom: '6px' }}>
+                <strong>來源列：</strong>來源試算表第 {student.sourceRow} 列
+              </div>
+              <div style={{ marginBottom: '6px' }}>
+                <strong>人員代碼：</strong>
+                <span style={{ fontFamily: 'ui-monospace, monospace' }}>{student.personCode}</span>
+              </div>
+              <div style={{ marginBottom: '6px' }}>
+                <strong>標籤 (Tags)：</strong> {trace?.rawTags || '-'}
+              </div>
+              <div>
+                <strong>備註 (Notes)：</strong> {trace?.rawNotes || (trace?.hasNotes ? '（列表已脫敏，請由明細端點查看）' : '-')}
+              </div>
             </div>
-            <div>
-              <strong>備註 (Notes)：</strong> {trace?.rawNotes || '-'}
-            </div>
-          </div>
+          </details>
+
+          {/* 技術資訊（摺疊）：維護用，不預設倒出 */}
+          <details
+            style={{
+              backgroundColor: '#f8fafc',
+              border: '1px solid var(--border-color)',
+              borderRadius: '8px',
+              padding: '14px',
+              fontSize: '0.8125rem',
+            }}
+          >
+            <summary style={{ cursor: 'pointer', fontWeight: 600 }}>技術資訊</summary>
+            <pre
+              style={{
+                marginTop: '10px',
+                fontSize: '0.6875rem',
+                fontFamily: 'ui-monospace, monospace',
+                whiteSpace: 'pre-wrap',
+                wordBreak: 'break-all',
+                color: 'var(--text-secondary)',
+                maxHeight: '240px',
+                overflow: 'auto',
+              }}
+            >
+              {JSON.stringify({ personCode: student.personCode, runId: student.runId, subjectCount: student.subjectCount, baseDiscountBps: student.baseDiscountBps, applicableRates: { anqin: student.applicableAnqinBps, tutoring: student.applicableTutoringBps, english: student.applicableEnglishBps, math: student.applicableMathBps }, sourceRow: student.sourceRow }, null, 2)}
+            </pre>
+          </details>
         </div>
       </div>
     </div>

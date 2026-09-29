@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useCallback } from 'react';
+import { useRouter } from 'next/navigation';
 import SummaryTable from './summary-table';
 import DetailDrawer from './detail-drawer';
 import ClassDeductionsPanel from './results/class-deductions-panel';
@@ -45,6 +46,7 @@ export default function ActiveRunView({
 }: ActiveRunViewProps) {
   // 結果雙頁籤（09 §2／§5.2）：學生總表、班級扣天
   const [resultTab, setResultTab] = useState<'students' | 'deductions'>('students');
+  const router = useRouter();
   const [loading, setLoading] = useState(false);
   const [data, setData] = useState<RunStudentsQueryResult>(initialData);
   const [error, setError] = useState<string | null>(null);
@@ -585,9 +587,7 @@ export default function ActiveRunView({
         ) : (
           <ClassDeductionsPanel
             data={initialDeductions}
-            onEditClass={() => {
-              window.location.href = '/settings?tab=schedule';
-            }}
+            onEditClass={() => router.push('/settings?tab=schedule')}
           />
         )}
       </div>
