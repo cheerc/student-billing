@@ -229,6 +229,7 @@ export default function ActiveRunView({
     totalStudents: 0,
     mismatchCount: 0,
     issuesCount: 0,
+    classScopeTotal: 0,
   };
 
   return (
@@ -302,27 +303,27 @@ export default function ActiveRunView({
         </div>
       </details>
 
-      {/* 統計指標卡片 */}
-      <div className="stats-grid">
-        <div className="stat-card">
-          <span className="stat-label">符合篩選學生數</span>
-          <span className="stat-value">{data?.totalStudents ?? 0}</span>
-          <span className="stat-sub">去重學生總數</span>
-        </div>
-        <div className="stat-card">
-          <span className="stat-label">ERP 級距差異學生數</span>
-          <span className="stat-value" style={{ color: stats.mismatchCount > 0 ? '#dc2626' : '#166534' }}>
-            {stats.mismatchCount}
-          </span>
-          <span className="stat-sub">計算天數與 ERP 標記不符 (預期 5 人)</span>
-        </div>
-        <div className="stat-card">
-          <span className="stat-label">待確認事項學生數</span>
-          <span className="stat-value" style={{ color: '#d97706' }}>
-            {stats.issuesCount}
-          </span>
-          <span className="stat-sub">包含缺排課、重複科別、備註衝突</span>
-        </div>
+      {/* 人數一行（09 §5.1）：本班N人 · 符合篩選M人 · N位需確認 —— 三者 scope 不同，不可互相冒充 */}
+      <div className="counts-line" role="status" aria-live="polite">
+        <span className="counts-item">
+          本班 <strong>{stats.classScopeTotal}</strong> 人
+        </span>
+        <span className="counts-sep" aria-hidden="true">·</span>
+        <span className="counts-item">
+          符合篩選 <strong>{data?.totalStudents ?? 0}</strong> 人
+        </span>
+        <span className="counts-sep" aria-hidden="true">·</span>
+        <span className="counts-item">
+          <strong>{stats.issuesCount}</strong> 位需確認
+        </span>
+        {stats.mismatchCount > 0 && (
+          <>
+            <span className="counts-sep" aria-hidden="true">·</span>
+            <span className="counts-item">
+              <strong>{stats.mismatchCount}</strong> 位計算天數與 ERP 登記不符
+            </span>
+          </>
+        )}
       </div>
 
       {/* 錯誤警告 */}
@@ -465,13 +466,16 @@ export default function ActiveRunView({
                 maxWidth: '180px',
               }}
             >
-              <option value="">問題代碼定位...</option>
-              <option value="SCHEDULE_NOT_FOUND">排課缺漏 (SCHEDULE_NOT_FOUND, 13人)</option>
-              <option value="DUPLICATE_SUBJECT_ENROLLMENT">重複報名 (DUPLICATE_SUBJECT, 2人)</option>
-              <option value="STAFF_FAMILY_NO_DISCOUNT">員工家屬無折扣 (STAFF_FAMILY, 5人)</option>
-              <option value="CONFLICTING_NOTE_SOURCE">備註衝突 (CONFLICTING_NOTE, 1人)</option>
-              <option value="NUMERIC_POLICY_DIFFERENCE">數值政策差異 (NUMERIC_POLICY)</option>
-              <option value="SCHEDULE_EMPTY">排課空時段 (SCHEDULE_EMPTY)</option>
+              <option value="">問題類型...</option>
+              {/* 選項不硬寫筆數（09 §7：預期N人只屬 fixture）。
+                  實際筆數由篩選後的同範圍查詢結果即時回填到「符合篩選／需確認」欄。 */}
+              <option value="SCHEDULE_NOT_FOUND">排課缺漏（SCHEDULE_NOT_FOUND）</option>
+              <option value="DUPLICATE_SUBJECT_ENROLLMENT">重複報名（DUPLICATE_SUBJECT_ENROLLMENT）</option>
+              <option value="STAFF_FAMILY_NO_DISCOUNT">員工家屬無折扣（STAFF_FAMILY_NO_DISCOUNT）</option>
+              <option value="CONFLICTING_NOTE_SOURCE">備註衝突（CONFLICTING_NOTE_SOURCE）</option>
+              <option value="NUMERIC_POLICY_DIFFERENCE">數值政策差異（NUMERIC_POLICY_DIFFERENCE）</option>
+              <option value="SCHEDULE_EMPTY">排課空時段（SCHEDULE_EMPTY）</option>
+              <option value="UNKNOWN_WEEKDAY">未知星期（UNKNOWN_WEEKDAY）</option>
             </select>
 
             {/* 重置按鈕 */}

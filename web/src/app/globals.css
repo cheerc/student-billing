@@ -1215,3 +1215,81 @@ dialog.impact-dialog::backdrop {
   font-variant-numeric: tabular-nums;
   color: #0c4a6e;
 }
+
+/* 09 §5.1 人數一行：本班N人 · 符合篩選M人 · N位需確認（三者 scope 不同） */
+.counts-line {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 12px 2px 16px;
+  font-size: 0.875rem;
+  color: var(--text-secondary);
+}
+
+.counts-line .counts-item strong {
+  font-variant-numeric: tabular-nums;
+  color: var(--text-primary);
+  font-weight: 700;
+}
+
+.counts-line .counts-sep {
+  color: var(--text-muted);
+}
+
+/* 09 §5.1／§6：學生總表 12 欄（姓名 sticky、數字 tabular-nums 靠右） */
+.results-table {
+  min-width: 1100px;
+}
+
+.results-table .sticky-name {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  background: #fff;
+  min-width: 96px;
+}
+
+.results-table tbody tr:hover .sticky-name {
+  background: #fafcff;
+}
+
+.results-table .number {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.results-table .cblue {
+  background: var(--cblue-bg);
+  color: var(--cblue-text);
+}
+
+.results-table .link-button {
+  border: 0;
+  background: none;
+  color: var(--primary-color);
+  cursor: pointer;
+  padding: 0;
+  font: inherit;
+  font-weight: 600;
+  text-align: left;
+}
+
+.results-table .link-button:hover {
+  text-decoration: underline;
+}
+
+.results-table .subtle {
+  color: var(--text-muted);
+}
+
+.badge-ok {
+  background-color: var(--success-bg);
+  color: var(--success-text);
+}
+
+.badge-warn {
+  background-color: var(--warning-bg);
+  color: var(--warning-text);
+  margin-right: 4px;
+}
