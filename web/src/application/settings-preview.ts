@@ -89,10 +89,17 @@ function loadStudents(db: Database.Database, importId: string): StudentSnapshot[
 
 /**
  * T05: 設定草稿 dry-run 影響預覽（無副作用，不寫入 active 資料）。
+ *
+ * 09 §8.2.2：預覽的 import 一律由 server 依 `active_state.active_import_id` 決定。
+ * `clientImportId` 只是過渡期的一致性檢查：`undefined`（未帶）＝不檢查；其餘任何值（含 `null`、
+ * 空字串、非字串）只要與 server 決定值不同即 400 IMPORT_MISMATCH，絕不採用 client 值，
+ * 因此 client 無法藉預覽／套用偷換或啟用非 active 的批次。
+ * 無 active import 時（R1a）維持拒絕 404 NO_ACTIVE_IMPORT，即使存在 ready 批次也不採用；
+ * 無學生的 settings_only 儲存由 R1b 提供（09 §8.2.3）。
  */
 export function previewSettingsChange(
   db: Database.Database,
-  importId: string,
+  clientImportId: unknown,
   rawBody: unknown
 ): SettingsPreviewResult {
   const parsed = SettingsPreviewRequestSchema.safeParse(rawBody);
@@ -101,8 +108,27 @@ export function previewSettingsChange(
   }
   const { draft, expectedRevision } = parsed.data;
 
-  const active = db.prepare('SELECT revision, active_run_id FROM active_state WHERE id = 1').get() as any;
+  const active = db
+    .prepare('SELECT revision, active_run_id, active_import_id FROM active_state WHERE id = 1')
+    .get() as any;
   if (!active) throw new SettingsPreviewError(500, 'ActiveState 未初始化');
+
+  const importId: string | null = active.active_import_id ?? null;
+  if (clientImportId !== undefined && clientImportId !== importId) {
+    throw new SettingsPreviewError(
+      400,
+      '請求的 importId 與伺服器依 active_state 決定的現行名單不符；設定預覽與套用不接受由 client 指定或切換名單。',
+      'IMPORT_MISMATCH'
+    );
+  }
+  if (importId === null) {
+    throw new SettingsPreviewError(
+      404,
+      '尚無已啟用的現行名單，暫無法預覽並套用設定（不會啟用尚未啟用的匯入批次）。',
+      'NO_ACTIVE_IMPORT'
+    );
+  }
+
   if (active.revision !== expectedRevision) {
     throw new SettingsPreviewError(
       409,
