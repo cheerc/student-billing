@@ -8,7 +8,7 @@
 - [10 UI 重設實作 Plan](10-ui-workflow-redesign-plan.md)
 - [可點選介面示意（合成資料）](design/ui-workflow-prototype.html)
 
-先課表 → 匯入 → 核對的方向記於[06 D33](./06-handoff-decisions.md)；操作介面契約見09，實作分批見10（執行計畫），驗收矩陣見[04 §8](./04-tdd-acceptance.md)。窗口編輯與有效日期不在範圍（D33）；02與D24–D32計算決策不變。
+先課表 → 匯入 → 核對的方向記於[06 D33](./06-handoff-decisions.md)；操作介面契約見09，實作分批見10（執行計畫），驗收矩陣見[04 §8](./04-tdd-acceptance.md)。窗口固定、不可編輯，有效日期不在範圍（D33）；02與D24–D32計算決策不變。
 
 ## 閱讀順序
 

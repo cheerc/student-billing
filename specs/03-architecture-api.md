@@ -1,6 +1,6 @@
 # 技術架構、資料模型與 API 契約
 
-> 2026-09-29 UI重設補充：依[06 D33](06-handoff-decisions.md)，無學生儲存設定、activate採最新已儲存設定、preview／apply的import由server決定等設定生命週期放寬，見[09 §8](09-ui-workflow-redesign-spec.md)；§4–5其餘交易／版本不變式不變，驗收見[04 §8](04-tdd-acceptance.md)。§3 ScheduleVersion的effectiveFrom/To與careWindows是schema欄位，現行不參與選版或計算，UI重設不提供編輯（D33）。計費規則沿用目前D24–D32，不由UI改版變更。
+> 2026-09-29 UI重設補充：依[06 D33](06-handoff-decisions.md)，無學生儲存設定、activate採最新已儲存設定、preview／apply的import由server決定等設定生命週期放寬，見[09 §8](09-ui-workflow-redesign-spec.md)；§4–5其餘交易／版本不變式不變，驗收見[04 §8](04-tdd-acceptance.md)。§3 ScheduleVersion的careWindows與effectiveFrom/To是schema欄位，現行不參與選版或計算；operator已決定安親／課輔窗口固定、不可編輯，有效日期不在範圍（D33）。計費規則沿用目前D24–D32，不由UI改版變更。
 
 ## 1. 技術選擇
 

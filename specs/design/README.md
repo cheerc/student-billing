@@ -19,4 +19,4 @@
 
 ## 與09的差異
 
-示意稿課表頁有「調整時段」按鈕（`ui-workflow-prototype.html`，`schedule-preview.png`亦可見），與09 §3.1不符：產品中的安親／課輔窗口唯讀（值來自ruleSet），窗口編輯不在範圍，需未來operator決策（06 D33）。示意稿不重畫，一律以09為準。
+示意稿課表頁有「調整時段」按鈕（`ui-workflow-prototype.html`，`schedule-preview.png`亦可見），與09 §3.1不符：產品中的安親／課輔窗口唯讀（值來自ruleSet），operator已決定窗口固定、不可編輯（06 D33）。示意稿不重畫，一律以09為準。

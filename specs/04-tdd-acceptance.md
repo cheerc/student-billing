@@ -225,4 +225,4 @@ Playwright 最小完整旅程：
 |UX21|歷史／空篩選／loading／失敗|唯讀、來源日期清楚；可清filter，不能假成功|E2E|
 |UX22|已apply設定（自訂時段＋班名對應）→匯入新批次→activate；另帶不同的client scheduleVersionId|先RED（現況run用seed-v250922、不套班名對應）；GREEN：run.scheduleVersionId＝最新已儲存設定id，逐堂／班級／學生天數與對應皆採該設定，client scheduleVersionId被忽略；尚無已儲存設定時仍為seed-v250922|integration/E2E|
 |UX23|刪光某班全部時段／清空所有列時間／移除整班|逐堂預覽、班級扣天、學生run三者一致：無時段→不扣天＋issue（schedule_empty），不在該版本→schedule_not_found＋issue，皆不退回seed（先RED）|unit/integration|
-|UX24|開課表頁；送出careWindows與ruleSet不同的draft|畫面無窗口輸入／調整入口，顯示值＝ruleSet；calculate回應windows＝ruleSet；server對不同careWindows回400 INVALID_DRAFT|component/API|
+|UX24|開課表頁；送出careWindows與ruleSet不同的draft|畫面無窗口輸入／調整入口，顯示值＝ruleSet（窗口固定，D33）；calculate回應windows＝ruleSet；server對不同careWindows回400 INVALID_DRAFT|component/API|

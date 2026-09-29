@@ -6,7 +6,7 @@
 
 行政人員不用理解開發術語，就能先維護課表、匯入學生，再按班級核對收費資訊。此次使用者抽樣未見計算異常；保留現有domain、D24／D25–D32、erp-tag-v2及舊run結果。本文件依D33補充01的畫面流程，並在§8明定03設定生命週期需放寬之處（無學生儲存、activate採已儲存設定）；02計費規則不變，權威層級見根CLAUDE.md §2。
 
-交付：[實作plan](10-ui-workflow-redesign-plan.md)、[可點選示意稿](design/ui-workflow-prototype.html)。示意使用虛構資料、不連API，不是新計算基準；正式契約以本文件為準。不做財務匯入、自動開單、點名表、登入或雲端部署。**不在範圍、需未來operator決策**：安親／課輔窗口編輯、設定有效日期（D33；見§3.1、§8.2.1）。
+交付：[實作plan](10-ui-workflow-redesign-plan.md)、[可點選示意稿](design/ui-workflow-prototype.html)。示意使用虛構資料、不連API，不是新計算基準；正式契約以本文件為準。不做財務匯入、自動開單、點名表、登入或雲端部署。**不在範圍**：安親／課輔窗口編輯（operator已決定窗口固定、不可編輯）、設定有效日期（窗口固定，無需依日期選版）（D33；見§3.1、§8.2.1）。
 
 2026-09-29以Playwright實際開啟localhost四頁（/、/settings、/imports、/history），查看控制項與截圖，另讀source確認空狀態與寫入流程；未提交表單或更動使用者資料。Excel工作表職責依使用者本次逐欄說明及既有spec對照，沒有宣稱重驗原生公式。
 
@@ -41,7 +41,7 @@
 
 頁首 → 安親／課輔窗口摘要 → 班級搜尋／星期／在用或停用篩選 → 課表 → 固定底部操作列。
 
-窗口**唯讀**：值來自ruleSet（現為安親週一至五13:00–16:00、課輔16:30–19:30，`web/src/domain/schedules/overlap-calculator.ts:9-12`），不提供「調整時段」入口或輸入框；星期依當前v2規則顯示，不在此增加可變星期政策。窗口屬ruleSet參數，變更須建立新版本並重算（根CLAUDE.md §2），且現行計算只讀ruleSet窗口、不讀draft窗口（§8.1），故窗口編輯**不在本次範圍，需未來operator決策**（D33）。示意稿的「調整時段」按鈕與此不符，見[design/README](design/README.md)。
+窗口**唯讀**：值來自ruleSet（現為安親週一至五13:00–16:00、課輔16:30–19:30，`web/src/domain/schedules/overlap-calculator.ts:9-12`），不提供「調整時段」入口或輸入框；星期依當前v2規則顯示，不在此增加可變星期政策。operator已決定安親／課輔窗口為固定時段、不會變動（D33，decision `d-20260929073427734990-0`），故不做窗口編輯、不做窗口dirty；現行計算也只讀ruleSet窗口、不讀draft窗口（§8.1）。示意稿的「調整時段」按鈕與此不符，見[design/README](design/README.md)。
 
 五個編輯欄順序：班級名稱、帶班老師、星期、上課時間（起）、上課時間（迄）。保留D25/D28逐列獨立改名，不改為只能整班改名。同名多列以細分隔分組；班名搜尋保留該班全部時段。新增時段在工具列，刪列在列尾選單、只改草稿且可取消；整班停用仍active=false。影響學生／別名的刪改在確認視窗呈現，不因有學生就禁止刪列。
 
@@ -149,7 +149,7 @@ tooltip短句、數值；hover/focus/click均可開、Esc可關。多步說明�
 
 目標契約：**每一次**activate，server於同一交易內解析最新已儲存settings version（`getLatestSettingsVersion`，`settings-repository.ts:62-69`，取revision最大者，不依日期）：有則經draftToAliasMap／draftToScheduleOverride（同apply）計算，run.scheduleVersionId＝該version id；尚無任何已儲存設定才用seed（scheduleVersionId維持`seed-v250922`）。client傳入的scheduleVersionId一律忽略（現況它只被寫成run標籤，會讓run宣稱用了實際沒用的版本），冪等hash不含它。activate的ruleSetVersion維持現行可由client指定正式軌（既有測試`web/tests/integration/api-t06-routes.test.ts:157`依此驗erp-tag-v1不可變契約），本文件不改。activate與設定變更之間的競爭由revision CAS擋下（apply與settings_only皆遞增revision）。
 
-`effectiveFrom／effectiveTo`現況只在apply寫入（`apply-settings.ts:121-122`），沒有任何選版或計算讀取，設定編輯器也無此欄；本文件不描述、不提供有效日期能力，屬**不在範圍、需未來operator決策**（須先定義輸入者、選版規則與核對基準日asOfDate的關係，D33）。
+`effectiveFrom／effectiveTo`現況只在apply寫入（`apply-settings.ts:121-122`），沒有任何選版或計算讀取，設定編輯器也無此欄；operator已決定窗口固定（D33），無需依日期選版，有效日期**不在範圍**：欄位保留於schema但不使用，本文件不描述、UI不提供有效日期能力；核對基準日asOfDate是既有概念（§2、§4），與有效日期無關。
 
 **8.2.2 儲存的import由server決定**
 
