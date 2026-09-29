@@ -14,23 +14,12 @@ import { buildSeedDraft } from '@/adapters/sqlite/settings-repository';
 import { queryRunStudents } from '@/application/query-students';
 import { getCalculationRun } from '@/adapters/sqlite/runs-repository';
 
+/**
+ * 全量 seed draft＋別名（D25：draft 攜全量；09 §8.2.4 方案 A 後 sessions 為空＝無時段，
+ * 不再是「沿用 seed」，故測試 draft 必須攜 seed 明確時段）。
+ */
 function buildDraftWithAlias(extraAliases: Array<{ rawBaseName: string; targetBaseName: string }>) {
-  return {
-    classes: SEED_CLASSES.map((c) => ({
-      baseName: c.baseName,
-      subject: c.subject,
-      teacher: null,
-      active: true,
-      sessions: [],
-    })),
-    aliases: extraAliases,
-    careWindows: {
-      anqin: { startMinutes: 780, endMinutes: 960 },
-      tutoring: { startMinutes: 990, endMinutes: 1170 },
-    },
-    effectiveFrom: null,
-    effectiveTo: null,
-  };
+  return { ...buildSeedDraft(), aliases: extraAliases };
 }
 
 describe('T05: preview→apply 雙階段流程整合測試 (I10/I11/I15/I18/I20)', () => {
