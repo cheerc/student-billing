@@ -52,7 +52,7 @@ test.describe('Imports Page E2E Test (R3 匯入頁一次完成使用名單)', ()
     await expect(page.locator('.schedule-meta-note')).toBeVisible();
 
     // 檢查上傳標題（去技術化文案）
-    await expect(page.locator('h2')).toContainText('上傳ERP匯出的學生Excel');
+    await expect(page.locator('h2')).toContainText('上傳米豆奶匯出的學生Excel');
 
     // 上傳測試用保形匿名 fixture
     const fixturePath = path.resolve(__dirname, '../fixtures/conforming-erp-fixture.xlsx');

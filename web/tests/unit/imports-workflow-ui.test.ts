@@ -209,12 +209,12 @@ describe('R3 匯入頁工作流程與 UI 元件（RED 測試）', () => {
   });
 
   describe('文案與三態流程呈現（去技術化）', () => {
-    it('選擇檔案階段：文案為「上傳ERP匯出的學生Excel」，不含 OOXML 或 inlineStr 開發術語，含課表連結', async () => {
+    it('選擇檔案階段：文案為「上傳米豆奶匯出的學生Excel」，不含 OOXML 或 inlineStr 開發術語，含課表連結', async () => {
       const pageEl = await ImportsPage();
       const html = renderToStaticMarkup(pageEl);
 
       // 去技術化文案
-      expect(html).toContain('上傳ERP匯出的學生Excel');
+      expect(html).toContain('上傳米豆奶匯出的學生Excel');
       expect(html).not.toContain('OOXML');
       expect(html).not.toContain('inlineStr');
 

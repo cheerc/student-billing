@@ -204,11 +204,11 @@ test.describe('R4 重寫：核對結果頁 E2E 驗收（學生總表 12 欄 + �
       await expect(rows.nth(i)).toContainText('天數不同');
     }
 
-    // 明細抽屜：ERP 登記級距比對與「級距差異」標示（UX16 Esc 可關）
+    // 明細抽屜：米豆奶登記級距比對與「級距差異」標示（UX16 Esc 可關）
     await rows.first().click();
     const drawer = page.locator('[role="dialog"]');
     await expect(drawer).toBeVisible();
-    await expect(drawer).toContainText('ERP 登記級距比對');
+    await expect(drawer).toContainText('米豆奶登記級距比對');
     await expect(drawer).toContainText('級距差異');
     await page.keyboard.press('Escape');
     await expect(drawer).toHaveCount(0);

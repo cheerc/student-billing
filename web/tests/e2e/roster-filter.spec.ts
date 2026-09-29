@@ -2,12 +2,12 @@ import { test, expect } from '@playwright/test';
 import path from 'path';
 
 test.describe('名冊篩選 E2E 驗收測試', () => {
-  test('上傳 ERP 試算表 → 首頁持久化展示 → 班級與條件篩選 → 重新整理依然存在', async ({ page }) => {
+  test('上傳米豆奶試算表 → 首頁持久化展示 → 班級與條件篩選 → 重新整理依然存在', async ({ page }) => {
     // 1. 進入匯入頁面
-    // R3：匯入頁文案去技術化（specs/09 §4），標題改為「上傳ERP匯出的學生Excel」
+    // R3：匯入頁文案去技術化（specs/09 §4），標題改為「上傳米豆奶匯出的學生Excel」
     await page.goto('/imports');
     await expect(page.locator('h1')).toContainText('匯入學生');
-    await expect(page.locator('h2')).toContainText('上傳ERP匯出的學生Excel');
+    await expect(page.locator('h2')).toContainText('上傳米豆奶匯出的學生Excel');
 
     // 2. 上傳測試用保形匿名 fixture
     const fixturePath = path.resolve(__dirname, '../fixtures/conforming-erp-fixture.xlsx');

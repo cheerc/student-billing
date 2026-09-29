@@ -187,7 +187,7 @@ export function ImportsWorkflow({
         <div>
           <h1 style={{ fontSize: '24px', fontWeight: 700, margin: '0 0 6px' }}>匯入學生</h1>
           <p className="note" style={{ margin: 0 }}>
-            上傳ERP名單，更新學生的收費資料。
+            上傳米豆奶名單，更新學生的收費資料。
           </p>
         </div>
         <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
@@ -238,7 +238,7 @@ export function ImportsWorkflow({
         >
           <div className="upload-icon-circle">↑</div>
           <h2 style={{ fontSize: '18px', fontWeight: 600, marginBottom: '8px' }}>
-            {loading ? '正在解析試算表...' : '上傳ERP匯出的學生Excel'}
+            {loading ? '正在解析試算表...' : '上傳米豆奶匯出的學生Excel'}
           </h2>
           <p className="note" style={{ marginBottom: '24px' }}>
             支援 .xlsx，請選擇最新的學生資料。
@@ -444,7 +444,7 @@ export function ImportsWorkflow({
                                       級距: {enr.erpBillingTier} 天
                                       {/*
                                         Rework B2：(預設) 表示該級距是解析失敗後採用的預設值，
-                                        非 ERP 原始登記值。移除此標記會讓使用者把預設值
+                                        非 米豆奶 原始登記值。移除此標記會讓使用者把預設值
                                         誤認為實登值，直接影響級距差異的判讀基礎。
                                       */}
                                       {enr.tierParseStatus === 'defaulted' ? ' (預設)' : ''}
