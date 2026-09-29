@@ -12,6 +12,11 @@ import {
   getLatestSettingsVersion,
 } from '@/adapters/sqlite/settings-repository';
 import { calculateStudentBilling } from '@/domain/billing/billing-calculator';
+import {
+  careWindowsMatchRuleSet,
+  CARE_WINDOWS_MISMATCH_MESSAGE,
+  resolveFormalRuleSetVersion,
+} from './schedule-preview';
 import { StudentSnapshot } from '@/domain/students';
 
 export class SettingsPreviewError extends Error {
@@ -153,6 +158,10 @@ export function previewSettingsChange(
     throw new SettingsPreviewError(400, `設定草稿格式錯誤：${parsed.error.message}`, 'INVALID_DRAFT');
   }
   const { draft, expectedRevision } = parsed.data;
+  // 窗口固定（D33）：draft.careWindows 只允許 ruleSet 值，不同即 400，不靜默忽略（09 §8.1）
+  if (!careWindowsMatchRuleSet(draft)) {
+    throw new SettingsPreviewError(400, CARE_WINDOWS_MISMATCH_MESSAGE, 'INVALID_DRAFT');
+  }
 
   const active = db
     .prepare('SELECT revision, active_run_id, active_import_id FROM active_state WHERE id = 1')
@@ -190,14 +199,8 @@ export function previewSettingsChange(
   const aliasMap = draftToAliasMap(draft);
   const scheduleOverride = draftToScheduleOverride(draft);
 
-  // 取得目前 active run 之 ruleSetVersion（若無則預設為最新正式軌 erp-tag-v2）
-  let formalRuleSetVersion = 'erp-tag-v2';
-  if (active.active_run_id) {
-    const runRow = db.prepare('SELECT rule_set_version FROM calculation_runs WHERE id = ?').get(active.active_run_id) as any;
-    if (runRow?.rule_set_version) {
-      formalRuleSetVersion = runRow.rule_set_version;
-    }
-  }
+  // 預覽只跑正式軌：有 active run 且為正式軌採其版本，否則（含診斷軌 compat）採現行正式軌 erp-tag-v2（09 §8.1）
+  const formalRuleSetVersion = resolveFormalRuleSetVersion(db);
 
   const dayDeltas: SettingsPreviewResult['dayDeltas'] = [];
   const tierTransitions: TierTransition[] = [];

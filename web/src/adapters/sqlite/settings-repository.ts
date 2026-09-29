@@ -59,6 +59,15 @@ export function getSettingsVersion(
   return row ? rowToVersion(row) : null;
 }
 
+/** 以版本 id 取得設定版本（run 的 scheduleVersionId 指向它）；不存在回 null。 */
+export function getSettingsVersionById(
+  db: Database.Database,
+  id: string
+): SettingsVersionRecord | null {
+  const row = db.prepare('SELECT * FROM settings_versions WHERE id = ?').get(id) as any;
+  return row ? rowToVersion(row) : null;
+}
+
 /** 取得最新設定版本；無則回 null（使用 seed 預設）。 */
 export function getLatestSettingsVersion(
   db: Database.Database
