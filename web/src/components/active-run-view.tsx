@@ -440,7 +440,7 @@ export default function ActiveRunView({
               <option value="寫功課">寫功課</option>
             </select>
 
-            {/* 級距比對篩選 (展示B 驗收重點: 篩出 5 筆級距差異) */}
+            {/* 級距比對篩選（筆數由查詢結果決定，不在文案寫死；09 §7） */}
             <select
               value={selectedMismatch}
               onChange={(e) => handleMismatchChange(e.target.value)}
@@ -454,7 +454,7 @@ export default function ActiveRunView({
               }}
             >
               <option value="">全部級距狀態</option>
-              <option value="true">⚠ 僅顯示級距差異 (5筆)</option>
+              <option value="true">⚠ 僅顯示級距差異</option>
               <option value="false">✓ 僅顯示級距吻合</option>
             </select>
 
