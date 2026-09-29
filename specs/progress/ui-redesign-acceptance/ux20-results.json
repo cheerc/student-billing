@@ -1,0 +1,490 @@
+[
+  {
+    "viewport": "1440x900",
+    "page": "home-empty",
+    "pageOverflowPx": 0,
+    "scrollContainers": []
+  },
+  {
+    "viewport": "1440x900",
+    "page": "history-empty",
+    "pageOverflowPx": 0,
+    "scrollContainers": []
+  },
+  {
+    "viewport": "1280x800",
+    "page": "home-empty",
+    "pageOverflowPx": 0,
+    "scrollContainers": []
+  },
+  {
+    "viewport": "1280x800",
+    "page": "history-empty",
+    "pageOverflowPx": 0,
+    "scrollContainers": []
+  },
+  {
+    "viewport": "1024x768",
+    "page": "home-empty",
+    "pageOverflowPx": 0,
+    "scrollContainers": []
+  },
+  {
+    "viewport": "1024x768",
+    "page": "history-empty",
+    "pageOverflowPx": 0,
+    "scrollContainers": []
+  },
+  {
+    "viewport": "768x1024",
+    "page": "home-empty",
+    "pageOverflowPx": 0,
+    "scrollContainers": []
+  },
+  {
+    "viewport": "768x1024",
+    "page": "history-empty",
+    "pageOverflowPx": 0,
+    "scrollContainers": []
+  },
+  {
+    "viewport": "1440x900",
+    "page": "results-students",
+    "pageOverflowPx": 0,
+    "scrollContainers": [
+      {
+        "selector": ".table-scroll",
+        "clientWidth": 1184,
+        "scrollWidth": 1184,
+        "scrollsInside": false
+      }
+    ]
+  },
+  {
+    "viewport": "1440x900",
+    "page": "results-drawer",
+    "pageOverflowPx": 0,
+    "scrollContainers": [
+      {
+        "selector": ".table-scroll",
+        "clientWidth": 1184,
+        "scrollWidth": 1184,
+        "scrollsInside": false
+      }
+    ]
+  },
+  {
+    "viewport": "1440x900",
+    "page": "results-deductions",
+    "pageOverflowPx": 0,
+    "scrollContainers": [
+      {
+        "selector": ".table-scroll",
+        "clientWidth": 1184,
+        "scrollWidth": 1184,
+        "scrollsInside": false
+      }
+    ]
+  },
+  {
+    "viewport": "1440x900",
+    "page": "settings-schedule",
+    "pageOverflowPx": 0,
+    "scrollContainers": [
+      {
+        "selector": ".scroll",
+        "clientWidth": 1184,
+        "scrollWidth": 1184,
+        "scrollsInside": false
+      }
+    ]
+  },
+  {
+    "viewport": "1440x900",
+    "page": "settings-mapping",
+    "pageOverflowPx": 0,
+    "scrollContainers": [
+      {
+        "selector": ".scroll",
+        "clientWidth": 1186,
+        "scrollWidth": 1186,
+        "scrollsInside": false
+      }
+    ]
+  },
+  {
+    "viewport": "1440x900",
+    "page": "imports-upload",
+    "pageOverflowPx": 0,
+    "scrollContainers": []
+  },
+  {
+    "viewport": "1440x900",
+    "page": "imports-preview",
+    "pageOverflowPx": 0,
+    "scrollContainers": [
+      {
+        "selector": ".scroll",
+        "clientWidth": 1144,
+        "scrollWidth": 1144,
+        "scrollsInside": false
+      }
+    ]
+  },
+  {
+    "viewport": "1440x900",
+    "page": "history",
+    "pageOverflowPx": 0,
+    "scrollContainers": [
+      {
+        "selector": ".table-scroll",
+        "clientWidth": 1186,
+        "scrollWidth": 1186,
+        "scrollsInside": false
+      }
+    ]
+  },
+  {
+    "viewport": "1440x900",
+    "page": "history-detail",
+    "pageOverflowPx": 0,
+    "scrollContainers": [
+      {
+        "selector": ".table-scroll",
+        "clientWidth": 1184,
+        "scrollWidth": 1184,
+        "scrollsInside": false
+      }
+    ]
+  },
+  {
+    "viewport": "1280x800",
+    "page": "results-students",
+    "pageOverflowPx": 0,
+    "scrollContainers": [
+      {
+        "selector": ".table-scroll",
+        "clientWidth": 1024,
+        "scrollWidth": 1142,
+        "scrollsInside": true
+      }
+    ]
+  },
+  {
+    "viewport": "1280x800",
+    "page": "results-drawer",
+    "pageOverflowPx": 0,
+    "scrollContainers": [
+      {
+        "selector": ".table-scroll",
+        "clientWidth": 1024,
+        "scrollWidth": 1142,
+        "scrollsInside": true
+      }
+    ]
+  },
+  {
+    "viewport": "1280x800",
+    "page": "results-deductions",
+    "pageOverflowPx": 0,
+    "scrollContainers": [
+      {
+        "selector": ".table-scroll",
+        "clientWidth": 1024,
+        "scrollWidth": 1024,
+        "scrollsInside": false
+      }
+    ]
+  },
+  {
+    "viewport": "1280x800",
+    "page": "settings-schedule",
+    "pageOverflowPx": 0,
+    "scrollContainers": [
+      {
+        "selector": ".scroll",
+        "clientWidth": 1024,
+        "scrollWidth": 1024,
+        "scrollsInside": false
+      }
+    ]
+  },
+  {
+    "viewport": "1280x800",
+    "page": "settings-mapping",
+    "pageOverflowPx": 0,
+    "scrollContainers": [
+      {
+        "selector": ".scroll",
+        "clientWidth": 1026,
+        "scrollWidth": 1026,
+        "scrollsInside": false
+      }
+    ]
+  },
+  {
+    "viewport": "1280x800",
+    "page": "imports-upload",
+    "pageOverflowPx": 0,
+    "scrollContainers": []
+  },
+  {
+    "viewport": "1280x800",
+    "page": "imports-preview",
+    "pageOverflowPx": 0,
+    "scrollContainers": [
+      {
+        "selector": ".scroll",
+        "clientWidth": 984,
+        "scrollWidth": 984,
+        "scrollsInside": false
+      }
+    ]
+  },
+  {
+    "viewport": "1280x800",
+    "page": "history",
+    "pageOverflowPx": 0,
+    "scrollContainers": [
+      {
+        "selector": ".table-scroll",
+        "clientWidth": 1026,
+        "scrollWidth": 1026,
+        "scrollsInside": false
+      }
+    ]
+  },
+  {
+    "viewport": "1280x800",
+    "page": "history-detail",
+    "pageOverflowPx": 0,
+    "scrollContainers": [
+      {
+        "selector": ".table-scroll",
+        "clientWidth": 1024,
+        "scrollWidth": 1142,
+        "scrollsInside": true
+      }
+    ]
+  },
+  {
+    "viewport": "1024x768",
+    "page": "results-students",
+    "pageOverflowPx": 0,
+    "scrollContainers": [
+      {
+        "selector": ".table-scroll",
+        "clientWidth": 814,
+        "scrollWidth": 1142,
+        "scrollsInside": true
+      }
+    ]
+  },
+  {
+    "viewport": "1024x768",
+    "page": "results-drawer",
+    "pageOverflowPx": 0,
+    "scrollContainers": [
+      {
+        "selector": ".table-scroll",
+        "clientWidth": 814,
+        "scrollWidth": 1142,
+        "scrollsInside": true
+      }
+    ]
+  },
+  {
+    "viewport": "1024x768",
+    "page": "results-deductions",
+    "pageOverflowPx": 0,
+    "scrollContainers": [
+      {
+        "selector": ".table-scroll",
+        "clientWidth": 814,
+        "scrollWidth": 1000,
+        "scrollsInside": true
+      }
+    ]
+  },
+  {
+    "viewport": "1024x768",
+    "page": "settings-schedule",
+    "pageOverflowPx": 0,
+    "scrollContainers": [
+      {
+        "selector": ".scroll",
+        "clientWidth": 814,
+        "scrollWidth": 930,
+        "scrollsInside": true
+      }
+    ]
+  },
+  {
+    "viewport": "1024x768",
+    "page": "settings-mapping",
+    "pageOverflowPx": 0,
+    "scrollContainers": [
+      {
+        "selector": ".scroll",
+        "clientWidth": 816,
+        "scrollWidth": 816,
+        "scrollsInside": false
+      }
+    ]
+  },
+  {
+    "viewport": "1024x768",
+    "page": "imports-upload",
+    "pageOverflowPx": 0,
+    "scrollContainers": []
+  },
+  {
+    "viewport": "1024x768",
+    "page": "imports-preview",
+    "pageOverflowPx": 0,
+    "scrollContainers": [
+      {
+        "selector": ".scroll",
+        "clientWidth": 774,
+        "scrollWidth": 774,
+        "scrollsInside": false
+      }
+    ]
+  },
+  {
+    "viewport": "1024x768",
+    "page": "history",
+    "pageOverflowPx": 0,
+    "scrollContainers": [
+      {
+        "selector": ".table-scroll",
+        "clientWidth": 816,
+        "scrollWidth": 816,
+        "scrollsInside": false
+      }
+    ]
+  },
+  {
+    "viewport": "1024x768",
+    "page": "history-detail",
+    "pageOverflowPx": 0,
+    "scrollContainers": [
+      {
+        "selector": ".table-scroll",
+        "clientWidth": 814,
+        "scrollWidth": 1142,
+        "scrollsInside": true
+      }
+    ]
+  },
+  {
+    "viewport": "768x1024",
+    "page": "results-students",
+    "pageOverflowPx": 0,
+    "scrollContainers": [
+      {
+        "selector": ".table-scroll",
+        "clientWidth": 734,
+        "scrollWidth": 1142,
+        "scrollsInside": true
+      }
+    ]
+  },
+  {
+    "viewport": "768x1024",
+    "page": "results-drawer",
+    "pageOverflowPx": 0,
+    "scrollContainers": [
+      {
+        "selector": ".table-scroll",
+        "clientWidth": 734,
+        "scrollWidth": 1142,
+        "scrollsInside": true
+      }
+    ]
+  },
+  {
+    "viewport": "768x1024",
+    "page": "results-deductions",
+    "pageOverflowPx": 0,
+    "scrollContainers": [
+      {
+        "selector": ".table-scroll",
+        "clientWidth": 734,
+        "scrollWidth": 1000,
+        "scrollsInside": true
+      }
+    ]
+  },
+  {
+    "viewport": "768x1024",
+    "page": "settings-schedule",
+    "pageOverflowPx": 0,
+    "scrollContainers": [
+      {
+        "selector": ".scroll",
+        "clientWidth": 734,
+        "scrollWidth": 930,
+        "scrollsInside": true
+      }
+    ]
+  },
+  {
+    "viewport": "768x1024",
+    "page": "settings-mapping",
+    "pageOverflowPx": 0,
+    "scrollContainers": [
+      {
+        "selector": ".scroll",
+        "clientWidth": 736,
+        "scrollWidth": 736,
+        "scrollsInside": false
+      }
+    ]
+  },
+  {
+    "viewport": "768x1024",
+    "page": "imports-upload",
+    "pageOverflowPx": 0,
+    "scrollContainers": []
+  },
+  {
+    "viewport": "768x1024",
+    "page": "imports-preview",
+    "pageOverflowPx": 0,
+    "scrollContainers": [
+      {
+        "selector": ".scroll",
+        "clientWidth": 694,
+        "scrollWidth": 694,
+        "scrollsInside": false
+      }
+    ]
+  },
+  {
+    "viewport": "768x1024",
+    "page": "history",
+    "pageOverflowPx": 0,
+    "scrollContainers": [
+      {
+        "selector": ".table-scroll",
+        "clientWidth": 736,
+        "scrollWidth": 736,
+        "scrollsInside": false
+      }
+    ]
+  },
+  {
+    "viewport": "768x1024",
+    "page": "history-detail",
+    "pageOverflowPx": 0,
+    "scrollContainers": [
+      {
+        "selector": ".table-scroll",
+        "clientWidth": 734,
+        "scrollWidth": 1142,
+        "scrollsInside": true
+      }
+    ]
+  }
+]
