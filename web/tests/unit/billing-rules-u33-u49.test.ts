@@ -131,6 +131,11 @@ describe('U33–U49: 課程適用折扣、排課狀態與問題診斷測試', ()
     const dupEnglish = issues1.find((i) => i.code === 'DUPLICATE_SUBJECT_ENROLLMENT');
     expect(dupEnglish).toBeDefined();
     expect(dupEnglish?.category).toBe('兒童美語');
+    expect(dupEnglish?.message).toBe(
+      '學生重複報名同類別「兒童美語」2 班：兒童美語-EA[團](級距:無), 兒童美語-EG[團](級距:無)。偵測到重複類型課程，請檢查米豆奶學生課程設定。'
+    );
+    expect(dupEnglish?.message).not.toContain('僅取第一班');
+    expect(dupEnglish?.message).not.toContain('ERP');
 
     // 國小輔導 x 2
     const tokensCare2 = parseClassTokens('國小輔導-三年級[團][5]\n國小輔導-三年級[團][4]');
@@ -147,6 +152,11 @@ describe('U33–U49: 課程適用折扣、排課狀態與問題診斷測試', ()
     const dupCare = issues2.find((i) => i.code === 'DUPLICATE_SUBJECT_ENROLLMENT');
     expect(dupCare).toBeDefined();
     expect(dupCare?.category).toBe('國小輔導');
+    expect(dupCare?.message).toBe(
+      '學生重複報名同類別「國小輔導」2 班：國小輔導-三年級[團][5](級距:5), 國小輔導-三年級[團][4](級距:4)。偵測到重複類型課程，請檢查米豆奶學生課程設定。'
+    );
+    expect(dupCare?.message).not.toContain('僅取第一班');
+    expect(dupCare?.message).not.toContain('ERP');
 
     // 一般輔導 1 筆 + 寫功課 1 筆 -> 不觸發 DUPLICATE_SUBJECT_ENROLLMENT (R17)
     const tokensMix = parseClassTokens('國小輔導-三年級[團][5]\n國小輔導-寫功課[團]');

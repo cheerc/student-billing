@@ -278,7 +278,7 @@ describe('R2 UI 元件與排課工作流程（RED 測試）', () => {
   });
 
   describe('UX10：MappingPanel 班名對應頁籤', () => {
-    it('無學生名單時提示「匯入名單後，可確認ERP班名」，不阻擋課表', () => {
+    it('無學生名單時提示「匯入名單後，可確認米豆奶班名」，不阻擋課表', () => {
       const html = renderToStaticMarkup(
         React.createElement(MappingPanel, {
           hasStudents: false,
@@ -289,7 +289,7 @@ describe('R2 UI 元件與排課工作流程（RED 測試）', () => {
         })
       );
 
-      expect(html).toContain('匯入名單後，可確認ERP班名');
+      expect(html).toContain('匯入名單後，可確認米豆奶班名');
       expect(html).not.toContain('錯誤');
     });
   });
