@@ -4,6 +4,7 @@ import { ErpReaderError } from '@/adapters/xlsx/erp-reader';
 import { getDatabase } from '@/adapters/sqlite';
 import { saveImportBatch, getLatestReadyBatch } from '@/adapters/sqlite/import-repository';
 import { computeImportRosterChanges } from '@/application/import-roster-diff';
+import { findPendingClassNames } from '@/application/pending-classes';
 import { getCurrentActiveRun } from '@/adapters/sqlite/runs-repository';
 import { validateSameOrigin, maskSensitiveInfo } from '@/contracts/security';
 
@@ -65,6 +66,9 @@ export async function POST(request: Request | NextRequest) {
     return NextResponse.json(
       {
         ...preview,
+        // 待確認班名＝尚未對應到課表的班名（與課表設定「班名對應」同源同判斷）；
+        // preview.pendingClasses 是檔案內全部不重複班名，數字會和課表設定頁不一致
+        pendingClasses: findPendingClassNames(db, preview.pendingClasses),
         isDuplicate: saveResult.isDuplicate,
         duplicateReason: saveResult.duplicateReason,
         batchId: saveResult.batchId,

@@ -3,6 +3,7 @@
 import React, { useState } from 'react';
 import StudentTable from './student-table';
 import { RosterQueryResult } from '@/application/roster-query';
+import { ACTIVATE_CONFLICT_MESSAGE } from '@/lib/user-messages';
 
 interface RosterViewProps {
   importId: string;
@@ -93,7 +94,7 @@ export default function RosterView({
       const json = await res.json();
       if (!res.ok) {
         if (res.status === 409) {
-          throw new Error('版本衝突 (409)：系統狀態已由其他操作推進新版本，請重新整理頁面取得最新狀態後再行啟用。');
+          throw new Error(ACTIVATE_CONFLICT_MESSAGE);
         }
         throw new Error(json.error || '啟用計算失敗');
       }
@@ -159,6 +160,13 @@ export default function RosterView({
 
   return (
     <div>
+      <header className="page-header" style={{ marginBottom: '16px' }}>
+        <h1 style={{ fontSize: '24px', fontWeight: 700, margin: '0 0 6px' }}>尚未使用這份名單</h1>
+        <p className="note" style={{ margin: 0 }}>
+          名單已匯入，但還沒開始核對。按下「使用這份名單」才會計算收費結果。
+        </p>
+      </header>
+
       {/* 頂部狀態列 */}
       <div
         style={{
@@ -198,10 +206,10 @@ export default function RosterView({
             disabled={activating}
             style={{ fontSize: '0.8125rem', padding: '6px 14px' }}
           >
-            {activating ? '啟用計算中...' : '啟用為正式 Run ▶'}
+            {activating ? '計算中…' : '使用這份名單'}
           </button>
           <a href="/imports" className="btn-secondary" style={{ fontSize: '0.8125rem', padding: '6px 12px' }}>
-            重新上傳 / 查看其他批次
+            匯入其他名單
           </a>
         </div>
       </div>
@@ -247,6 +255,7 @@ export default function RosterView({
             <input
               type="text"
               placeholder="搜尋姓名或代碼..."
+              aria-label="搜尋姓名或人員代碼"
               value={searchQuery}
               onChange={(e) => handleSearchChange(e.target.value)}
               style={{
@@ -260,6 +269,7 @@ export default function RosterView({
 
             {/* 年級篩選 */}
             <select
+              aria-label="年級篩選"
               value={selectedGrade}
               onChange={(e) => handleGradeChange(e.target.value)}
               style={{
@@ -281,6 +291,7 @@ export default function RosterView({
 
             {/* 班級候選篩選 (四年級 A/B 分開) */}
             <select
+              aria-label="班級篩選"
               value={selectedClass}
               onChange={(e) => handleClassChange(e.target.value)}
               style={{
@@ -302,6 +313,7 @@ export default function RosterView({
 
             {/* 有無班級 */}
             <select
+              aria-label="有無班級篩選"
               value={selectedHasClass}
               onChange={(e) => handleHasClassChange(e.target.value)}
               style={{

@@ -3,6 +3,7 @@
 import React, { useState, useMemo } from 'react';
 import { ScheduleGridRow } from '@/contracts/settings';
 import { CalculatePreviewResponse } from '@/application/schedule-preview';
+import { InfoTip } from '@/components/ui/info-tip';
 
 interface ScheduleGridProps {
   rows: ScheduleGridRow[];
@@ -19,6 +20,20 @@ export function formatDeductionDays(val: number | null | undefined): string {
   if (pos === 0) return '0';
   const rounded = Number(pos.toFixed(3));
   return String(rounded);
+}
+
+/**
+ * 「待補」標示：該欄因時段不完整而無法計算。原因（例如缺起訖時間）用可 hover／focus／click 開啟的 tooltip 呈現，
+ * 不只靠 title（09 §6：阻擋錯誤與需確認後果不可只藏 hover；鍵盤也要能讀到）。
+ */
+function IncompleteBadge({ issues }: { issues: string[] }) {
+  const badge = <span className="badge-incomplete">待補</span>;
+  if (issues.length === 0) return badge;
+  return (
+    <InfoTip label="待補原因" trigger={badge} variant="plain">
+      {issues.join('；')}
+    </InfoTip>
+  );
 }
 
 export function ScheduleGrid({
@@ -307,7 +322,7 @@ export function ScheduleGrid({
                     {/* 5. 課程時長 分 */}
                     <td className="col-duration number">
                       {isIncomplete ? (
-                        <span className="badge-incomplete" title={rowIssues.join('；')}>待補</span>
+                        <IncompleteBadge issues={rowIssues} />
                       ) : isInactive ? (
                         <span className="subtle">停用</span>
                       ) : (
@@ -318,20 +333,20 @@ export function ScheduleGrid({
                     {/* 6. 安親 重疊／分 */}
                     <td className="number cblue">
                       {isIncomplete ? (
-                        <span className="badge-incomplete" title={rowIssues.join('；')}>待補</span>
+                        <IncompleteBadge issues={rowIssues} />
                       ) : isInactive ? (
                         <span className="subtle">—</span>
                       ) : isSharedWindow ? (
                         <span className="subtle">共用</span>
                       ) : (
-                        calcRow?.anqin.overlapMinutes ?? 0
+                        calcRow ? (calcRow.anqin.overlapMinutes ?? 0) : '—'
                       )}
                     </td>
 
                     {/* 7. 安親 扣除／天 */}
                     <td className="number cblue">
                       {isIncomplete ? (
-                        <span className="badge-incomplete" title={rowIssues.join('；')}>待補</span>
+                        <IncompleteBadge issues={rowIssues} />
                       ) : isInactive ? (
                         <span className="subtle">—</span>
                       ) : isSharedWindow ? (
@@ -344,20 +359,20 @@ export function ScheduleGrid({
                     {/* 8. 課輔 重疊／分 */}
                     <td className="number cteal">
                       {isIncomplete ? (
-                        <span className="badge-incomplete" title={rowIssues.join('；')}>待補</span>
+                        <IncompleteBadge issues={rowIssues} />
                       ) : isInactive ? (
                         <span className="subtle">—</span>
                       ) : isSharedWindow ? (
                         <span className="subtle">共用</span>
                       ) : (
-                        calcRow?.tutoring.overlapMinutes ?? 0
+                        calcRow ? (calcRow.tutoring.overlapMinutes ?? 0) : '—'
                       )}
                     </td>
 
                     {/* 9. 課輔 扣除／天 */}
                     <td className="number cteal">
                       {isIncomplete ? (
-                        <span className="badge-incomplete" title={rowIssues.join('；')}>待補</span>
+                        <IncompleteBadge issues={rowIssues} />
                       ) : isInactive ? (
                         <span className="subtle">—</span>
                       ) : isSharedWindow ? (

@@ -20,6 +20,7 @@ import { WindowSummary } from '@/components/settings/window-summary';
 import { ScheduleGrid } from '@/components/settings/schedule-grid';
 import { ImpactDialog, SettingsPreviewData } from '@/components/settings/impact-dialog';
 import { MappingPanel } from '@/components/settings/mapping-panel';
+import { TabList, tabPanelProps } from '@/components/ui/tabs';
 
 interface SettingsEditorProps {
   importId: string | null;
@@ -308,31 +309,28 @@ export default function SettingsEditor({
         </div>
       </header>
 
-      {/* 頁籤切換 */}
-      <div className="tabs" role="tablist">
-        <button
-          type="button"
-          role="tab"
-          aria-selected={activeTab === 'schedule'}
-          className={activeTab === 'schedule' ? 'selected' : ''}
-          onClick={() => setActiveTab('schedule')}
-        >
-          課表
-        </button>
-        <button
-          type="button"
-          role="tab"
-          aria-selected={activeTab === 'mapping'}
-          className={activeTab === 'mapping' ? 'selected' : ''}
-          onClick={() => setActiveTab('mapping')}
-        >
-          班名對應 {candidates.length > 0 && <span className="pill warn">{candidates.length}</span>}
-        </button>
-      </div>
+      {/* 頁籤切換（09 §6：鍵盤可操作） */}
+      <TabList
+        label="課表設定頁籤"
+        idPrefix="settings"
+        selected={activeTab}
+        onSelect={(k) => setActiveTab(k as 'schedule' | 'mapping')}
+        tabs={[
+          { key: 'schedule', label: '課表' },
+          {
+            key: 'mapping',
+            label: (
+              <>
+                班名對應 {candidates.length > 0 && <span className="pill warn">{candidates.length}</span>}
+              </>
+            ),
+          },
+        ]}
+      />
 
       {/* 頁籤內容一：課表平鋪排課主畫面 */}
       {activeTab === 'schedule' && (
-        <section aria-label="排課時段設定">
+        <section aria-label="排課時段設定" {...tabPanelProps('settings', 'schedule')}>
           {/* 唯讀照顧窗口摘要 */}
           <WindowSummary />
 
@@ -350,7 +348,7 @@ export default function SettingsEditor({
 
       {/* 頁籤內容二：班名對應 */}
       {activeTab === 'mapping' && (
-        <section aria-label="班名對應設定">
+        <section aria-label="班名對應設定" {...tabPanelProps('settings', 'mapping')}>
           <MappingPanel
             hasStudents={Boolean(importId || hasActiveImport)}
             candidates={candidates}

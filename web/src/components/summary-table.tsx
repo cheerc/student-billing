@@ -4,6 +4,7 @@ import React from 'react';
 import { StudentCalculationItem } from '@/application/query-students';
 import { formatDiscountBps } from '@/application/roster-changes';
 import { parseTagDiscounts } from '@/domain/billing/discount-rules';
+import { InfoTip } from './ui/info-tip';
 
 /**
  * 學生總表（09 §5.1）。
@@ -106,7 +107,9 @@ export default function SummaryTable({
             <th className="cblue">安親天數</th>
             <th className="cblue">課輔天數</th>
             <th>額外扣天</th>
-            <th title="對應基本率；指定課程可能另有調整">合計折扣 ⓘ</th>
+            <th>
+              合計折扣 <InfoTip label="合計折扣說明">對應基本率；指定課程可能另有調整</InfoTip>
+            </th>
             <th>已補科數</th>
             <th>兄弟姊妹折扣</th>
             <th>特殊折扣</th>
@@ -127,6 +130,7 @@ export default function SummaryTable({
                   <button
                     type="button"
                     className="link-button"
+                    data-student-trigger={stu.personCode}
                     onClick={(e) => {
                       e.stopPropagation();
                       onSelectStudent(stu);
@@ -184,10 +188,10 @@ export default function SummaryTable({
                 </td>
                 <td>
                   {stu.tierMismatch && (
-                    <span className="badge badge-warn" title="計算天數與 ERP 登記級距不同，請核對">天數不同</span>
+                    <span className="badge badge-warn">天數不同</span>
                   )}
                   {stu.hasIssues && (
-                    <span className="badge badge-warn" title="有待確認事項，點擊查看原因">
+                    <span className="badge badge-warn">
                       {stu.issues.length > 0 ? stu.issues[0].code : '待核對'}
                     </span>
                   )}

@@ -104,6 +104,61 @@ describe('R2 UI 元件與排課工作流程（RED 測試）', () => {
       expect(seedRows).toHaveLength(89);
     });
 
+    it('計算結果尚未回來時，重疊欄顯示「—」而不是 0（未知不可冒充「沒有重疊」，UX07／UX14 型別不混）', () => {
+      const html = renderToStaticMarkup(
+        React.createElement(ScheduleGrid, {
+          rows: buildSeedGridRows(),
+          onUpdateRow: () => {},
+          onDeleteRow: () => {},
+          onAddRow: () => {},
+          calculating: false,
+          calculateResult: null,
+        })
+      );
+
+      expect(html).toContain('<td class="number cblue">—</td>');
+      expect(html).toContain('<td class="number cteal">—</td>');
+      expect(html).not.toContain('<td class="number cblue">0</td>');
+      expect(html).not.toContain('<td class="number cteal">0</td>');
+    });
+
+    it('計算結果回來且確實沒有重疊（no_overlap）時，重疊欄才顯示 0', () => {
+      const [row] = buildSeedGridRows();
+      const html = renderToStaticMarkup(
+        React.createElement(ScheduleGrid, {
+          rows: [row],
+          onUpdateRow: () => {},
+          onDeleteRow: () => {},
+          onAddRow: () => {},
+          calculating: false,
+          calculateResult: {
+            requestKey: 'mock-0',
+            draftHash: 'hash',
+            ruleSetVersion: 'erp-tag-v2',
+            windows: CARE_WINDOWS_VIEW,
+            rows: [
+              {
+                rowId: row.rowId,
+                classKey: row.className,
+                teacher: row.teacher,
+                weekday: row.weekday,
+                startMinutes: row.startMinutes,
+                endMinutes: row.endMinutes,
+                durationMinutes: 90,
+                anqin: { overlapMinutes: 0, rawDeduction: 0, status: 'no_overlap' },
+                tutoring: { overlapMinutes: 0, rawDeduction: 0, status: 'no_overlap' },
+              },
+            ],
+            classes: [],
+            issues: [],
+          },
+        })
+      );
+
+      expect(html).toContain('<td class="number cblue">0</td>');
+      expect(html).toContain('<td class="number cteal">0</td>');
+    });
+
     it('不完整列（缺起訖時間）時顯示「待補」或警告提示，不崩潰', () => {
       const incompleteRow = {
         rowId: 'row-incomplete-1',

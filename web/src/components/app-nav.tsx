@@ -61,7 +61,7 @@ export function AppNav() {
           <span className="step-label">匯入紀錄</span>
         </Link>
         <div className="sidefoot-hint">
-          依班級查看每位學生的天數與折扣
+          依日期或檔名，查過去匯入的名單與當時的結果
         </div>
       </div>
     </aside>

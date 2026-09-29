@@ -223,9 +223,10 @@ describe('R3 匯入頁工作流程與 UI 元件（RED 測試）', () => {
       expect(html).toContain('/settings');
 
       // 流程三步驟標示
-      expect(html).toContain('1 選擇檔案');
-      expect(html).toContain('2 確認名單');
-      expect(html).toContain('3 完成');
+      // 序號只出現在圓圈裡一次；文字不再重複序號（R5 視覺檢視：原本畫面是「① 1 選擇檔案」）
+      expect(html).toContain('<span class="step-number">1</span><span class="step-text">選擇檔案</span>');
+      expect(html).toContain('<span class="step-number">2</span><span class="step-text">確認名單</span>');
+      expect(html).toContain('<span class="step-number">3</span><span class="step-text">完成</span>');
     });
   });
 

@@ -47,7 +47,8 @@ test.describe('Imports Page E2E Test (R3 匯入頁一次完成使用名單)', ()
 
     // 檢查頁面標題與三步驟標示
     await expect(page.locator('h1')).toContainText('匯入學生');
-    await expect(page.locator('.step-indicator')).toContainText('1 選擇檔案');
+    await expect(page.locator('.step-item.step-active')).toContainText(/1\s*選擇檔案/);
+    await expect(page.locator('.step-item.step-active .step-text')).toHaveText('選擇檔案'); // 文字不重複序號
     await expect(page.locator('.schedule-meta-note')).toBeVisible();
 
     // 檢查上傳標題（去技術化文案）
@@ -59,7 +60,7 @@ test.describe('Imports Page E2E Test (R3 匯入頁一次完成使用名單)', ()
     await fileInput.setInputFiles(fixturePath);
 
     // 驗證進入預覽步驟 (確認名單)，預覽統計數據出現：477、384、93
-    await expect(page.locator('.step-item.step-active')).toContainText('2 確認名單');
+    await expect(page.locator('.step-item.step-active')).toContainText(/2\s*確認名單/);
     await expect(page.locator('.stats-grid')).toBeVisible({ timeout: 15000 });
     await expect(page.locator('.stat-card', { hasText: '學生總人數' })).toContainText('477');
     await expect(page.locator('.stat-card', { hasText: '有報名班級人數' })).toContainText('384');
@@ -86,7 +87,7 @@ test.describe('Imports Page E2E Test (R3 匯入頁一次完成使用名單)', ()
     await useBtn.click();
 
     // 驗證進入完成步驟 (Success)
-    await expect(page.locator('.step-item.step-active')).toContainText('3 完成');
+    await expect(page.locator('.step-item.step-active')).toContainText(/3\s*完成/);
     const successCard = page.locator('.success-stage-card');
     await expect(successCard).toBeVisible({ timeout: 15000 });
     await expect(successCard).toContainText('477 位學生資料已備妥');
@@ -96,9 +97,16 @@ test.describe('Imports Page E2E Test (R3 匯入頁一次完成使用名單)', ()
     await expect(startReviewBtn).toBeVisible();
     await startReviewBtn.click();
 
-    // 首頁應切換為已啟用正式計算 Run 狀態
+    // 首頁應切換為「目前使用的資料」狀態（R5 文案：不再稱「已啟用正式計算 Run」）
     await expect(page).toHaveURL('/');
-    await expect(page.locator('text=已啟用正式計算 Run')).toBeVisible({ timeout: 15000 });
+    const banner = page.locator('.data-banner-current', { hasText: '目前使用的資料' });
+    await expect(banner).toBeVisible({ timeout: 15000 });
+    // 來源清楚（09 §2）：檔名、資料更新時間、核對基準日；日常橫幅不出現 Run／rev／長 ID
+    await expect(banner).toContainText('conforming-erp-fixture.xlsx');
+    await expect(banner).toContainText('資料更新於');
+    await expect(banner).toContainText('核對基準日');
+    await expect(banner).not.toContainText(/Run|rev/);
+    await expect(page.locator('h1')).toHaveText('核對結果');
   });
 
   /**
@@ -108,7 +116,7 @@ test.describe('Imports Page E2E Test (R3 匯入頁一次完成使用名單)', ()
   test('第二份名單預覽：顯示新增／異動／未出現三個數字與逐人明細（B1）', async ({ page }) => {
     // 前置：確保 fixture 已是現行名單（本檔共用同一個隔離 DB；重傳同檔會走判重路徑，故只在尚無 active 時建立）
     await page.goto('/');
-    if ((await page.locator('text=已啟用正式計算 Run').count()) === 0) {
+    if ((await page.locator('.data-banner-current', { hasText: '目前使用的資料' }).count()) === 0) {
       await page.goto('/imports');
       await page
         .locator('input[type="file"]')
@@ -149,5 +157,22 @@ test.describe('Imports Page E2E Test (R3 匯入頁一次完成使用名單)', ()
     await expect(changedRow.locator('[data-field="discount"]')).toHaveText('無折扣 → 95折');
     await expect(table.locator('tbody tr[data-category="new"]')).toContainText('STU9999');
     await expect(table.locator('tbody tr[data-category="not-appeared"]')).toContainText('STU0477');
+  });
+
+  test('跨頁一致：匯入預覽的「N 個班名待確認」＝課表設定「班名對應」頁籤的待確認數（同一份名單兩頁數字不得不同）', async ({ page }) => {
+    await page.goto('/imports');
+    await page.locator('input[type="file"]').setInputFiles(path.resolve(__dirname, '../fixtures/conforming-erp-fixture.xlsx'));
+    const notice = page.locator('text=/個班名待確認/').first();
+    await expect(notice).toBeVisible({ timeout: 15000 });
+    const shown = Number(/(\d+)\s*個班名待確認/.exec((await notice.innerText()) ?? '')?.[1]);
+    expect(Number.isInteger(shown) && shown > 0, '預覽應顯示大於 0 的待確認班名數').toBe(true);
+
+    await page.locator('button', { hasText: '使用這份名單' }).click();
+    await expect(page.locator('.success-stage-card')).toBeVisible({ timeout: 15000 });
+
+    await page.goto('/settings');
+    await expect(page.locator('h1', { hasText: '課表設定' })).toBeVisible({ timeout: 10000 });
+    const pillText = await page.locator('button[role="tab"]', { hasText: '班名對應' }).locator('.pill.warn').innerText();
+    expect(Number(pillText), '課表設定的班名對應頁籤應顯示待確認數').toBe(shown);
   });
 });
