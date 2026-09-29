@@ -1,12 +1,12 @@
 # UI／UX 重設規格：課表 → 匯入 → 核對
 
-日期：2026-09-29。設計基準：origin/main `25e0ebf`。狀態：設計交付，尚未實作到產品。
+日期：2026-09-29。設計基準：origin/main `25e0ebf`；PR #22 合併後（`66d6371`）依[review意見](https://github.com/cheerc/student-billing/pull/22#issuecomment-5885578455)對照`web/src`修正§3、§8，引用現況處附path:line（行號為`66d6371`）。方向依[06 D33](06-handoff-decisions.md)。狀態：設計交付，尚未實作到產品。
 
 ## 1. 目的、範圍與依據
 
-行政人員不用理解開發術語，就能先維護課表、匯入學生，再按班級核對收費資訊。此次使用者抽樣未見計算異常；保留現有domain、D24／D25–D32、erp-tag-v2及舊run結果。本文件補充／取代01的畫面流程及03必要的設定生命週期限制；02計費規則不變。
+行政人員不用理解開發術語，就能先維護課表、匯入學生，再按班級核對收費資訊。此次使用者抽樣未見計算異常；保留現有domain、D24／D25–D32、erp-tag-v2及舊run結果。本文件依D33補充01的畫面流程，並在§8明定03設定生命週期需放寬之處（無學生儲存、activate採已儲存設定）；02計費規則不變，權威層級見根CLAUDE.md §2。
 
-交付：[實作plan](10-ui-workflow-redesign-plan.md)、[可點選示意稿](design/ui-workflow-prototype.html)。示意使用虛構資料、不連API，不是新計算基準；正式契約以本文件為準。不做財務匯入、自動開單、點名表、登入或雲端部署。
+交付：[實作plan](10-ui-workflow-redesign-plan.md)、[可點選示意稿](design/ui-workflow-prototype.html)。示意使用虛構資料、不連API，不是新計算基準；正式契約以本文件為準。不做財務匯入、自動開單、點名表、登入或雲端部署。**不在範圍**：安親／課輔窗口編輯（operator已決定窗口固定、不可編輯）、設定有效日期（窗口固定，無需依日期選版）（D33；見§3.1、§8.2.1）。
 
 2026-09-29以Playwright實際開啟localhost四頁（/、/settings、/imports、/history），查看控制項與截圖，另讀source確認空狀態與寫入流程；未提交表單或更動使用者資料。Excel工作表職責依使用者本次逐欄說明及既有spec對照，沒有宣稱重驗原生公式。
 
@@ -17,7 +17,7 @@
 |課表前方堆候選、差集及D32說明|真正的89列編輯被推到頁下|課表預設，對應另頁籤|
 |只有五個輸入欄，沒有即時重疊|無法判斷編輯後影響|旁列五個只讀計算欄|
 |沒有班級原始／實際扣天總覽|無法快速檢查每班取整|增加班級扣天頁籤|
-|無importId不能進課表且preview API必填importId|不能先課表再匯入|補無學生儲存設定流程|
+|無importId不能進課表且preview API必填importId（`web/src/app/api/v1/settings/preview/route.ts:18`）|不能先課表再匯入|補無學生儲存設定流程|
 |總表代碼及其他課程天數佔據左側|八項主要核對資訊不集中|八欄預設、姓名凍結|
 
 ## 2. 資訊架構
@@ -26,7 +26,7 @@
 
 |入口|路由|用途|
 |---|---|---|
-|1 課表設定|/settings?tab=schedule|逐堂時段、老師、安課窗口與重疊|
+|1 課表設定|/settings?tab=schedule|逐堂時段、老師、唯讀的安親／課輔窗口與重疊|
 |2 匯入學生|/imports|選檔、確認名單、使用名單|
 |3 核對結果|/?view=students 或 deductions|學生總表、班級扣天|
 |匯入紀錄（次入口）|/history|日期／檔名查過去資料|
@@ -41,7 +41,7 @@
 
 頁首 → 安親／課輔窗口摘要 → 班級搜尋／星期／在用或停用篩選 → 課表 → 固定底部操作列。
 
-窗口顯示實際值，如安親週一至五13:00–16:00、課輔16:30–19:30。「調整時段」展開起迄輸入；星期依當前v2規則顯示，不在此增加可變星期政策。無效窗口定位錯誤，不產生假計算。
+窗口**唯讀**：值來自ruleSet（現為安親週一至五13:00–16:00、課輔16:30–19:30，`web/src/domain/schedules/overlap-calculator.ts:9-12`），不提供「調整時段」入口或輸入框；星期依當前v2規則顯示，不在此增加可變星期政策。operator已決定安親／課輔窗口為固定時段、不會變動（D33，decision `d-20260929073427734990-0`），故不做窗口編輯、不做窗口dirty；現行計算也只讀ruleSet窗口、不讀draft窗口（§8.1）。示意稿的「調整時段」按鈕與此不符，見[design/README](design/README.md)。
 
 五個編輯欄順序：班級名稱、帶班老師、星期、上課時間（起）、上課時間（迄）。保留D25/D28逐列獨立改名，不改為只能整班改名。同名多列以細分隔分組；班名搜尋保留該班全部時段。新增時段在工具列，刪列在列尾選單、只改草稿且可取消；整班停用仍active=false。影響學生／別名的刪改在確認視窗呈現，不因有學生就禁止刪列。
 
@@ -51,11 +51,11 @@
 
 ### 3.2 草稿與儲存
 
-有效編輯後200–300ms debounce預覽，重用既有domain及設定轉換器，不複製公式到React。取消舊請求／requestKey保護，晚到回應不得覆蓋新草稿。底部顯「有未儲存的變更」，次動作「取消修改」、主動作「確認變更」。窗口／有效日期亦須dirty、使舊preview失效。
+有效編輯後200–300ms debounce預覽，重用既有domain及設定轉換器，不複製公式到React。取消舊請求／requestKey保護，晚到回應不得覆蓋新草稿。底部顯「有未儲存的變更」，次動作「取消修改」、主動作「確認變更」。班級／老師／星期／起迄／停用／班名對應的任何編輯都要dirty，並使舊preview失效。
 
 課表預覽標「未儲存」，可展開「本班合計」看草稿總扣天；結果頁預設已儲存run，不靜默混入草稿。
 
-確認視窗：修改班級／時段／窗口摘要；有active學生顯受影響去重人數、天數前後、拆班／停用／失效對應；無學生顯「尚未匯入學生」，學生影響為null，不能寫0當作驗過。主按鈕有學生為「儲存並更新結果」，無學生為「儲存課表」。只有此時提交。
+確認視窗：修改班級／時段摘要與「無時段班級」數（§8.2.4）；有active學生顯受影響去重人數、天數前後、拆班／停用／失效對應；無學生顯「尚未匯入學生」，學生影響為null，不能寫0當作驗過。主按鈕有學生為「儲存並更新結果」，無學生為「儲存課表」。只有此時提交。
 
 成功短toast＋「下一步：匯入學生」或「查看核對結果」。失敗保留草稿與舊結果；409／過期說「資料已更新，請重新確認變更」，可重試。送出中disabled且冪等；離頁保留D31未儲存提醒，不每改欄就跳modal。
 
@@ -71,7 +71,7 @@
 
 預覽顯檔名、總人數、有班／無班，以及相對目前名單的新增／異動／本次未出現數（需API真實提供）。未使用之前舊結果不變。未知班名是「N個班名待確認」，可查且非整批阻擋；缺必要欄等顯短錯誤＋列號／欄名／修正方式，不能只tooltip或code。
 
-主按鈕「使用這份名單」在本頁接activate，不先返回首頁找另一顆啟用按鈕。顯示可確認的核對基準日，用最新已儲存且適用課表；版本已變需重新確認。成功顯「已更新N位學生」＋「開始核對」。重傳同檔保留判重與用新課表重算能力。財務報表不是此入口的輸入。
+主按鈕「使用這份名單」在本頁接activate，不先返回首頁找另一顆啟用按鈕。顯示可確認的核對基準日；套用最新已儲存課表與班名對應（由server於activate解析，§8.2.1）；版本已變需重新確認。成功顯「已更新N位學生」＋「開始核對」。重傳同檔保留判重與用新課表重算能力。財務報表不是此入口的輸入。
 
 ## 5. 核對結果
 
@@ -97,7 +97,7 @@
 
 篩班名／老師／需確認／有重疊；點班級展開全部時段與逐堂五個計算欄，連結「編輯此班課表」。缺時段、共用窗口、無重疊分開。
 
-有active run時同學生總表讀该run課表快照与規則；無active時讀已儲存課表，標「尚未匯入學生，可先檢查扣天」。歷史run不得套用最新設定，資料不足要明示不可重建。
+有active run時同學生總表讀該run課表快照與規則；無active時讀已儲存課表，標「尚未匯入學生，可先檢查扣天」。歷史run不得套用最新設定，資料不足要明示不可重建。
 
 ## 6. 視覺與可及性
 
@@ -127,26 +127,61 @@ tooltip短句、數值；hover/focus/click均可開、Esc可關。多步說明�
 
 ## 8. 必要API／持久化銜接
 
+「現況」皆對照`66d6371`的`web/src`；本文件只定義目標契約，不修改程式。8.2.1、8.2.2、8.2.4是**既有缺陷**，非本次UI改版新增，但先課表流程會放大它們。
+
 ### 8.1 唯讀計算read model
 
-新增application calculateSchedulePreview，重用overlap-calculator與相同設定轉換，v2明確帶sameWeekdayOnly／窗口。不要前端自算第二套。
+新增application calculateSchedulePreview，重用overlap-calculator與相同設定轉換（draftToScheduleOverride，語意見8.2.4），v2明確帶sameWeekdayOnly。不要前端自算第二套。
 
-建議POST /api/v1/settings/calculate：輸入draft、ruleSetVersion、requestKey；回requestKey、draftHash、rows、classes、issues。rows含rowId/classKey/durationMinutes、兩組overlapMinutes/rawDeduction/status；classes含兩組totalOverlapMinutes/raw/rounded/status/rowIds。rowId保持穩定，空時段列仍回null與issue。這個POST僅純計算，不建立preview／run、不寫DB，仍驗same-origin與payload限制。
+**窗口唯讀**：窗口是ruleSet參數（`RuleSetOptions.anqinWindow／tutoringWindow`，`web/src/domain/schedules/overlap-calculator.ts:36-37`，預設常數`CARE_WINDOWS`同檔9-12）。現況`draftToScheduleOverride`只轉換sessions（`web/src/adapters/sqlite/settings-repository.ts:165-181`），draft的careWindows沒有進入計算。故read model一律用ruleSet窗口，回應帶`windows`供畫面唯讀顯示，不讀draft窗口，避免預覽與正式run不同源。`SettingsDraft.careWindows`仍是schema必填（`web/src/contracts/settings.ts:300-303`），UI一律帶ruleSet值；server收到不同值回400 INVALID_DRAFT，不靜默忽略。
+
+建議POST /api/v1/settings/calculate：輸入draft、requestKey（**不含ruleSetVersion**）；回requestKey、draftHash、ruleSetVersion、windows、rows、classes、issues。rows含rowId/classKey/durationMinutes、兩組overlapMinutes/rawDeduction/status；classes含兩組totalOverlapMinutes/raw/rounded/status/rowIds。rowId保持穩定，空時段列仍回null與issue。這個POST僅純計算，不建立preview／run、不寫DB，仍驗same-origin與payload限制。
+
+**ruleSetVersion由server決定**，做法同`web/src/application/settings-preview.ts:125-132`：有active run採其ruleSetVersion，無則採現行正式軌erp-tag-v2。新增要求：值必須是正式軌；若active run為診斷軌excel-v260922-compat（activate現未限制版本，`web/src/application/calculate-run.ts:29`）則改採現行正式軌。client不得指定，任何情況不得選compat（診斷軌不作正式值，根CLAUDE.md §2）。
 
 新增GET /api/v1/settings/deductions?runId=：指定run讀固定快照；無指定有active則active，無active才saved settings；回scope及版本，不寫DB。不可用最新課表補舊run。
 
-### 8.2 無學生儲存
+### 8.2 activate與儲存的資料來源
 
-沿用settings/preview與apply，importId可null，server判mode：settings_only／with_students。有active必須用active import，不准client以null繞過影響；只有ready未啟用時允許只存設定、不啟用ready。
+**8.2.1 activate採最新已儲存設定（現況缺陷）**
 
-settings_only影響人數為null、apply只保存設定與revision，runId=null、不建假run；with_students仍原子設定＋新run＋active。與activate競爭仍CAS／409，preview hash／TTL／冪等不變。生效日期仍驗證；新activate採最新有效設定。
+現況：roster-view送出activate只帶expectedRevision／idempotencyKey／asOfDate（`web/src/components/roster-view.tsx:84-91`）；route只轉交asOfDate／scheduleVersionId／ruleSetVersion（`web/src/app/api/v1/imports/[previewId]/activate/route.ts:22-32`）；activateImport以此options呼叫executeCalculationRun（`activate-import.ts:112`），options沒有aliasMap／scheduleOverride（`web/src/application/calculate-run.ts:92-93,99-100`皆為undefined），scheduleVersionId預設`seed-v250922`（同檔28）。結果：「套用設定→匯入新名單→啟用」的新run計算退回seed課表、不套班名對應，且run.scheduleVersionId（同檔200）標成seed。D17要求照實呈現，這是靜默丟失人工設定。apply路徑則正確傳入（`web/src/application/apply-settings.ts:129-135`）。
 
-現有migration0004的settings_previews.import_id NOT NULL、idempotency_records.run_id及repository型別需一併審查，新增向前migration，不能刪DB重建。dirty helper要涵蓋窗口／有效日期；計算預覽和提交的draft須完全一致。
+目標契約：**每一次**activate，server於同一交易內解析最新已儲存settings version（`getLatestSettingsVersion`，`settings-repository.ts:62-69`，取revision最大者，不依日期）：有則經draftToAliasMap／draftToScheduleOverride（同apply）計算，run.scheduleVersionId＝該version id；尚無任何已儲存設定才用seed（scheduleVersionId維持`seed-v250922`）。client傳入的scheduleVersionId一律忽略（現況它只被寫成run標籤，會讓run宣稱用了實際沒用的版本），冪等hash不含它。activate的ruleSetVersion維持現行可由client指定正式軌（既有測試`web/tests/integration/api-t06-routes.test.ts:157`依此驗erp-tag-v1不可變契約），本文件不改。activate與設定變更之間的競爭由revision CAS擋下（apply與settings_only皆遞增revision）。
+
+`effectiveFrom／effectiveTo`現況只在apply寫入（`apply-settings.ts:121-122`），沒有任何選版或計算讀取，設定編輯器也無此欄；operator已決定窗口固定（D33），無需依日期選版，有效日期**不在範圍**：欄位保留於schema但不使用，本文件不描述、UI不提供有效日期能力；核對基準日asOfDate是既有概念（§2、§4），與有效日期無關。
+
+**8.2.2 儲存的import由server決定**
+
+現況：preview接受任意client importId（`settings/preview/route.ts:16-26`，`settings-preview.ts:117-120`只檢查該批有學生），apply把`active_state.active_import_id`設為preview.importId（`apply-settings.ts:140-142`）。client可傳非active的ready批次，儲存設定的同時把它啟用，等於繞過匯入頁activate的確認。
+
+目標契約：preview／apply的import一律由server依`active_state`決定：有active→active import（with_students）；無active→settings_only，即使存在ready批次也不啟用它。契約刪除client的importId；過渡期若仍收到，僅做一致性檢查，與server決定值不符（含client以null繞過active、傳入非active批次）即以400／409拒絕，絕不採用client值。ready批次只能經匯入頁activate啟用（§4）。
+
+**8.2.3 無學生儲存與migration**
+
+沿用settings/preview與apply，mode由server判：settings_only／with_students。settings_only影響人數為null、apply只保存設定並遞增revision，runId=null、不建假run、不改active_state；with_students仍原子設定＋新run＋active。與activate競爭仍CAS／409，preview hash／TTL／冪等不變。
+
+欄位限制：`settings_previews.import_id NOT NULL`在`web/src/adapters/sqlite/migrations/0004_settings_versions.sql:14-23`；`idempotency_records.run_id NOT NULL`在`0003_runs_and_calculations.sql:51-57`（不在0004）。SQLite不能以ALTER移除NOT NULL，新增向前migration以**table rebuild**：建新表（欄位可null）→INSERT…SELECT逐列複製→DROP舊表→RENAME→重建索引；settings_previews須含0005新增的`expires_at`（`0005_settings_previews_expires_at.sql:3`）。不能刪DB重建；repository型別與response的runId同步可null。舊資料逐列保留列為必要測試（UX17）。
+
+**8.2.4 空時段與整班移除語意（現況缺陷）**
+
+現況：draftToScheduleOverride對active且sessions為空的班級不寫入override（`settings-repository.ts:174`）；gridRowsToClasses丟掉缺起訖或迄≤起的列（`contracts/settings.ts:136-137`）；resolveClassSessions找不到override就退回seed課表（`web/src/domain/billing/billing-calculator.ts:55-63`）。結果：某班所有列時間清空／刪光，或整班自draft消失時，畫面顯示「待補」（§3.1、§8.1），學生run卻仍用seed舊時段扣天，逐堂、班級、學生三者不同源，違反03 §3 ScheduleVersion「消除空sessions雙義性」。
+
+目標語意，二擇一，**採A**：
+
+- A（採用）：存在已儲存設定版本時，班級與時段的唯一來源是該版本的全量draft（D25），seed只作「尚無任何已儲存設定」的初始值。班級存在但sessions為空＝無時段：不扣天、status=schedule_empty（既有分支`billing-calculator.ts:57-58`），read model對該班回null並列issue，學生run同樣不扣天並帶issue。班級不在該版本＝無此班，落schedule_not_found並列issue。兩者皆不得退回seed。
+- B（不採用）：apply拒絕含空時段班級的draft。
+
+理由：(1) D29明定單列時段可刪、整班以active=false軟停用，B會使「刪光時段」或改名散班無法儲存；(2) D25／03已規定draft攜全量以消除空sessions雙義，A是其落實，且與現有active=false→空時段（`settings-repository.ts:170-172`）同語意；(3) B逼使用者為了儲存其他修改而填入假時段，違反D17。確認視窗須列出「N個班級無時段：學生不扣天並列入問題」（§3.2）。
+
+**8.2.5 dirty與同源**
+
+dirty helper涵蓋班級／老師／星期／起迄／停用／班名對應；窗口唯讀不進dirty。計算預覽和提交的draft須完全一致。
 
 ### 8.3 查詢與歷史
 
-維持run固定分頁、白名單。移除UI UNMAPPED_CLASSES固定集合做狀態判斷，改讀當前resolution／D32動態候選。不能把最新已批准的D30同星期规则退回舊v1。歷史UI只讀，不新增「恢復為現行」寫入功能。
+維持run固定分頁、白名單。移除UI UNMAPPED_CLASSES固定集合做狀態判斷（`web/src/components/active-run-view.tsx:19,499`），改讀當前resolution／D32動態候選。不能把最新已批准的D30同星期規則退回舊v1。歷史UI只讀，不新增「恢復為現行」寫入功能。
 
 ## 9. 完成門檻
 
-依10測試矩陣：空DB先課表、逐堂／班級／學生同來源、八欄直接可見、工程字降層而警告不消失、舊domain與歷史值不變、設定only與有學生交易都可用。設計稿不算產品已完成，不代表帳單已正確。
+依[04 §8](04-tdd-acceptance.md) UX矩陣：空DB先課表、逐堂／班級／學生同來源（含空時段與整班移除）、activate採最新已儲存設定、server決定import、窗口唯讀、八欄直接可見、工程字降層而警告不消失、舊domain與歷史值不變、設定only與有學生交易都可用。設計稿不算產品已完成，不代表帳單已正確。

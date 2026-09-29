@@ -1,6 +1,6 @@
 # TDD 與驗收規格
 
-> 2026-09-29 UI重設補充：畫面與先課表流程以[09](09-ui-workflow-redesign-spec.md)為準；必要API／無學生設定保存見09 §8，新增測試與派工見[10](10-ui-workflow-redesign-plan.md)。計費規則沿用目前D24–D32，不由UI改版變更。
+> 2026-09-29 UI重設補充：先課表流程方向見[06 D33](06-handoff-decisions.md)，UI契約見[09](09-ui-workflow-redesign-spec.md)；UI重設的驗收矩陣UX01–UX24是本檔§8的正式驗收，實作拆分見[10](10-ui-workflow-redesign-plan.md)。計費規則沿用目前D24–D32，不由UI改版變更。
 
 ## 1. 測試原則
 
@@ -192,5 +192,37 @@ Playwright 最小完整旅程：
 - P2：增加讀取 API 契約、CSV 注入防護、保存篩選、差異報告與還原測試。
 - P3：每模板每欄值、版型 XML、容量、日期、Windows Excel A4 Print to PDF／實印。純 screenshot 比對不足以證明內容正確。
 - P4：登入／授權、跨機構資料隔離、多人競爭、Firestore migration 對照、備份還原、部署 smoke。GitHub CI 建立時只搬已有效的本機命令，不先建空 pipeline。
+- UI 重設（09）：各 PR 對應的 UX 項目見 §8 與 [10 §1](10-ui-workflow-redesign-plan.md)；本專案 no-CI，merge 證據為本機隔離 E2E 與全量本機結果（10 §4）。
 
 覆蓋率不是唯一gate；R01–R18與班名／級距／來源政策各分支都有案例。U01–U49、I01–I20為規劃清單，不是已執行的產品測試。P1只需簡單red-green-refactor記錄。
+
+## 8. UI 重設驗收矩陣（UX01–UX24）
+
+依 [06 D33](06-handoff-decisions.md) 與 [09](09-ui-workflow-redesign-spec.md)；本節是 UI 重設的正式驗收，實作拆分與各 PR 對應項目見 [10](10-ui-workflow-redesign-plan.md) §1。UX 為新增驗收，保留原 U/I 及 08 測試。每個可觀察行為先 red 再 green；expected 來自既有 domain 固定案例／已確認案例（獨立手算），不用新 UI 自己生成。UX22、UX23 的 RED 對應 09 §8.2.1、§8.2.4 記載的現況缺陷。
+
+|ID|輸入／操作|expected|層|
+|---|---|---|---|
+|UX01|空DB先改課表→確認→儲存→重啟|設定存在、revision遞增、run仍null|integration/E2E|
+|UX02|只有ready批次，儲存課表再activate；另含client傳非active／null的importId|儲存不啟用ready，client importId被拒（active_state不變）；activate後run.scheduleVersionId＝最新已儲存設定id|integration|
+|UX03|有active改時段，取消／失敗／成功|前兩者active不變；成功設定和新run原子切換|integration/E2E|
+|UX04|settings_only儲存與另一tab activate競爭；含importId與server決定值不符|一成功另一409；同key/body成功重送回原結果；importId不符被拒且不啟用任何批次|integration|
+|UX05|週一15:20–16:50，v2預設窗口|課長90、安親40分／40÷180、課輔20分／20÷180；正量顯示、負數domain不改|unit/API|
+|UX06|同班週一15:20–16:50、週三15:30–17:00、週五15:20–16:50|安親40+30+40＝110分，110÷180→實扣0.5；課輔20+30+20＝70分，70÷180→0.5；先合計再取整|unit/API|
+|UX07|週六／未知星期／缺起迄／care_window／inactive|合法六為0，未知／缺漏警告非無衝堂，共用窗口不捏造session|unit/component|
+|UX08|改班名／老師／星期／起迄，舊回應晚到|dirty與preview失效，最新request才可顯示，總覽不讀draft|component/integration|
+|UX09|改散同班名、刪列、停班、alias失效|D28/D29提示與後果可見，草稿可取消，確認才提交|integration/E2E|
+|UX10|新ERP／新設定產生差集|D32動態候選與去重人數，不自動批准，對齊消失|integration/E2E|
+|UX11|上傳→預覽→使用→核對；缺標頭錯誤|單頁接activate，失敗舊run不變，成功真實人數與日期|E2E|
+|UX12|同檔／過期／版本變更|不重複學生，短中文錯誤＋重試，raw code不是唯一說明|integration/E2E|
+|UX13|選班→搜尋→更多篩選→明細→返回|同run同filter名單／人數一致，狀態保留，q不入URL|API/E2E|
+|UX14|八欄null／false／0／特殊率／不適用|型別不混，合計與本班率分開，八欄可達、姓名sticky|component/E2E|
+|UX15|級距match但有issue，未知issue code|警告仍在、不硬限13人；未知碼短標需確認且可查原因|unit/E2E|
+|UX16|tab／focus／click tooltip，drawer/modal Esc|focus trap／回復，label/aria-live，錯誤不只hover|E2E/人工|
+|UX17|舊DB migration（settings_previews、idempotency_records table rebuild）／故障／備份還原|歷史settings/runs/冪等紀錄逐列保留（含expires_at、response_payload），不清DB|integration|
+|UX18|相同input計算前後比對|erp-tag-v2與舊run值不變，不藉UI改D24/D30|regression|
+|UX19|多次calculate POST／deductions GET|DB/active/preview行數與內容不變，無多餘PII|API/integration|
+|UX20|1440×900、1280×800、1024×768、768寬|無整頁橫向溢出，表內可捲，sticky與底部不遮操作|視覺/E2E|
+|UX21|歷史／空篩選／loading／失敗|唯讀、來源日期清楚；可清filter，不能假成功|E2E|
+|UX22|已apply設定（自訂時段＋班名對應）→匯入新批次→activate；另帶不同的client scheduleVersionId|先RED（現況run用seed-v250922、不套班名對應）；GREEN：run.scheduleVersionId＝最新已儲存設定id，逐堂／班級／學生天數與對應皆採該設定，client scheduleVersionId被忽略；尚無已儲存設定時仍為seed-v250922|integration/E2E|
+|UX23|刪光某班全部時段／清空所有列時間／移除整班|逐堂預覽、班級扣天、學生run三者一致：無時段→不扣天＋issue（schedule_empty），不在該版本→schedule_not_found＋issue，皆不退回seed（先RED）|unit/integration|
+|UX24|開課表頁；送出careWindows與ruleSet不同的draft|畫面無窗口輸入／調整入口，顯示值＝ruleSet（窗口固定，D33）；calculate回應windows＝ruleSet；server對不同careWindows回400 INVALID_DRAFT|component/API|
