@@ -44,6 +44,19 @@ export function ImpactDialog({
   applying,
 }: ImpactDialogProps) {
   const dialogRef = useRef<HTMLDialogElement | null>(null);
+  const openerRef = useRef<HTMLElement | null>(null);
+
+  // 關閉返回焦點（09 §6）：開啟前記住觸發元素，關閉（含 Esc、取消、套用成功）後還給它。
+  // 本元件在 isOpen=false 時直接卸載 <dialog>，瀏覽器原生的「關閉時還原焦點」不會發生，所以要明確處理。
+  // 宣告順序必須在 showModal 的 effect 之前：那時 activeElement 還是被點的「確認變更」按鈕。
+  useEffect(() => {
+    if (!isOpen) return;
+    openerRef.current = document.activeElement as HTMLElement | null;
+    return () => {
+      const opener = openerRef.current;
+      if (opener && document.contains(opener)) opener.focus();
+    };
+  }, [isOpen]);
 
   useEffect(() => {
     const dialog = dialogRef.current;

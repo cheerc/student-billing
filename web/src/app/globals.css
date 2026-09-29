@@ -1742,3 +1742,93 @@ dialog.impact-dialog::backdrop {
   font-size: 13px;
   color: var(--warning-text);
 }
+
+/* ===== R5 可及性（specs/09 §6）：互動目標 ≥ 24px、tooltip、頁籤焦點 ===== */
+details > summary {
+  cursor: pointer;
+  min-height: 28px;
+  padding-block: 4px;
+}
+
+.link-button,
+.results-table .link-button,
+.deductions-table .link-button {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+}
+
+.btn-danger-icon {
+  min-width: 28px;
+  min-height: 28px;
+  padding: 4px 8px;
+}
+
+.toolbar input,
+.toolbar select,
+.toolbar .search,
+.table-header select,
+.table-header .search {
+  min-height: 32px;
+}
+
+/* tooltip（InfoTip）：hover／focus／click 皆可開，Esc 可關 */
+.infotip {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  vertical-align: middle;
+}
+
+.infotip-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 24px;
+  min-height: 24px;
+  padding: 0 4px;
+  border: 0;
+  border-radius: 9999px;
+  background: transparent;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 13px;
+  cursor: help;
+}
+
+.infotip-btn:hover,
+.infotip-btn[aria-expanded='true'] {
+  background: var(--code-bg);
+  color: var(--text-primary);
+}
+
+.infotip-btn-plain {
+  padding: 0;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.infotip-bubble {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 50;
+  width: max-content;
+  max-width: 260px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: #0f172a;
+  color: #ffffff;
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.5;
+  text-align: left;
+  white-space: normal;
+  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.25);
+}
+
+input.search,
+select {
+  min-height: 32px;
+}

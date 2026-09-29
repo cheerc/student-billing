@@ -1,9 +1,11 @@
 'use client';
 
 import React, { useState, useEffect, useCallback } from 'react';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import SummaryTable from './summary-table';
 import DetailDrawer from './detail-drawer';
+import { TabList, tabPanelProps } from './ui/tabs';
 import ClassDeductionsPanel from './results/class-deductions-panel';
 import { DeductionsResponse } from '@/application/schedule-deductions';
 import { formatDateTime } from '@/lib/datetime';
@@ -278,9 +280,9 @@ export default function ActiveRunView({
         </div>
         <div className="data-banner-actions">
           {isHistory ? (
-            <a href="/history" className="btn-secondary">回到匯入紀錄</a>
+            <Link href="/history" className="btn-secondary">回到匯入紀錄</Link>
           ) : (
-            <a href="/imports" className="btn-secondary">匯入新名單</a>
+            <Link href="/imports" className="btn-secondary">匯入新名單</Link>
           )}
         </div>
       </section>
@@ -344,6 +346,7 @@ export default function ActiveRunView({
             <input
               type="text"
               placeholder="搜尋姓名或代碼..."
+              aria-label="搜尋姓名或人員代碼"
               value={searchQuery}
               onChange={(e) => handleSearchChange(e.target.value)}
               style={{
@@ -357,6 +360,7 @@ export default function ActiveRunView({
 
             {/* 年級篩選 */}
             <select
+              aria-label="年級篩選"
               value={selectedGrade}
               onChange={(e) => handleGradeChange(e.target.value)}
               style={{
@@ -378,6 +382,7 @@ export default function ActiveRunView({
 
             {/* 班級篩選 */}
             <select
+              aria-label="班級篩選"
               value={selectedClass}
               onChange={(e) => handleClassChange(e.target.value)}
               style={{
@@ -399,6 +404,7 @@ export default function ActiveRunView({
 
             {/* 科別篩選 */}
             <select
+              aria-label="科別篩選"
               value={selectedSubject}
               onChange={(e) => handleSubjectChange(e.target.value)}
               style={{
@@ -420,6 +426,7 @@ export default function ActiveRunView({
 
             {/* 級距比對篩選（筆數由查詢結果決定，不在文案寫死；09 §7） */}
             <select
+              aria-label="級距狀態篩選"
               value={selectedMismatch}
               onChange={(e) => handleMismatchChange(e.target.value)}
               style={{
@@ -438,6 +445,7 @@ export default function ActiveRunView({
 
             {/* 問題篩選 */}
             <select
+              aria-label="問題狀態篩選"
               value={selectedHasIssues}
               onChange={(e) => handleHasIssuesChange(e.target.value)}
               style={{
@@ -455,6 +463,7 @@ export default function ActiveRunView({
 
             {/* 問題代碼跳轉篩選 */}
             <select
+              aria-label="問題類型篩選"
               value={selectedIssueCode}
               onChange={(e) => handleIssueCodeChange(e.target.value)}
               style={{
@@ -529,42 +538,34 @@ export default function ActiveRunView({
           </div>
         )}
 
-        {/* 結果雙頁籤（09 §2） */}
-        <div className="tabs" role="tablist" aria-label="結果頁籤">
-          <button
-            type="button"
-            role="tab"
-            aria-selected={resultTab === 'students'}
-            className={resultTab === 'students' ? 'selected' : ''}
-            onClick={() => setResultTab('students')}
-          >
-            學生總表
-          </button>
-          <button
-            type="button"
-            role="tab"
-            aria-selected={resultTab === 'deductions'}
-            className={resultTab === 'deductions' ? 'selected' : ''}
-            onClick={() => setResultTab('deductions')}
-          >
-            班級扣天
-          </button>
-        </div>
+        {/* 結果雙頁籤（09 §2；09 §6 鍵盤可操作：方向鍵／Home／End、Enter／Space、tabpanel 對應） */}
+        <TabList
+          label="結果頁籤"
+          idPrefix="results"
+          selected={resultTab}
+          onSelect={(k) => setResultTab(k as 'students' | 'deductions')}
+          tabs={[
+            { key: 'students', label: '學生總表' },
+            { key: 'deductions', label: '班級扣天' },
+          ]}
+        />
 
-        {resultTab === 'students' ? (
-          <SummaryTable
-            students={data?.items || []}
-            loading={loading}
-            onSelectStudent={(s) => setSelectedStudent(s)}
-            onResetFilters={handleResetFilters}
-          />
-        ) : (
-          <ClassDeductionsPanel
-            data={initialDeductions}
-            unavailable={deductionsUnavailable}
-            onEditClass={() => router.push('/settings?tab=schedule')}
-          />
-        )}
+        <div {...tabPanelProps('results', resultTab)}>
+          {resultTab === 'students' ? (
+            <SummaryTable
+              students={data?.items || []}
+              loading={loading}
+              onSelectStudent={(s) => setSelectedStudent(s)}
+              onResetFilters={handleResetFilters}
+            />
+          ) : (
+            <ClassDeductionsPanel
+              data={initialDeductions}
+              unavailable={deductionsUnavailable}
+              onEditClass={() => router.push('/settings?tab=schedule')}
+            />
+          )}
+        </div>
       </div>
 
       {/* 學生計算明細側欄 Drawer */}

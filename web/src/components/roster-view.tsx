@@ -255,6 +255,7 @@ export default function RosterView({
             <input
               type="text"
               placeholder="搜尋姓名或代碼..."
+              aria-label="搜尋姓名或人員代碼"
               value={searchQuery}
               onChange={(e) => handleSearchChange(e.target.value)}
               style={{
@@ -268,6 +269,7 @@ export default function RosterView({
 
             {/* 年級篩選 */}
             <select
+              aria-label="年級篩選"
               value={selectedGrade}
               onChange={(e) => handleGradeChange(e.target.value)}
               style={{
@@ -289,6 +291,7 @@ export default function RosterView({
 
             {/* 班級候選篩選 (四年級 A/B 分開) */}
             <select
+              aria-label="班級篩選"
               value={selectedClass}
               onChange={(e) => handleClassChange(e.target.value)}
               style={{
@@ -310,6 +313,7 @@ export default function RosterView({
 
             {/* 有無班級 */}
             <select
+              aria-label="有無班級篩選"
               value={selectedHasClass}
               onChange={(e) => handleHasClassChange(e.target.value)}
               style={{

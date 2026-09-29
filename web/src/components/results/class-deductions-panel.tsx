@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
+import Link from 'next/link';
 import { DeductionsResponse } from '@/application/schedule-deductions';
 import { PreviewClass, PreviewRow } from '@/application/schedule-preview';
 
@@ -80,7 +81,7 @@ export function ClassDeductionsPanel({ data, onEditClass, expandedClassKey, unav
         <div className="state-card" role="status">
           <h3 className="state-title">這筆歷史資料無法顯示班級扣天</h3>
           <p className="state-desc">{unavailable?.message}</p>
-          <a href="/history" className="btn-secondary">回到匯入紀錄</a>
+          <Link href="/history" className="btn-secondary">回到匯入紀錄</Link>
         </div>
       </section>
     );

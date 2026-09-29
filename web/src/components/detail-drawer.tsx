@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect } from 'react';
+import React, { useEffect, useRef } from 'react';
 import { StudentCalculationItem } from '@/application/query-students';
 
 interface DetailDrawerProps {
@@ -8,10 +8,52 @@ interface DetailDrawerProps {
   onClose: () => void;
 }
 
+const FOCUSABLE =
+  'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), summary, [tabindex]:not([tabindex="-1"])';
+
 export default function DetailDrawer({ student, onClose }: DetailDrawerProps) {
   if (!student) return null;
+  return <DrawerPanel student={student} onClose={onClose} />;
+}
 
+/**
+ * 學生明細抽屜（modal，specs/09 §6／UX16）：
+ * 開啟時焦點移入；Tab／Shift+Tab 在抽屜內循環（focus trap）；Esc 關閉；
+ * 關閉後焦點回到觸發點（該學生列的姓名按鈕，找不到才回到開啟前的焦點元素）。
+ */
+function DrawerPanel({ student, onClose }: { student: StudentCalculationItem; onClose: () => void }) {
   const { trace } = student;
+  const panelRef = useRef<HTMLDivElement | null>(null);
+  const personCode = student.personCode;
+
+  useEffect(() => {
+    const opener = document.activeElement as HTMLElement | null;
+    panelRef.current?.querySelector<HTMLElement>('[data-drawer-close]')?.focus();
+    return () => {
+      const trigger = document.querySelector<HTMLElement>(`[data-student-trigger="${CSS.escape(personCode)}"]`);
+      (trigger ?? opener)?.focus?.();
+    };
+  }, [personCode]);
+
+  const trapTab = (e: React.KeyboardEvent) => {
+    const panel = panelRef.current;
+    if (e.key !== 'Tab' || !panel) return;
+    const items = [...panel.querySelectorAll<HTMLElement>(FOCUSABLE)].filter((el) => el.getClientRects().length > 0);
+    if (items.length === 0) {
+      e.preventDefault();
+      return;
+    }
+    const first = items[0];
+    const last = items[items.length - 1];
+    const active = document.activeElement;
+    if (e.shiftKey && (active === first || !panel.contains(active))) {
+      e.preventDefault();
+      last.focus();
+    } else if (!e.shiftKey && (active === last || !panel.contains(active))) {
+      e.preventDefault();
+      first.focus();
+    }
+  };
 
   return (
     <div
@@ -33,9 +75,11 @@ export default function DetailDrawer({ student, onClose }: DetailDrawerProps) {
       onKeyDown={(e) => {
         // UX16：Esc 可關閉 drawer（背景 div 預設不可聚焦，故明確綁定）
         if (e.key === 'Escape') onClose();
+        trapTab(e);
       }}
     >
       <div
+        ref={panelRef}
         style={{
           width: '100%',
           maxWidth: '560px',
@@ -70,6 +114,7 @@ export default function DetailDrawer({ student, onClose }: DetailDrawerProps) {
             type="button"
             onClick={onClose}
             className="btn-secondary"
+            data-drawer-close
             style={{ padding: '4px 10px', fontSize: '0.875rem' }}
           >
             關閉 ✕
