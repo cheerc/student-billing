@@ -47,7 +47,8 @@ test.describe('Imports Page E2E Test (R3 匯入頁一次完成使用名單)', ()
 
     // 檢查頁面標題與三步驟標示
     await expect(page.locator('h1')).toContainText('匯入學生');
-    await expect(page.locator('.step-indicator')).toContainText('1 選擇檔案');
+    await expect(page.locator('.step-item.step-active')).toContainText(/1\s*選擇檔案/);
+    await expect(page.locator('.step-item.step-active .step-text')).toHaveText('選擇檔案'); // 文字不重複序號
     await expect(page.locator('.schedule-meta-note')).toBeVisible();
 
     // 檢查上傳標題（去技術化文案）
@@ -59,7 +60,7 @@ test.describe('Imports Page E2E Test (R3 匯入頁一次完成使用名單)', ()
     await fileInput.setInputFiles(fixturePath);
 
     // 驗證進入預覽步驟 (確認名單)，預覽統計數據出現：477、384、93
-    await expect(page.locator('.step-item.step-active')).toContainText('2 確認名單');
+    await expect(page.locator('.step-item.step-active')).toContainText(/2\s*確認名單/);
     await expect(page.locator('.stats-grid')).toBeVisible({ timeout: 15000 });
     await expect(page.locator('.stat-card', { hasText: '學生總人數' })).toContainText('477');
     await expect(page.locator('.stat-card', { hasText: '有報名班級人數' })).toContainText('384');
@@ -86,7 +87,7 @@ test.describe('Imports Page E2E Test (R3 匯入頁一次完成使用名單)', ()
     await useBtn.click();
 
     // 驗證進入完成步驟 (Success)
-    await expect(page.locator('.step-item.step-active')).toContainText('3 完成');
+    await expect(page.locator('.step-item.step-active')).toContainText(/3\s*完成/);
     const successCard = page.locator('.success-stage-card');
     await expect(successCard).toBeVisible({ timeout: 15000 });
     await expect(successCard).toContainText('477 位學生資料已備妥');

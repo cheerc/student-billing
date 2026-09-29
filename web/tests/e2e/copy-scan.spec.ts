@@ -44,6 +44,8 @@ const FORBIDDEN: Array<{ term: string; re: RegExp }> = [
   { term: 'API', re: /\bAPI\b/ },
   { term: '雜湊／SHA／hash', re: /雜湊|\bSHA\b|\bhash\b/i },
   { term: '英文操作提示（應為中文）', re: /Upload XLSX|\(Settings\)|Storage Path/ },
+  { term: 'token（解析器內部名詞，日常說「報名班級」）', re: /\btokens?\b/i },
+  { term: '規則編號（R04 等 spec 內部編號）', re: /\bR\d{2}\b/ },
 ];
 
 /** UX15 明定保留的問題類型短標，掃描前先排除。 */

@@ -218,7 +218,7 @@ function DrawerPanel({ student, onClose }: { student: StudentCalculationItem; on
             }}
           >
             <h4 style={{ fontSize: '0.875rem', fontWeight: 700, marginBottom: '8px' }}>
-              折扣推導 (R04–R15)
+              折扣推導
             </h4>
             <div style={{ fontSize: '0.8125rem', display: 'flex', flexDirection: 'column', gap: '6px' }}>
               <div>已補科數：<strong>{student.subjectCount !== null ? `${student.subjectCount} 科` : '無班級 (null)'}</strong></div>

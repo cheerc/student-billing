@@ -201,17 +201,17 @@ export function ImportsWorkflow({
       <div className="step-indicator" role="navigation" aria-label="匯入進度步驟">
         <div className={`step-item ${stage === 'upload' ? 'step-active' : 'step-done'}`}>
           <span className="step-number">1</span>
-          <span className="step-text">1 選擇檔案</span>
+          <span className="step-text">選擇檔案</span>
         </div>
         <div className="step-divider" aria-hidden="true" />
         <div className={`step-item ${stage === 'preview' ? 'step-active' : stage === 'success' ? 'step-done' : ''}`}>
           <span className="step-number">2</span>
-          <span className="step-text">2 確認名單</span>
+          <span className="step-text">確認名單</span>
         </div>
         <div className="step-divider" aria-hidden="true" />
         <div className={`step-item ${stage === 'success' ? 'step-active' : ''}`}>
           <span className="step-number">3</span>
-          <span className="step-text">3 完成</span>
+          <span className="step-text">完成</span>
         </div>
       </div>
 
@@ -298,7 +298,7 @@ export function ImportsWorkflow({
                 <span className="stat-value" style={{ color: '#059669' }}>
                   {preview.stats.studentsWithClass}
                 </span>
-                <span className="stat-sub">至少有一門班級 token</span>
+                <span className="stat-sub">至少報名一門班級</span>
               </div>
               <div className="stat-card">
                 <span className="stat-label">無班級人數</span>
@@ -414,7 +414,7 @@ export function ImportsWorkflow({
                       <th>姓名</th>
                       <th>年級</th>
                       <th>所屬分校</th>
-                      <th>所屬班級 Tokens</th>
+                      <th>報名班級</th>
                       <th>標籤</th>
                       <th>備註</th>
                     </tr>

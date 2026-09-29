@@ -417,4 +417,47 @@ test.describe('R5 可及性稽核（09 §6）', () => {
     }
     expect(missing, `這些元素取得鍵盤焦點時看不到焦點指示：\n${missing.join('\n')}`).toEqual([]);
   });
+
+  test('狀態色語意（09 §4）：琥珀＝需確認、綠＝成功／目前使用、灰＝歷史／中性；顏色之外都有文字', async ({ page }) => {
+    const rgb = async (loc: ReturnType<Page['locator']>) =>
+      loc.first().evaluate((el) => {
+        const m = getComputedStyle(el).backgroundColor.match(/\d+(\.\d+)?/g)!.map(Number);
+        return { r: m[0], g: m[1], b: m[2] };
+      });
+    const isAmber = (c: { r: number; g: number; b: number }) => c.r > c.g && c.g > c.b && c.r - c.b >= 15;
+    const isGreen = (c: { r: number; g: number; b: number }) => c.g > c.r && c.g > c.b;
+    const isNeutral = (c: { r: number; g: number; b: number }) => Math.max(c.r, c.g, c.b) - Math.min(c.r, c.g, c.b) <= 16;
+
+    await page.goto('/imports');
+    await page.locator('input[type="file"]').setInputFiles(FIXTURE);
+    await page.locator('button', { hasText: '使用這份名單' }).click();
+    await expect(page.locator('.success-stage-card')).toBeVisible({ timeout: 15000 });
+
+    // 課表設定：頁籤上的待確認班名數、班名對應列的「待確認」＝琥珀
+    await page.goto('/settings');
+    await expect(page.locator('h1', { hasText: '課表設定' })).toBeVisible({ timeout: 10000 });
+    const countPill = page.locator('button[role="tab"] .pill.warn');
+    await expect(countPill).toBeVisible();
+    expect(isAmber(await rgb(countPill)), '班名對應頁籤的待確認數應為琥珀色').toBe(true);
+    await page.locator('button[role="tab"]', { hasText: '班名對應' }).click();
+    const pending = page.locator('.mapping-table .pill.warn', { hasText: '待確認' });
+    await expect(pending.first()).toBeVisible();
+    expect(isAmber(await rgb(pending)), '「待確認」應為琥珀色，不是綠色（綠＝成功）').toBe(true);
+    const unseen = page.locator('details', { hasText: '本次名單未出現的班級' }).locator('.pill').first();
+    await unseen.evaluate((el) => (el.closest('details') as HTMLDetailsElement).setAttribute('open', ''));
+    expect(isNeutral(await rgb(unseen)), '「本次名單未出現」只是資訊，應為中性灰').toBe(true);
+
+    // 核對結果：目前使用的資料＝綠；歷史唯讀＝灰
+    await page.goto('/');
+    await expect(page.locator('.data-banner-current')).toBeVisible({ timeout: 15000 });
+    const basisNow = page.locator('.data-banner-current .pill');
+    await expect(basisNow).toContainText('核對基準日');
+    expect(isGreen(await rgb(basisNow)), '目前使用的資料，核對基準日標籤應為綠色').toBe(true);
+    await page.goto('/history');
+    await page.locator('a', { hasText: '查看當時結果' }).first().click();
+    await expect(page.locator('.data-banner-history')).toBeVisible({ timeout: 15000 });
+    const basisOld = page.locator('.data-banner-history .pill');
+    await expect(basisOld).toContainText('核對基準日');
+    expect(isNeutral(await rgb(basisOld)), '歷史資料的核對基準日標籤應為中性灰').toBe(true);
+  });
 });

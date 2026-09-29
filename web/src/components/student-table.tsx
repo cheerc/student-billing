@@ -35,7 +35,7 @@ export default function StudentTable({ students, loading }: StudentTableProps) {
             <th>姓名</th>
             <th>年級</th>
             <th>所屬分校</th>
-            <th>所屬班級 Tokens (解析與級距)</th>
+            <th>報名班級（解析與級距）</th>
             <th>標籤</th>
             <th>備註</th>
           </tr>

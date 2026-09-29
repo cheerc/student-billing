@@ -339,7 +339,7 @@ export function ScheduleGrid({
                       ) : isSharedWindow ? (
                         <span className="subtle">共用</span>
                       ) : (
-                        calcRow?.anqin.overlapMinutes ?? 0
+                        calcRow ? (calcRow.anqin.overlapMinutes ?? 0) : '—'
                       )}
                     </td>
 
@@ -365,7 +365,7 @@ export function ScheduleGrid({
                       ) : isSharedWindow ? (
                         <span className="subtle">共用</span>
                       ) : (
-                        calcRow?.tutoring.overlapMinutes ?? 0
+                        calcRow ? (calcRow.tutoring.overlapMinutes ?? 0) : '—'
                       )}
                     </td>
 
