@@ -46,6 +46,7 @@ npm run start
 | `npm run test` | 執行 Vitest 單元測試與整合測試 |
 | `npm run typecheck` | 執行 TypeScript 型別檢查 (`tsc --noEmit`) |
 | `npm run lint` | 執行 ESLint 程式碼品質檢查 |
+| `npm run test:e2e:isolated` | 隔離執行 Playwright E2E（另一埠、臨時 DB、不重用 3000 服務；見下方「E2E 隔離執行」） |
 
 ---
 
@@ -57,7 +58,8 @@ web/
 ├── next.config.ts           # Next.js 配置 (serverExternalPackages: better-sqlite3)
 ├── tsconfig.json            # TypeScript Strict 設定
 ├── vitest.config.ts         # Vitest 測試配置
-├── playwright.config.ts     # Playwright E2E 配置
+├── playwright.config.ts     # Playwright E2E 配置（3000 埠；**不要在有使用者服務時直接執行**）
+├── playwright.isolated.config.ts  # 隔離 E2E 配置（另一埠、臨時 DB、不重用 server）
 ├── src/
 │   ├── app/                 # Next.js App Router 頁面與 API Route Handlers
 │   ├── components/          # 視覺元件 (表格、篩選、明細側欄)
@@ -75,6 +77,24 @@ web/
 │   └── fixtures/            # 保形匿名測試資料
 ```
 *(資料庫位於專案根目錄 `/data/`，被 `.gitignore` 排除)*
+
+---
+
+## 4.1 E2E 隔離執行
+
+現行 `playwright.config.ts` 以 `npm run dev`（寫死 3000 埠）搭配 `reuseExistingServer: !CI`：本機若已開著使用者的 3000 服務，E2E 會直接重用它並連到真實資料庫。**E2E 一律用隔離執行器**（在 `web/` 目錄）：
+
+```bash
+npm run test:e2e:isolated                         # 每個 spec 檔各用全新 server＋全新臨時 DB（預設；結果與檔案順序無關）
+npm run test:e2e:isolated -- --shared             # 全部 spec 共用同一個 server＋DB，依檔名順序
+npm run test:e2e:isolated -- --shared --repeat 2  # 同一個臨時 DB 連跑 2 輪（重現 DB 狀態跨輪殘留）
+npm run test:e2e:isolated -- tests/e2e/imports.spec.ts   # 只跑指定 spec
+```
+
+- 埠預設 3100（`--port` 可改，**不可為 3000**）；只綁 `127.0.0.1`；`reuseExistingServer:false`（埠被占用即失敗）。
+- `DATABASE_PATH` 指向系統臨時目錄下的獨立 sqlite，結束即刪；守衛（`scripts/e2e-isolation.ts`）會拒絕 3000 埠、預設資料庫與專案 `data/` 目錄。
+- 只使用 `tests/fixtures/` 的合成／匿名資料；E2E spec 不得引用資料庫檔或 `data/`（`tests/unit/e2e-specs-no-real-db.test.ts` 守衛）。
+- 與 `next dev` 共用 `.next/` 目錄：若你在同一個工作樹已開著 `npm run dev`，隔離 server 會因 Next 的目錄鎖而失敗（安全失敗，不會重用你的服務）。
 
 ---
 

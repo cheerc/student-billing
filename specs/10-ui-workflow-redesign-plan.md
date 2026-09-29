@@ -44,7 +44,7 @@ UX01–UX24的矩陣正本在[04 §8](04-tdd-acceptance.md)，此處不再複製
 
 本repo採no-CI（decision d-20260923084544894113-3：GitHub Actions額度不足）。merge證據是Reviewer在獨立worktree跑的本機全量結果（typecheck、lint、vitest、playwright、production build），不是CI。現有`.github/workflows/ci.yml`只跑npm ci、typecheck、lint、test、build，無Playwright job；R5可加browser install與E2E job，但**不作gate**。
 
-**E2E隔離**（R0建立）：
+**E2E隔離**（R0建立；指令`npm run test:e2e:isolated`，說明見web/README §4.1）：
 
 - DB：環境變數`DATABASE_PATH`（`web/src/adapters/sqlite/db.ts:11`）指向測試專用sqlite，不指`/data/app.sqlite`。
 - config：現行`web/playwright.config.ts`的webServer固定`npm run dev`（:19），該script寫死`-p 3000`（`web/package.json:9`），baseURL與url為3000（:9、:20），`reuseExistingServer: !process.env.CI`（:21）——使用者開著的3000服務會被重用而寫入真資料。隔離config須：webServer.command直接呼叫`next dev -H 127.0.0.1 -p 3100`（不經`npm run dev`）、baseURL與url同改3100、`reuseExistingServer: false`，並以`env`傳入`DATABASE_PATH`。**不得在使用者3000服務跑會寫入的測試**，只用合成／匿名fixtures。

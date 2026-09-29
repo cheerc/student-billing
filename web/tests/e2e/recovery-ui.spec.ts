@@ -1,39 +1,10 @@
 import { test, expect } from '@playwright/test';
 import path from 'path';
-import fs from 'fs';
 
 test.describe('T06: 故障恢復、歷程查閱與剩餘 UI 契約 E2E 驗收測試', () => {
-  test.beforeEach(() => {
-    // 清理測試 SQLite 資料庫，避免跨測試污染
-    for (const d of [path.resolve(__dirname, '../../../data'), path.resolve(__dirname, '../../data')]) {
-      if (fs.existsSync(d)) {
-        const files = fs.readdirSync(d);
-        for (const f of files) {
-          if (f.includes('app.sqlite')) {
-            try {
-              fs.rmSync(path.join(d, f), { force: true });
-            } catch (_e) {}
-          }
-        }
-      }
-    }
-  });
-
-  test.afterEach(() => {
-    // 測試完成後清理資料庫殘留
-    for (const d of [path.resolve(__dirname, '../../../data'), path.resolve(__dirname, '../../data')]) {
-      if (fs.existsSync(d)) {
-        const files = fs.readdirSync(d);
-        for (const f of files) {
-          if (f.includes('app.sqlite')) {
-            try {
-              fs.rmSync(path.join(d, f), { force: true });
-            } catch (_e) {}
-          }
-        }
-      }
-    }
-  });
+  // 資料庫隔離由 `npm run test:e2e:isolated` 負責（每個 spec 檔全新臨時 DB，specs/10 §4）。
+  // 本檔不得刪除任何資料庫檔或 data/ 下的檔案：舊版 beforeEach／afterEach 會刪除專案 data 目錄內的 SQLite 檔，
+  // 在主工作樹執行時即為使用者的真實資料庫（issue #25；tests/unit/e2e-specs-no-real-db.test.ts 守衛）。
 
   test('完整端到端旅程：上傳 → 啟用 → 歷程查閱 → 問題定位跳轉 → 待設定班級提示 → 重置篩選', async ({ page }) => {
     // 1. 上傳 ERP 試算表
