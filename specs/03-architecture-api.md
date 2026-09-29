@@ -1,5 +1,7 @@
 # 技術架構、資料模型與 API 契約
 
+> 2026-09-29 UI重設補充：畫面與先課表流程以[09](09-ui-workflow-redesign-spec.md)為準；必要API／無學生設定保存見09 §8，新增測試與派工見[10](10-ui-workflow-redesign-plan.md)。計費規則沿用目前D24–D32，不由UI改版變更。
+
 ## 1. 技術選擇
 
 建議 TypeScript + Node.js 24。不是所有資料處理工具唯一最佳語言，但本案主要是 Web 操作、確定性規則、檔案解析與未來 Vercel/Firebase 整合，前後端共用型別與純函式測試的價值大於另建 Python 服務。Python 可留作開發期間 Excel 獨立驗證工具，不成為部署依賴。
