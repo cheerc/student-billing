@@ -135,7 +135,7 @@ tooltip短句、數值；hover/focus/click均可開、Esc可關。多步說明�
 
 **窗口唯讀**：窗口是ruleSet參數（`RuleSetOptions.anqinWindow／tutoringWindow`，`web/src/domain/schedules/overlap-calculator.ts:36-37`，預設常數`CARE_WINDOWS`同檔9-12）。現況`draftToScheduleOverride`只轉換sessions（`web/src/adapters/sqlite/settings-repository.ts:165-181`），draft的careWindows沒有進入計算。故read model一律用ruleSet窗口，回應帶`windows`供畫面唯讀顯示，不讀draft窗口，避免預覽與正式run不同源。`SettingsDraft.careWindows`仍是schema必填（`web/src/contracts/settings.ts:300-303`），UI一律帶ruleSet值；server收到不同值回400 INVALID_DRAFT，不靜默忽略。
 
-建議POST /api/v1/settings/calculate：輸入draft、requestKey（**不含ruleSetVersion**）；回requestKey、draftHash、ruleSetVersion、windows、rows、classes、issues。rows含rowId/classKey/durationMinutes、兩組overlapMinutes/rawDeduction/status；classes含兩組totalOverlapMinutes/raw/rounded/status/rowIds。rowId保持穩定，空時段列仍回null與issue。這個POST僅純計算，不建立preview／run、不寫DB，仍驗same-origin與payload限制。
+建議POST /api/v1/settings/calculate：輸入draft（`CalculateDraft`，允許帶可選`rowId`，且`startMinutes`／`endMinutes`允許為null或end≤start的不完整列）、requestKey（**不含ruleSetVersion**）；回requestKey、draftHash、ruleSetVersion、windows、rows、classes、issues。rows含rowId/classKey/durationMinutes、兩組overlapMinutes/rawDeduction/status；classes含兩組totalOverlapMinutes/raw/rounded/status/rowIds。rowId保持穩定（client帶來的原樣回傳，未帶才補序號），不完整列回null＋`missing_time`與`SCHEDULE_INCOMPLETE`問題；班級含不完整列時標為`incomplete`，扣天只計完整列；`draftHash`取去掉不完整列與rowId之「存檔等價draft」計算，確保與存檔時之preview `inputHash`完全同源。這個POST僅純計算，不建立preview／run、不寫DB，仍驗same-origin與payload限制。
 
 **ruleSetVersion由server決定**，做法同`web/src/application/settings-preview.ts:125-132`：有active run採其ruleSetVersion，無則採現行正式軌erp-tag-v2。新增要求：值必須是正式軌；若active run為診斷軌excel-v260922-compat（activate現未限制版本，`web/src/application/calculate-run.ts:29`）則改採現行正式軌。client不得指定，任何情況不得選compat（診斷軌不作正式值，根CLAUDE.md §2）。
 

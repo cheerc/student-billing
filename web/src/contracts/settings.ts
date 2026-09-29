@@ -30,6 +30,17 @@ export const SessionSchema = z.object({
 
 export type Session = z.infer<typeof SessionSchema>;
 
+/**
+ * 時段是否「完整可計算」：起、迄皆有值且迄晚於起。
+ * 存檔（gridRowsToClasses 丟掉不完整列）與 calculate（不完整列回 null＋missing_time）共用同一個判斷，
+ * 兩邊對「哪些列算不完整」不會分歧（09 §8.1）。
+ */
+export function isCompleteTimeRange<T extends { startMinutes: number | null; endMinutes: number | null }>(
+  s: T
+): s is T & { startMinutes: number; endMinutes: number } {
+  return s.startMinutes !== null && s.endMinutes !== null && s.endMinutes > s.startMinutes;
+}
+
 /** 單一班級設定 */
 export const ClassSettingSchema = z.object({
   baseName: z.string().min(1),
@@ -109,6 +120,24 @@ export function gridRowsToClasses(
   rows: ScheduleGridRow[],
   existingClasses?: ClassSetting[]
 ): ClassSetting[] {
+  return groupGridRowsToClasses(rows, existingClasses, (classRows) =>
+    classRows.filter(isCompleteTimeRange).map((r) => ({
+      weekday: r.weekday,
+      startMinutes: r.startMinutes,
+      endMinutes: r.endMinutes,
+    }))
+  );
+}
+
+/**
+ * 平鋪列 → 班級的共用分組（存檔與 calculate 同一套：班名分組、subject／teacher／active 的決定方式），
+ * 只有「每班的 sessions 怎麼產生」由呼叫端決定。
+ */
+function groupGridRowsToClasses<S>(
+  rows: ScheduleGridRow[],
+  existingClasses: ClassSetting[] | undefined,
+  toSessions: (classRows: ScheduleGridRow[]) => S[]
+): Array<Omit<ClassSetting, 'sessions'> & { sessions: S[] }> {
   const existingMap = new Map<string, ClassSetting>();
   if (existingClasses) {
     for (const c of existingClasses) {
@@ -126,27 +155,19 @@ export function gridRowsToClasses(
     grouped.get(r.className)!.push(r);
   }
 
-  const classes: ClassSetting[] = [];
+  const classes: Array<Omit<ClassSetting, 'sessions'> & { sessions: S[] }> = [];
   for (const [className, classRows] of grouped.entries()) {
     const existing = existingMap.get(className);
     const subject = existing?.subject ?? deriveSubject(className);
     const teacher = classRows[0]?.teacher ?? existing?.teacher ?? null;
     const active = classRows.some((r) => r.active);
 
-    const sessions = classRows
-      .filter((r) => r.startMinutes !== null && r.endMinutes !== null && r.endMinutes > r.startMinutes)
-      .map((r) => ({
-        weekday: r.weekday,
-        startMinutes: r.startMinutes!,
-        endMinutes: r.endMinutes!,
-      }));
-
     classes.push({
       baseName: className,
       subject,
       teacher,
       active,
-      sessions,
+      sessions: toSessions(classRows),
     });
   }
 
@@ -306,6 +327,49 @@ export const SettingsDraftSchema = z.object({
 });
 
 export type SettingsDraft = z.infer<typeof SettingsDraftSchema>;
+
+/**
+ * calculate 專用輸入（09 §8.1）：編輯中的 draft 允許「不完整列」——起或迄為 null，或迄 ≤ 起——
+ * 並可帶 client 的 rowId（對應 ScheduleGridRow.rowId，server 原樣回傳）。
+ * 這只用於唯讀計算；settings/preview 與 apply 仍用 SettingsDraftSchema（只收完整時段）。
+ * 存檔時不完整列會被 gridRowsToClasses 丟掉，calculate 以 toSaveEquivalentDraft 取得同樣的結果。
+ */
+export const CalculateSessionSchema = z.object({
+  rowId: z.string().min(1).max(200).optional(),
+  weekday: z.string().min(1).max(8),
+  startMinutes: z.number().int().min(0).max(1440).nullable().default(null),
+  endMinutes: z.number().int().min(0).max(1440).nullable().default(null),
+});
+
+export type CalculateSession = z.infer<typeof CalculateSessionSchema>;
+
+export const CalculateClassSchema = ClassSettingSchema.extend({
+  sessions: z.array(CalculateSessionSchema).default([]),
+});
+
+export const CalculateDraftSchema = SettingsDraftSchema.extend({
+  classes: z.array(CalculateClassSchema).min(1),
+});
+
+export type CalculateDraft = z.infer<typeof CalculateDraftSchema>;
+
+/**
+ * ScheduleGridRow[] → calculate 用班級：與 gridRowsToClasses 同一套分組，
+ * 差別只在 sessions 保留「每一列」（含不完整列）並帶 grid 的 rowId，讓結果能一對一掛回畫面的列。
+ */
+export function gridRowsToCalculateClasses(
+  rows: ScheduleGridRow[],
+  existingClasses?: ClassSetting[]
+): CalculateDraft['classes'] {
+  return groupGridRowsToClasses(rows, existingClasses, (classRows) =>
+    classRows.map((r) => ({
+      rowId: r.rowId,
+      weekday: r.weekday,
+      startMinutes: r.startMinutes,
+      endMinutes: r.endMinutes,
+    }))
+  );
+}
 
 export const SettingsPreviewRequestSchema = z.object({
   draft: SettingsDraftSchema,
