@@ -6,6 +6,7 @@ import { queryImportStudents } from '@/application/roster-query';
 import { queryRunStudents } from '@/application/query-students';
 import RosterView from '@/components/roster-view';
 import ActiveRunView from '@/components/active-run-view';
+import { getScheduleDeductions } from '@/application/schedule-deductions';
 
 export const dynamic = 'force-dynamic';
 
@@ -33,6 +34,7 @@ export default async function HomePage() {
     return (
       <div>
         <ActiveRunView
+          initialDeductions={getScheduleDeductions(db, { runId: activeRun.id })}
           runId={activeRun.id}
           revision={currentActive.revision}
           asOfDate={activeRun.asOfDate}

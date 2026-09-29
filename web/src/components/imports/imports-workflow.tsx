@@ -314,10 +314,16 @@ export function ImportsWorkflow({
                   新增 <strong>{preview.rosterDiff.newStudents}</strong> 人
                 </span>
                 <span className="roster-diff-item">
-                  報名異動 <strong>{preview.rosterDiff.changedStudents}</strong> 人
-                </span>
-                <span className="roster-diff-item">
                   未出現 <strong>{preview.rosterDiff.notAppearedStudents}</strong> 人
+                </span>
+                {/*
+                  R4 operator 裁決：rosterDiff 的 changedStudents 是「報名 token 集合有變」的
+                  代理指標，會把「報名有變但計費不變」與「報名沒變但計費變（升年級、標籤變動）」
+                  都判錯，因此不再以「報名異動」呈現。正式異動以折扣與安親／課輔扣除天數的
+                  before & after 計算結果判定（application/roster-changes.ts），於核對結果頁呈現。
+                */}
+                <span className="roster-diff-item roster-diff-note">
+                  天數與折扣是否改變，將於核對結果頁逐位列出
                 </span>
               </div>
             )}

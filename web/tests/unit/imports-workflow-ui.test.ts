@@ -285,12 +285,13 @@ describe('R3 匯入頁工作流程與 UI 元件（RED 測試）', () => {
   });
 
   /**
-   * Lead 裁決（decision d-20260929110117338263-3）：rosterDiff 的「異動」只比對
-   * person_code ＋ 報名 token 集合，未涵蓋 grade／tagsRaw（兩者都會改變計費結果）。
-   * 本輪不擴大指紋比對範圍，僅以文案標示比對範圍，避免使用者誤讀。
+   * R3 曾以「報名異動」標示 rosterDiff 的比對範圍（decision d-20260929110117338263-3）。
+   * R4 operator 裁決（d-20260929111803466480-4 / d-20260929111814541876-5）已正式以
+   * 折扣與安親／課輔扣除天數的 before & after 計算結果取代該代理指標，故「報名異動」
+   * 文案一併移除，改為指向正式判準；「新增／未出現」兩個 rosterDiff 算得出且語意正確的數字保留。
    */
-  describe('Lead 裁決：差異統計文案改為「報名異動」', () => {
-    it('顯示「報名異動」而非籠統的「異動」', () => {
+  describe('R4 裁決：報名異動代理指標移除，指向以計算結果判定', () => {
+    it('「新增」「未出現」仍呈現；「報名異動」已移除，改為指向計算結果判準', () => {
       const html = renderToStaticMarkup(
         React.createElement(ImportsWorkflow, {
           initialStage: 'preview',
@@ -300,9 +301,11 @@ describe('R3 匯入頁工作流程與 UI 元件（RED 測試）', () => {
         })
       );
 
-      expect(html).toContain('報名異動');
-      // 不可出現孤立的「異動」字樣（避免與「報名異動」混用造成誤讀）
-      expect(html).not.toMatch(/>異動</);
+      expect(html).toContain('新增');
+      expect(html).toContain('未出現');
+      // 代理指標已移除：不可再以「報名異動」宣稱異動人數
+      expect(html).not.toContain('報名異動');
+      expect(html).toContain('核對結果頁');
     });
 
     it('基準名單為 null（首次匯入）時不呈現差異統計區塊', () => {

@@ -3,6 +3,8 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import SummaryTable from './summary-table';
 import DetailDrawer from './detail-drawer';
+import ClassDeductionsPanel from './results/class-deductions-panel';
+import { DeductionsResponse } from '@/application/schedule-deductions';
 import {
   RunStudentsQueryResult,
   StudentCalculationItem,
@@ -14,6 +16,8 @@ interface ActiveRunViewProps {
   asOfDate: string;
   initialAvailableClasses: string[];
   initialData: RunStudentsQueryResult;
+  /** 班級扣天 read model（09 §5.2；有 active run 時與學生總表同一份快照） */
+  initialDeductions: DeductionsResponse;
 }
 
 const UNMAPPED_CLASSES = new Set([
@@ -37,7 +41,10 @@ export default function ActiveRunView({
   asOfDate,
   initialAvailableClasses,
   initialData,
+  initialDeductions,
 }: ActiveRunViewProps) {
+  // 結果雙頁籤（09 §2／§5.2）：學生總表、班級扣天
+  const [resultTab, setResultTab] = useState<'students' | 'deductions'>('students');
   const [loading, setLoading] = useState(false);
   const [data, setData] = useState<RunStudentsQueryResult>(initialData);
   const [error, setError] = useState<string | null>(null);
@@ -546,13 +553,43 @@ export default function ActiveRunView({
           </div>
         )}
 
-        {/* 核對總表 */}
-        <SummaryTable
-          students={data?.items || []}
-          loading={loading}
-          onSelectStudent={(s) => setSelectedStudent(s)}
-          onResetFilters={handleResetFilters}
-        />
+        {/* 結果雙頁籤（09 §2） */}
+        <div className="tabs" role="tablist" aria-label="結果頁籤">
+          <button
+            type="button"
+            role="tab"
+            aria-selected={resultTab === 'students'}
+            className={resultTab === 'students' ? 'selected' : ''}
+            onClick={() => setResultTab('students')}
+          >
+            學生總表
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={resultTab === 'deductions'}
+            className={resultTab === 'deductions' ? 'selected' : ''}
+            onClick={() => setResultTab('deductions')}
+          >
+            班級扣天
+          </button>
+        </div>
+
+        {resultTab === 'students' ? (
+          <SummaryTable
+            students={data?.items || []}
+            loading={loading}
+            onSelectStudent={(s) => setSelectedStudent(s)}
+            onResetFilters={handleResetFilters}
+          />
+        ) : (
+          <ClassDeductionsPanel
+            data={initialDeductions}
+            onEditClass={() => {
+              window.location.href = '/settings?tab=schedule';
+            }}
+          />
+        )}
       </div>
 
       {/* 學生計算明細側欄 Drawer */}
