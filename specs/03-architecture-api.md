@@ -75,7 +75,7 @@ ClassDefinition、ClassAlias、ScheduleSession 及解析對應均須可由run引
 
 SQLite 使用交易：先寫不可見的新批次／結果，完成驗證與計算後才一次切 activeState；任何步驟失敗，現行結果不變。設定保存同理。並行兩次變更使用 revision 比對，過期更新回 409，不最後寫入者無聲覆蓋。
 
-同檔 hash 再上傳顯示已匯入，不重複建立學生；若排課改變可用同 import 新建 run。不同檔案同內容可提示重用；不以檔名直接判重。ActiveState 初始化為 revision=0、activeImportId/activeRunId=null；初始設定 seed 使用獨立冪等初始化流程，不需要先有 run。首次 activate 仍以 revision=0 做 CAS。preview 固定設定版本並設 TTL 逾期防 stale，僅跑正式 erp-tag-v1 規則；activate 必須核對該版本仍可用及基準日適用性；過期回409，不悄悄改用最新設定。idempotencyKey 必須附加隨機後綴（如 `apply-{timestamp}-{random}`）；相同 idempotencyKey/body 的成功重送先回原成功結果，再處理新請求的 revision 檢查，避免首次成功後網路重試得到錯誤409；失敗不留成功紀錄。比對基準採初始 seed 盤點（49 班基準）與目前設定視圖（active classes ＋ 已核准 aliases）雙軌並存。
+同檔 hash 再上傳顯示已匯入，不重複建立學生；若排課改變可用同 import 新建 run。不同檔案同內容可提示重用；不以檔名直接判重。ActiveState 初始化為 revision=0、activeImportId/activeRunId=null；初始設定 seed 使用獨立冪等初始化流程，不需要先有 run。首次 activate 仍以 revision=0 做 CAS。preview 固定設定版本並設 TTL 逾期防 stale，僅跑正式 erp-tag-v1 規則；preview／apply 過期回409，不悄悄改用最新設定；activate 則由 server 於同一交易內解析最新已儲存設定版本（[09 §8.2.1](09-ui-workflow-redesign-spec.md)）：run.scheduleVersionId＝該版本 id，忽略 client 傳入的 scheduleVersionId，尚無已儲存設定才用 seed。idempotencyKey 必須附加隨機後綴（如 `apply-{timestamp}-{random}`）；相同 idempotencyKey/body 的成功重送先回原成功結果，再處理新請求的 revision 檢查，避免首次成功後網路重試得到錯誤409；失敗不留成功紀錄。比對基準採初始 seed 盤點（49 班基準）與目前設定視圖（active classes ＋ 已核准 aliases）雙軌並存。
 
 P1 整批重算可接受，5000 筆規模未證明有瓶頸前不實作複雜增量計算。
 
@@ -90,7 +90,7 @@ P1 整批重算可接受，5000 筆規模未證明有瓶頸前不實作複雜增
 |方法與路徑|階段|行為|
 |---|---|---|
 |POST /imports/preview|P1|multipart file；解析驗證，回 previewId、標頭、數量、issues、差異摘要|
-|POST /imports/{previewId}/activate|P1|body 帶 expectedRevision、idempotencyKey、asOfDate 與選定 scheduleVersionId；計算並原子啟用|
+|POST /imports/{previewId}/activate|P1|body 帶 expectedRevision、idempotencyKey、asOfDate（可選 ruleSetVersion）；不接受 scheduleVersionId，server 於同一交易內解析最新已儲存設定版本（09 §8.2.1）後計算並原子啟用|
 |GET /imports|P1|批次基本資料；不回傳全部 raw notes|
 |GET /runs/current|P1|回 ActiveState revision 與目前 run；首次空資料回 200、revision=0、run=null|
 |GET /classes?runId=...|P1|本批可見班級、科別、去重學生數、設定狀態|
@@ -148,7 +148,7 @@ GET /imports/{previewId}/students 供ready批次在啟用前查看名單，與�
 }
 ```
 
-ERP token 可有明確離班日期，依使用者決策只顯示不排除。財務檔有排課起迄日但不匯入本工具；學生檔沒有完整入班／異動歷史。asOfDate只選排課版本，不用離班日自動改名單或科數，不能重建任意日期真實enrollment。
+ERP token 可有明確離班日期，依使用者決策只顯示不排除。財務檔有排課起迄日但不匯入本工具；學生檔沒有完整入班／異動歷史。asOfDate只作核對基準日記錄於run，不選排課版本（課表版本一律取最新已儲存設定，09 §8.2.1），不用離班日自動改名單或科數，不能重建任意日期真實enrollment。
 
 錯誤格式：`{error:{code,message,details,requestId}}`；結構錯誤 400，缺必要欄／重複代碼等資料驗證 422，版本衝突 409，檔案過大 413，未找到 404，內部錯誤 500。一般 response 不附 stack 或完整學生備註。
 
