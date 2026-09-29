@@ -322,7 +322,7 @@ export default function ActiveRunView({
           <>
             <span className="counts-sep" aria-hidden="true">·</span>
             <span className="counts-item">
-              <strong data-count="mismatch">{stats.mismatchCount}</strong> 位計算天數與 ERP 登記不符
+              <strong data-count="mismatch">{stats.mismatchCount}</strong> 位計算天數與米豆奶登記不符
             </span>
           </>
         )}

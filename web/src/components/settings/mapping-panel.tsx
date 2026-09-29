@@ -30,10 +30,10 @@ export function MappingPanel({
       <div className="card mapping-panel-card" style={{ padding: '32px', textAlign: 'center' }}>
         <div style={{ fontSize: '32px', marginBottom: '12px' }}>📋</div>
         <h3 style={{ fontSize: '18px', fontWeight: 600, marginBottom: '8px' }}>
-          匯入名單後，可確認ERP班名
+          匯入名單後，可確認米豆奶班名
         </h3>
         <p className="note" style={{ maxWidth: '480px', margin: '0 auto 16px', lineHeight: 1.6 }}>
-          目前系統中尚未匯入學生名冊。當您上傳 ERP 試算表後，若有尚未對齊的班級名稱，將自動列於此處供您確認與建立對應，完全不阻擋先行的課表維護與儲存。
+          目前系統中尚未匯入學生名冊。當您上傳米豆奶試算表後，若有尚未對齊的班級名稱，將自動列於此處供您確認與建立對應，完全不阻擋先行的課表維護與儲存。
         </p>
       </div>
     );
@@ -47,13 +47,13 @@ export function MappingPanel({
     <div className="mapping-panel-container">
       <div className="card" style={{ marginBottom: '20px' }}>
         <div className="toolbar">
-          <span style={{ fontWeight: 600 }}>待確認 ERP 班名 ({candidates.length})</span>
-          <span className="note end">請為 ERP 匯入的班名指定對應的系統班級</span>
+          <span style={{ fontWeight: 600 }}>待確認米豆奶班名 ({candidates.length})</span>
+          <span className="note end">請為米豆奶匯入的班名指定對應的系統班級</span>
         </div>
 
         {candidates.length === 0 ? (
           <div style={{ padding: '24px', textAlign: 'center', color: 'var(--text-muted)' }}>
-            ✓ 所有 ERP 班名皆已對齊現有系統班級或已建立對應。
+            ✓ 所有米豆奶班名皆已對齊現有系統班級或已建立對應。
           </div>
         ) : (
           <div className="scroll table-scroll-container">
@@ -61,7 +61,7 @@ export function MappingPanel({
               <thead>
                 <tr>
                   <th style={{ width: '40px' }}>對應</th>
-                  <th>ERP 匯入班名</th>
+                  <th>米豆奶匯入班名</th>
                   <th>學生數／筆數</th>
                   <th>系統對應班級</th>
                   <th>狀態</th>
@@ -133,7 +133,7 @@ export function MappingPanel({
           </summary>
           <div style={{ marginTop: '12px', fontSize: '13px', color: 'var(--text-muted)' }}>
             <p style={{ marginBottom: '8px' }}>
-              以下為系統中已定義但未在此批 ERP 名冊中出現的班級（系統不會自動停用這些班級）：
+              以下為系統中已定義但未在此批米豆奶名冊中出現的班級（系統不會自動停用這些班級）：
             </p>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
               {seedNotAppeared.map((name) => (

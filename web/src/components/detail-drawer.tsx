@@ -238,10 +238,10 @@ function DrawerPanel({ student, onClose }: { student: StudentCalculationItem; on
             </div>
           </div>
 
-          {/* ERP 登記級距比對 */}
+          {/* 米豆奶登記級距比對 */}
           <div>
             <h4 style={{ fontSize: '0.875rem', fontWeight: 700, marginBottom: '8px' }}>
-              課程與扣天：ERP 登記級距比對
+              課程與扣天：米豆奶登記級距比對
             </h4>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
               {student.tierComparisons.map((comp, idx) => (
@@ -284,7 +284,7 @@ function DrawerPanel({ student, onClose }: { student: StudentCalculationItem; on
                     </span>
                   </div>
                   <div style={{ color: 'var(--text-secondary)' }}>
-                    系統計算級距: <strong>{comp.computedTier ?? '-'}</strong> 天 · ERP 登記級距: <strong>{comp.erpDeclaredTier ?? '-'}</strong> 天
+                    系統計算級距: <strong>{comp.computedTier ?? '-'}</strong> 天 · 米豆奶登記級距: <strong>{comp.erpDeclaredTier ?? '-'}</strong> 天
                   </div>
                   {comp.needsReview && (
                     <div style={{ color: '#b45309', marginTop: '4px', fontSize: '0.75rem' }}>

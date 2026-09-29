@@ -49,7 +49,7 @@ export function detectStudentIssues(input: IssueDetectionInput): StudentIssue[] 
       issues.push({
         code: 'DUPLICATE_SUBJECT_ENROLLMENT',
         category: catName,
-        message: `學生重複報名同類別「${catName}」${tokens.length} 班：${details}。天數扣除依規定僅取第一班，請核對 ERP 登記是否有誤。`,
+        message: `學生重複報名同類別「${catName}」${tokens.length} 班：${details}。偵測到重複類型課程，請檢查米豆奶學生課程設定。`,
       });
     }
   }

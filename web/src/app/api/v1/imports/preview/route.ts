@@ -22,7 +22,7 @@ export async function POST(request: Request | NextRequest) {
 
     if (!file) {
       return NextResponse.json(
-        { error: '未提供上傳檔案，請選擇 ERP 學生名單試算表 (XLSX)' },
+        { error: '未提供上傳檔案，請選擇米豆奶學生名單試算表 (XLSX)' },
         { status: 400 }
       );
     }
