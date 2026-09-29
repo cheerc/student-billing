@@ -18,12 +18,12 @@ test.describe('T05 設定 preview→apply E2E（R2 課表與班名對應工作�
     await page.locator('input[type="file"]').setInputFiles(fixturePath);
     await expect(page.locator('.stats-grid')).toBeVisible({ timeout: 15000 });
 
-    // 2. 首頁啟用為正式 run
+    // 2. 首頁啟用為正式 run（R5 文案：按鈕「啟用為正式 Run ▶」→「使用這份名單」，與匯入頁一致；
+    //    改為必須存在——舊版「有才點」的條件式會在按鈕消失時無聲略過）
     await page.goto('/');
-    const activateBtn = page.locator('button', { hasText: '啟用為正式 Run' });
-    if (await activateBtn.isVisible()) {
-      await activateBtn.click();
-    }
+    const activateBtn = page.locator('button', { hasText: '使用這份名單' });
+    await expect(activateBtn).toBeVisible();
+    await activateBtn.click();
     await expect(page.locator('.data-banner-current', { hasText: '目前使用的資料' })).toBeVisible({ timeout: 15000 });
 
     // 3. 進入課表設定頁（R2 新標題：課表設定）

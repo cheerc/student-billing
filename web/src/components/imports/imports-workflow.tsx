@@ -6,6 +6,7 @@ import { ImportPreviewResult } from '@/application/import-preview';
 import type { RosterChange } from '@/application/roster-changes';
 import { StudentSnapshot } from '@/domain/students';
 import { RosterChangesDetails } from './roster-changes-details';
+import { ACTIVATE_CONFLICT_MESSAGE } from '@/lib/user-messages';
 
 /**
  * 匯入預覽回應（含重複判重與相對於現行名單的差異統計，specs/09 §4）。
@@ -148,7 +149,7 @@ export function ImportsWorkflow({
       const json = await res.json();
       if (!res.ok) {
         if (res.status === 409) {
-          throw new Error('版本衝突 (409)：系統狀態已由其他操作推進新版本，請重新整理後重試。');
+          throw new Error(ACTIVATE_CONFLICT_MESSAGE);
         }
         throw new Error(json.error || '啟用計算失敗');
       }

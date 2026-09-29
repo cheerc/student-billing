@@ -1,5 +1,7 @@
 import Link from 'next/link';
-import { getDatabase, getDefaultDatabasePath } from '@/adapters/sqlite';
+import { getDatabase } from '@/adapters/sqlite';
+import { getLatestSettingsVersion } from '@/adapters/sqlite/settings-repository';
+import { formatDateTime } from '@/lib/datetime';
 import { getLatestReadyBatch } from '@/adapters/sqlite/import-repository';
 import { getCurrentActiveRun } from '@/adapters/sqlite/runs-repository';
 import { queryImportStudents } from '@/application/roster-query';
@@ -13,7 +15,6 @@ export const dynamic = 'force-dynamic';
 
 export default async function HomePage() {
   const db = getDatabase();
-  const dbPath = getDefaultDatabasePath();
   const currentActive = getCurrentActiveRun(db);
 
   // 若已有啟用的正式 Run，進入展示B核對總表
@@ -81,34 +82,38 @@ export default async function HomePage() {
     );
   }
 
-  // 初始空狀態
+  // 初始空狀態（09 §2）：初始首頁主動作「先確認課表」、次動作「匯入學生」；
+  // 已儲存過課表則主動作改為「匯入學生」。seed 課表只說「已載入，請確認」，不假稱人員已確認。
+  const savedSettings = getLatestSettingsVersion(db);
+
   return (
     <div>
       <header className="page-header" style={{ marginBottom: '20px' }}>
         <h1 style={{ fontSize: '24px', fontWeight: 700, margin: '0 0 6px' }}>學生收費核對工具</h1>
-        <p className="note" style={{ margin: 0 }}>學生收費核對與排課衝堂計算</p>
+        <p className="note" style={{ margin: 0 }}>先確認課表，再匯入學生名單，就能依班級核對每位學生的天數與折扣。</p>
       </header>
 
       <div className="empty-card">
-        <div className="empty-icon">📁</div>
-        <h2 className="empty-title">尚未匯入學生收費名單</h2>
-        <p className="empty-desc">
-          系統目前為初始空狀態。請點選下方按鈕上傳 ERP 學生名單試算表 (XLSX) 建立新批次，本工具不包含任何假示範資料。
-        </p>
-
-        <div className="path-box">
-          <div className="path-label">本機資料庫與儲存路徑 (Local Storage Path)：</div>
-          <div className="path-code">{dbPath}</div>
-          <div style={{ marginTop: '6px', fontSize: '0.75rem', color: '#64748b' }}>
-            資料目錄：data/（受 .gitignore 保護，敏感個資絕不外流）
-          </div>
-        </div>
-
-        <div>
-          <Link href="/imports" className="btn-primary">
-            前往匯入名單 (Upload XLSX)
-          </Link>
-        </div>
+        <h2 className="empty-title">還沒有可核對的學生資料</h2>
+        {savedSettings ? (
+          <>
+            <p className="empty-desc">
+              {`課表已儲存（${formatDateTime(savedSettings.createdAt)}）。接著匯入學生名單，就能開始核對。`}
+            </p>
+            <div className="state-actions">
+              <Link href="/imports" className="btn-primary">匯入學生</Link>
+              <Link href="/settings?tab=schedule" className="btn-secondary">查看課表</Link>
+            </div>
+          </>
+        ) : (
+          <>
+            <p className="empty-desc">已載入初始課表，請先確認課表；確認後再匯入學生名單。</p>
+            <div className="state-actions">
+              <Link href="/settings?tab=schedule" className="btn-primary">先確認課表</Link>
+              <Link href="/imports" className="btn-secondary">匯入學生</Link>
+            </div>
+          </>
+        )}
       </div>
     </div>
   );
