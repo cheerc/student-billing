@@ -142,10 +142,10 @@ describe('Issue #24／UX22：activate 採最新已儲存設定（09 §8.2.1）',
     // 設定頁 apply（revision 1→2）：含班名對應與自訂時段
     const applied = saveSettings(importA, 1, buildSavedDraft(), 'i24-apply-1');
     expect(applied.revision).toBe(2);
-    const appliedRows = calcRows(applied.runId);
+    const appliedRows = calcRows(applied.runId!);
 
     const seedRunBefore = runSnapshot(seedAct.runId);
-    const appliedRunBefore = runSnapshot(applied.runId);
+    const appliedRunBefore = runSnapshot(applied.runId!);
 
     // 匯入新批次（與 A 同名單、不同 import id）並啟用；另帶不同的 client scheduleVersionId
     const importB = saveBatch('b');
@@ -197,7 +197,7 @@ describe('Issue #24／UX22：activate 採最新已儲存設定（09 §8.2.1）',
 
     // 4) 既有 run 不可變：seed run 與 apply run 的 run 列與逐人結果都不變
     expect(runSnapshot(seedAct.runId)).toBe(seedRunBefore);
-    expect(runSnapshot(applied.runId)).toBe(appliedRunBefore);
+    expect(runSnapshot(applied.runId!)).toBe(appliedRunBefore);
   });
 
   it('每一次 activate 都取最新版：第二次 apply 後再匯入啟用，run 採第二版設定', () => {
@@ -231,7 +231,7 @@ describe('Issue #24／UX22：activate 採最新已儲存設定（09 §8.2.1）',
     for (const r of affected) {
       expect(r.anqin_days).toBe(seedByCode.get(r.person_code)!.anqin_days! - 0.5);
     }
-    expect(rows).toEqual(calcRows(second.runId));
+    expect(rows).toEqual(calcRows(second.runId!));
   });
 
   it('冪等：同 key 同 body 回原結果；body 只差 client scheduleVersionId 時不視為不同請求（hash 不含它）', () => {

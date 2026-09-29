@@ -21,9 +21,8 @@ import { POST as previewPOST } from '@/app/api/v1/settings/preview/route';
  * 或以 null 繞過 active）一律拒絕，且 active_state 不變、不寫入任何預覽／設定版本／run，
  * 不得「儲存設定順便啟用別批名單」。
  *
- * R1a 範圍：無 active 時維持拒絕（settings_only 由 R1b 提供，09 §8.2.3）。
- * UX02 的「儲存不啟用 ready」在 R1a 以「preview／apply 都不啟用 ready、一律拒絕」驗證；
- * 「儲存課表再 activate」屬 R1b（settings_only）。
+ * R1a 時無 active 一律拒絕（404）；R1b 起無 active 由 server 判為 settings_only（09 §8.2.3），
+ * 仍不採用／不啟用 ready 批次。UX02「儲存課表再 activate」與 settings_only 競爭見 settings-only.test.ts。
  */
 
 type SeedDraft = ReturnType<typeof buildSeedDraft>;
@@ -119,28 +118,25 @@ describe('R1a(B5)：settings preview／apply 的 import 由 server 依 active_st
       expect(writeSurface()).toEqual(before);
     });
 
-    it('preview 不帶 importId 且無 active：404 NO_ACTIVE_IMPORT（R1a 維持拒絕；settings_only 屬 R1b），不採用 ready 批次', () => {
-      saveBatch('ready');
-      const before = writeSurface();
-
-      let caught: unknown;
-      try {
-        previewSettingsChange(db, undefined, { draft: aliasDraft(), expectedRevision: 0 });
-      } catch (e) {
-        caught = e;
-      }
-      expect(caught).toBeInstanceOf(SettingsPreviewError);
-      expect(caught).toMatchObject({ statusCode: 404, code: 'NO_ACTIVE_IMPORT' });
-      expect(writeSurface()).toEqual(before);
+    it('preview 不帶 importId 且無 active：server 判為 settings_only，不採用 ready 批次（R1b）；ready 維持 ready、active 不變', () => {
+      const ready = saveBatch('ready');
+      const result = previewSettingsChange(db, undefined, { draft: aliasDraft(), expectedRevision: 0 });
+      expect(result.mode).toBe('settings_only');
+      const row = db.prepare('SELECT import_id FROM settings_previews WHERE preview_id = ?').get(result.previewId) as {
+        import_id: string | null;
+      };
+      expect(row.import_id).toBeNull();
+      expect(activeState()).toMatchObject({ active_import_id: null, active_run_id: null, revision: 0 });
+      const batch = db.prepare('SELECT status FROM import_batches WHERE id = ?').get(ready) as { status: string };
+      expect(batch.status).toBe('ready');
     });
 
-    it('client 以 null 表示無名單且無 active：一致，但仍 404 NO_ACTIVE_IMPORT，不寫入任何東西', () => {
+    it('client 以 null 表示無名單且無 active：與 server 決定值一致，走 settings_only，不寫入 active／run', () => {
       saveBatch('ready');
-      const before = writeSurface();
-      expect(() => previewSettingsChange(db, null, { draft: aliasDraft(), expectedRevision: 0 })).toThrowError(
-        expect.objectContaining({ statusCode: 404, code: 'NO_ACTIVE_IMPORT' })
-      );
-      expect(writeSurface()).toEqual(before);
+      const result = previewSettingsChange(db, null, { draft: aliasDraft(), expectedRevision: 0 });
+      expect(result.mode).toBe('settings_only');
+      expect(activeState()).toMatchObject({ active_import_id: null, active_run_id: null, revision: 0 });
+      expect(count('calculation_runs')).toBe(0);
     });
 
     it('apply 遇到鎖在 ready 批次的預覽（舊資料或竄改）：拒絕，不啟用該批、不建 run／設定版本', () => {

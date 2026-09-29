@@ -23,11 +23,15 @@ export class SettingsApplyError extends Error {
 }
 
 export interface SettingsApplyResult {
+  /** 與 preview 的 mode 一致：with_students 建新 run 並切換；settings_only 只存設定、不建 run。 */
+  mode?: 'settings_only' | 'with_students';
   settingsVersionId: string;
-  runId: string;
+  /** settings_only 為 null（不建假 run，09 §8.2.3） */
+  runId: string | null;
   revision: number;
-  totalStudents: number;
-  mismatchCount: number;
+  /** settings_only 為 null（沒有學生可統計，不能寫 0） */
+  totalStudents: number | null;
+  mismatchCount: number | null;
   appliedAt: string;
 }
 
@@ -138,6 +142,26 @@ export function applySettingsPreview(
       revision: nextRevision,
     });
 
+    // 09 §8.2.3：settings_only（無現行名單）——只保存設定快照並遞增 revision；
+    // 不建假 run、不寫 student_calculations、不改 active import／run。
+    if (preview.importId === null) {
+      db.prepare(`UPDATE active_state SET revision = ?, updated_at = ? WHERE id = 1`).run(nextRevision, now);
+      result = {
+        mode: 'settings_only',
+        settingsVersionId,
+        runId: null,
+        revision: nextRevision,
+        totalStudents: null,
+        mismatchCount: null,
+        appliedAt: now,
+      };
+      db.prepare(
+        `INSERT INTO idempotency_records (idempotency_key, request_body_hash, run_id, response_payload, created_at)
+         VALUES (?, ?, ?, ?, ?)`
+      ).run(idempotencyKey, bodyHash, null, JSON.stringify(result), now);
+      return;
+    }
+
     // 以新設定重算（alias + schedule 覆寫）
     const aliasMap = draftToAliasMap(draft);
     const scheduleOverride = draftToScheduleOverride(draft);
@@ -156,6 +180,7 @@ export function applySettingsPreview(
     ).run(runId, nextRevision, now);
 
     result = {
+      mode: 'with_students',
       settingsVersionId,
       runId,
       revision: nextRevision,

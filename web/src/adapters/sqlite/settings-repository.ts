@@ -23,7 +23,8 @@ export interface SettingsPreviewRecord {
   draftJson: string;
   expectedRevision: number;
   settingsVersionId: string;
-  importId: string;
+  /** with_students＝鎖定的現行名單批次；settings_only＝null（09 §8.2.3，migration 0006 起可 null） */
+  importId: string | null;
   resultJson: string;
   createdAt: string;
   expiresAt?: string | null;
@@ -55,6 +56,15 @@ export function getSettingsVersion(
   const row = db
     .prepare('SELECT * FROM settings_versions WHERE revision = ?')
     .get(revision) as any;
+  return row ? rowToVersion(row) : null;
+}
+
+/** 以版本 id 取得設定版本（run 的 scheduleVersionId 指向它）；不存在回 null。 */
+export function getSettingsVersionById(
+  db: Database.Database,
+  id: string
+): SettingsVersionRecord | null {
+  const row = db.prepare('SELECT * FROM settings_versions WHERE id = ?').get(id) as any;
   return row ? rowToVersion(row) : null;
 }
 
@@ -159,19 +169,21 @@ export function draftToAliasMap(draft: SettingsDraft): Map<string, string> {
   return map;
 }
 
-/** 將草稿轉為計算管線可用的 scheduleOverride。
- * 僅含明確填寫時段的班級；sessions 為空表示「未變更」，沿用 seed 預設時段，
- * 避免空陣列誤把全體 seed 時段清空。若 active=false 則覆寫為空時段（不扣天）。 */
+/** 將草稿轉為計算管線可用的 scheduleOverride（09 §8.2.4 方案 A）。
+ * 已儲存設定版本的全量 draft 是班級與時段的唯一來源（D25），seed 只作「尚無任何已儲存設定」的初始值：
+ * - active 且有時段的班級 → 該時段；
+ * - active 但 sessions 為空（刪光時段、清空所有列時間）＝無時段 → 空陣列（計算端判 schedule_empty，不扣天）；
+ * - active=false → 空陣列（不扣天）；
+ * - 班級不在 draft 內＝無此班 → 不出現於 map，計算端在有 override 時判 schedule_not_found（不退回 seed）。 */
 export function draftToScheduleOverride(
   draft: SettingsDraft
 ): Map<string, Array<{ start: number; end: number; weekday?: string | null }>> {
   const map = new Map<string, Array<{ start: number; end: number; weekday?: string | null }>>();
   for (const c of draft.classes) {
-    if (!c.active) {
+    if (!c.active || c.sessions.length === 0) {
       map.set(c.baseName, []);
       continue;
     }
-    if (c.sessions.length === 0) continue;
     map.set(
       c.baseName,
       c.sessions.map((s) => ({ start: s.startMinutes, end: s.endMinutes, weekday: s.weekday }))

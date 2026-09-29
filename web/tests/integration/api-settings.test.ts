@@ -7,26 +7,15 @@ import { getDatabase } from '@/adapters/sqlite';
 import { saveImportBatch } from '@/adapters/sqlite/import-repository';
 import { generateImportPreview } from '@/application/import-preview';
 import { activateImport } from '@/application/activate-import';
-import { SEED_CLASSES } from '@/domain/schedules/seed-manifest';
+import { buildSeedDraft } from '@/adapters/sqlite/settings-repository';
 import { POST as previewPOST } from '@/app/api/v1/settings/preview/route';
 import { POST as applyPOST } from '@/app/api/v1/settings/apply/route';
 
+/** 全量 seed draft＋一→一A 別名（D25／09 §8.2.4：空 sessions＝無時段，測試 draft 須攜 seed 明確時段）。 */
 function seedDraft() {
   return {
-    classes: SEED_CLASSES.map((c) => ({
-      baseName: c.baseName,
-      subject: c.subject,
-      teacher: null,
-      active: true,
-      sessions: [],
-    })),
+    ...buildSeedDraft(),
     aliases: [{ rawBaseName: '國小數學-一', targetBaseName: '國小數學-一A' }],
-    careWindows: {
-      anqin: { startMinutes: 780, endMinutes: 960 },
-      tutoring: { startMinutes: 990, endMinutes: 1170 },
-    },
-    effectiveFrom: null,
-    effectiveTo: null,
   };
 }
 

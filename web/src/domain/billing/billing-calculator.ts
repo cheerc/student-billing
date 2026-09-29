@@ -33,6 +33,17 @@ for (const cls of seedData.classes) {
   seedClassMap.set(cls.baseName, cls);
 }
 
+/** 已儲存設定不含任何班級時，seed 不再參與（無此班 → schedule_not_found）。 */
+const NO_SEED_CLASSES = new Map<string, any>();
+
+/**
+ * 班級與時段的來源（09 §8.2.4 方案 A）：帶入 scheduleOverride 代表已有儲存設定版本，
+ * 其全量 draft 是唯一來源，不在其中的班不退回 seed；未帶入才用 seed 預設（尚無任何已儲存設定）。
+ */
+function classMapFor(options: CalculationOptions): Map<string, any> {
+  return options.scheduleOverride ? NO_SEED_CLASSES : seedClassMap;
+}
+
 /**
  * T05: 解析班級時段（含 alias 與 schedule 覆寫）。
  * 回傳 { sessions, status, resolvedBaseName }。
@@ -135,7 +146,7 @@ export function calculateStudentBilling(
   // 找第一個國小數學
   const mathToken = student.enrollments.find((e) => e.baseName.includes('國小數學'));
   const mathSessions = resolveClassSessions(
-    mathToken, options.aliasMap, options.scheduleOverride, seedClassMap
+    mathToken, options.aliasMap, options.scheduleOverride, classMapFor(options)
   );
   let mathAnqinDed = 0;
   let mathTutoringDed = 0;
@@ -152,7 +163,7 @@ export function calculateStudentBilling(
   // 找第一個兒童美語
   const englishToken = student.enrollments.find((e) => e.baseName.includes('兒童美語'));
   const englishSessions = resolveClassSessions(
-    englishToken, options.aliasMap, options.scheduleOverride, seedClassMap
+    englishToken, options.aliasMap, options.scheduleOverride, classMapFor(options)
   );
   let englishAnqinDed = 0;
   let englishTutoringDed = 0;
@@ -242,7 +253,9 @@ export function calculateStudentBilling(
   if (mathScheduleStatus === 'schedule_not_found') {
     issues.push({
       code: 'SCHEDULE_NOT_FOUND',
-      message: `學生報名之數學班級「${mathToken?.rawToken}」未於排課種子中找到，天數採 0 扣天 fallback，待確認排課或 alias 對應。`,
+      message: `學生報名之數學班級「${mathToken?.rawToken}」未於${
+        options.scheduleOverride ? '現行已儲存排課設定' : '排課種子'
+      }中找到，天數採 0 扣天 fallback，待確認排課或 alias 對應。`,
     });
   }
 
