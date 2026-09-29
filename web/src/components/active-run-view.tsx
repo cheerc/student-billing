@@ -248,7 +248,7 @@ export default function ActiveRunView({
       >
         <div>
           <span style={{ fontWeight: 700, color: '#166534', fontSize: '1rem' }}>
-            已啟用正式計算 Run：{runId}
+            已啟用正式計算 Run
           </span>
           <span
             style={{
@@ -261,7 +261,7 @@ export default function ActiveRunView({
               fontWeight: 700,
             }}
           >
-            展示B / 版本 rev {revision} · 基準日 {asOfDate}
+            核對基準日 {asOfDate}
           </span>
         </div>
         <div style={{ display: 'flex', gap: '8px' }}>
@@ -283,6 +283,24 @@ export default function ActiveRunView({
           </a>
         </div>
       </div>
+
+      {/* 技術資訊摺疊區（版本識別與長 ID 收納於此，不在日常介面顯示） */}
+      <details
+        style={{
+          marginBottom: '16px',
+          padding: '8px 14px',
+          background: '#fafbfc',
+          border: '1px solid var(--border-color)',
+          borderRadius: '8px',
+          fontSize: '0.75rem',
+          color: 'var(--text-muted)',
+        }}
+      >
+        <summary style={{ cursor: 'pointer', fontWeight: 600 }}>技術資訊</summary>
+        <div style={{ marginTop: '8px', fontFamily: 'ui-monospace, monospace' }}>
+          Run ID：{runId}｜版本 rev {revision}｜基準日 {asOfDate}
+        </div>
+      </details>
 
       {/* 統計指標卡片 */}
       <div className="stats-grid">

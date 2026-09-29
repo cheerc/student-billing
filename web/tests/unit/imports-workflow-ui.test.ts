@@ -73,6 +73,7 @@ describe('R3 匯入頁工作流程與 UI 元件（RED 測試）', () => {
         studentsWithClass: 384,
         studentsWithoutClass: 93,
         withdrawnStudentsCount: 10,
+        gradeCounts: { '1': 1 },
       },
       headerMapping: {},
       extraHeaders: [],

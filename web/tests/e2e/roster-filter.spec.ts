@@ -1,11 +1,13 @@
 import { test, expect } from '@playwright/test';
 import path from 'path';
 
-test.describe('展示A (Demo A) E2E 驗收測試', () => {
+test.describe('名冊篩選 E2E 驗收測試', () => {
   test('上傳 ERP 試算表 → 首頁持久化展示 → 班級與條件篩選 → 重新整理依然存在', async ({ page }) => {
     // 1. 進入匯入頁面
+    // R3：匯入頁文案去技術化（specs/09 §4），標題改為「上傳ERP匯出的學生Excel」
     await page.goto('/imports');
-    await expect(page.locator('h2')).toContainText('上傳 ERP 學生名單');
+    await expect(page.locator('h1')).toContainText('匯入學生');
+    await expect(page.locator('h2')).toContainText('上傳ERP匯出的學生Excel');
 
     // 2. 上傳測試用保形匿名 fixture
     const fixturePath = path.resolve(__dirname, '../fixtures/conforming-erp-fixture.xlsx');
@@ -20,7 +22,9 @@ test.describe('展示A (Demo A) E2E 驗收測試', () => {
     await page.goto('/');
 
     // 4. 首頁應展示就緒名冊或已啟用狀態列與統計
-    await expect(page.locator('text=展示A').or(page.locator('text=展示B'))).toBeVisible({ timeout: 10000 });
+    // R3：日常介面去除「展示A/B」技術字（specs/09 §7），改以名冊狀態描述
+    await expect(page.getByText('已載入就緒名單')).toBeVisible({ timeout: 10000 });
+    await expect(page.getByText('尚未啟用')).toBeVisible();
     await expect(page.locator('.stat-card', { hasText: '符合篩選學生數' })).toContainText('477');
 
     // 5. 班級候選篩選 (四年級 A/B 分開)
@@ -49,7 +53,7 @@ test.describe('展示A (Demo A) E2E 驗收測試', () => {
 
     // 7. 重新整理頁面，驗證持久化仍在
     await page.reload();
-    await expect(page.locator('text=展示A').or(page.locator('text=展示B'))).toBeVisible({ timeout: 10000 });
+    await expect(page.getByText('已載入就緒名單')).toBeVisible({ timeout: 10000 });
     await expect(page.locator('.stat-card', { hasText: '符合篩選學生數' })).toContainText('477');
   });
 });

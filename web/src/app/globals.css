@@ -1086,3 +1086,132 @@ dialog.impact-dialog::backdrop {
     margin-left: 0;
   }
 }
+
+/* ==========================================================================
+   R3 Imports Workflow Styles (specs/09 §4)
+   ========================================================================== */
+
+/* Step Indicator */
+.step-indicator {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 18px;
+}
+
+.step-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-muted);
+}
+
+.step-item.step-active {
+  color: var(--primary-color);
+  font-weight: 700;
+}
+
+.step-item.step-done {
+  color: var(--success-text);
+  font-weight: 600;
+}
+
+.step-number {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  font-size: 12px;
+  background: #f1f5f9;
+  color: var(--text-muted);
+}
+
+.step-active .step-number {
+  background: #eff6ff;
+  color: var(--primary-color);
+  border: 1px solid #bfdbfe;
+}
+
+.step-done .step-number {
+  background: #ecfdf5;
+  color: var(--success-text);
+}
+
+.step-divider {
+  width: 32px;
+  height: 1px;
+  background: var(--border-color);
+}
+
+.schedule-meta-note {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-bottom: 20px;
+}
+
+/* Upload Dropzone */
+.upload-dropzone {
+  padding: 64px 24px;
+  text-align: center;
+  border: 2px dashed #bfdbfe;
+  background: #f8fbff;
+  border-radius: 12px;
+  max-width: 720px;
+  margin: 20px auto 40px;
+  transition: all 0.2s ease;
+}
+
+.upload-dropzone:hover {
+  border-color: var(--primary-color);
+  background: #f0f7ff;
+}
+
+.upload-icon-circle {
+  width: 56px;
+  height: 56px;
+  border-radius: 14px;
+  background: #eff6ff;
+  color: var(--primary-color);
+  font-size: 26px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0 auto 16px;
+  font-weight: 700;
+}
+
+.file-input-hidden {
+  display: none;
+}
+
+/* R3 roster diff bar (specs/09 §4) */
+.roster-diff-bar {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  flex-wrap: wrap;
+  padding: 12px 20px;
+  margin: 16px 20px 0;
+  background: #f0f9ff;
+  border: 1px solid #bae6fd;
+  border-radius: 8px;
+  font-size: 13px;
+  color: #0369a1;
+}
+
+.roster-diff-label {
+  font-weight: 600;
+  color: #075985;
+}
+
+.roster-diff-item strong {
+  font-variant-numeric: tabular-nums;
+  color: #0c4a6e;
+}

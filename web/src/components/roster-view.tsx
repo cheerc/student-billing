@@ -187,7 +187,7 @@ export default function RosterView({
               fontWeight: 600,
             }}
           >
-            展示A / 預覽名冊 (未計算)
+            尚未啟用
           </span>
         </div>
         <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
@@ -198,7 +198,7 @@ export default function RosterView({
             disabled={activating}
             style={{ fontSize: '0.8125rem', padding: '6px 14px' }}
           >
-            {activating ? '啟用計算中...' : '啟用為正式 Run (進入展示B) ▶'}
+            {activating ? '啟用計算中...' : '啟用為正式 Run ▶'}
           </button>
           <a href="/imports" className="btn-secondary" style={{ fontSize: '0.8125rem', padding: '6px 12px' }}>
             重新上傳 / 查看其他批次

@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { generateImportPreview } from '@/application/import-preview';
 import { ErpReaderError } from '@/adapters/xlsx/erp-reader';
 import { getDatabase } from '@/adapters/sqlite';
-import { saveImportBatch } from '@/adapters/sqlite/import-repository';
+import { saveImportBatch, getLatestReadyBatch, computeRosterDiff } from '@/adapters/sqlite/import-repository';
+import { getCurrentActiveRun } from '@/adapters/sqlite/runs-repository';
 import { validateSameOrigin, maskSensitiveInfo } from '@/contracts/security';
 
 export async function POST(request: Request | NextRequest) {
@@ -31,6 +32,12 @@ export async function POST(request: Request | NextRequest) {
 
     // 持久化保存為 ready 批次至 SQLite
     const db = getDatabase();
+
+    // 差異基準＝現行名單：優先 active_state 的 active_import_id，否則最新 ready 批次
+    // （須在儲存本批之前取，避免重複上傳時把本批當成基準）
+    const active = getCurrentActiveRun(db);
+    const baseImportId = active.activeImportId ?? getLatestReadyBatch(db)?.id ?? null;
+
     const saveResult = saveImportBatch(
       db,
       {
@@ -49,12 +56,17 @@ export async function POST(request: Request | NextRequest) {
       preview.students
     );
 
+    // 差異統計以「實際保存的批次」對比基準名單；重複上傳時 batchId 為既有批次，
+    // 差異自然為全 0（內容未變），不會把本批當成基準自我比較
+    const rosterDiff = computeRosterDiff(db, saveResult.batchId, baseImportId);
+
     return NextResponse.json(
       {
         ...preview,
         isDuplicate: saveResult.isDuplicate,
         duplicateReason: saveResult.duplicateReason,
         batchId: saveResult.batchId,
+        rosterDiff,
       },
       { status: 200 }
     );
