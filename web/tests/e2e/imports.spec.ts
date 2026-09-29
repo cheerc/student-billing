@@ -158,4 +158,21 @@ test.describe('Imports Page E2E Test (R3 匯入頁一次完成使用名單)', ()
     await expect(table.locator('tbody tr[data-category="new"]')).toContainText('STU9999');
     await expect(table.locator('tbody tr[data-category="not-appeared"]')).toContainText('STU0477');
   });
+
+  test('跨頁一致：匯入預覽的「N 個班名待確認」＝課表設定「班名對應」頁籤的待確認數（同一份名單兩頁數字不得不同）', async ({ page }) => {
+    await page.goto('/imports');
+    await page.locator('input[type="file"]').setInputFiles(path.resolve(__dirname, '../fixtures/conforming-erp-fixture.xlsx'));
+    const notice = page.locator('text=/個班名待確認/').first();
+    await expect(notice).toBeVisible({ timeout: 15000 });
+    const shown = Number(/(\d+)\s*個班名待確認/.exec((await notice.innerText()) ?? '')?.[1]);
+    expect(Number.isInteger(shown) && shown > 0, '預覽應顯示大於 0 的待確認班名數').toBe(true);
+
+    await page.locator('button', { hasText: '使用這份名單' }).click();
+    await expect(page.locator('.success-stage-card')).toBeVisible({ timeout: 15000 });
+
+    await page.goto('/settings');
+    await expect(page.locator('h1', { hasText: '課表設定' })).toBeVisible({ timeout: 10000 });
+    const pillText = await page.locator('button[role="tab"]', { hasText: '班名對應' }).locator('.pill.warn').innerText();
+    expect(Number(pillText), '課表設定的班名對應頁籤應顯示待確認數').toBe(shown);
+  });
 });
