@@ -60,14 +60,31 @@ function statusLabel(c: PreviewClass): string {
 }
 
 interface ClassDeductionsPanelProps {
-  data: DeductionsResponse;
+  data?: DeductionsResponse;
   onEditClass: (classKey: string) => void;
   expandedClassKey?: string;
+  /**
+   * 歷史 run 的課表快照不存在（或屬診斷軌）時的說明（09 §5.2）：
+   * 明示資料不足、無法重建，不顯示任何表格或數字，也不改用最新設定補算。
+   */
+  unavailable?: { code: string; message: string };
 }
 
-export function ClassDeductionsPanel({ data, onEditClass, expandedClassKey }: ClassDeductionsPanelProps) {
+export function ClassDeductionsPanel({ data, onEditClass, expandedClassKey, unavailable }: ClassDeductionsPanelProps) {
   const [search, setSearch] = useState('');
   const [expanded, setExpanded] = useState<string | null>(expandedClassKey ?? null);
+
+  if (unavailable || !data) {
+    return (
+      <section className="class-deductions" aria-label="班級扣天">
+        <div className="state-card" role="status">
+          <h3 className="state-title">這筆歷史資料無法顯示班級扣天</h3>
+          <p className="state-desc">{unavailable?.message}</p>
+          <a href="/history" className="btn-secondary">回到匯入紀錄</a>
+        </div>
+      </section>
+    );
+  }
 
   const classes = data.classes.filter((c) =>
     search.trim() === '' || c.classKey.includes(search.trim()) || (c.teacher ?? '').includes(search.trim())

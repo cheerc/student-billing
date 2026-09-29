@@ -2,6 +2,8 @@ import Database from 'better-sqlite3';
 import { SettingsDraft } from '@/contracts/settings';
 import {
   buildSeedDraft,
+  draftToAliasMap,
+  draftToScheduleOverride,
   getLatestSettingsVersion,
   getSettingsVersionById,
   hashSettingsDraft,
@@ -118,4 +120,23 @@ export function getScheduleDeductions(db: Database.Database, options: { runId?: 
     draftHash: hashSettingsDraft(seed),
     ...buildSchedulePreview(seed, ruleSetVersion),
   };
+}
+
+/**
+ * 待設定班級（09 §8.3：取代 UI 的 UNMAPPED_CLASSES 固定集合）。
+ *
+ * ERP 班名經班名對應（alias）解析後，仍不在該 run 當時課表快照的班級清單裡，就是「待設定」。
+ * 判斷來源是 run 的課表快照（與班級扣天同一份），不是寫死的班名，也不是最新設定
+ * （歷史 run 不得套用最新設定，§5.2）。
+ * 找不到 run，或當時的課表快照已不存在（資料不足）時回 null＝無法判斷；呼叫端不顯示提示，也不猜。
+ */
+export function findUnmappedClasses(db: Database.Database, runId: string, classNames: string[]): string[] | null {
+  const run = getCalculationRun(db, runId);
+  if (!run) return null;
+  const snapshot = loadRunSnapshot(db, run.scheduleVersionId);
+  if (!snapshot) return null;
+
+  const alias = draftToAliasMap(snapshot.draft);
+  const known = draftToScheduleOverride(snapshot.draft);
+  return classNames.filter((name) => !known.has(alias.get(name) ?? name));
 }

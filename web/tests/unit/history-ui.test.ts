@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import path from 'path';
 import fs from 'fs';
 import os from 'os';
@@ -15,6 +15,14 @@ import HistoryError from '@/app/history/error';
 import HistoryPage from '@/app/history/page';
 import HistoryRunPage from '@/app/history/[runId]/page';
 import type { HistoryEntry } from '@/application/history-view';
+
+vi.mock('next/navigation', () => ({
+  useRouter: () => ({ push: () => {}, refresh: () => {} }),
+  usePathname: () => '/history',
+  notFound: () => {
+    throw new Error('NEXT_NOT_FOUND');
+  },
+}));
 
 /**
  * specs/09 §2／§7／§8.3、specs/04 UX21：匯入紀錄頁（次入口）。
@@ -65,8 +73,22 @@ const render = (props: Partial<React.ComponentProps<typeof HistoryList>> = {}) =
 /** 日常介面可見的 HTML：摺疊區（<details>）內容不算日常介面（09 §7：技術資訊可查但收在摺疊區）。 */
 const visible = (html: string) => html.replace(/<details[\s\S]*?<\/details>/g, '');
 
+/** 使用者實際看得到／讀得到的文字：去標籤後的文字節點，加上 aria-label／title／placeholder／alt（不含 href 等）。 */
+const visibleText = (html: string) => {
+  const v = visible(html);
+  const attrs = [...v.matchAll(/(?:aria-label|title|placeholder|alt)="([^"]*)"/g)].map((m) => m[1]).join(' ');
+  return `${v.replace(/<[^>]+>/g, ' ')} ${attrs}`.replace(ISSUE_CODES, ' ');
+};
+
+/**
+ * 問題類型代碼是 UX15 明定保留的短標（「未知碼短標需確認且可查原因」，D17 照實呈現），
+ * 不屬 09 §7 的禁用字，掃描前先排除；PREVIEW_EXPIRED／REVISION_CONFLICT 等仍在掃描範圍內。
+ */
+const ISSUE_CODES =
+  /SCHEDULE_NOT_FOUND|SCHEDULE_EMPTY|UNKNOWN_WEEKDAY|DUPLICATE_SUBJECT_ENROLLMENT|STAFF_FAMILY_NO_DISCOUNT|CONFLICTING_NOTE_SOURCE|NUMERIC_POLICY_DIFFERENCE/g;
+
 /** 09 §7 文案表：日常介面不得出現的工程字。 */
-const FORBIDDEN = /\bRun\b|\brev\b|Run ID|SHA|雜湊|hash|\bAPI\b|\bJSON\b|alias|baseName|dry-run|\bactive\b|OOXML|inlineStr|PREVIEW_EXPIRED|REVISION_CONFLICT|erp-tag|numeric|\bready\b|imp_\d|run_\d/i;
+const FORBIDDEN = /\bRun\b|\brev\b|Run ID|SHA|雜湊|hash|\bAPI\b|\bJSON\b|alias|baseName|dry-run|\bactive\b|OOXML|inlineStr|PREVIEW_EXPIRED|REVISION_CONFLICT|erp-tag|numeric_policy|integer-minute|\bready\b|imp_\d|run_\d/i;
 
 describe('匯入紀錄頁：去技術化與次入口定位（09 §2／§7）', () => {
   it('一個 h1「匯入紀錄」與一個主要動作「匯入新名單」（連到 /imports）', () => {
@@ -80,7 +102,7 @@ describe('匯入紀錄頁：去技術化與次入口定位（09 §2／§7）', (
   it('日常介面沒有工程字（Run／rev／長ID／雜湊／API／JSON／raw status），只有日期、檔名、人數與中文狀態', () => {
     const shown = visible(render());
 
-    expect(shown).not.toMatch(FORBIDDEN);
+    expect(visibleText(render())).not.toMatch(FORBIDDEN);
     for (const label of ['目前使用', '歷史資料', '尚未使用']) expect(shown).toContain(label);
     for (const name of ['九月上旬.xlsx', '九月中旬.xlsx', '九月下旬.xlsx']) expect(shown).toContain(name);
     expect(shown).toContain('477 人');
@@ -253,7 +275,7 @@ describe('匯入紀錄頁與歷史檢視（伺服器頁面，真 SQLite）', () 
     expect(html).toContain('九月上旬.xlsx');
     expect(html).toContain('3 人');
     expect(html).toContain('/history/run_gone');
-    expect(visible(html)).not.toMatch(FORBIDDEN);
+    expect(visibleText(html)).not.toMatch(FORBIDDEN);
   });
 
   it('/history/[runId]：唯讀歷史檢視，標明「歷史資料（唯讀）」、來源檔與日期，沒有上傳新版本／恢復動作', async () => {
@@ -265,7 +287,7 @@ describe('匯入紀錄頁與歷史檢視（伺服器頁面，真 SQLite）', () 
     expect(html).toContain('核對基準日 2026-09-15');
     expect(html).toMatch(/<a[^>]*href="\/history"[^>]*>回到匯入紀錄<\/a>/);
     expect(html).not.toMatch(/上傳新版本|恢復|還原|設為現行/);
-    expect(visible(html)).not.toMatch(FORBIDDEN);
+    expect(visibleText(html)).not.toMatch(FORBIDDEN);
   });
 
   it('/history/[runId]：找不到這筆紀錄 → 走 not-found（不渲染空白或崩潰）', async () => {

@@ -6,6 +6,7 @@ import SummaryTable from './summary-table';
 import DetailDrawer from './detail-drawer';
 import ClassDeductionsPanel from './results/class-deductions-panel';
 import { DeductionsResponse } from '@/application/schedule-deductions';
+import { formatDateTime } from '@/lib/datetime';
 import {
   RunStudentsQueryResult,
   StudentCalculationItem,
@@ -17,24 +18,20 @@ interface ActiveRunViewProps {
   asOfDate: string;
   initialAvailableClasses: string[];
   initialData: RunStudentsQueryResult;
-  /** 班級扣天 read model（09 §5.2；有 active run 時與學生總表同一份快照） */
-  initialDeductions: DeductionsResponse;
+  /** 班級扣天 read model（09 §5.2；與學生總表同一份 run 課表快照）。快照不可用時改傳 deductionsUnavailable。 */
+  initialDeductions?: DeductionsResponse;
+  /** 歷史 run 的課表快照不存在（或屬診斷軌）：明示資料不足、無法重建，不顯示表格（09 §5.2） */
+  deductionsUnavailable?: { code: string; message: string };
+  /**
+   * 待設定班級（09 §8.3）：由伺服器依該 run 的課表快照與班名對應動態判斷，取代舊的寫死班名集合。
+   * 選定班級在此清單內時顯示提示；null／未提供＝無法判斷，不顯示（不猜）。
+   */
+  unmappedClasses?: string[] | null;
+  /** current＝目前使用的資料；history＝歷史資料（唯讀，來自匯入紀錄）。預設 current。 */
+  mode?: 'current' | 'history';
+  /** 資料來源（檔名與日期）；橫幅據此標示來源日期（09 §2）。 */
+  source?: { fileName: string; importedAt: string; updatedAt: string };
 }
-
-const UNMAPPED_CLASSES = new Set([
-  '交通車',
-  '小六國文加強班',
-  '小六數學加強班',
-  '小六英文加強班',
-  '正音A班',
-  '正音B班',
-  '國小輔導-寫功課',
-  '國小輔導-四年級A',
-  '國小輔導-四年級B',
-  '國小數學-一',
-  '國小國語文-小三四',
-  '美語',
-]);
 
 export default function ActiveRunView({
   runId,
@@ -43,7 +40,12 @@ export default function ActiveRunView({
   initialAvailableClasses,
   initialData,
   initialDeductions,
+  deductionsUnavailable,
+  unmappedClasses = null,
+  mode = 'current',
+  source,
 }: ActiveRunViewProps) {
+  const isHistory = mode === 'history';
   // 結果雙頁籤（09 §2／§5.2）：學生總表、班級扣天
   const [resultTab, setResultTab] = useState<'students' | 'deductions'>('students');
   const router = useRouter();
@@ -253,73 +255,49 @@ export default function ActiveRunView({
 
   return (
     <div>
-      {/* 頂部正式狀態橫幅 */}
-      <div
-        style={{
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-          background: '#f0fdf4',
-          border: '1px solid #bbf7d0',
-          borderRadius: '8px',
-          padding: '12px 16px',
-          marginBottom: '20px',
-        }}
+      {/* 資料來源橫幅（09 §2：來源時間／檔名一行，核對基準日另外標明）。
+          現行資料與歷史資料用文字＋顏色區分；歷史資料為唯讀，不提供任何寫入動作（09 §8.3）。 */}
+      <section
+        className={`data-banner ${isHistory ? 'data-banner-history' : 'data-banner-current'}`}
+        aria-label={isHistory ? '歷史資料' : '目前使用的資料'}
       >
-        <div>
-          <span style={{ fontWeight: 700, color: '#166534', fontSize: '1rem' }}>
-            已啟用正式計算 Run
-          </span>
-          <span
-            style={{
-              marginLeft: '12px',
-              fontSize: '0.75rem',
-              backgroundColor: '#dcfce7',
-              color: '#15803d',
-              padding: '2px 8px',
-              borderRadius: '9999px',
-              fontWeight: 700,
-            }}
-          >
-            核對基準日 {asOfDate}
-          </span>
+        <div className="data-banner-main">
+          <h1 className="data-banner-title">{isHistory ? '歷史資料（唯讀）' : '核對結果'}</h1>
+          <p className="data-banner-line">
+            {!isHistory && <span className="data-banner-label">目前使用的資料</span>}
+            {source && <span className="data-banner-file">{source.fileName}</span>}
+            {source && (
+              <span className="data-banner-meta">
+                {isHistory
+                  ? `名單匯入於 ${formatDateTime(source.importedAt)} · 資料更新於 ${formatDateTime(source.updatedAt)}`
+                  : `資料更新於 ${formatDateTime(source.updatedAt)}`}
+              </span>
+            )}
+            <span className="pill">{`核對基準日 ${asOfDate}`}</span>
+          </p>
         </div>
-        <div style={{ display: 'flex', gap: '8px' }}>
-          <a
-            href={`/api/v1/runs/${runId}/comparison?againstRuleSet=excel-v260922-compat`}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="btn-secondary"
-            style={{ fontSize: '0.8125rem', padding: '6px 12px' }}
-          >
-            查看雙軌差異 JSON ↗
-          </a>
-          <a
-            href="/imports"
-            className="btn-secondary"
-            style={{ fontSize: '0.8125rem', padding: '6px 12px' }}
-          >
-            上傳新版本 ERP
-          </a>
+        <div className="data-banner-actions">
+          {isHistory ? (
+            <a href="/history" className="btn-secondary">回到匯入紀錄</a>
+          ) : (
+            <a href="/imports" className="btn-secondary">匯入新名單</a>
+          )}
         </div>
-      </div>
+      </section>
 
-      {/* 技術資訊摺疊區（版本識別與長 ID 收納於此，不在日常介面顯示） */}
-      <details
-        style={{
-          marginBottom: '16px',
-          padding: '8px 14px',
-          background: '#fafbfc',
-          border: '1px solid var(--border-color)',
-          borderRadius: '8px',
-          fontSize: '0.75rem',
-          color: 'var(--text-muted)',
-        }}
-      >
-        <summary style={{ cursor: 'pointer', fontWeight: 600 }}>技術資訊</summary>
-        <div style={{ marginTop: '8px', fontFamily: 'ui-monospace, monospace' }}>
-          Run ID：{runId}｜版本 rev {revision}｜基準日 {asOfDate}
+      {/* 技術資訊摺疊區（版本識別、長 ID 與計算說明入口收納於此，不在日常介面顯示，09 §7） */}
+      <details className="tech-info tech-info-block">
+        <summary>技術資訊</summary>
+        <div className="tech-pre">
+          {isHistory ? `Run ID：${runId}｜基準日 ${asOfDate}` : `Run ID：${runId}｜版本 rev ${revision}｜基準日 ${asOfDate}`}
         </div>
+        <a
+          href={`/api/v1/runs/${runId}/comparison?againstRuleSet=excel-v260922-compat`}
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          計算說明（雙軌差異 JSON）
+        </a>
       </details>
 
       {/* 人數一行（09 §5.1）：本班N人 · 符合篩選M人 · N位需確認 —— 三者 scope 不同，不可互相冒充 */}
@@ -539,32 +517,15 @@ export default function ActiveRunView({
           </div>
         </div>
 
-        {/* 待設定清單定位提示 */}
-        {selectedClass && UNMAPPED_CLASSES.has(selectedClass) && (
-          <div
-            style={{
-              margin: '0 16px 12px 16px',
-              padding: '10px 14px',
-              backgroundColor: '#fffbeb',
-              border: '1px solid #fef3c7',
-              borderRadius: '6px',
-              display: 'flex',
-              justifyContent: 'space-between',
-              alignItems: 'center',
-              fontSize: '0.8125rem',
-              color: '#92400e',
-            }}
-          >
+        {/* 待設定班級提示（09 §8.3）：依該 run 課表快照與班名對應動態判斷，不用寫死的班名清單 */}
+        {selectedClass && unmappedClasses?.includes(selectedClass) && (
+          <div className="notice-warn" role="status">
             <span>
-              <strong>待設定班級提示：</strong>班級「{selectedClass}」尚未建立排課時段或別名映射。
+              <strong>待設定班級提示：</strong>班級「{selectedClass}」還沒有對應的課表班級，扣天無法計算。
             </span>
-            <a
-              href="/settings"
-              className="btn-secondary"
-              style={{ padding: '2px 10px', fontSize: '0.75rem', background: '#ffffff' }}
-            >
-              前往課程設定 (Settings) 進行映射 ↗
-            </a>
+            {!isHistory && (
+              <a href="/settings" className="btn-secondary">前往課表設定，確認班名對應</a>
+            )}
           </div>
         )}
 
@@ -600,6 +561,7 @@ export default function ActiveRunView({
         ) : (
           <ClassDeductionsPanel
             data={initialDeductions}
+            unavailable={deductionsUnavailable}
             onEditClass={() => router.push('/settings?tab=schedule')}
           />
         )}

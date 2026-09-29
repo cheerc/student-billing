@@ -1484,3 +1484,261 @@ dialog.impact-dialog::backdrop {
   color: var(--text-muted);
   font-size: 12px;
 }
+
+/* ===== R5 匯入紀錄、資料來源橫幅與共用狀態卡（specs/09 §2／§6／§7；UX21） ===== */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.history-page {
+  max-width: 1200px;
+}
+
+.history-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+
+.history-header h1 {
+  font-size: 24px;
+  font-weight: 700;
+  margin: 0 0 6px;
+}
+
+.history-current {
+  margin: 0 0 16px;
+  font-size: 14px;
+  color: var(--text-secondary);
+}
+
+.history-toolbar {
+  border: 1px solid var(--border-color);
+  border-radius: 8px 8px 0 0;
+  align-items: flex-end;
+}
+
+.history-toolbar .field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.history-toolbar label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.history-toolbar .note.end {
+  margin-left: auto;
+}
+
+.history-table th[scope='row'] {
+  text-align: left;
+  font-weight: 600;
+  vertical-align: top;
+}
+
+.history-file-name {
+  display: block;
+}
+
+.history-file .subtle {
+  display: block;
+  font-size: 12px;
+  font-weight: 400;
+}
+
+.history-table td .btn-secondary {
+  display: inline-flex;
+  align-items: center;
+  min-height: 32px;
+  padding: 4px 10px;
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+.badge.status-current {
+  background: #dcfce7;
+  color: #166534;
+  font-weight: 700;
+}
+
+.badge.status-history {
+  background: #f1f5f9;
+  color: #334155;
+}
+
+.badge.status-unused {
+  background: var(--badge-bg);
+  color: var(--badge-text);
+}
+
+/* 狀態卡：空狀態／空篩選／載入中／失敗／資料不足共用，一律「說明＋明確動作」 */
+.state-card {
+  text-align: center;
+  padding: 40px 24px;
+  margin-top: 16px;
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  background: var(--bg-card);
+}
+
+.state-card.state-error {
+  border-color: #fecaca;
+  background: var(--danger-bg);
+}
+
+.state-title {
+  font-size: 16px;
+  font-weight: 700;
+  margin: 0 0 6px;
+}
+
+.state-desc {
+  margin: 0 auto 16px;
+  max-width: 560px;
+  font-size: 14px;
+  color: var(--text-secondary);
+}
+
+.state-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+/* 技術資訊摺疊區（09 §7：技術資訊可查，但收在摺疊區） */
+.tech-info {
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--text-muted);
+  text-align: left;
+}
+
+.tech-info > summary {
+  cursor: pointer;
+  font-weight: 600;
+  min-height: 24px;
+}
+
+.tech-info-block {
+  margin-bottom: 16px;
+  padding: 8px 14px;
+  background: #fafbfc;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+}
+
+.tech-list {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 2px 12px;
+  margin-top: 6px;
+}
+
+.tech-list dd,
+.tech-pre {
+  font-family: ui-monospace, monospace;
+  word-break: break-all;
+}
+
+.tech-pre {
+  margin-top: 8px;
+  white-space: pre-wrap;
+}
+
+/* 資料來源橫幅：目前使用（綠）／歷史資料（中性灰，非警告） */
+.data-banner {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 12px 16px;
+  margin-bottom: 16px;
+  border: 1px solid;
+  border-radius: 8px;
+}
+
+.data-banner-current {
+  background: #f0fdf4;
+  border-color: #bbf7d0;
+}
+
+.data-banner-history {
+  background: #f1f5f9;
+  border-color: #cbd5e1;
+}
+
+.data-banner-title {
+  margin: 0 0 4px;
+  font-size: 24px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.data-banner-line {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin: 0;
+  font-size: 14px;
+}
+
+.data-banner-label {
+  font-weight: 700;
+  color: #166534;
+}
+
+.data-banner-file {
+  font-weight: 600;
+}
+
+.data-banner-meta {
+  color: var(--text-secondary);
+}
+
+.pill {
+  padding: 2px 10px;
+  border-radius: 9999px;
+  background: #dcfce7;
+  color: #15803d;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.data-banner-history .pill {
+  background: #e2e8f0;
+  color: #334155;
+}
+
+/* 待設定班級提示（琥珀＝需確認，09 §6） */
+.notice-warn {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin: 0 16px 12px;
+  padding: 10px 14px;
+  background: var(--warning-bg);
+  border: 1px solid #fde68a;
+  border-radius: 6px;
+  font-size: 13px;
+  color: var(--warning-text);
+}

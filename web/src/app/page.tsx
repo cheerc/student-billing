@@ -6,7 +6,8 @@ import { queryImportStudents } from '@/application/roster-query';
 import { queryRunStudents } from '@/application/query-students';
 import RosterView from '@/components/roster-view';
 import ActiveRunView from '@/components/active-run-view';
-import { getScheduleDeductions } from '@/application/schedule-deductions';
+import { findUnmappedClasses, getScheduleDeductions } from '@/application/schedule-deductions';
+import { getImportBatch } from '@/adapters/sqlite/import-repository';
 
 export const dynamic = 'force-dynamic';
 
@@ -30,6 +31,7 @@ export default async function HomePage() {
       .all(activeRun.importId) as { base_name: string }[];
 
     const availableClasses = classRows.map((r) => r.base_name);
+    const sourceBatch = getImportBatch(db, activeRun.importId);
 
     return (
       <div>
@@ -38,6 +40,12 @@ export default async function HomePage() {
           runId={activeRun.id}
           revision={currentActive.revision}
           asOfDate={activeRun.asOfDate}
+          source={{
+            fileName: sourceBatch?.fileName ?? '（來源檔案已不存在）',
+            importedAt: sourceBatch?.createdAt ?? activeRun.createdAt,
+            updatedAt: activeRun.createdAt,
+          }}
+          unmappedClasses={findUnmappedClasses(db, activeRun.id, availableClasses)}
           initialAvailableClasses={availableClasses}
           initialData={initialRunData}
         />
