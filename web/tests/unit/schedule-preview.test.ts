@@ -1,7 +1,16 @@
 import { describe, it, expect } from 'vitest';
-import { buildSchedulePreview } from '@/application/schedule-preview';
+import { buildSchedulePreview, toSaveEquivalentDraft } from '@/application/schedule-preview';
 import { CARE_WINDOWS } from '@/domain/schedules/overlap-calculator';
-import { SettingsDraft } from '@/contracts/settings';
+import {
+  SettingsDraft,
+  CalculateDraft,
+  ScheduleGridRow,
+  SettingsDraftSchema,
+  buildSeedGridRows,
+  classesToGridRows,
+  gridRowsToClasses,
+  gridRowsToCalculateClasses,
+} from '@/contracts/settings';
 import { buildSeedDraft, draftToScheduleOverride } from '@/adapters/sqlite/settings-repository';
 import { calculateStudentBilling } from '@/domain/billing/billing-calculator';
 import { StudentSnapshot } from '@/domain/students';
@@ -232,5 +241,215 @@ describe('讀模型與學生 run 同源（seed 全部數學／美語班逐班對
       const g3 = calculateStudentBilling(mk(c.classKey, 3), { ruleSetVersion: 'erp-tag-v2', scheduleOverride: override });
       expect(g3.careDays.tutoring.days, `${c.classKey} 小三課輔`).toBe(Math.max(3, 5 + c.tutoring.rounded));
     }
+  });
+});
+
+/**
+ * R1b rework B1（09 §8.1／plan 10 §2「以既有 SettingsDraft／ScheduleGridRow 轉換，不漏掉不能計算的列」）：
+ * calculate 的 session 可為不完整列（起／迄為 null，或迄 ≤ 起）並帶 client 的 rowId。
+ * 不完整列回 null 值＋missing_time＋SCHEDULE_INCOMPLETE；班級層標 incomplete、扣天只統計完整列
+ * （與存檔時經 gridRowsToClasses 丟棄不完整列後實際 run 的計算相同）；rowId 原樣回傳。
+ * expected 為獨立手算：週一 15:20–16:50 課輔重疊 20 分；週五同；同班兩堂課輔 40 分＝40÷180＝0.222→實扣 0；
+ * 若把週三 15:30–17:00 的 30 分算進去則 70÷180＝0.389→0.5，故實扣 0 證明不完整列沒被計入。
+ */
+type CalcSession = CalculateDraft['classes'][number]['sessions'][number];
+const calcCls = (
+  baseName: string,
+  sessions: CalcSession[],
+  extra: Partial<CalculateDraft['classes'][number]> = {}
+): CalculateDraft['classes'][number] => ({
+  baseName,
+  subject: '國小數學',
+  teacher: '老師甲',
+  active: true,
+  sessions,
+  ...extra,
+});
+const calcDraftOf = (classes: CalculateDraft['classes']): CalculateDraft => ({
+  classes,
+  aliases: [],
+  careWindows: CARE,
+  effectiveFrom: null,
+  effectiveTo: null,
+});
+const s = (rowId: string | undefined, weekday: string, startMinutes: number | null, endMinutes: number | null): CalcSession =>
+  rowId === undefined ? { weekday, startMinutes, endMinutes } : { rowId, weekday, startMinutes, endMinutes };
+
+describe('B1：不完整列（缺起／缺迄／迄≤起）——回 null＋missing_time＋SCHEDULE_INCOMPLETE，班級標 incomplete', () => {
+  const draft = calcDraftOf([
+    calcCls('數學甲', [s('r-mon', '一', 920, 1010), s('r-wed', '三', 930, null), s('r-fri', '五', 920, 1010)]),
+  ]);
+  const result = buildSchedulePreview(draft, 'erp-tag-v2');
+  const byId = (id: string) => result.rows.find((r) => r.rowId === id)!;
+
+  it('每個輸入列都有結果（不漏列）：3 列，順序同輸入', () => {
+    expect(result.rows.map((r) => r.rowId)).toEqual(['r-mon', 'r-wed', 'r-fri']);
+  });
+
+  it('不完整列：重疊／扣天為 null、狀態 missing_time、時長 null，起迄如實回傳（缺迄＝null）', () => {
+    const r = byId('r-wed');
+    expect(r.startMinutes).toBe(930);
+    expect(r.endMinutes).toBeNull();
+    expect(r.durationMinutes).toBeNull();
+    for (const g of [r.anqin, r.tutoring]) {
+      expect(g.overlapMinutes).toBeNull();
+      expect(g.rawDeduction).toBeNull();
+      expect(g.status).toBe('missing_time');
+    }
+  });
+
+  it('完整列不受影響：週一仍為安親 40／課輔 20、狀態 calculated', () => {
+    const r = byId('r-mon');
+    expect(r.anqin.overlapMinutes).toBe(40);
+    expect(r.tutoring.overlapMinutes).toBe(20);
+    expect(r.tutoring.status).toBe('calculated');
+  });
+
+  it('班級層：status 為 incomplete（不是 calculated），扣天只統計完整列（課輔 40 分→實扣 0，不是 70 分→0.5）', () => {
+    const c = result.classes[0];
+    expect(c.anqin.status).toBe('incomplete');
+    expect(c.tutoring.status).toBe('incomplete');
+    expect(c.tutoring.totalOverlapMinutes).toBe(40);
+    expect(c.tutoring.raw).toBeCloseTo(-40 / 180, 12);
+    expect(c.tutoring.rounded).toBe(0);
+    expect(c.anqin.totalOverlapMinutes).toBe(80);
+    expect(c.rowIds).toEqual(['r-mon', 'r-wed', 'r-fri']);
+  });
+
+  it('列出 SCHEDULE_INCOMPLETE 問題（帶 rowId 與班名），且不因此列出 SCHEDULE_EMPTY／UNKNOWN_WEEKDAY', () => {
+    expect(result.issues.filter((i) => i.code === 'SCHEDULE_INCOMPLETE')).toEqual([
+      expect.objectContaining({ code: 'SCHEDULE_INCOMPLETE', classKey: '數學甲', rowId: 'r-wed' }),
+    ]);
+    expect(result.issues.map((i) => i.code)).toEqual(['SCHEDULE_INCOMPLETE']);
+  });
+
+  it('缺起、起迄皆缺、迄＝起、迄＜起 都算不完整列；起迄值如實回傳', () => {
+    const r = buildSchedulePreview(
+      calcDraftOf([
+        calcCls('數學乙', [s('a', '一', null, 1010), s('b', '一', null, null), s('c', '一', 930, 930), s('d', '一', 930, 900), s('ok', '一', 920, 1010)]),
+      ]),
+      'erp-tag-v2'
+    );
+    for (const id of ['a', 'b', 'c', 'd']) {
+      const row = r.rows.find((x) => x.rowId === id)!;
+      expect(row.anqin.status, id).toBe('missing_time');
+      expect(row.anqin.overlapMinutes, id).toBeNull();
+      expect(row.durationMinutes, id).toBeNull();
+    }
+    expect(r.rows.find((x) => x.rowId === 'd')!.startMinutes).toBe(930);
+    expect(r.rows.find((x) => x.rowId === 'd')!.endMinutes).toBe(900);
+    expect(r.rows.find((x) => x.rowId === 'a')!.startMinutes).toBeNull();
+    expect(r.issues.filter((i) => i.code === 'SCHEDULE_INCOMPLETE').map((i) => i.rowId)).toEqual(['a', 'b', 'c', 'd']);
+    // 唯一完整列的值不受影響（安親 40 分）
+    expect(r.classes[0].anqin.totalOverlapMinutes).toBe(40);
+    expect(r.classes[0].anqin.status).toBe('incomplete');
+  });
+
+  it('整班都是不完整列：班級 incomplete、不扣天（與存檔後 sessions 為空、run 不扣天且列問題一致）', () => {
+    const r = buildSchedulePreview(calcDraftOf([calcCls('數學丙', [s('x', '一', null, null), s('y', '三', 930, null)])]), 'erp-tag-v2');
+    const c = r.classes[0];
+    expect(c.anqin.status).toBe('incomplete');
+    expect(c.anqin.rounded).toBe(0);
+    expect(c.anqin.totalOverlapMinutes).toBe(0);
+    expect(r.rows.map((x) => x.rowId)).toEqual(['x', 'y']);
+    expect(toSaveEquivalentDraft(calcDraftOf([calcCls('數學丙', [s('x', '一', null, null)])])).classes[0].sessions).toEqual([]);
+  });
+
+  it('停用班的不完整列：狀態 inactive、不列 SCHEDULE_INCOMPLETE；seed 共用窗口班的 null 時間列為 shared_window，不算缺時間', () => {
+    const r = buildSchedulePreview(
+      calcDraftOf([
+        calcCls('停用班', [s('i1', '一', null, null)], { active: false }),
+        calcCls('國小輔導-一A', [s('sw1', '一~五', null, null)], { subject: '國小輔導' }),
+      ]),
+      'erp-tag-v2'
+    );
+    expect(r.rows.find((x) => x.rowId === 'i1')!.anqin.status).toBe('inactive');
+    expect(r.classes.find((c) => c.classKey === '停用班')!.anqin.status).toBe('inactive');
+    expect(r.rows.find((x) => x.rowId === 'sw1')!.anqin.status).toBe('shared_window');
+    expect(r.classes.find((c) => c.classKey === '國小輔導-一A')!.anqin.status).toBe('shared_window');
+    expect(r.issues).toEqual([]);
+  });
+
+  it('不完整列的星期無法識別：以 missing_time 為準，不另列 UNKNOWN_WEEKDAY', () => {
+    const r = buildSchedulePreview(calcDraftOf([calcCls('數學丁', [s('w', '？', 930, null)])]), 'erp-tag-v2');
+    expect(r.issues.map((i) => i.code)).toEqual(['SCHEDULE_INCOMPLETE']);
+  });
+});
+
+describe('B1：rowId 穩定——client 帶的原樣回傳，未帶才由 server 補（班名#序號）', () => {
+  it('client rowId 原樣回傳；未帶者補 `班名#index`；改班名不影響 client 帶來的 rowId', () => {
+    const a = buildSchedulePreview(calcDraftOf([calcCls('甲', [s('grid-1', '一', 920, 1010), s(undefined, '三', 930, 1020)])]), 'erp-tag-v2');
+    expect(a.rows.map((r) => r.rowId)).toEqual(['grid-1', '甲#1']);
+    const renamed = buildSchedulePreview(calcDraftOf([calcCls('乙', [s('grid-1', '一', 920, 1010), s('grid-2', '三', 930, 1020)])]), 'erp-tag-v2');
+    expect(renamed.rows.map((r) => r.rowId)).toEqual(['grid-1', 'grid-2']);
+    expect(renamed.classes[0].rowIds).toEqual(['grid-1', 'grid-2']);
+  });
+
+  it('刪掉中間一列：其餘列的 rowId 不位移（不是 index 重編）', () => {
+    const full = buildSchedulePreview(calcDraftOf([calcCls('甲', [s('g1', '一', 920, 1010), s('g2', '二', 920, 1010), s('g3', '三', 920, 1010)])]), 'erp-tag-v2');
+    const removed = buildSchedulePreview(calcDraftOf([calcCls('甲', [s('g1', '一', 920, 1010), s('g3', '三', 920, 1010)])]), 'erp-tag-v2');
+    expect(full.rows.map((r) => r.rowId)).toEqual(['g1', 'g2', 'g3']);
+    expect(removed.rows.map((r) => r.rowId)).toEqual(['g1', 'g3']);
+    expect(removed.rows.find((r) => r.rowId === 'g3')).toEqual(full.rows.find((r) => r.rowId === 'g3'));
+  });
+});
+
+describe('B1：存檔等價 draft——去掉不完整列與 rowId，結果與經 gridRowsToClasses 存檔的 draft 相同', () => {
+  const editedGrid = (): ScheduleGridRow[] => {
+    const rows = classesToGridRows(gridRowsToClasses(buildSeedGridRows()));
+    // 挖掉一堂的迄時間、清空另一堂的起迄，再新增一列空白新列
+    const target = rows.find((r) => r.className === '國小數學-三A')!;
+    target.endTime = '';
+    target.endMinutes = null;
+    const other = rows.find((r) => r.className === '國小數學-一A')!;
+    other.startTime = '';
+    other.endTime = '';
+    other.startMinutes = null;
+    other.endMinutes = null;
+    rows.push({ rowId: 'new-row-1', className: '新班', teacher: null, weekday: '一', startTime: '', endTime: '', startMinutes: null, endMinutes: null, active: true });
+    return rows;
+  };
+
+  it('gridRowsToCalculateClasses 保留每一列（含不完整列）並帶 grid 的 rowId；完整列的值同 gridRowsToClasses', () => {
+    const rows = editedGrid();
+    const calc = gridRowsToCalculateClasses(rows);
+    const total = calc.reduce((n, c) => n + c.sessions.length, 0);
+    expect(total).toBe(rows.filter((r) => r.className.trim() !== '').length);
+    const ids = calc.flatMap((c) => c.sessions.map((x) => x.rowId));
+    expect(new Set(ids).size).toBe(ids.length);
+    expect(ids).toContain('new-row-1');
+  });
+
+  it('toSaveEquivalentDraft(calc classes) 深度等於 gridRowsToClasses(rows)（同一份 grid 存檔會得到的班級）', () => {
+    const rows = editedGrid();
+    const seed = calcDraftOf([]);
+    const save = toSaveEquivalentDraft({ ...seed, classes: gridRowsToCalculateClasses(rows) });
+    expect(save.classes).toEqual(gridRowsToClasses(rows));
+    expect(SettingsDraftSchema.safeParse(save).success).toBe(true);
+  });
+
+  it('讀模型班級數字＝存檔等價 draft 的班級數字（不完整列不影響）', () => {
+    const rows = editedGrid();
+    const calcDraft = { ...calcDraftOf([]), classes: gridRowsToCalculateClasses(rows) };
+    const viaCalc = buildSchedulePreview(calcDraft, 'erp-tag-v2');
+    const viaSave = buildSchedulePreview(toSaveEquivalentDraft(calcDraft), 'erp-tag-v2');
+    for (const c of viaCalc.classes) {
+      const same = viaSave.classes.find((x) => x.classKey === c.classKey)!;
+      expect(c.anqin.totalOverlapMinutes, c.classKey).toBe(same.anqin.totalOverlapMinutes);
+      expect(c.anqin.rounded, c.classKey).toBe(same.anqin.rounded);
+      expect(c.tutoring.rounded, c.classKey).toBe(same.tutoring.rounded);
+    }
+    // 被挖掉起／迄的兩個班：讀模型標 incomplete（存檔後則是少了那一堂／整班空）
+    expect(viaCalc.classes.find((c) => c.classKey === '國小數學-三A')!.anqin.status).toBe('incomplete');
+    expect(viaCalc.classes.find((c) => c.classKey === '新班')!.anqin.status).toBe('incomplete');
+  });
+
+  it('無不完整列時，calculate 的班級狀態與計算值與改動前相同（不引入 incomplete）', () => {
+    // 只取有完整時段的 seed 班（沒有時段的班展平成佔位列，本來就是不完整列）
+    const rows = classesToGridRows(buildSeedDraft().classes.filter((c) => c.sessions.length > 0));
+    const viaCalc = buildSchedulePreview({ ...calcDraftOf([]), classes: gridRowsToCalculateClasses(rows) }, 'erp-tag-v2');
+    expect(viaCalc.classes).toHaveLength(40);
+    expect(viaCalc.classes.filter((c) => c.anqin.status === 'incomplete' || c.tutoring.status === 'incomplete')).toEqual([]);
+    expect(viaCalc.issues).toEqual([]);
   });
 });
