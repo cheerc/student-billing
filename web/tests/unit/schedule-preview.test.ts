@@ -2,6 +2,9 @@ import { describe, it, expect } from 'vitest';
 import { buildSchedulePreview } from '@/application/schedule-preview';
 import { CARE_WINDOWS } from '@/domain/schedules/overlap-calculator';
 import { SettingsDraft } from '@/contracts/settings';
+import { buildSeedDraft, draftToScheduleOverride } from '@/adapters/sqlite/settings-repository';
+import { calculateStudentBilling } from '@/domain/billing/billing-calculator';
+import { StudentSnapshot } from '@/domain/students';
 
 /**
  * 09 §8.1／04 §8 UX05–UX07、UX24（API 部分）：唯讀計算 read model 的純計算核心。
@@ -183,5 +186,51 @@ describe('ruleSetVersion 語意（v2 同星期；v1 不比對星期）', () => {
     const r = buildSchedulePreview(draft, 'erp-tag-v1');
     expect(r.rows[0].anqin.overlapMinutes).toBe(180);
     expect(r.ruleSetVersion).toBe('erp-tag-v1');
+  });
+});
+
+describe('讀模型與學生 run 同源（seed 全部數學／美語班逐班對照）', () => {
+  const mk = (baseName: string, grade: number): StudentSnapshot => ({
+    personCode: `T-${baseName}-${grade}`,
+    name: '合成',
+    branch: '本校',
+    gradeRaw: `小${grade}`,
+    grade,
+    gradeStatus: 'valid',
+    contact: null,
+    schoolInfo: null,
+    tagsRaw: '',
+    tags: [],
+    notesRaw: '',
+    enrollments: [
+      {
+        rawToken: `${baseName}[團]`,
+        yearPrefix: null,
+        baseName,
+        groupFlag: '團',
+        modifiers: [],
+        withdrawalDate: null,
+        erpBillingTierRaw: null,
+        erpBillingTier: null,
+        tierParseStatus: 'not_applicable',
+        parseStatus: 'ok',
+      },
+    ],
+    sourceRow: 1,
+  });
+
+  it('班級 read model 的實扣 ＝ 僅報名該班的學生 run 天數（R11：小一安親 max(3.5, 5＋實扣)；R12：小三課輔 max(3, 5＋實扣)）', () => {
+    const draft = buildSeedDraft();
+    const preview = buildSchedulePreview(draft, 'erp-tag-v2');
+    const override = draftToScheduleOverride(draft);
+    const subjectClasses = preview.classes.filter((c) => /國小數學|兒童美語/.test(c.classKey));
+    expect(subjectClasses.length).toBeGreaterThan(30);
+
+    for (const c of subjectClasses) {
+      const g1 = calculateStudentBilling(mk(c.classKey, 1), { ruleSetVersion: 'erp-tag-v2', scheduleOverride: override });
+      expect(g1.careDays.anqin.days, `${c.classKey} 小一安親`).toBe(Math.max(3.5, 5 + c.anqin.rounded));
+      const g3 = calculateStudentBilling(mk(c.classKey, 3), { ruleSetVersion: 'erp-tag-v2', scheduleOverride: override });
+      expect(g3.careDays.tutoring.days, `${c.classKey} 小三課輔`).toBe(Math.max(3, 5 + c.tutoring.rounded));
+    }
   });
 });

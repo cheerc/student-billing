@@ -8,7 +8,7 @@
 |---|---|---|---|---|
 |R0|現況baseline、合成fixtures、API欄位盤點；隔離E2E config與scripts（§4）；讀web/AGENTS與Next本地docs|既有typecheck/lint/test/build與**隔離**E2E各跑一次，逐檔記錄原有失敗（§4清單），不修產品行為|有可追溯回歸基準，不重啟需求研究|single|
 |R1a|activate採最新已儲存設定（09 §8.2.1，B1，由issue #24落地）、preview／apply的import由server決定（09 §8.2.2，B5，由R1a(B5) PR落地）；activate-import／calculate-run／apply-settings／settings-preview與preview route|UX02／UX03／UX18／UX22（先RED）與UX04的importId case，真SQLite，不改domain公式|「套用設定→匯入新名單→啟用」採新設定；儲存設定不再順便啟用別批名單|dual|
-|R1b|schedule-preview application、calculate POST／deductions GET、settings_only、table rebuild migration、空sessions／整班移除語意（09 §8.1／§8.2.3／§8.2.4）、settings頁解除import封鎖|UX01／UX04–08／UX17–19／UX23／UX24，真SQLite，不改domain公式|空DB可先存課表及讀計算值；逐堂／班級／學生同源|dual|
+|R1b|schedule-preview application、calculate POST／deductions GET、settings_only、table rebuild migration、空sessions／整班移除語意（09 §8.1／§8.2.3／§8.2.4；由R1b PR落地）、settings頁解除import封鎖（UI，隨R2設定頁重寫，R1b只提供API，見§2）|UX01／UX04–08／UX17–19／UX23／UX24，真SQLite，不改domain公式|空DB可先存課表及讀計算值；逐堂／班級／學生同源|dual|
 |R2|layout/globals、app-shell；settings-editor拆schedule-grid/window-editor/impact-dialog/mapping-panel（window-editor只留唯讀顯示）|UX01–10／14–16／24，指定尺寸檢查|展示一：課表主畫面＋即時重疊＋先課表後匯入|single|
 |R3|imports頁整合roster-view的activate；預覽、日期、成功導向|UX09–12／19／22，既有imports/active-run測試|匯入頁一次完成使用名單|single|
 |R4|page/active-run-view/summary-table/detail-drawer、結果雙頁籤、八欄、班級扣天、更多篩選|UX05–08／11–16／20–21，API同run對照|展示二：按班核對兩種總表，完整走完SOP|single|
@@ -23,7 +23,7 @@ review_class依根CLAUDE.md §7：T04（啟用Run）屬dual。R1a改動activate�
 R1a：
 
 - （B1，issue #24落地）每一次activate由server解析最新已儲存settings version，寫入run.scheduleVersionId並套用其alias／時段；忽略client傳入的scheduleVersionId；尚無任何已儲存設定才用seed（09 §8.2.1，現況缺陷，UX22先RED）。
-- preview／apply的import由`active_state`決定，不信任client importId；不一致即拒絕。無active時維持現行拒絕，settings_only由R1b提供（09 §8.2.2）。UX02、UX04須含「client傳非active的ready批次」case，且不得啟用該批。落地錯誤碼：preview的client importId與server決定值不符（含null、非字串、非active批次）→400 `IMPORT_MISMATCH`；無active import→404 `NO_ACTIVE_IMPORT`（含只有ready批次，不採用它）；apply遇預覽鎖定的批次≠現行active→409 `IMPORT_MISMATCH`，CAS與此檢查同交易，apply不再寫`active_import_id`。preview不帶importId合法（不再回`MISSING_IMPORT_ID`）。UX02「儲存課表再activate」與UX04的settings_only競爭屬R1b，本PR只落地importId case。
+- preview／apply的import由`active_state`決定，不信任client importId；不一致即拒絕。無active時維持現行拒絕，settings_only由R1b提供（09 §8.2.2）。UX02、UX04須含「client傳非active的ready批次」case，且不得啟用該批。落地錯誤碼：preview的client importId與server決定值不符（含null、非字串、非active批次）→400 `IMPORT_MISMATCH`；無active import→404 `NO_ACTIVE_IMPORT`（含只有ready批次，不採用它；R1b起由settings_only取代，此404移除）；apply遇預覽鎖定的批次≠現行active→409 `IMPORT_MISMATCH`，CAS與此檢查同交易，apply不再寫`active_import_id`。preview不帶importId合法（不再回`MISSING_IMPORT_ID`）。UX02「儲存課表再activate」與UX04的settings_only競爭屬R1b，本PR只落地importId case。
 - 不改domain公式、不動migration。
 
 R1b：
@@ -35,6 +35,13 @@ R1b：
 - migration以table rebuild把`settings_previews.import_id`（0004）與`idempotency_records.run_id`（0003）改為可null，並保留0005的`expires_at`（09 §8.2.3）。repository與response runId可null。測舊DB升級（**舊資料逐列保留**）、失敗rollback、成功冪等先於CAS。無學生時不能造假import/run。
 - 已有active的班級扣天用run快照；無active用saved settings，草稿另標；舊run不可用當前課表補算。
 - 這是先課表SOP必需的服務擴充。不能僅刪除「請先匯入」文字而仍無法儲存。
+- 落地內容（R1b PR）：
+  - calculate：`POST /api/v1/settings/calculate`，輸入`{draft, requestKey}`，回`{requestKey, draftHash, ruleSetVersion, windows, rows, classes, issues}`；`draftHash`與同一份draft的preview`inputHash`相同（預覽與提交同源）；client帶`ruleSetVersion`→400 `INVALID_REQUEST`，`careWindows`與ruleSet不同→400 `INVALID_DRAFT`（settings/preview同），payload上限512 KiB→413，班名重複→400；狀態分`calculated／no_overlap／unknown_weekday／missing_time／shared_window／inactive`，未知星期與缺時間不冒充「無衝堂」；`rawDeduction`為domain負值，UI以正量顯示。
+  - deductions：`GET /api/v1/settings/deductions?runId=`，回`scope`（`run／active_run／saved_settings／seed`）、`scheduleVersionId`、`settingsRevision`、`ruleSetVersion`；快照不存在→409 `SNAPSHOT_UNAVAILABLE`（不用最新課表補舊run），診斷軌run→422 `UNSUPPORTED_RULESET`，未知runId→404。
+  - settings_only：無現行名單時preview回`mode:"settings_only"`，學生影響欄位為`null`；apply只存設定並遞增revision，`runId:null`、不建假run；migration `0006_settings_only_nullable.sql`以table rebuild把`settings_previews.import_id`與`idempotency_records.run_id`改可null（舊資料逐列保留，含`expires_at`）。
+  - B4：`draftToScheduleOverride`對active且sessions為空的班級寫入空覆寫（`schedule_empty`），有覆寫時班級不在其中即`schedule_not_found`，兩者皆不退回seed；既有測試以`sessions: []`表「沿用seed」的draft依此改為全量seed draft。
+  - 影響預覽的「前」改為目前生效設定（最新已儲存設定，尚無才是seed），不再永遠比對seed。
+  - UI不在本PR：settings頁仍在無現行名單時擋下並送`active ?? 最新ready`的importId；設定編輯器尚未處理`mode:"settings_only"`的null欄位，R2須改為不送importId並處理`mode`與null欄位。
 
 ## 3. TDD矩陣
 
