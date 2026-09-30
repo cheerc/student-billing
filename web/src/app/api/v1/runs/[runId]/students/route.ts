@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getDatabase } from '@/adapters/sqlite';
 import { queryRunStudents, QueryStudentError } from '@/application/query-students';
+import { queryStudentOptions } from '@/application/query-student-options';
+import { readStudentQuery } from '@/contracts/student-query';
 import { sanitizePathParam, maskSensitiveInfo, SecurityError } from '@/contracts/security';
 
 export async function GET(
@@ -12,13 +14,11 @@ export async function GET(
     const runId = sanitizePathParam(rawRunId, 'runId');
     const url = new URL(request.url);
 
-    const queryParams: Record<string, string> = {};
-    url.searchParams.forEach((val, key) => {
-      queryParams[key] = val;
-    });
-
+    const queryParams = readStudentQuery(url.searchParams);
     const db = getDatabase();
-    const result = queryRunStudents(db, runId, queryParams);
+    const result = queryParams.options?.[0] === 'true'
+      ? queryStudentOptions(db, runId, queryParams)
+      : queryRunStudents(db, runId, queryParams);
 
     return NextResponse.json(result, { status: 200 });
   } catch (error) {
