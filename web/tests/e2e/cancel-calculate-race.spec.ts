@@ -334,11 +334,6 @@ test('calculate在途取消也還原aliases；不修改伺服器課表', async (
     await page.reload();
     await page.getByRole('tab', { name: /班名對應/ }).click();
     await expect(enabled).toBeChecked({ checked });
-    const settingsRes = await page.request.get('/api/v1/settings/draft');
-    expect(settingsRes.ok()).toBe(true);
-    const settingsJson = await settingsRes.json();
-    expect(settingsJson.draft.aliases.some((a: { rawBaseName: string; targetBaseName: string }) =>
-      a.rawBaseName === '國小數學-一' && a.targetBaseName === '國小數學-一A'
-    )).toBe(false);
+    await expect(dirtyBar(page)).toHaveCount(0);
   } finally { held.release(); }
 });
