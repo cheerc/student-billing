@@ -1,5 +1,7 @@
 # 技術架構、資料模型與 API 契約
 
+> 2026-09-30 驗收修正補充：學生查詢的多值篩選、選項與「無課程」契約見[§5.1](#51-學生查詢多值篩選選項與無課程契約b1目標)（[06 D36、D38](06-handoff-decisions.md)；目標契約，依[11](11-ui-acceptance-fix-plan.md) B1實作）。§3的設定資料模型不變；班級類別與固定5天的設定欄位、版本快照與ruleSet屬11的D批，本次不改。
+>
 > 2026-09-29 UI重設補充：依[06 D33](06-handoff-decisions.md)，無學生儲存設定、activate採最新已儲存設定、preview／apply的import由server決定等設定生命週期放寬，見[09 §8](09-ui-workflow-redesign-spec.md)；§4–5其餘交易／版本不變式不變，驗收見[04 §8](04-tdd-acceptance.md)。§3 ScheduleVersion的careWindows與effectiveFrom/To是schema欄位，現行不參與選版或計算；operator已決定安親／課輔窗口固定、不可編輯，有效日期不在範圍（D33）。計費規則沿用目前D24–D32，不由UI改版變更。
 
 ## 1. 技術選擇
@@ -151,6 +153,73 @@ GET /imports/{previewId}/students 供ready批次在啟用前查看名單，與�
 ERP token 可有明確離班日期，依使用者決策只顯示不排除。財務檔有排課起迄日但不匯入本工具；學生檔沒有完整入班／異動歷史。asOfDate只作核對基準日記錄於run，不選排課版本（課表版本一律取最新已儲存設定，09 §8.2.1），不用離班日自動改名單或科數，不能重建任意日期真實enrollment。
 
 錯誤格式：`{error:{code,message,details,requestId}}`；結構錯誤 400，缺必要欄／重複代碼等資料驗證 422，版本衝突 409，檔案過大 413，未找到 404，內部錯誤 500。一般 response 不附 stack 或完整學生備註。
+
+### 5.1 學生查詢：多值篩選、選項與「無課程」契約（B1，目標）
+
+依[06 D36、D38](06-handoff-decisions.md)與[11 §3 B1](11-ui-acceptance-fix-plan.md)。本節是**目標契約**，由B1實作；「現況」對照`e1b1a58`的`web/src/app/api/v1/runs/[runId]/students/route.ts`（下稱route）與`web/src/application/query-students.ts`（下稱query）。主要適用`GET /runs/{runId}/students`；`GET /imports/{previewId}/students`與正式查詢共用篩選工具（見上），其可接受的參數集合與禁用清單不變，本節的傳輸與空狀態語意同步適用。
+
+**現況盤點（B1的RED依據）**：
+
+1. route把query string轉成`Record<string,string>`（route:15-18），同一個key出現多次只留最後一個。
+2. 班級只查單一值：`enrollmentKey`優先於`classId`，兩者都比對`student_enrollments.base_name`，並非classId主鍵（query:199-211）。
+3. 下列參數在白名單內，卻**沒有任何WHERE條件**（被靜默忽略，與上文「無效值回400，不默默忽略」不符）：`specialDiscount`、`hasExtraDeduction`、`scheduleStatus`、`sort`（結果恆以`person_code`升冪）。`applicableDiscountBps`只驗證必須帶班級，同樣沒有條件。`grade`傳非整數時亦被靜默忽略（query:213-220）。
+4. `hasClass`在兩個端點語意不同：runs端點是`subject_count > 0`（有無折扣科數，query:268-276）：零enrollment（`subject_count`為null）、只有寫功課／交通車、以及一般輔導加寫功課依現行科數規則算成0科的學生，都落入`hasClass=false`；預覽端點是「有無enrollment」（`web/src/application/roster-query.ts`）。
+5. 每頁`limit`預設50、上限200（query:172-180）；`cursor`只編碼最後一筆`personCode`的base64，不綁篩選條件。
+6. `stats.classScopeTotal`是「只套用班級條件」的人數（未選班＝全批），與其他篩選無關。
+
+**可篩選欄位清單**（現況對照`e1b1a58`；「目標」欄是B1要達成的狀態；除註明者外，多值＝同一參數重複出現，語意見下）：
+
+|表頭／用途|參數|值型別|現況|目標|
+|---|---|---|---|---|
+|所屬班級|`enrollmentKey`（`classId`為同義單值別名，同時給時`enrollmentKey`優先）|字串＝班名（現況比對`base_name`；班級識別鍵待11 S-B節凍結後回填本列）|單值，生效|多值；保留值`~blank`＝無課程（見下）；`stats.classScopeTotal`隨多值|
+|年級|`grade`|整數|單值，生效；非整數被靜默忽略|多值；`~blank`＝年級未知；非整數回400|
+|安親天數／課輔天數|`billingTier`＋`careType`（`anqin`／`tutoring`）|數字（3、3.5、4、4.5、5）|單值，生效（比對`anqin_days`／`tutoring_days`）；`billingTier`必須帶`careType`|多值；`~blank`＝null（非適用或無法判定）。兩欄要能同時篩，故B1新增多值參數`anqinDays`、`tutoringDays`（語意同上）；`billingTier`＋`careType`保留為單值相容|
+|額外扣天|`hasExtraDeduction`|布林|**未生效**|必須生效；判定與UI「額外扣天」欄一致|
+|合計折扣（基本率）|`baseDiscountBps`|整數bps|單值，生效|多值；`~blank`＝null|
+|本班適用折扣（僅恰選一班）|`applicableDiscountBps`（需`enrollmentKey`或`classId`）|整數bps|只驗證需班級，**未生效**|必須生效；取值來源依11 S-B節（未配置不當100%）|
+|兄弟姊妹折扣|`sibling`|布林|生效（`tags_raw`含「有兄弟姊妹折扣」）|布林亦可重複|
+|特殊折扣|`specialDiscount`|布林|**未生效**|必須生效|
+|園內生|`internalStudent`|布林|生效（`tags_raw`含「園內生」）|布林亦可重複|
+|需確認／問題類型／ERP比較|`hasIssues`（布林）、`issueCode`（字串）、`tierMismatch`（布林）、`tierComparison`（`match`／`mismatch`／`not_applicable`／`unavailable`）|見左|皆單值，生效（`issueCode`、`tierComparison`以JSON文字比對）；`scheduleStatus`**未生效**|`issueCode`、`tierComparison`多值；`scheduleStatus`生效或改回400（二擇一，B1定稿）；既有矛盾檢查（`tierMismatch`與`tierComparison`、`hasIssues=false`與`issueCode`）維持|
+|分校|`branch`|字串（換行複值集合語義）|單值，生效|多值；預設欄位沒有分校欄，UI入口待11 B2確認|
+|學生搜尋|`q`|字串（姓名或人員代碼的字面子字串）|單值，生效|維持單值搜尋框；不多值、不提供選項、不入URL|
+|科別（UI入口已移除）|`subject`|字串|單值，生效（`base_name`／`raw_token`子字串）|**參數保留不刪**（agent相容），維持單值|
+|有無折扣科數|`hasClass`|布林|runs端點：`subject_count > 0`|**語意不改**，且**不作為「無課程」判定**（見下）|
+|控制參數|`cursor`、`limit`、`sort`|—|`sort`未生效|`sort`生效或改回400（二擇一，B1定稿）；`runId`是路徑參數，不作篩選|
+
+**傳輸格式與單值相容**：
+
+- 多值以**重複query key**傳送（`grade=3&grade=4`），server以`searchParams.getAll`讀取；不以逗號分隔（班名等值可含逗號）。route不得再把同key多值壓成一個。
+- 既有單值呼叫（每個參數至多出現一次、值不是保留值）的語意與結果，與`e1b1a58`相同，視為單元素集合。刻意的例外只有：上表「未生效」與「靜默忽略」者改為生效或回400。
+- 布林欄位的可用值為`true`／`false`；兩者同時出現等同該欄未篩選，但仍算「已設篩選」（供chips顯示）。
+- 無效值、未知參數一律回400並指名該參數，不靜默忽略。
+
+**三種空狀態（分開，不得以空字串一律代表全部）**：
+
+|狀態|傳輸|語意|
+|---|---|---|
+|未設篩選（全部）|該欄的key不出現（既有的空字串`grade=`仍視為未設，僅為相容；UI不送）|該欄不限制|
+|選了「(空白)」|保留值`~blank`，可與一般值並存（OR）|該欄為空的學生：所屬班級＝零報名（＝無課程）；年級／天數／折扣＝該欄為null或未知|
+|取消全選後按「確定」|保留值`~none`，**只能單獨出現**；與其他值並存回400|空集合：0筆，`totalStudents`與stats各項皆為0|
+
+保留值以`~`開頭；真實資料值若也以`~`開頭，傳輸時再前置一個`~`跳脫（`~~x`＝字面`~x`）。因非個資的篩選條件會寫入URL（[09 §5.1](09-ui-workflow-redesign-spec.md)），三種狀態都必須能由URL還原。
+
+**匹配語意與去重**：同一欄多個值為**OR**；不同欄為**AND**。複值欄（所屬班級、問題類型）以「任一報名班／任一問題命中」判定，不因命中多個所選值而重複列出。`totalStudents`、`stats`、`classScopeTotal`一律依`personCode`去重，多班不相加。`classScopeTotal`＝只套用「所屬班級」條件（含多值）後的去重人數；未選班＝全批。UI依此標示「全部N人」「本班N人」「已選N班，共M人」（[09 §5.1](09-ui-workflow-redesign-spec.md)）。
+
+**選項（options）read model**：各欄的選項取自**指定run的全部學生**，不受頁碼與`limit`限制；歷史run不讀最新設定；每個選項附去重人數，並含「(空白)」的人數。姓名、人員代碼等敏感欄位**不提供選項清單**，只保留搜尋框；options回應不含個資。唯讀、無副作用（同UX19）。端點路徑與回應形狀由B1定稿並回填本節。「全選搜尋結果」只是UI把搜尋命中的選項加入已選集合，不清除搜尋範圍外既有的選取。
+
+**一致性、分頁與cursor**：名單、統計、分頁使用**同一條件**。條件（任一欄選值、`q`、run）改變時，client必須丟棄cursor並從第一頁重查，晚到回應不得覆蓋新條件的結果（requestKey保護，同[09 §3.2](09-ui-workflow-redesign-spec.md)）。cursor維持只編碼最後一筆`personCode`（不綁條件）；不合法的cursor回400。
+
+**「無課程」（D38；獨立語意，不重用`hasClass`）**：
+
+- **定義**：以不可變import名冊的報名資料判定，該學生在`student_enrollments`（該run的`importId`）**零筆enrollment**才算無課程。
+- **不算無課程**（仍有課程）：原始班級文字非空但解析失敗者——解析器對每個非空token都保留一筆enrollment（`needs_review`者與未知班名皆然），並保留問題提醒；只有寫功課、交通車或其他未列入折扣類別的班；有離班標記（withdrawal date）的token——保留的離班token仍算有課程，不依基準日另行過濾。
+- **與`hasClass`無關**：runs端點的`hasClass`是`subject_count > 0`（現況盤點第4點），`hasClass=false`混有只有寫功課／交通車、算成0科的學生，不等於無課程。點擊「無課程」提示等同所屬班級選`~blank`，其判定就是上述零enrollment。
+- **計數**：全批無課程總數（整個run的名冊）與「當前條件下符合人數」分開回報；欄位名稱由B1定稿。**不併入「需確認」**：無課程本身不新增issue；該生若另有真實issue，仍計入需確認人數。
+- **同源**：匯入預覽（`GET /imports/{previewId}/students`）與結果頁針對同一批資料，判定相同、人數相同；預覽端點的`hasClass`是「有無enrollment」，與此判定一致。
+- **概念區分**：「離班標記」是有日期的token（見上文，只顯示、不排除名單，D16），與「無課程」不可混同。
+
+**驗收與效能**：UX25、UX29（[04 §8](04-tdd-acceptance.md)）。integration測試須含：超過200人且只出現在後頁的選項、同一學生同時屬於兩個所選班、OR＋AND、`0`／`false`／`null`、全部取消、確定／取消、切換run／歷史、快速切換條件的晚到回應；無課程的空enrollment、只有寫功課、只有交通車、有離班token、未知班型、解析失敗、無課程但另有issue，每案人數與點擊後名單一致。選項查詢與多值篩選依根CLAUDE.md §8量測（篩選≤200 ms，477人）並記錄。
 
 ## 6. Agent 使用邊界
 

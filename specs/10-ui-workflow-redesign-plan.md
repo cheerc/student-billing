@@ -1,5 +1,7 @@
 # UI 重設實作 Plan
 
+> **2026-09-30 註記**：本計畫的 R0–R5 已全數交付並合併（驗收見[progress/ui-redesign-acceptance.md](progress/ui-redesign-acceptance.md)）。下文「本次僅交設計」「尚未執行」是 2026-09-29 撰寫時的口吻，保留原文，不代表目前進度。operator 第一次人工驗收後的修正與後續批次見[11](11-ui-acceptance-fix-plan.md)。
+
 日期：2026-09-29。依據：[06 D33](06-handoff-decisions.md)、[09 UI spec](09-ui-workflow-redesign-spec.md)；驗收矩陣正本在[04 §8](04-tdd-acceptance.md)。基準origin/main `66d6371`（PR #22合併點，設計基準25e0ebf）；開工時比對最新main，保留後續修正。本次僅交設計，以下工作尚未執行。本檔屬根CLAUDE.md §2的執行計畫層，不定義產品規則、不覆寫02–04／09。
 
 ## 1. 分批交付

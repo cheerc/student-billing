@@ -1,14 +1,15 @@
 # 學生收費核對工具：規格與交接入口
 
-版本：2026-09-29。P1 已有本機實作；目前正式規則為 erp-tag-v2（D30），班名候選依D32動態產生。歷史規劃文件中的「尚未實作」不代表目前進度。
+版本：2026-09-30。P1 已有本機實作；目前正式規則為 erp-tag-v2（D30），班名候選依D32動態產生。歷史規劃文件中的「尚未實作」不代表目前進度。
 
-本次新增 UI 設計交付，尚未修改產品介面：
+UI 重設（先課表 → 匯入 → 核對）R0–R5 已交付並合併，驗收見[progress/ui-redesign-acceptance.md](progress/ui-redesign-acceptance.md)。2026-09-30 operator 第一次人工驗收裁決 REJECTED，修正計畫與決策如下；其中 erp-tag-v3（D37）截至本日尚未實作，02 仍只有 v1／v2：
 
-- [09 UI／UX 重設規格](09-ui-workflow-redesign-spec.md)
-- [10 UI 重設實作 Plan](10-ui-workflow-redesign-plan.md)
+- [09 UI／UX 重設規格](09-ui-workflow-redesign-spec.md)（含 2026-09-30 修訂的目標契約）
+- [10 UI 重設實作 Plan](10-ui-workflow-redesign-plan.md)（R0–R5，已交付）
+- [11 第一次人工驗收修正 Plan](11-ui-acceptance-fix-plan.md)（PR-0、A、S、B1、B2、C、D 分批；決策見[06 D34–D39](./06-handoff-decisions.md)）
 - [可點選介面示意（合成資料）](design/ui-workflow-prototype.html)
 
-先課表 → 匯入 → 核對的方向記於[06 D33](./06-handoff-decisions.md)；操作介面契約見09，實作分批見10（執行計畫），驗收矩陣見[04 §8](./04-tdd-acceptance.md)。窗口固定、不可編輯，有效日期不在範圍（D33）；02與D24–D32計算決策不變。
+先課表 → 匯入 → 核對的方向記於[06 D33](./06-handoff-decisions.md)；操作介面契約見09，實作分批見10與11（執行計畫），驗收矩陣見[04 §8](./04-tdd-acceptance.md)。窗口固定、不可編輯，有效日期不在範圍（D33）；D24–D32計算決策不變，計算規則變更（D37）只走 11 的 D 批與新 ruleSet 版本。
 
 ## 閱讀順序
 
@@ -21,7 +22,10 @@
 7. [Review 修正對照](./reviews/spec-review-resolution-20260922.md)：F01–F15處理、採納方式與剩餘驗證。
 8. [P1 implementation plan](./07-p1-implementation-plan.md)：T00–T07順序、三個展示節點、技術選擇、TDD與完成定義；尚未開始實作。
 
-9. [P1 最終複核與修正](./reviews/p1-final-verification-20260923.md)：最新契約修正、驗證範圍與啟動條件；較早review保留歷史原文。
+9. [UI／UX 重設規格](./09-ui-workflow-redesign-spec.md)：先課表→匯入→核對的畫面與操作契約（含 2026-09-30 修訂的目標契約）。
+10. [UI 重設實作 Plan](./10-ui-workflow-redesign-plan.md)：R0–R5 分批（已交付）。
+11. [第一次人工驗收修正 Plan](./11-ui-acceptance-fix-plan.md)：驗收修正的分批、順序、停止條件；決策全文在 [06 D34–D39](./06-handoff-decisions.md)。
+12. [P1 最終複核與修正](./reviews/p1-final-verification-20260923.md)：最新契約修正、驗證範圍與啟動條件；較早review保留歷史原文。
 
 ## 已確認的方向
 
