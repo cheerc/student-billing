@@ -82,6 +82,7 @@ export default async function SettingsPage({
         initialDraft={initialDraft}
         unmatched={dualTrack.activeView.unmatched}
         classNameReport={classNameReport}
+        reportImportId={reviewImportId}
         matchedCount={dualTrack.activeView.matchedCount}
         candidates={dualTrack.candidates}
         lastAppliedRevision={latest?.revision ?? active.revision}

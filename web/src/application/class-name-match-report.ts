@@ -128,7 +128,8 @@ export function resolvePreviousRosterProvenance(
 
   type ParsedEvent =
     | { kind: 'activate'; revision: number; runId: string; importId: string }
-    | { kind: 'apply_with_students'; revision: number; runId: string }
+    | { kind: 'apply_with_students'; revision: number; runId: string; importId: string }
+    | { kind: 'legacy_apply'; revision: number; runId: string; importId: string }
     | { kind: 'apply_settings_only'; revision: number };
 
   const events: ParsedEvent[] = [];
@@ -166,16 +167,34 @@ export function resolvePreviousRosterProvenance(
       if (row.run_id !== payload.runId) {
         return { status: 'unavailable', importId: null };
       }
-      const runRow = db.prepare('SELECT 1 FROM calculation_runs WHERE id = ?').get(payload.runId);
+      const runRow = db.prepare('SELECT import_id FROM calculation_runs WHERE id = ?').get(payload.runId) as { import_id: string } | undefined;
       if (!runRow) {
         return { status: 'unavailable', importId: null };
       }
-      events.push({ kind: 'apply_with_students', revision, runId: payload.runId });
+      events.push({ kind: 'apply_with_students', revision, runId: payload.runId, importId: runRow.import_id });
     } else if (payload.mode === 'settings_only') {
       if (row.run_id !== null) {
         return { status: 'unavailable', importId: null };
       }
       events.push({ kind: 'apply_settings_only', revision });
+    } else if (payload.mode === undefined && payload.status === undefined && payload.activeImportId === undefined) {
+      // 35c8bde 之前寫入的 apply 收據（沒有 mode 欄位）。只接受「可證明」的形狀，不因欄位缺席就信任：
+      if (typeof payload.runId === 'string' && payload.runId !== '') {
+        // (a) 真實舊形狀：舊版 apply 一律建 run，收據的 run_id 欄位＝該 runId；run 與其名單批次必須都存在。
+        if (row.run_id !== payload.runId) {
+          return { status: 'unavailable', importId: null };
+        }
+        const runRow = db.prepare('SELECT import_id FROM calculation_runs WHERE id = ?').get(payload.runId) as { import_id: string } | undefined;
+        if (!runRow || !getBatch(db, runRow.import_id)) {
+          return { status: 'unavailable', importId: null };
+        }
+        events.push({ kind: 'legacy_apply', revision, runId: payload.runId, importId: runRow.import_id });
+      } else if ((payload.runId === null || payload.runId === undefined) && row.run_id === null) {
+        // (b) 防禦性形狀（歷史上沒有任何版本寫出過）：不建 run、不切名冊，視為 settings_only。
+        events.push({ kind: 'apply_settings_only', revision });
+      } else {
+        return { status: 'unavailable', importId: null };
+      }
     } else {
       return { status: 'unavailable', importId: null };
     }
@@ -202,7 +221,23 @@ export function resolvePreviousRosterProvenance(
   const episodes: ActiveEpisode[] = [];
   let currentEpisode: ActiveEpisode | null = null;
 
-  for (const ev of events) {
+  /**
+   * 舊版 apply 若把名單換成「當時現行名冊以外」的名單（2bea9b8～5daef9c 的 apply 會切換 active_import_id；dd9f08d 起不會），
+   * 收據沒有版本標記可區分，只有被佐證才算切換：下一個會影響名冊或 run 的事件顯示現行名冊確為該名單，
+   * 或它就是最後一個事件且現行狀態（active import／run）與它一致。否則無法證明 → 整段歷史 unavailable。
+   */
+  const legacySwitchIsCorroborated = (index: number, ev: { runId: string; importId: string }): boolean => {
+    let j = index + 1;
+    while (j < events.length && events[j].kind === 'apply_settings_only') j++;
+    if (j >= events.length) {
+      return activeStateRow?.active_import_id === ev.importId && activeStateRow?.active_run_id === ev.runId;
+    }
+    const next = events[j];
+    return next.kind !== 'apply_settings_only' && next.importId === ev.importId;
+  };
+
+  for (let index = 0; index < events.length; index++) {
+    const ev = events[index];
     if (ev.kind === 'activate') {
       if (!currentEpisode) {
         currentEpisode = {
@@ -227,6 +262,16 @@ export function resolvePreviousRosterProvenance(
         return { status: 'unavailable', importId: null };
       }
       currentEpisode.runIds.add(ev.runId);
+    } else if (ev.kind === 'legacy_apply') {
+      if (currentEpisode && ev.importId === currentEpisode.importId) {
+        currentEpisode.runIds.add(ev.runId);
+      } else if (legacySwitchIsCorroborated(index, ev)) {
+        const prevId: string | null = currentEpisode ? currentEpisode.importId : null;
+        currentEpisode = { importId: ev.importId, predecessorImportId: prevId, runIds: new Set([ev.runId]) };
+        episodes.push(currentEpisode);
+      } else {
+        return { status: 'unavailable', importId: null };
+      }
     } else if (ev.kind === 'apply_settings_only') {
       // settings_only 不影響名冊與 run
     }

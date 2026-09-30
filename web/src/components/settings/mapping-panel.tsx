@@ -16,6 +16,8 @@ interface MappingPanelProps {
   onToggleAlias?: (rawBaseName: string, targetBaseName: string) => void;
   /** 班名比對報告（D1）：兩份清單並排、預設展開；沒有名單或不提供時不顯示 */
   classNameReport?: ClassNameMatchReport | null;
+  /** 儲存後重新取得報告失敗的說明：有值時不顯示報告（其數字是儲存前的），改顯示這則標示 */
+  classNameReportStaleMessage?: string | null;
 }
 
 export function MappingPanel({
@@ -27,6 +29,7 @@ export function MappingPanel({
   onUpdateCandidateTarget = () => {},
   onToggleAlias = () => {},
   classNameReport = null,
+  classNameReportStaleMessage = null,
 }: MappingPanelProps) {
   if (!hasStudents) {
     return (
@@ -48,10 +51,16 @@ export function MappingPanel({
 
   return (
     <div className="mapping-panel-container">
-      {classNameReport && (
-        <div style={{ marginBottom: '20px' }}>
-          <ClassNameReportPanel report={classNameReport} />
+      {classNameReportStaleMessage ? (
+        <div className="alert alert-warning" role="alert" data-report-stale="" style={{ marginBottom: '20px' }}>
+          {classNameReportStaleMessage}
         </div>
+      ) : (
+        classNameReport && (
+          <div style={{ marginBottom: '20px' }}>
+            <ClassNameReportPanel report={classNameReport} />
+          </div>
+        )
       )}
 
       <div className="card" style={{ marginBottom: '20px' }}>
