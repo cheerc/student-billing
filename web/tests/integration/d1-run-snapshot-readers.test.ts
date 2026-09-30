@@ -86,8 +86,8 @@ describe('F-5：comparison 以 run 的設定快照重算', () => {
 
     const db = ctx.db();
     saveSyntheticBatch(db, 'imp_f5', 'f5.xlsx', '2026-09-01T08:00:00.000Z', [
-      makeStudent('S_3A', ['國小數學-三A'], { grade: 3, name: '學生3A' }),
-      makeStudent('S_NORM', ['國小數學-一A'], { grade: 1, name: '學生一A' }),
+      makeStudent('S_3A', ['國小數學-三A'], { grade: 3 }),
+      makeStudent('S_NORM', ['國小數學-一A'], { grade: 1 }),
     ]);
 
     activateBatch(db, 'imp_f5', 'k-act-f5');

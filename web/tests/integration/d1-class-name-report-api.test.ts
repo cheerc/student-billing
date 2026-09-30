@@ -167,6 +167,7 @@ describe('POST /api/v1/imports/preview：classNameReport 摘要（使用這份�
       systemOnlyClassCount: 7,
       systemOnlyPreviousRosterStudentCount: null,
       previousRoster: null,
+      previousRosterStatus: 'none',
       reportPath: `/settings?tab=mapping&import=${body.batchId}`,
     });
     expect([...collectKeys(body.classNameReport)].filter((k) => /categor|類別/i.test(k))).toEqual([]);
