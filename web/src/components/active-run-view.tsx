@@ -4,6 +4,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import SummaryTable, { type StudentColumnKey } from './summary-table';
+import type { RunClassCategorySnapshot } from '@/application/applicable-rate';
 import DetailDrawer from './detail-drawer';
 import { TabList, tabPanelProps } from './ui/tabs';
 import ClassDeductionsPanel from './results/class-deductions-panel';
@@ -58,6 +59,11 @@ interface ActiveRunViewProps {
    * 選定班級在此清單內時顯示提示；null／未提供＝無法判斷，不顯示（不猜）。
    */
   unmappedClasses?: string[] | null;
+  /**
+   * D2b 3（N-8）：該 run 的班級類別快照（v3 才有；server 由 run_class_categories 讀出，以名冊班名為 key）。
+   * 學生總表的「本班適用折扣」依它判斷；v1／v2 為 null → 名稱映射。
+   */
+  classCategorySnapshots?: RunClassCategorySnapshot[] | null;
   /** current＝目前使用的資料；history＝歷史資料（唯讀，來自匯入紀錄）。預設 current。 */
   mode?: 'current' | 'history';
   /** 資料來源（檔名與日期）；橫幅據此標示來源日期（09 §2）。 */
@@ -120,6 +126,7 @@ export default function ActiveRunView({
   initialDeductions,
   deductionsUnavailable,
   unmappedClasses = null,
+  classCategorySnapshots = null,
   mode = 'current',
   source,
 }: ActiveRunViewProps) {
@@ -628,6 +635,7 @@ export default function ActiveRunView({
               students={data?.items || []}
               loading={loading}
               singleClass={singleClass}
+              classCategorySnapshots={classCategorySnapshots ?? null}
               renderFilter={renderFilter}
               onSelectStudent={(s) => setSelectedStudent(s)}
               onResetFilters={handleResetFilters}

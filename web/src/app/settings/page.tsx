@@ -90,6 +90,7 @@ export default async function SettingsPage({
         hasActiveImport={hasActiveImport}
         initialTab={initialTab}
         focusClass={focusClass}
+        currentRuleSetVersion={active.run?.ruleSetVersion ?? null}
       />
     </div>
   );

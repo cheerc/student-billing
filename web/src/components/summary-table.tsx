@@ -3,7 +3,7 @@
 import React, { useState } from 'react';
 import { StudentCalculationItem } from '@/application/query-students';
 import { formatDiscountBps } from '@/application/roster-changes';
-import { applicableRateForClass } from '@/application/applicable-rate';
+import { applicableRateForClass, type RunClassCategorySnapshot } from '@/application/applicable-rate';
 import { parseTagDiscounts } from '@/domain/billing/discount-rules';
 import { InfoTip } from './ui/info-tip';
 import { issueLabel } from '@/lib/issue-copy';
@@ -73,9 +73,25 @@ function extraDays(stu: StudentCalculationItem): string {
   return hasExtra ? `${total}*` : num(stu.anqinDays === null && stu.tutoringDays === null ? null : total);
 }
 
-/** 恰選一班時的本班適用折扣：未配置＝「未設定」（不是 100%）；已配置但無法判定＝「—」。 */
-function localRate(stu: StudentCalculationItem, className: string): string {
-  const r = applicableRateForClass(className, stu);
+/**
+ * 恰選一班時的本班適用折扣：未配置＝「未設定」（不是 100%）；已配置但無法判定＝「—」。
+ *
+ * D2b 3（N-8）：v3 run 以 server 傳下的類別快照判斷，查詢 key 必須是**名冊班名**
+ * （快照的 base_name 存的就是名冊班名；`singleClass` 亦來自名冊報名 key，兩者同源）。
+ * v1／v2 沒有快照，沿用名稱映射（`applicableRateContext` 不帶 isV3Run）。
+ */
+function localRate(
+  stu: StudentCalculationItem,
+  className: string,
+  snapshots: RunClassCategorySnapshot[] | undefined
+): string {
+  const r = applicableRateForClass(
+    className,
+    stu,
+    snapshots
+      ? { isV3Run: true, findSnapshot: (name) => snapshots.find((x) => x.base_name === name) }
+      : undefined
+  );
   if (r.status === 'not_configured') return '未設定';
   return r.bps === null ? '—' : formatDiscountBps(r.bps);
 }
@@ -89,6 +105,11 @@ interface SummaryTableProps {
   singleClass?: string | null;
   /** 表頭篩選觸發鈕；未提供時是純表格 */
   renderFilter?: (column: StudentColumnKey) => React.ReactNode;
+  /**
+   * 該 run 的班級類別快照（v3 才有；server 由 run_class_categories 讀出）。
+   * 有值＝v3 run，本班適用折扣依快照判斷；無值＝v1／v2，名稱映射。
+   */
+  classCategorySnapshots?: RunClassCategorySnapshot[] | null;
 }
 
 /**
@@ -124,6 +145,7 @@ export default function SummaryTable({
   onResetFilters,
   singleClass = null,
   renderFilter,
+  classCategorySnapshots = null,
 }: SummaryTableProps) {
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
   const f = (column: StudentColumnKey) => renderFilter?.(column) ?? null;
@@ -224,7 +246,9 @@ export default function SummaryTable({
                   <td className="cblue number">{stu.tutoringDisplay || '—'}</td>
                   <td className="number">{extraDays(stu)}</td>
                   <td className="number">{formatBaseDiscount(stu.baseDiscountBps)}</td>
-                  {singleClass !== null && <td className="number">{localRate(stu, singleClass)}</td>}
+                  {singleClass !== null && (
+                    <td className="number">{localRate(stu, singleClass, classCategorySnapshots ?? undefined)}</td>
+                  )}
                   <td className="number">{num(stu.subjectCount)}</td>
                   <td>
                     {tags.sibling ? (

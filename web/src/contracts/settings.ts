@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import seedData from '../domain/schedules/schedule-seed.json';
 import { deriveSubject } from '../domain/schedules/seed-manifest';
+import { FORMAL_RULE_SET_VERSION_LIST } from '@/domain/billing/rule-set';
 
 /** 將 "HH:mm" 時間字串轉換為當日分鐘數 (0~1440) */
 export function timeStringToMinutes(timeStr: string | null | undefined): number | null {
@@ -178,12 +179,29 @@ function groupGridRowsToClasses<S>(
     const teacher = classRows[0]?.teacher ?? existing?.teacher ?? null;
     const active = classRows.some((r) => r.active);
 
+    // D2b 1／5（Q9）：類別與固定 5 天的**手動**設定隨班保留（整班改名時由呼叫端把來源改名後的
+    // existingClasses 傳入，這裡只負責帶欄位）。未手動（auto）的班不寫四個欄位：
+    // 缺欄位＝自動偵測（03 §5.2 版本界線規則第 2 點），因此改班名會即時重新偵測，
+    // 也讓舊快照（無新欄位）讀取時不必回寫即可得到正確的有效值。
+    const attrs =
+      existing && (existing.categorySource === 'manual' || existing.fixedSource === 'manual')
+        ? {
+            ...(existing.categorySource === 'manual' && existing.category !== undefined
+              ? { category: existing.category, categorySource: existing.categorySource }
+              : {}),
+            ...(existing.fixedSource === 'manual'
+              ? { fixedFiveDays: existing.fixedFiveDays ?? false, fixedSource: existing.fixedSource }
+              : {}),
+          }
+        : {};
+
     classes.push({
       baseName: className,
       subject,
       teacher,
       active,
       sessions: toSessions(classRows),
+      ...attrs,
     });
   }
 
@@ -424,6 +442,12 @@ export function gridRowsToCalculateClasses(
 export const SettingsPreviewRequestSchema = z.object({
   draft: SettingsDraftSchema,
   expectedRevision: z.number().int().min(0),
+  /**
+   * D2b 4（Q11）：使用者明確確認升級時帶入的目標規則版本。
+   * 缺省＝沿用現行正式軌版本（既有 v2 DB 因此不動、空 DB 得 v3）；
+   * 帶入非正式軌版本（含診斷軌與未知字串）一律 400，不猜、不靜默降級。
+   */
+  targetRuleSetVersion: z.enum(FORMAL_RULE_SET_VERSION_LIST).optional(),
 });
 
 export const SettingsApplyRequestSchema = z.object({

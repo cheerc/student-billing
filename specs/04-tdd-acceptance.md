@@ -122,6 +122,23 @@ U01–U40的一般數值expected採正式精確分鐘策略；另跑浮點診斷
 
 非法起迄、星期不是1–7、跨日、缺姓名／代碼各測拒絕；未知科別／alias為可見待設定，不阻止整批名單匯入。參數不可接受任意eval。
 
+### 3.3 D2b：班級類別與固定 5 天設定 UI、升級確認（U63–U74）
+
+|ID|測試|驗收|層|
+|---|---|---|---|
+|U63|有效類別與固定 5 天（無手動覆寫）|有效值＝依班名自動偵測，四個欄位來源皆 auto|unit|
+|U64|手動設定類別／固定 5 天（Q7-A 兩者獨立）|有效值＝手動值，來源 manual；另一項的來源不受影響|unit|
+|U65|手動值恰等於自動偵測值|仍為 manual（來源是使用者意圖，不因值相同降回 auto）|unit|
+|U66|整班改名帶走手動值（Q9）|manual 跟到新名且來源仍 manual；auto 者依新名重新偵測|unit|
+|U67|同名合併且各來源設定不同（Q9）|產生衝突（阻擋儲存、要求選擇）；設定相同則不阻擋|unit|
+|U68|拆班／新班／整班改名的生命週期判別|以 rowId 追蹤得 split／new／rename；merge 只在目標名不在 baseline 時成立|unit|
+|U69|空 DB 的目標規則版本（Q11）|`resolveFormalRuleSetVersion` 回 erp-tag-v3|integration|
+|U70|既有 v2 active run 未明確要求升級（Q11）|目標版本維持 erp-tag-v2（不靜默切換）；明確帶入 erp-tag-v3 時才升級|integration|
+|U71|升級 apply（Q11）|新 run 版本＝preview 記錄的目標版本並成為 active；舊 v2 run 的值與分類逐欄不變；冪等重送不產生第二個 run|integration|
+|U72|類別變更進完整影響預覽|科數與合計折扣差異列入 `subjectCountDeltas`／`baseDiscountDeltas`；只改類別不改時段時天數不變但折扣差異仍呈現|integration|
+|U73|讀模型走完整生產呼叫鏈（N-6）|固定 5 天的「不列入折扣」班回 100%（以非 10000 的適用率確保斷言落在該分支）；缺快照回 not_configured|integration|
+|U74|alias 解析與手動來源的快照（N-7）|alias 解析後 mapped=1 且不出 CLASS_NOT_MAPPED；`categorySource:'manual'` 的快照 source 為 manual|integration|
+
 ## 4. 匯入與儲存整合測試
 
 |ID|測試|驗收|
@@ -209,9 +226,9 @@ Playwright 最小完整旅程：
 
 覆蓋率不是唯一gate；R01–R18與班名／級距／來源政策各分支都有案例。U01–U49、I01–I20為規劃清單，不是已執行的產品測試。P1只需簡單red-green-refactor記錄。
 
-## 8. UI 重設驗收矩陣（UX01–UX47）
+## 8. UI 重設驗收矩陣（UX01–UX53）
 
-依 [06 D33](06-handoff-decisions.md) 與 [09](09-ui-workflow-redesign-spec.md)；本節是 UI 重設的正式驗收，實作拆分與各 PR 對應項目見 [10](10-ui-workflow-redesign-plan.md) §1。UX 為新增驗收，保留原 U/I 及 08 測試。每個可觀察行為先 red 再 green；expected 來自既有 domain 固定案例／已確認案例（獨立手算），不用新 UI 自己生成。UX22、UX23 的 RED 對應 09 §8.2.1、§8.2.4 記載的現況缺陷。UX07、UX13 於 2026-09-30 修訂，UX25–UX33 為第一次人工驗收後新增（依 [06 D34–D39](06-handoff-decisions.md)、[09](09-ui-workflow-redesign-spec.md) 目標契約與 [03 §5.1](03-architecture-api.md)，實作批次見 [11 §3](11-ui-acceptance-fix-plan.md)）；UX34–UX47 為 D1（規則版本入口收斂、班名比對報告、類別偵測純函式，[11 §3 D1](11-ui-acceptance-fix-plan.md)、[06 D40](06-handoff-decisions.md)）；UX48 起由 11 的 D2 依 S manifest 定稿。
+依 [06 D33](06-handoff-decisions.md) 與 [09](09-ui-workflow-redesign-spec.md)；本節是 UI 重設的正式驗收，實作拆分與各 PR 對應項目見 [10](10-ui-workflow-redesign-plan.md) §1。UX 為新增驗收，保留原 U/I 及 08 測試。每個可觀察行為先 red 再 green；expected 來自既有 domain 固定案例／已確認案例（獨立手算），不用新 UI 自己生成。UX22、UX23 的 RED 對應 09 §8.2.1、§8.2.4 記載的現況缺陷。UX07、UX13 於 2026-09-30 修訂，UX25–UX33 為第一次人工驗收後新增（依 [06 D34–D39](06-handoff-decisions.md)、[09](09-ui-workflow-redesign-spec.md) 目標契約與 [03 §5.1](03-architecture-api.md)，實作批次見 [11 §3](11-ui-acceptance-fix-plan.md)）；UX34–UX47 為 D1（規則版本入口收斂、班名比對報告、類別偵測純函式，[11 §3 D1](11-ui-acceptance-fix-plan.md)、[06 D40](06-handoff-decisions.md)）；UX48–UX53 為 D2b（班級類別與固定 5 天設定 UI、升級確認、讀模型接線；[11 §3 D2](11-ui-acceptance-fix-plan.md)）。
 
 |ID|輸入／操作|expected|層|
 |---|---|---|---|
@@ -262,3 +279,9 @@ Playwright 最小完整旅程：
 |UX45|上一份現行名冊（Q12-b / F2）：依據成功之 activate/apply 收據與 revision 序號追溯可證之現行 episode 流|目標名冊非現行時參考當前現行名冊；目標名冊為現行時參考該 episode 之前一份現行名冊；A 啟用(X=2)→B 只上傳(X=7)→C 啟用：C 啟用前後上一份名冊均為 A（2人），絕不取未啟用的 B；同名冊重算前份不變；重啟用 A→C→A 正確錨定；可證無前份時狀態為 none；收據毀損或出現 gap 時 fail-closed 為 unavailable|integration|
 |UX46|課表設定「班名對應」：開 `/settings?tab=mapping&import=<批次>`；成功 apply alias 刷新（F3）|兩份清單並排、預設展開不需點擊；各附班數與影響人數；別名不對稱有文字說明；系統有／名冊無 顯示上一份名單人數與來源檔名，沒有上一份名單時明說「沒有上一份名單可參考」；報告區沒有「類別」字樣；窄螢幕改上下排列；清單資料列具備中性色彩語意（非琥珀非綠，N2）；同頁成功儲存別名後，班名比對報告即時刷新，已對應班級立即消失，不需 reload（F3）；刷新維持畫面檢視的名單（`?import=` 指定的未啟用批次刷新後仍是該批，與同範圍 API 一致，不跳成現行名單，r2 B1）；儲存成功但重新取得報告失敗時，顯示「無法取得最新的班名比對報告」標示、不顯示儲存前的舊數字，下次成功刷新後標示消失（r2 B2）|E2E|
 |UX47|匯入預覽：上傳合成 fixture（首次；另有現行名單時）；`GET /api/v1/settings/class-name-report` 參數|「使用這份名單」之前顯示摘要：米豆奶有／系統無 12 個班影響 191 位學生、系統有／本次名冊無 7 個班（fixture 手動盤點值；與 I19 錨點 54＝42＋12、seed 49 班中 7 個未出現一致）；有上一份名單時註明來源檔名與該班人數合計，沒有時明說；連結 `/settings?tab=mapping&import=<批次>` 開完整報告，兩處數字同源；既有「N 個班名待確認」不變；API：未知參數 400、未知 run／名單 404、run 與名單不符 400、快照缺失 200＋unavailable|integration/E2E|
+|UX48|課表設定「折扣類別與固定 5 天」：逐班顯示自動偵測值與來源；手動選四選項；勾選固定 5 天；恢復自動|預設依班名自動偵測（國小數學-四A→數學班、國小輔導-四年級→安親課輔班），來源標「自動」；手動後來源標「手動」且改班名不再重偵測（值隨班帶到新名）；恢復自動後回到依**目前**班名重新偵測的值；固定 5 天與類別各自獨立（手動其一不影響另一）；來源以文字標示不只靠顏色，控制項鍵盤可達|E2E|
+|UX49|只改類別（不動時段）→ 確認變更 → 儲存；再按取消修改|只改類別即變成「有未儲存的變更」；確認變更的影響預覽含類別造成的科數／合計折扣差異；取消修改後回到未儲存狀態且類別回到自動偵測值（未儲存的覆寫不留存）|E2E|
+|UX50|同名合併（Q9）：把兩班的所有時段列改成同一個新班名；兩者類別／固定 5 天設定不同|畫面顯示「無法儲存：班級合併設定衝突」並列出衝突內容，「確認變更」停用；要求先選擇要保留的設定或改回不同班名，不靜默取其一；兩者設定相同時不阻擋|E2E|
+|UX51|升級確認（Q11）：現行 run 為 v2 時開課表頁；另測空 DB|現行 v2 時顯示「改用新規則（v3）」勾選，說明會重算全部學生且舊結果不被改寫；未勾選時一切照現行規則（既有 v2 DB 不因目標版本改為 v3 而被靜默升級）；空 DB 不顯示此勾選（該次啟用即建立於目標版本）|integration/E2E|
+|UX52|本班適用折扣讀 run 類別快照（N-8）：v3 run 恰選一班；同樣以名冊班名查；v1／v2 run；v3 run 缺該班快照|v3 run 依該 run 的類別快照判斷（不因 v3 給相同類別的班比 v2 給不同值的班更接近）；固定 5 天的「不列入折扣」班顯示 100% 而非「未設定」；查詢 key 為名冊班名（與快照 base_name 同源）；v1／v2 維持名稱映射；v3 缺快照顯示「未設定」|integration/E2E|
+|UX53|UI 不再顯示舊 `subject`（科別）欄位（Q14）|學生總表、明細、課表設定與班名比對報告皆無 `subject` 欄位；相容欄位仍在 API／資料中保留且不作計算依據|unit/E2E|

@@ -117,7 +117,8 @@ describe('T06: 剩餘 P1 讀取端點整合測試 (03 §5)', () => {
     const body = await res.json();
     expect(body.id).toBe(runId);
     expect(body.isActive).toBe(true);
-    expect(body.ruleSetVersion).toBe('erp-tag-v2');
+    // D2b（Q11）：空 DB 的 run 由 activate 建立 → 目標版本 erp-tag-v3
+    expect(body.ruleSetVersion).toBe('erp-tag-v3');
     expect(body.numericPolicy).toBe('integer-minute-rational-v1');
   });
 

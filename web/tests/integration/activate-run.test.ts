@@ -193,17 +193,18 @@ describe('T04: 計算生命週期、CAS 409 啟用與總表查詢整合測試 (I
 
   // D1 契約改寫（F-1）：
   //   舊斷言：以 activateImport 的 client 參數 ruleSetVersion 分別啟用 erp-tag-v2、erp-tag-v1 兩個 run 後比對。
-  //   新斷言：v2 run 由 activateImport（版本由 server 決定＝現行正式規則 v2）建立；v1 run 是「既有的舊版本 run」，
-  //           改由 application 層 executeCalculationRun＋saveCalculationRun 直接建立（不經 activate、client 不可指定）；
-  //           比對內容與舊測試完全相同（477 人的天數、基本折扣、issue 旗標逐人相同）。
+  //   新斷言（D2b Q11 後）：v1／v2 兩版都由 application 層 executeCalculationRun＋saveCalculationRun 直接建立
+  //           （不經 activate；activate 在空 DB 會建立目標版本 v3，v3 的 issue 集合本就與 v1／v2 不同，
+  //           不屬 D30 的比較主體）。比對內容與舊測試完全相同（477 人的天數、基本折扣、issue 旗標逐人相同）。
   it('D30 / I17: erp-tag-v2 與 erp-tag-v1 雙版本對照驗證，在 seed 基準下 477 筆學生計算天數完全一致且版本記錄精確', () => {
-    // 1. 啟用 run：版本由 server 決定（現行正式規則 erp-tag-v2）
-    const actV2 = activateImport(db, {
-      importId: previewId,
-      expectedRevision: 0,
-      idempotencyKey: 'key-verify-v2',
+    // 1. erp-tag-v2 run（application 層建立；同一份名單、同一份設定解析）
+    const v2RunId = 'run_v2_dual_version_fixture';
+    const builtV2 = executeCalculationRun(db, previewId, v2RunId, {
+      ruleSetVersion: 'erp-tag-v2',
+      ...resolveLatestSavedSettings(db),
     });
-    const runV2 = db.prepare('SELECT rule_set_version FROM calculation_runs WHERE id = ?').get(actV2.runId) as any;
+    saveCalculationRun(db, builtV2.run, builtV2.results);
+    const runV2 = db.prepare('SELECT rule_set_version FROM calculation_runs WHERE id = ?').get(v2RunId) as any;
     expect(runV2.rule_set_version).toBe('erp-tag-v2');
 
     // 2. 既有的 erp-tag-v1 run（application 層建立；同一份名單、同一份設定解析）
@@ -217,7 +218,7 @@ describe('T04: 計算生命週期、CAS 409 啟用與總表查詢整合測試 (I
     expect(runV1.rule_set_version).toBe('erp-tag-v1');
 
     // 3. 比對兩 run 學生計算結果：因排課種子之數學/美語週六時段均在上午，全量 477 人計算結果位元相同
-    const studentsV2 = queryRunStudents(db, actV2.runId, { limit: 1000 }).items;
+    const studentsV2 = queryRunStudents(db, v2RunId, { limit: 1000 }).items;
     const studentsV1 = queryRunStudents(db, v1RunId, { limit: 1000 }).items;
 
     expect(studentsV2.length).toBe(studentsV1.length);
