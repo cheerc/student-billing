@@ -1,4 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
+import { activateFixture } from './helpers/c-batch';
 
 /**
  * D2b 畫面行為（06 D37 1a、Q11 升級、Q9 合併阻擋、Q13 alias 提示、Q14 subject 隱藏）：
@@ -159,5 +160,101 @@ test.describe('D2b：班級類別與固定 5 天設定 UI、升級確認', () =>
 
     // 「確認變更」被阻擋
     await expect(page.locator('button', { hasText: '確認變更' })).toBeDisabled();
+  });
+
+  test.describe('D2b r2：影響預覽的受影響人數（去重）與 Q13 跨類別別名提示', () => {
+    // 這三個案例需要已啟用的名單（候選班名與受影響人數都來自名冊），故不共用外層 beforeEach 的空 DB。
+    test.beforeEach(async ({ page }) => {
+      await activateFixture(page);
+      await page.goto('/settings');
+      await expect(page.locator('h1', { hasText: '課表設定' })).toBeVisible({ timeout: 15000 });
+    });
+
+    test('R2-1: 只有科數／折扣變化、天數不變時，受影響學生數仍是去重後的人數', async ({ page }) => {
+      // 「兒童美語-Ali」自動偵測為 english，手動改為不列入折扣 → 科數與折扣變化、天數不變
+      await page.locator('[data-category-select="兒童美語-Ali"]').selectOption('none');
+      await expect(page.locator('[data-category-source="兒童美語-Ali"]')).toHaveText('手動');
+      await expect(page.locator('.save-status-dirty')).toBeVisible();
+
+      await page.locator('button', { hasText: '確認變更' }).click();
+      const dialog = page.locator('dialog.impact-dialog');
+      await expect(dialog).toBeVisible({ timeout: 15000 });
+
+      const metric = dialog.locator('.metric-card', { hasText: '受影響學生數' });
+      await expect(metric).toBeVisible();
+      // 合成名單手算：科數差異 17 人、折扣差異 11 人、天數差異 0 人，
+      // 三者聯集去重 = 17 人。相加寫法會得到 0 + max(17, 11) = 17（本例恰巧相同），
+      // 因此這裡另外斷言：同一個人在天數、科數、折扣三種差異中重複出現也只算一次。
+      await expect(metric.locator('.metric-value')).toHaveText('17 人');
+      // 顯示的已含科數／折扣變化，metric-sub 不得再寫「天數發生變化」
+      await expect(metric.locator('.metric-sub')).not.toContainText('天數發生變化');
+    });
+
+    test('R2-1: 同一人同時有天數與科數變化時，受影響學生數不得為兩者相加', async ({ page }) => {
+      // 同一個班同時改「類別」與「時段」→ 天數與科數差異落在同一批學生身上
+      await page.locator('[data-category-select="兒童美語-Ali"]').selectOption('none');
+      const row = page.locator('.schedule-table tbody tr', { hasText: '兒童美語-Ali' }).first();
+      await row.locator('input.input-time').first().fill('15:45');
+      await expect(page.locator('.save-status-dirty')).toBeVisible();
+
+      await page.locator('button', { hasText: '確認變更' }).click();
+      const dialog = page.locator('dialog.impact-dialog');
+      await expect(dialog).toBeVisible({ timeout: 15000 });
+
+      // 合成名單手算：天數差異 16 人、科數差異 17 人、折扣差異 11 人，三者聯集去重 = 17 人；
+      // 相加寫法會得到 16 + max(17, 11) = 33 人。畫面必須是去重後的 17 人。
+      await expect(dialog.locator('.metric-card', { hasText: '受影響學生數' }).locator('.metric-value')).toHaveText('17 人');
+      // 天數確實有變化（否則本例不構成 R2-1 的 (a) 情境）
+      await expect(dialog).toContainText('天數變動明細');
+    });
+
+    test('R2-2: 跨類別別名在影響預覽提示「類別將改由系統班決定」，可展開且不阻擋儲存', async ({ page }) => {
+      await page.locator('button', { hasText: '班名對應' }).click();
+      await expect(page.locator('.mapping-table')).toBeVisible({ timeout: 10000 });
+
+      // 「交通車」自動偵測為不列入折扣（none）→ 對應到美語班（english）＝跨類別
+      const row = page.locator('tr', { hasText: '交通車' });
+      await expect(row).toBeVisible();
+      await row.locator('input.input-target-classname').fill('兒童美語-Gino');
+      await row.locator('input[type="checkbox"]').check();
+      await expect(row.locator('.pill', { hasText: '已對應' })).toBeVisible();
+
+      await page.locator('button', { hasText: '確認變更' }).click();
+      const dialog = page.locator('dialog.impact-dialog');
+      await expect(dialog).toBeVisible({ timeout: 15000 });
+
+      const notice = dialog.locator('[data-alias-category-notice]');
+      await expect(notice).toBeVisible();
+      await expect(notice).toContainText('1 個別名的類別將改由系統班決定');
+      await expect(notice).toContainText('交通車');
+      await expect(notice).toContainText('兒童美語-Gino');
+      // 可展開：預設收合，展開後列出（rawBaseName → targetBaseName）
+      await notice.locator('summary').click();
+      await expect(notice).toContainText('不列入折扣');
+      await expect(notice).toContainText('美語班');
+
+      // 提示不得阻擋儲存（D37：提示非阻擋，與 Q9 同名合併衝突阻擋不同）
+      const save = dialog.locator('button', { hasText: '儲存並更新結果' });
+      await expect(save).toBeEnabled();
+      await save.click();
+      await expect(page.locator('#toast')).toContainText('課表已套用並完成重算', { timeout: 15000 });
+    });
+
+    test('R2-2: 兩側自動偵測相同的別名不產生提示', async ({ page }) => {
+      await page.locator('button', { hasText: '班名對應' }).click();
+      await expect(page.locator('.mapping-table')).toBeVisible({ timeout: 10000 });
+
+      // 「國小輔導-四年級A」自動偵測為安親課輔班（care）→ 對應到同為 care 的班 ＝ 非跨類別
+      const row = page.locator('tr', { hasText: '國小輔導-四年級A' });
+      await expect(row).toBeVisible();
+      await row.locator('input.input-target-classname').fill('國小輔導-一A');
+      await row.locator('input[type="checkbox"]').check();
+      await expect(row.locator('.pill', { hasText: '已對應' })).toBeVisible();
+
+      await page.locator('button', { hasText: '確認變更' }).click();
+      const dialog = page.locator('dialog.impact-dialog');
+      await expect(dialog).toBeVisible({ timeout: 15000 });
+      await expect(dialog.locator('[data-alias-category-notice]')).toHaveCount(0);
+    });
   });
 });
