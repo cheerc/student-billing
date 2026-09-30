@@ -299,6 +299,60 @@ describe('B1 多值查詢／全 run 選項／無課程真實 API', () => {
     }
   });
 
+  function emptyClassRun() {
+    const importId = 'imp_b1_empty_class';
+    const students = [student(0, ''), student(1, '[團]'), student(2, '~empty[團]')];
+    expect(students[1].enrollments).toHaveLength(1);
+    expect(students[1].enrollments[0].baseName).toBe('');
+    save(importId, students);
+    const id = activateImport(getDatabase(), { importId, expectedRevision: 1, idempotencyKey: 'activate-empty' }).runId;
+    const readPreview = async (pairs: Array<[string, string]>) => {
+      const response = await previewGET(new NextRequest(`http://127.0.0.1:3100/api/v1/imports/${importId}/students?${new URLSearchParams(pairs)}`), { params: Promise.resolve({ previewId: importId }) });
+      return { status: response.status, body: await response.json() };
+    };
+    return { id, readPreview };
+  }
+
+  it('空班名 ~empty 命中有 enrollment 的空 baseName；兩端不計入無課程', async () => {
+    const { id, readPreview } = emptyClassRun();
+    for (const result of [await query(id, [['enrollmentKey', '~empty']]), await readPreview([['enrollmentKey', '~empty']])]) {
+      expect(result.status).toBe(200);
+      expect(codes(result.body)).toEqual([code(1)]);
+      expect(result.body.totalStudents).toBe(1);
+      expect(result.body.noCourseTotal).toBe(1);
+      expect(result.body.stats.filteredNoCourseCount).toBe(0);
+    }
+  });
+
+  it('空班名 ~empty 與 ~blank 不混：blank只命中零報名，混用回400', async () => {
+    const { id, readPreview } = emptyClassRun();
+    for (const result of [await query(id, [['enrollmentKey', '~blank']]), await readPreview([['enrollmentKey', '~blank']])]) {
+      expect(result.status).toBe(200);
+      expect(codes(result.body)).toEqual([code(0)]);
+      expect(result.body.stats.filteredNoCourseCount).toBe(1);
+    }
+    expect((await query(id, [['enrollmentKey', '~empty'], ['enrollmentKey', '~blank']])).status).toBe(400);
+    expect((await readPreview([['enrollmentKey', '~empty'], ['enrollmentKey', '~blank']])).status).toBe(400);
+  });
+
+  it('空班名 options 回 ~empty 與 unparsedClassLabel，不回空字串可選值；空白與解析盲點分開', async () => {
+    const { id } = emptyClassRun();
+    const result = await query(id, [['options', 'true']]);
+    expect(result.status).toBe(200);
+    expect(result.body.options.enrollmentKey).toContainEqual({ value: '~empty', count: 1, labelKey: 'unparsedClassLabel' });
+    expect(result.body.options.enrollmentKey).toContainEqual({ value: '~blank', count: 1 });
+    expect(result.body.options.enrollmentKey.every((o: any) => o.value !== '')).toBe(true);
+    expect(result.body.noCourseTotal).toBe(1);
+  });
+
+  it('空班名保留字的字面值以 ~~ 跳脫，不把實際班名 ~empty 誤當空 baseName', async () => {
+    const { id, readPreview } = emptyClassRun();
+    for (const result of [await query(id, [['enrollmentKey', '~~empty']]), await readPreview([['enrollmentKey', '~~empty']])]) {
+      expect(result.status).toBe(200);
+      expect(codes(result.body)).toEqual([code(2)]);
+    }
+  });
+
   it('477人實際API多值與options暖機後10次，記中位數/p95；GET不寫DB', async () => {
     const db = getDatabase();
     save('imp_b1_perf', roster(477));
