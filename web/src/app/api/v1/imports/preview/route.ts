@@ -5,6 +5,7 @@ import { getDatabase } from '@/adapters/sqlite';
 import { saveImportBatch, getLatestReadyBatch } from '@/adapters/sqlite/import-repository';
 import { computeImportRosterChanges } from '@/application/import-roster-diff';
 import { findPendingClassNames } from '@/application/pending-classes';
+import { getClassNameMatchReport, summarizeClassNameReport } from '@/application/class-name-match-report';
 import { getCurrentActiveRun } from '@/adapters/sqlite/runs-repository';
 import { validateSameOrigin, maskSensitiveInfo } from '@/contracts/security';
 
@@ -73,6 +74,10 @@ export async function POST(request: Request | NextRequest) {
         duplicateReason: saveResult.duplicateReason,
         batchId: saveResult.batchId,
         rosterDiff,
+        // 班名比對摘要（使用這份名單之前）：與課表設定「班名對應」完整報告同源同判斷；上一份名單依固定規則解析
+        classNameReport: summarizeClassNameReport(
+          getClassNameMatchReport(db, { importId: saveResult.batchId, scope: { kind: 'latest' } })
+        ),
       },
       { status: 200 }
     );

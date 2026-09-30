@@ -16,6 +16,7 @@ import {
 } from '@/contracts/settings';
 import { DynamicCandidate } from '@/domain/schedules/seed-manifest';
 import { CalculatePreviewResponse } from '@/application/schedule-preview';
+import type { ClassNameMatchReport } from '@/application/class-name-match-report';
 import { WindowSummary } from '@/components/settings/window-summary';
 import { ScheduleGrid } from '@/components/settings/schedule-grid';
 import { ImpactDialog, SettingsPreviewData } from '@/components/settings/impact-dialog';
@@ -37,7 +38,10 @@ interface SettingsEditorProps {
   currentRevision: number;
   initialDraft: SettingsDraft;
   unmatched?: string[];
-  seedNotAppeared?: string[];
+  /** 班名比對報告（D1）；由 server 依 ?import= 的名單（預設現行名單）產生 */
+  classNameReport?: ClassNameMatchReport | null;
+  /** 班名比對報告所檢視的名單（server 的 reviewImportId）：儲存後就地刷新要看同一份名單，而不是編輯器儲存所依據的現行名單 */
+  reportImportId?: string | null;
   matchedCount?: number;
   candidates?: DynamicCandidate[];
   lastAppliedRevision?: number;
@@ -57,7 +61,8 @@ export default function SettingsEditor({
   currentRevision,
   initialDraft,
   unmatched = [],
-  seedNotAppeared = [],
+  classNameReport = null,
+  reportImportId = null,
   matchedCount = 0,
   candidates = [],
   lastAppliedRevision,
@@ -104,6 +109,19 @@ export default function SettingsEditor({
   const [previewLoading, setPreviewLoading] = useState(false);
   const [applying, setApplying] = useState(false);
   const [dialogError, setDialogError] = useState<UserFacingError | null>(null);
+
+  // F3：班名比對報告 client state，儲存成功後即時刷新最新 persisted 報告，避免畫面停留於舊資料
+  const [persistedReportOverride, setPersistedReportOverride] = useState<ClassNameMatchReport | null>(null);
+  const [prevReportProp, setPrevReportProp] = useState<ClassNameMatchReport | null>(classNameReport);
+  // 重新取得報告失敗時的說明：有值時不顯示（已過期的）報告數字，只顯示無法取得的標示
+  const [reportStaleError, setReportStaleError] = useState<string | null>(null);
+  if (prevReportProp !== classNameReport) {
+    setPrevReportProp(classNameReport);
+    setPersistedReportOverride(null);
+    setReportStaleError(null);
+  }
+  const report = persistedReportOverride ?? classNameReport;
+  const reportRefreshSeq = useRef(0);
 
   // 儲存成功後就地更新版本與儲存時間（不必重新整理）：下一次確認變更要帶最新版本，狀態列顯示最新儲存時間
   const [revision, setRevision] = useState(currentRevision);
@@ -343,6 +361,29 @@ export default function SettingsEditor({
       setIsImpactDialogOpen(false);
       setPreview(null);
       showToast(preview.mode === 'settings_only' ? '課表已成功儲存' : '課表已套用並完成重算');
+
+      // F3：儲存成功後，就地刷新班名比對報告（維持同頁即時更新，不需整頁 reload）。
+      // 刷新的對象是畫面正在檢視的名單（reportImportId；?import= 可指定尚未啟用的另一批），不是編輯器儲存所依據的現行名單。
+      // 沒有檢視中的名單（尚無任何名單）就沒有報告可刷新。
+      if (reportImportId) {
+        const seq = ++reportRefreshSeq.current;
+        const REFRESH_FAILED = '課表已儲存，但無法取得最新的班名比對報告，因此暫不顯示比對結果。請重新整理頁面後查看。';
+        fetch(`/api/v1/settings/class-name-report?importId=${encodeURIComponent(reportImportId)}`)
+          .then(async (r) => {
+            if (!r.ok) {
+              if (seq === reportRefreshSeq.current) setReportStaleError(REFRESH_FAILED);
+              return;
+            }
+            const updated = (await r.json()) as ClassNameMatchReport;
+            if (seq === reportRefreshSeq.current) {
+              setPersistedReportOverride(updated);
+              setReportStaleError(null);
+            }
+          })
+          .catch(() => {
+            if (seq === reportRefreshSeq.current) setReportStaleError(REFRESH_FAILED);
+          });
+      }
     } catch (e) {
       setDialogError(describeSettingsApplyError(failureFromException(e)));
     } finally {
@@ -413,7 +454,8 @@ export default function SettingsEditor({
             candidateTargets={candidateTargets}
             onUpdateCandidateTarget={handleUpdateCandidateTarget}
             onToggleAlias={handleToggleAlias}
-            seedNotAppeared={seedNotAppeared}
+            classNameReport={report}
+            classNameReportStaleMessage={reportStaleError}
           />
         </section>
       )}

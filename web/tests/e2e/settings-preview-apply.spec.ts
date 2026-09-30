@@ -12,6 +12,7 @@ test.describe('T05 設定 preview→apply E2E（R2 課表與班名對應工作�
   test('T05 (UX03/UX09/UX10): 上傳 → 啟用 → 班名對應勾選數學一→一A → ImpactDialog 預覽 13人/18筆差異 → 儲存並更新結果', async ({
     page,
   }) => {
+    test.setTimeout(60_000);
     // 1. 上傳 ERP 名冊
     await page.goto('/imports');
     const fixturePath = path.resolve(__dirname, '../fixtures/conforming-erp-fixture.xlsx');

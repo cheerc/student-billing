@@ -7,8 +7,10 @@ import {
   saveSettingsVersion,
   draftToAliasMap,
   draftToScheduleOverride,
+  readStoredDraft,
 } from '@/adapters/sqlite/settings-repository';
 import { executeCalculationRun } from './calculate-run';
+import { resolveRuleSetForApply, RuleSetResolutionError } from './rule-set-resolver';
 import { saveCalculationRun } from '@/adapters/sqlite/runs-repository';
 
 export class SettingsApplyError extends Error {
@@ -93,7 +95,8 @@ export function applySettingsPreview(
     );
   }
 
-  const draft = JSON.parse(preview.draftJson);
+  // preview 的草稿 JSON 同樣經唯一入口 readStoredDraft 讀取（不改形狀，才能與 inputHash 比對）
+  const draft = readStoredDraft(preview.draftJson);
   const inputHash = hashSettingsDraft(draft);
   if (inputHash !== preview.inputHash) {
     throw new SettingsApplyError(500, '預覽草稿完整性檢查失敗', 'PREVIEW_CORRUPTED');
@@ -128,6 +131,18 @@ export function applySettingsPreview(
         '預覽鎖定的名單批次與目前現行名單不符；儲存設定不會啟用或切換名單，請重新預覽。',
         'IMPORT_MISMATCH'
       );
+    }
+
+    // 規則版本：只用 preview 記錄的目標版本（D1 F-3）；舊 preview 沒有記錄時視為建立當時的 active 版本
+    // （revision CAS 保證 active 沒變）；記錄的不是正式軌版本 → 預覽資料損毀，拒絕套用（尚未寫入任何資料）。
+    let targetRuleSetVersion: string;
+    try {
+      targetRuleSetVersion = resolveRuleSetForApply(db, preview.targetRuleSetVersion);
+    } catch (e) {
+      if (e instanceof RuleSetResolutionError) {
+        throw new SettingsApplyError(500, '預覽記錄的規則版本不是正式軌版本，預覽資料損毀，請重新預覽', 'PREVIEW_CORRUPTED');
+      }
+      throw e;
     }
 
     // 封存設定快照
@@ -167,6 +182,7 @@ export function applySettingsPreview(
     const scheduleOverride = draftToScheduleOverride(draft);
     const { run, results } = executeCalculationRun(db, preview.importId, runId, {
       scheduleVersionId: settingsVersionId,
+      ruleSetVersion: targetRuleSetVersion,
       aliasMap,
       scheduleOverride,
     });

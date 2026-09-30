@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getDatabase } from '@/adapters/sqlite';
 import { getCalculationRun, getCurrentActiveRun } from '@/adapters/sqlite/runs-repository';
-import { getLatestSettingsVersion } from '@/adapters/sqlite/settings-repository';
+import { getLatestSettingsVersion, readStoredDraft } from '@/adapters/sqlite/settings-repository';
 import { SettingsDraft } from '@/contracts/settings';
+import { loadRunSnapshot } from '@/application/run-snapshot';
 import { SEED_CLASSES } from '@/domain/schedules/seed-manifest';
 import { sanitizePathParam, maskSensitiveInfo, SecurityError } from '@/contracts/security';
 
@@ -34,9 +35,25 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: `找不到計算 run: ${runId}` }, { status: 404 });
     }
 
-    // 取得當前設定版本
-    const latestSettings = getLatestSettingsVersion(db);
-    const draft: SettingsDraft | null = latestSettings ? JSON.parse(latestSettings.contentJson) : null;
+    // 設定來源（D1 F-6）：
+    //  - 明確指定 runId：讀「該 run 當時的設定快照」（run.scheduleVersionId），不用最新設定；快照缺失＝無法判定，不猜；
+    //  - 未指定 runId（現行 run）：維持讀最新已儲存設定（尚無才用 seed）。
+    const useRunSnapshot = Boolean(rawRunId);
+    let draft: SettingsDraft | null;
+    let snapshotStatus: 'ok' | 'unavailable' = 'ok';
+    if (useRunSnapshot) {
+      const snapshot = loadRunSnapshot(db, run.scheduleVersionId);
+      if (snapshot) {
+        // seed 快照＝該 run 用 seed 課表計算（無已儲存設定）；以 null 沿用下方 seed 判斷
+        draft = snapshot.settingsRevision === null ? null : snapshot.draft;
+      } else {
+        draft = null;
+        snapshotStatus = 'unavailable';
+      }
+    } else {
+      const latestSettings = getLatestSettingsVersion(db);
+      draft = latestSettings ? readStoredDraft(latestSettings.contentJson) : null;
+    }
     const configuredClasses = new Set(draft ? draft.classes.map((c) => c.baseName) : SEED_CLASSES.map((c) => c.baseName));
     const activeClasses = new Set(draft ? draft.classes.filter((c) => c.active).map((c) => c.baseName) : SEED_CLASSES.map((c) => c.baseName));
     const aliasMap = new Map<string, string>();
@@ -58,6 +75,18 @@ export async function GET(request: NextRequest) {
       .all(run.importId) as { base_name: string; student_count: number }[];
 
     const items = rows.map((r) => {
+      if (snapshotStatus === 'unavailable') {
+        // 該 run 當時的設定快照已不存在：對應狀態無法判定，不猜 mapped／unmapped
+        return {
+          baseName: r.base_name,
+          targetBaseName: null,
+          subject: seedSubjectMap.get(r.base_name) || '未設定',
+          studentCount: r.student_count,
+          mappingStatus: 'undetermined' as const,
+          isConfigured: null,
+          isActive: null,
+        };
+      }
       const targetName = aliasMap.get(r.base_name) || r.base_name;
       const subject = seedSubjectMap.get(targetName) || seedSubjectMap.get(r.base_name) || '未設定';
       const isConfigured = configuredClasses.has(targetName);
@@ -85,6 +114,8 @@ export async function GET(request: NextRequest) {
     return NextResponse.json(
       {
         runId,
+        settingsScope: useRunSnapshot ? 'run_snapshot' : 'latest_settings',
+        snapshotStatus,
         totalClasses: items.length,
         items,
       },

@@ -154,9 +154,16 @@ describe('T06: 剩餘 P1 讀取端點整合測試 (03 §5)', () => {
     expect(body.items[0]).toHaveProperty('isConfigured');
   });
 
-  it('POST /api/v1/imports/[previewId]/activate 指定 ruleSetVersion: erp-tag-v1 應建立 erp-tag-v1 之 run（舊版本不可變契約）', async () => {
+  // D1 契約改寫（F-1／F-2；specs/11 §3 D1、04 §8 UX35、UX36）：
+  //   舊斷言：activate 帶 ruleSetVersion: 'erp-tag-v1' → 200，建立 erp-tag-v1 的 run（client 指定規則版本）。
+  //   新斷言：client 不得指定規則版本（帶了就 400 INVALID_REQUEST，不建 run）；版本由 server 決定：
+  //           現行 run 為 erp-tag-v1 時，新啟用沿用 erp-tag-v1（舊版本不可變契約改由「沿用現行版本」保證）。
+  //   原因：client 可指定版本會讓同一份名單被任意改版重算；calculate 路由早已拒絕 client 版本（schedule-preview.ts），
+  //         activate 是唯一漏網之處。
+  it('POST /api/v1/imports/[previewId]/activate 帶 ruleSetVersion（client 指定）→ 400 INVALID_REQUEST，不建 run、現行資料不變', async () => {
     const db = getDatabase();
-    const active = db.prepare('SELECT revision FROM active_state WHERE id = 1').get() as any;
+    const active = db.prepare('SELECT revision, active_run_id FROM active_state WHERE id = 1').get() as any;
+    const runsBefore = (db.prepare('SELECT COUNT(*) AS n FROM calculation_runs').get() as any).n;
 
     const activateReq = new NextRequest(
       `http://127.0.0.1:3000/api/v1/imports/${previewId}/activate`,
@@ -173,8 +180,36 @@ describe('T06: 剩餘 P1 讀取端點整合測試 (03 §5)', () => {
     const activateRes = await activatePOST(activateReq, {
       params: Promise.resolve({ previewId }),
     });
+    expect(activateRes.status).toBe(400);
+    expect((await activateRes.json()).code).toBe('INVALID_REQUEST');
+
+    const after = db.prepare('SELECT revision, active_run_id FROM active_state WHERE id = 1').get() as any;
+    expect(after).toEqual(active);
+    expect((db.prepare('SELECT COUNT(*) AS n FROM calculation_runs').get() as any).n).toBe(runsBefore);
+  });
+
+  it('現行 run 為 erp-tag-v1 時，再次啟用（不帶版本）建立的新 run 沿用 erp-tag-v1（版本由 server 決定）', async () => {
+    const db = getDatabase();
+    db.prepare('UPDATE calculation_runs SET rule_set_version = ? WHERE id = ?').run('erp-tag-v1', runId);
+    const active = db.prepare('SELECT revision FROM active_state WHERE id = 1').get() as any;
+
+    const activateReq = new NextRequest(
+      `http://127.0.0.1:3000/api/v1/imports/${previewId}/activate`,
+      {
+        method: 'POST',
+        headers: { host: '127.0.0.1:3000', origin: 'http://127.0.0.1:3000' },
+        body: JSON.stringify({
+          expectedRevision: active.revision,
+          idempotencyKey: 'test-v1-follow-key',
+        }),
+      }
+    );
+    const activateRes = await activatePOST(activateReq, {
+      params: Promise.resolve({ previewId }),
+    });
     expect(activateRes.status).toBe(200);
     const actBody = await activateRes.json();
+    expect(actBody.runId).not.toBe(runId);
 
     const req = new NextRequest(`http://127.0.0.1:3000/api/v1/runs/${actBody.runId}`);
     const res = await singleRunGET(req, { params: Promise.resolve({ runId: actBody.runId }) });

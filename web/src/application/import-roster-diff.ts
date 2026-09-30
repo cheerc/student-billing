@@ -2,7 +2,7 @@ import Database from 'better-sqlite3';
 import { loadStudentsForImport } from '@/adapters/sqlite/import-repository';
 import { computeRosterChanges, RosterChange } from './roster-changes';
 import { resolveLatestSavedSettings } from './calculate-run';
-import { resolveFormalRuleSetVersion } from './schedule-preview';
+import { resolveFormalRuleSetVersion } from './rule-set-resolver';
 
 /**
  * 匯入預覽的名單差異（specs/09 §4）：本次上傳的名單相對於「現行名單」的新增／異動／本次未出現。

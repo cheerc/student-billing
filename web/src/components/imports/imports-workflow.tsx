@@ -14,6 +14,8 @@ import {
   type UserFacingError,
 } from '@/lib/user-messages';
 import { ErrorNotice } from '@/components/ui/error-notice';
+import { ClassNameReportSummaryCard } from '@/components/imports/class-name-report-summary';
+import type { ClassNameReportSummary } from '@/application/class-name-match-report';
 import { formatDateTime, todayInTaipei } from '@/lib/datetime';
 
 /**
@@ -39,6 +41,8 @@ type PreviewWithDiff = ImportPreviewResult & {
    * 啟用必須用這個 id，否則會以不存在的批次呼叫 activate 而失敗。
    */
   batchId?: string;
+  /** 班名比對摘要（D1；04 §8 UX47）：兩份清單的班數與影響人數，連到課表設定的完整報告。 */
+  classNameReport?: ClassNameReportSummary;
 };
 
 /**
@@ -385,6 +389,9 @@ export function ImportsWorkflow({
                 <span>本次匯入名冊中發現 {preview.pendingClasses.length} 個班名待確認。您可以在啟用後至「課表設定 → 班名對應」建立對齊。</span>
               </div>
             )}
+
+            {/* 班名比對摘要：使用這份名單之前先看到兩份清單的班數與影響人數，可連到完整報告（D1） */}
+            {preview.classNameReport && <ClassNameReportSummaryCard summary={preview.classNameReport} />}
 
             {/* 學生名單表格與篩選操作 */}
             <div style={{ padding: '16px 20px 0' }}>

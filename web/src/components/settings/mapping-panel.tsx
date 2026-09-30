@@ -3,6 +3,8 @@
 import React from 'react';
 import { DynamicCandidate } from '@/domain/schedules/seed-manifest';
 import { AliasMapping } from '@/contracts/settings';
+import type { ClassNameMatchReport } from '@/application/class-name-match-report';
+import { ClassNameReportPanel } from '@/components/settings/class-name-report-panel';
 
 interface MappingPanelProps {
   hasStudents: boolean;
@@ -12,7 +14,10 @@ interface MappingPanelProps {
   candidateTargets?: Record<string, string>;
   onUpdateCandidateTarget?: (rawBaseName: string, target: string) => void;
   onToggleAlias?: (rawBaseName: string, targetBaseName: string) => void;
-  seedNotAppeared?: string[];
+  /** 班名比對報告（D1）：兩份清單並排、預設展開；沒有名單或不提供時不顯示 */
+  classNameReport?: ClassNameMatchReport | null;
+  /** 儲存後重新取得報告失敗的說明：有值時不顯示報告（其數字是儲存前的），改顯示這則標示 */
+  classNameReportStaleMessage?: string | null;
 }
 
 export function MappingPanel({
@@ -23,7 +28,8 @@ export function MappingPanel({
   candidateTargets = {},
   onUpdateCandidateTarget = () => {},
   onToggleAlias = () => {},
-  seedNotAppeared = [],
+  classNameReport = null,
+  classNameReportStaleMessage = null,
 }: MappingPanelProps) {
   if (!hasStudents) {
     return (
@@ -45,6 +51,18 @@ export function MappingPanel({
 
   return (
     <div className="mapping-panel-container">
+      {classNameReportStaleMessage ? (
+        <div className="alert alert-warning" role="alert" data-report-stale="" style={{ marginBottom: '20px' }}>
+          {classNameReportStaleMessage}
+        </div>
+      ) : (
+        classNameReport && (
+          <div style={{ marginBottom: '20px' }}>
+            <ClassNameReportPanel report={classNameReport} />
+          </div>
+        )
+      )}
+
       <div className="card" style={{ marginBottom: '20px' }}>
         <div className="toolbar">
           <span style={{ fontWeight: 600 }}>待確認米豆奶班名 ({candidates.length})</span>
@@ -125,26 +143,6 @@ export function MappingPanel({
           </div>
         )}
       </div>
-
-      {seedNotAppeared.length > 0 && (
-        <details className="card" style={{ padding: '16px 20px' }}>
-          <summary style={{ cursor: 'pointer', fontWeight: 600, color: 'var(--text-secondary)' }}>
-            本次名單未出現的班級 ({seedNotAppeared.length})
-          </summary>
-          <div style={{ marginTop: '12px', fontSize: '13px', color: 'var(--text-muted)' }}>
-            <p style={{ marginBottom: '8px' }}>
-              以下為系統中已定義但未在此批米豆奶名冊中出現的班級（系統不會自動停用這些班級）：
-            </p>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
-              {seedNotAppeared.map((name) => (
-                <span key={name} className="pill">
-                  {name}
-                </span>
-              ))}
-            </div>
-          </div>
-        </details>
-      )}
     </div>
   );
 }

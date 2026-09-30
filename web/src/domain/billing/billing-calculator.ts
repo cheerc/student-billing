@@ -17,6 +17,7 @@ import {
   isUnknownWeekday,
 } from '../schedules/overlap-calculator';
 import seedData from '../schedules/schedule-seed.json';
+import { ruleSetCapabilities } from './rule-set';
 
 export type RuleSetVersion = 'erp-tag-v1' | 'excel-v260922-compat' | 'erp-tag-v2';
 
@@ -40,7 +41,7 @@ const NO_SEED_CLASSES = new Map<string, any>();
  * 班級與時段的來源（09 §8.2.4 方案 A）：帶入 scheduleOverride 代表已有儲存設定版本，
  * 其全量 draft 是唯一來源，不在其中的班不退回 seed；未帶入才用 seed 預設（尚無任何已儲存設定）。
  */
-function classMapFor(options: CalculationOptions): Map<string, any> {
+export function classMapFor(options: Pick<CalculationOptions, 'scheduleOverride'>): Map<string, any> {
   return options.scheduleOverride ? NO_SEED_CLASSES : seedClassMap;
 }
 
@@ -104,7 +105,7 @@ function deductSessions(
   ruleSetVersion: RuleSetVersion = 'erp-tag-v2'
 ): { anqin: number; tutoring: number; unknownWeekdayCount: number } {
   const isCompat = ruleSetVersion === 'excel-v260922-compat';
-  const sameWeekdayOnly = ruleSetVersion === 'erp-tag-v2';
+  const { sameWeekdayOnly } = ruleSetCapabilities(ruleSetVersion);
   const options = { sameWeekdayOnly };
 
   const unknownWeekdayCount = sameWeekdayOnly
@@ -129,6 +130,7 @@ export function calculateStudentBilling(
 ): StudentBillingCalculation {
   const ruleSetVersion: RuleSetVersion = options.ruleSetVersion || 'erp-tag-v2';
   const isCompat = ruleSetVersion === 'excel-v260922-compat';
+  const capabilities = ruleSetCapabilities(ruleSetVersion);
 
   // 1. 標籤 / 備註折扣來源解析 (02 §1 & §5: formal 讀標籤, compat 讀備註)
   const discountSourceText = isCompat ? student.notesRaw : student.tagsRaw;
@@ -223,7 +225,7 @@ export function calculateStudentBilling(
     let schStatus = 'calculated';
     if (mathScheduleStatus !== 'calculated' && mathScheduleStatus !== 'no_enrollment') {
       schStatus = mathScheduleStatus;
-    } else if (ruleSetVersion === 'erp-tag-v2' && unknownWeekdayCount > 0) {
+    } else if (capabilities.scheduleIncompleteOnUnknownWeekday && unknownWeekdayCount > 0) {
       schStatus = 'schedule_incomplete';
     }
 
@@ -260,7 +262,7 @@ export function calculateStudentBilling(
   }
 
   // F3/K2: v2 同星期路徑下未知星期（缺失或無法識別）一律 fail-closed 為 0，並出告警＋needs_review，不靜默
-  if (ruleSetVersion === 'erp-tag-v2' && unknownWeekdayCount > 0) {
+  if (capabilities.unknownWeekdayWarning && unknownWeekdayCount > 0) {
     issues.push({
       code: 'UNKNOWN_WEEKDAY',
       message: `排課時段含 ${unknownWeekdayCount} 筆未知星期（缺失或無法識別），v2 同星期規則下該時段衝堂一律計為 0，請核對排課星期欄。`,

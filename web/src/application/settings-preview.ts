@@ -10,13 +10,11 @@ import {
   draftToAliasMap,
   draftToScheduleOverride,
   getLatestSettingsVersion,
+  readStoredDraft,
 } from '@/adapters/sqlite/settings-repository';
 import { calculateStudentBilling } from '@/domain/billing/billing-calculator';
-import {
-  careWindowsMatchRuleSet,
-  CARE_WINDOWS_MISMATCH_MESSAGE,
-  resolveFormalRuleSetVersion,
-} from './schedule-preview';
+import { careWindowsMatchRuleSet, CARE_WINDOWS_MISMATCH_MESSAGE } from './schedule-preview';
+import { resolveFormalRuleSetVersion } from './rule-set-resolver';
 import { loadStudentsForImport } from '@/adapters/sqlite/import-repository';
 
 export class SettingsPreviewError extends Error {
@@ -63,7 +61,8 @@ function saveSettingsOnlyPreview(
   db: Database.Database,
   draft: SettingsDraft,
   expectedRevision: number,
-  settingsVersionId: string
+  settingsVersionId: string,
+  targetRuleSetVersion: string
 ): SettingsPreviewResult {
   const inputHash = hashSettingsDraft(draft);
   const previewId = `setprev_${inputHash.slice(0, 12)}_${Date.now()}`;
@@ -94,6 +93,7 @@ function saveSettingsOnlyPreview(
     resultJson: JSON.stringify(result),
     createdAt: now,
     expiresAt,
+    targetRuleSetVersion,
   });
 
   return result;
@@ -146,13 +146,18 @@ export function previewSettingsChange(
   }
 
   const latest = getLatestSettingsVersion(db);
-  const baseDraft: SettingsDraft | null = latest ? (JSON.parse(latest.contentJson) as SettingsDraft) : null;
+  const baseDraft: SettingsDraft | null = latest ? readStoredDraft(latest.contentJson) : null;
   // 影響預覽的「前」＝目前生效的設定（最新已儲存設定；尚無才是 seed），不是永遠的 seed（09 §3.2）
   const baseAliasMap = baseDraft ? draftToAliasMap(baseDraft) : undefined;
   const baseScheduleOverride = baseDraft ? draftToScheduleOverride(baseDraft) : undefined;
 
+  // 預覽只跑正式軌：有 active run 且為正式軌採其版本，否則（含診斷軌 compat）採現行正式軌 erp-tag-v2（09 §8.1）。
+  // 這個版本同時記錄在 preview 列（target_rule_set_version），apply 建立新 run 時只讀這個值（D1 F-3），
+  // 使用者在預覽看到的影響與實際套用的規則版本一致。
+  const formalRuleSetVersion = resolveFormalRuleSetVersion(db);
+
   if (importId === null) {
-    return saveSettingsOnlyPreview(db, draft, expectedRevision, latest?.id ?? 'seed-v250922');
+    return saveSettingsOnlyPreview(db, draft, expectedRevision, latest?.id ?? 'seed-v250922', formalRuleSetVersion);
   }
 
   const students = loadStudentsForImport(db, importId);
@@ -162,9 +167,6 @@ export function previewSettingsChange(
 
   const aliasMap = draftToAliasMap(draft);
   const scheduleOverride = draftToScheduleOverride(draft);
-
-  // 預覽只跑正式軌：有 active run 且為正式軌採其版本，否則（含診斷軌 compat）採現行正式軌 erp-tag-v2（09 §8.1）
-  const formalRuleSetVersion = resolveFormalRuleSetVersion(db);
 
   const dayDeltas: SettingsPreviewResult['dayDeltas'] = [];
   const tierTransitions: TierTransition[] = [];
@@ -178,9 +180,9 @@ export function previewSettingsChange(
     const before = calculateStudentBilling(stu, {
       aliasMap: baseAliasMap,
       scheduleOverride: baseScheduleOverride,
-      ruleSetVersion: formalRuleSetVersion as any,
+      ruleSetVersion: formalRuleSetVersion,
     });
-    const after = calculateStudentBilling(stu, { aliasMap, scheduleOverride, ruleSetVersion: formalRuleSetVersion as any });
+    const after = calculateStudentBilling(stu, { aliasMap, scheduleOverride, ruleSetVersion: formalRuleSetVersion });
 
     const beforeDays = stu.grade !== null && stu.grade <= 2
       ? before.careDays.anqin.days
@@ -250,6 +252,7 @@ export function previewSettingsChange(
     resultJson: JSON.stringify(result),
     createdAt: now,
     expiresAt,
+    targetRuleSetVersion: formalRuleSetVersion,
   });
 
   return result;
