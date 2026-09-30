@@ -5,6 +5,7 @@ import {
   SettingsDraft,
   SettingsDraftSchema,
   isCompleteTimeRange,
+  isSavableWeekday,
 } from '@/contracts/settings';
 import { draftToScheduleOverride, hashSettingsDraft } from '@/adapters/sqlite/settings-repository';
 import {
@@ -16,6 +17,7 @@ import {
   isUnknownWeekday,
 } from '@/domain/schedules/overlap-calculator';
 import seedData from '@/domain/schedules/schedule-seed.json';
+import type { CareStatus } from './care-status';
 
 /**
  * 唯讀計算 read model（09 §8.1／04 §8 UX05–UX08、UX19、UX24）。
@@ -37,15 +39,7 @@ const FORMAL_RULE_SET_VERSIONS: ReadonlySet<string> = new Set<FormalRuleSetVersi
 /** 現行正式軌。 */
 export const CURRENT_FORMAL_RULE_SET_VERSION: FormalRuleSetVersion = 'erp-tag-v2';
 
-/** 單堂／班級某一類照顧（安親／課輔）的狀態：警告類與「已驗證無衝堂」分開。 */
-export type CareStatus =
-  | 'calculated' // 有重疊，已計算
-  | 'no_overlap' // 星期合法且已驗證與窗口無交集（含合法週六）
-  | 'unknown_weekday' // 星期缺失或無法識別：v2 fail-closed 為 0，但不是「無衝堂」
-  | 'missing_time' // 列：起訖不完整（缺起／缺迄／迄≤起）；班級（無任何列）：沒有時段（待補）
-  | 'incomplete' // 班級層：含不完整列。扣天只統計完整列，不顯示成 calculated
-  | 'shared_window' // seed 的共用窗口班（care_window），本身沒有 session，不捏造
-  | 'inactive'; // 班級停用，不計算
+export type { CareStatus };
 
 export interface WindowView {
   startMinutes: number;
@@ -218,6 +212,18 @@ function incompleteReason(s: { startMinutes: number | null; endMinutes: number |
   return '結束時間須晚於起始時間';
 }
 
+/**
+ * 星期無法識別（含空白）的原因說明：寫出輸入的值，並明說「不代表沒有衝堂」（09 §3.1）。
+ * 空白星期單獨說「沒有填星期」，讓使用者知道是漏填而不是填錯。
+ */
+export function unknownWeekdayMessage(classKey: string, weekday: string): string {
+  const consequence = '該時段的衝堂以 0 計，不代表沒有衝堂';
+  if (weekday.trim() === '') {
+    return `班級「${classKey}」有一個時段沒有填星期，無法識別：${consequence}，請填上星期（一到日）。`;
+  }
+  return `班級「${classKey}」有時段星期為「${weekday}」，無法識別：${consequence}，請把星期改成一到日。`;
+}
+
 function aggregateStatus(a: {
   active: boolean;
   shared: boolean;
@@ -321,7 +327,7 @@ export function buildSchedulePreview(draft: CalculateDraft, ruleSetVersion: Form
             code: 'UNKNOWN_WEEKDAY',
             classKey: c.baseName,
             rowId,
-            message: `班級「${c.baseName}」有時段星期為「${s.weekday}」，無法識別：v2 同星期規則下該時段衝堂計為 0，請核對星期。`,
+            message: unknownWeekdayMessage(c.baseName, s.weekday),
           });
         }
         const group = (type: 'anqin' | 'tutoring'): PreviewRowGroup => {
@@ -426,7 +432,15 @@ export function calculateSchedulePreview(db: Database.Database, rawBody: unknown
     seenRowIds.add(r.rowId);
   }
 
-  // draftHash＝存檔等價 draft 的 hash（經 SettingsDraftSchema 正規化，與 settings/preview 的 inputHash 同一算法同一輸入）
-  const draftHash = hashSettingsDraft(SettingsDraftSchema.parse(toSaveEquivalentDraft(draft)));
+  // draftHash 使用與 settings/preview 的 inputHash 相同算法，輸入先去掉不完整時段、rowId 與不可存檔的星期列。
+  // 含空白或過長星期的原草稿仍會被 settings/preview 拒絕；此 hash 對應移除這些列後的草稿，
+  // 不代表原草稿可提交，也不取代 row-level 狀態與問題。
+  const savable = toSaveEquivalentDraft(draft);
+  const draftHash = hashSettingsDraft(
+    SettingsDraftSchema.parse({
+      ...savable,
+      classes: savable.classes.map((c) => ({ ...c, sessions: c.sessions.filter((s) => isSavableWeekday(s.weekday)) })),
+    })
+  );
   return { requestKey, draftHash, ...core };
 }

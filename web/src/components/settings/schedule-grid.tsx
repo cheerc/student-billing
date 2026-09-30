@@ -12,6 +12,18 @@ interface ScheduleGridProps {
   onAddRow: (row: Omit<ScheduleGridRow, 'rowId'>) => void;
   calculating: boolean;
   calculateResult: CalculatePreviewResponse | null;
+  /**
+   * 產生 calculateResult 時所依據的列（送出請求當下的 rows）。列目前的輸入與它不同＝該列的舊計算值已失效，
+   * 顯示「—」直到新結果回來（09 §3.1：舊值立即失效，不得沿用）。未提供時視為與目前的列一致。
+   */
+  calculateInputRows?: ScheduleGridRow[] | null;
+  /** 最近一次計算失敗的說明（有值時顯示 role=alert；此時 calculateResult 應為 null，各欄顯示「—」）。 */
+  calculateError?: string | null;
+}
+
+/** 影響某一列計算結果的輸入：星期、起迄、班名（決定所屬班級）、班級是否啟用。 */
+function rowCalcSignature(r: ScheduleGridRow): string {
+  return JSON.stringify([r.className, r.weekday, r.startMinutes, r.endMinutes, r.active]);
 }
 
 export function formatDeductionDays(val: number | null | undefined): string {
@@ -36,6 +48,20 @@ function IncompleteBadge({ issues }: { issues: string[] }) {
   );
 }
 
+/**
+ * 「需確認」標示：星期空白或無法識別。v2 同星期規則下該列衝堂以 0 計，但這不是「已驗證沒有衝堂」，
+ * 所以四個計算欄以此徽章取代數字（09 §3.1）。徽章是按鈕（鍵盤可聚焦），原因（寫出輸入的值）用 tooltip 呈現；
+ * 頁面另有不靠 hover 的說明（見 ScheduleGrid 的 data-unknown-weekday-notice）。
+ */
+function NeedsReviewBadge({ reasons }: { reasons: string[] }) {
+  const badge = <span className="badge-needs-review">需確認</span>;
+  return (
+    <InfoTip label="需確認原因" trigger={badge} variant="plain">
+      {reasons.length > 0 ? reasons.join('；') : '星期無法識別，此列衝堂以 0 計，不代表沒有衝堂。'}
+    </InfoTip>
+  );
+}
+
 export function ScheduleGrid({
   rows,
   onUpdateRow,
@@ -43,6 +69,8 @@ export function ScheduleGrid({
   onAddRow,
   calculating,
   calculateResult,
+  calculateInputRows,
+  calculateError = null,
 }: ScheduleGridProps) {
   const [search, setSearch] = useState('');
   const [weekdayFilter, setWeekdayFilter] = useState('');
@@ -55,25 +83,46 @@ export function ScheduleGrid({
   const [newStartTime, setNewStartTime] = useState('13:00');
   const [newEndTime, setNewEndTime] = useState('15:00');
 
-  // 將 calculateResult.rows 建立以 rowId 為鍵的快速查詢表
+  // 將 calculateResult.rows 建立以 rowId 為鍵的快速查詢表。
+  // 只收「輸入仍和計算當時相同」的列：列被改過（或是新增的列）＝舊結果已失效，不放進表，畫面顯示「—」（09 §3.1）。
   const resultMap = useMemo(() => {
     if (!calculateResult?.rows) return new Map();
-    return new Map(calculateResult.rows.map((r) => [r.rowId, r]));
-  }, [calculateResult]);
+    const inputSigs = new Map((calculateInputRows ?? rows).map((r) => [r.rowId, rowCalcSignature(r)]));
+    const current = new Map(rows.map((r) => [r.rowId, rowCalcSignature(r)]));
+    return new Map(
+      calculateResult.rows
+        .filter((r) => inputSigs.has(r.rowId) && inputSigs.get(r.rowId) === current.get(r.rowId))
+        .map((r) => [r.rowId, r])
+    );
+  }, [calculateResult, calculateInputRows, rows]);
 
-  // issues 以 rowId 為鍵的快速查詢表
+  // issues 以 rowId 為鍵的快速查詢表（只含仍有效的列）
   const issuesMap = useMemo(() => {
-    if (!calculateResult?.issues) return new Map();
     const map = new Map<string, string[]>();
+    if (!calculateResult?.issues) return map;
     for (const issue of calculateResult.issues) {
-      if (issue.rowId) {
+      if (issue.rowId && resultMap.has(issue.rowId)) {
         const arr = map.get(issue.rowId) ?? [];
         arr.push(issue.message);
         map.set(issue.rowId, arr);
       }
     }
     return map;
-  }, [calculateResult]);
+  }, [calculateResult, resultMap]);
+
+  // 星期無法識別（含空白）的有效列：供頁面上不靠 hover 的說明使用
+  const unknownWeekdayInfo = useMemo(() => {
+    let count = 0;
+    let blank = 0;
+    for (const r of rows) {
+      const calcRow = resultMap.get(r.rowId);
+      if (calcRow?.anqin.status === 'unknown_weekday') {
+        count += 1;
+        if (r.weekday.trim() === '') blank += 1;
+      }
+    }
+    return { count, blank };
+  }, [rows, resultMap]);
 
   // 篩選時段列
   const filteredRows = useMemo(() => {
@@ -150,6 +199,22 @@ export function ScheduleGrid({
           {showAddForm ? '取消新增' : '＋ 新增時段'}
         </button>
       </div>
+
+      {/* 計算失敗：不顯示舊值、不當成「沒有重疊」（09 §3.1） */}
+      {calculateError && (
+        <div className="alert alert-danger" role="alert" data-calculate-error="">
+          {calculateError} 各欄先以「—」顯示，不代表沒有衝堂；修改課表後會自動重試。
+        </div>
+      )}
+
+      {/* 星期無法識別：需確認的說明，不只藏在 hover 裡（09 §6） */}
+      {unknownWeekdayInfo.count > 0 && (
+        <div className="notice-inline" role="status" data-unknown-weekday-notice="">
+          有 {unknownWeekdayInfo.count} 個時段的星期無法識別（需確認）
+          {unknownWeekdayInfo.blank > 0 ? `，其中 ${unknownWeekdayInfo.blank} 個沒有填星期` : ''}
+          ：這些時段的重疊與扣除以「需確認」標示，不代表沒有衝堂。請把星期改成「一」到「日」。
+        </div>
+      )}
 
       {/* 新增時段內嵌表單 */}
       {showAddForm && (
@@ -253,14 +318,15 @@ export function ScheduleGrid({
 
                 const isInactive = !r.active || calcRow?.anqin.status === 'inactive';
                 const isSharedWindow = calcRow?.anqin.status === 'shared_window';
-                const isUnknownWeekday = calcRow?.anqin.status === 'unknown_weekday';
+                // 星期空白或無法識別：v2 以 0 計，但不是「已驗證無衝堂」，以「需確認」取代數字
+                const isUnknownWeekday = !isInactive && !isIncomplete && calcRow?.anqin.status === 'unknown_weekday';
 
                 return (
                   <tr
                     key={r.rowId}
                     className={`schedule-row ${isFirstOfClass ? 'class-group-start' : ''} ${
                       !r.active ? 'row-inactive' : ''
-                    } ${isIncomplete ? 'row-incomplete' : ''}`}
+                    } ${isIncomplete ? 'row-incomplete' : ''} ${isUnknownWeekday ? 'row-unknown-weekday' : ''}`}
                   >
                     {/* 1. 班級名稱 */}
                     <td className="col-classname sticky-col">
@@ -338,6 +404,8 @@ export function ScheduleGrid({
                         <span className="subtle">—</span>
                       ) : isSharedWindow ? (
                         <span className="subtle">共用</span>
+                      ) : isUnknownWeekday ? (
+                        <NeedsReviewBadge reasons={rowIssues} />
                       ) : (
                         calcRow ? (calcRow.anqin.overlapMinutes ?? 0) : '—'
                       )}
@@ -351,6 +419,8 @@ export function ScheduleGrid({
                         <span className="subtle">—</span>
                       ) : isSharedWindow ? (
                         <span className="subtle">共用</span>
+                      ) : isUnknownWeekday ? (
+                        <NeedsReviewBadge reasons={rowIssues} />
                       ) : (
                         formatDeductionDays(calcRow?.anqin.rawDeduction)
                       )}
@@ -364,6 +434,8 @@ export function ScheduleGrid({
                         <span className="subtle">—</span>
                       ) : isSharedWindow ? (
                         <span className="subtle">共用</span>
+                      ) : isUnknownWeekday ? (
+                        <NeedsReviewBadge reasons={rowIssues} />
                       ) : (
                         calcRow ? (calcRow.tutoring.overlapMinutes ?? 0) : '—'
                       )}
@@ -377,6 +449,8 @@ export function ScheduleGrid({
                         <span className="subtle">—</span>
                       ) : isSharedWindow ? (
                         <span className="subtle">共用</span>
+                      ) : isUnknownWeekday ? (
+                        <NeedsReviewBadge reasons={rowIssues} />
                       ) : (
                         formatDeductionDays(calcRow?.tutoring.rawDeduction)
                       )}

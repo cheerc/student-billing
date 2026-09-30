@@ -53,10 +53,10 @@
 
 顯示正扣除量（domain負數不改），原始天數最多小數3位，詳細值可在popover看；不可用顯示值計算。0顯示0；缺時間顯「待補」，未知星期有警告；合法週六與週一到五窗口無交集才顯0，不把未知當已驗證無衝堂。
 
-**未知與空白星期（目標，11 A；F01）**：
+**未知與空白星期（11 A 已實作；F01）**：
 
 - 星期為**非空的非法值**：calculate對該列回row-level`unknown_weekday`；該列顯示可聚焦的「需確認」警告與可讀原因，不顯示成0或「無重疊」。合法週六仍顯示0。
-- 星期為**空白**：現行`CalculateSessionSchema.weekday`為`z.string().min(1).max(8)`（`web/src/contracts/settings.ts`），清空星期會使整個calculate回400。實作路徑二擇一，由A決定並回填本段：(a) calculate接受空白星期，並回該列的問題；(b) client以與該schema同源的驗證，在該列標示警告、不送出該列。無論選哪條，畫面行為一致：該列標「需確認」。
+- 星期為**空白**（或超過8字元）：原`CalculateSessionSchema.weekday`為`z.string().min(1).max(8)`（`web/src/contracts/settings.ts`），清空星期會使整個calculate回400。A採**路徑 (a)**：calculate接受空白與過長（上限64字元只擋不合理payload）的星期，回該列`unknown_weekday`與問題（空白時原因寫「沒有填星期」）；列與班級層級的狀態、問題清單由server一次算出（單一來源＝domain的`isUnknownWeekday`），畫面不另寫一套判斷。(b) 未採用（client端同源驗證會另寫一套班級層級狀態）。畫面行為：該列標「需確認」。
 - **提交仍拒絕空白星期**：preview／apply維持只收完整合法時段（`SettingsDraft`）的既有契約，不因本項UI修正而放寬。
 - **舊值立即失效**：清空星期或改成非法值後，該列先前算出的數字立即失效，顯示「—」或「需確認」，不得沿用舊數字。calculate回400或網路失敗時，同樣不得顯示為「無重疊」。
 - 驗收UX07（修訂）：非空非法值與空字串各一個瀏覽器測試，另測calculate失敗；斷言警告可聚焦、原因可讀、舊值不冒充。
@@ -137,7 +137,7 @@
 
 點班級展開全部時段與逐堂五個計算欄，連結「編輯此班課表」：帶穩定班級識別，課表頁定位該班並列出全部時段（§2；F04）。缺時段、共用窗口、無重疊分開。
 
-**狀態涵蓋安親與課輔兩側（目標，11 A；F02）**：狀態不得只看安親側，也不得讓一側的結果掩蓋另一側。表達方式二擇一，由A決定並回填本段：分列兩側各自的狀態；或明定整班優先序「未知／不完整＞需確認＞已計算＞無重疊」。無論哪種，任一側未知或不完整都不被另一側掩蓋（例：只與課輔窗口重疊的班，狀態不是「無重疊」）。驗收UX26。
+**狀態涵蓋安親與課輔兩側（11 A 已實作；F02）**：狀態不得只看安親側，也不得讓一側的結果掩蓋另一側。A採**整班優先序**（不分列兩側）：停用／共用窗口（班級層旗標）＞ 未知／不完整 ＞ 已計算 ＞ 無重疊，安親與課輔兩側取優先者（實作：`web/src/application/care-status.ts`的`combineCareStatuses`，純函式、可被瀏覽器端引用）。任一側未知或不完整都不被另一側掩蓋（例：只與課輔窗口重疊的班，狀態不是「無重疊」）。驗收UX26。
 
 有active run時同學生總表讀該run課表快照與規則；無active時讀已儲存課表，標「尚未匯入學生，可先檢查扣天」。歷史run不得套用最新設定，資料不足要明示不可重建。
 
@@ -190,7 +190,7 @@ tooltip短句、數值；hover/focus/click均可開、Esc可關。多步說明�
 
 **窗口唯讀**：窗口是ruleSet參數（`RuleSetOptions.anqinWindow／tutoringWindow`，`web/src/domain/schedules/overlap-calculator.ts:36-37`，預設常數`CARE_WINDOWS`同檔9-12）。現況`draftToScheduleOverride`只轉換sessions（`web/src/adapters/sqlite/settings-repository.ts:165-181`），draft的careWindows沒有進入計算。故read model一律用ruleSet窗口，回應帶`windows`供畫面唯讀顯示，不讀draft窗口，避免預覽與正式run不同源。`SettingsDraft.careWindows`仍是schema必填（`web/src/contracts/settings.ts:300-303`），UI一律帶ruleSet值；server收到不同值回400 INVALID_DRAFT，不靜默忽略。
 
-建議POST /api/v1/settings/calculate：輸入draft（`CalculateDraft`，允許帶可選`rowId`，且`startMinutes`／`endMinutes`允許為null或end≤start的不完整列）、requestKey（**不含ruleSetVersion**）；回requestKey、draftHash、ruleSetVersion、windows、rows、classes、issues。rows含rowId/classKey/durationMinutes、兩組overlapMinutes/rawDeduction/status；classes含兩組totalOverlapMinutes/raw/rounded/status/rowIds。rowId保持穩定（client帶來的原樣回傳，未帶才補序號），不完整列回null＋`missing_time`與`SCHEDULE_INCOMPLETE`問題；班級含不完整列時標為`incomplete`，扣天只計完整列；`draftHash`取去掉不完整列與rowId之「存檔等價draft」計算，確保與存檔時之preview `inputHash`完全同源。這個POST僅純計算，不建立preview／run、不寫DB，仍驗same-origin與payload限制。
+建議POST /api/v1/settings/calculate：輸入draft（`CalculateDraft`，允許帶可選`rowId`，且`startMinutes`／`endMinutes`允許為null或end≤start的不完整列，`weekday`允許空白或過長〔≤64字元〕，回該列`unknown_weekday`，見§3.1）、requestKey（**不含ruleSetVersion**）；回requestKey、draftHash、ruleSetVersion、windows、rows、classes、issues。rows含rowId/classKey/durationMinutes、兩組overlapMinutes/rawDeduction/status；classes含兩組totalOverlapMinutes/raw/rounded/status/rowIds。rowId保持穩定（client帶來的原樣回傳，未帶才補序號），不完整列回null＋`missing_time`與`SCHEDULE_INCOMPLETE`問題；班級含不完整列時標為`incomplete`，扣天只計完整列；`draftHash`取去掉不完整列與rowId之「存檔等價draft」計算，確保與存檔時之preview `inputHash`完全同源；星期空白或過長的列存不了（settings/preview回400），同樣不入hash；此時hash對應移除這些列後的草稿，可能與該可存檔草稿的`inputHash`相同，不代表原草稿可提交，也不取代列狀態與問題。這個POST僅純計算，不建立preview／run、不寫DB，仍驗same-origin與payload限制。
 
 **ruleSetVersion由server決定**，做法同`web/src/application/settings-preview.ts:125-132`：有active run採其ruleSetVersion，無則採現行正式軌erp-tag-v2。新增要求：值必須是正式軌；若active run為診斷軌excel-v260922-compat（activate現未限制版本，`web/src/application/calculate-run.ts:29`）則改採現行正式軌。client不得指定，任何情況不得選compat（診斷軌不作正式值，根CLAUDE.md §2）。
 

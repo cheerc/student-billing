@@ -21,9 +21,21 @@ export function minutesToTimeString(minutes: number | null | undefined): string 
   return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
 }
 
+/**
+ * 存檔契約的星期：1–8 字元。空白與過長者存檔（settings/preview、apply）一律拒絕；
+ * 非空的非法值（如「八」）可存，run 端 fail-closed 並列 UNKNOWN_WEEKDAY 問題。
+ * calculate 的唯讀輸入（CalculateSessionSchema）刻意放寬，見該處說明（09 §3.1、11 §3 A）。
+ */
+export const SavedWeekdaySchema = z.string().min(1).max(8);
+
+/** 星期是否符合存檔契約（與 SessionSchema 同源，不各寫一份長度規則）。 */
+export function isSavableWeekday(weekday: string): boolean {
+  return SavedWeekdaySchema.safeParse(weekday).success;
+}
+
 /** 時段 session（分鐘制） */
 export const SessionSchema = z.object({
-  weekday: z.string().min(1).max(8),
+  weekday: SavedWeekdaySchema,
   startMinutes: z.number().int().min(0).max(1440),
   endMinutes: z.number().int().min(0).max(1440),
 }).refine((s) => s.endMinutes > s.startMinutes, { message: 'endMinutes 必須大於 startMinutes' });
@@ -58,7 +70,7 @@ export const ScheduleGridRowSchema = z
     rowId: z.string().min(1),
     className: z.string().min(1, { message: '班級名稱不可為空' }),
     teacher: z.string().nullable().default(null),
-    weekday: z.string().min(1).max(8),
+    weekday: SavedWeekdaySchema,
     startTime: z.string().refine((val) => val === '' || /^([01]\d|2[0-3]):([0-5]\d)$/.test(val), {
       message: '起始時間格式必須為 HH:mm 或留空',
     }),
@@ -336,7 +348,12 @@ export type SettingsDraft = z.infer<typeof SettingsDraftSchema>;
  */
 export const CalculateSessionSchema = z.object({
   rowId: z.string().min(1).max(200).optional(),
-  weekday: z.string().min(1).max(8),
+  /**
+   * 09 §3.1（11 §3 A；F01）：calculate 接受空白與過長的星期，並回該列 unknown_weekday 的問題，
+   * 不讓一個未填好的星期使整個唯讀計算回 400。這只放寬唯讀輸入；存檔契約（SavedWeekdaySchema：1–8 字元）不變，
+   * 空白星期的完整時段列送 settings/preview 仍回 400。上限 64 只擋不合理的 payload。
+   */
+  weekday: z.string().max(64),
   startMinutes: z.number().int().min(0).max(1440).nullable().default(null),
   endMinutes: z.number().int().min(0).max(1440).nullable().default(null),
 });
