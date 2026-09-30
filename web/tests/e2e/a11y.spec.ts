@@ -455,9 +455,17 @@ test.describe('R5 可及性稽核（09 §6）', () => {
     const pending = page.locator('.mapping-table .pill.warn', { hasText: '待確認' });
     await expect(pending.first()).toBeVisible();
     expect(isAmber(await rgb(pending)), '「待確認」應為琥珀色，不是綠色（綠＝成功）').toBe(true);
-    const unseen = page.locator('details', { hasText: '本次名單未出現的班級' }).locator('.pill').first();
-    await unseen.evaluate((el) => (el.closest('details') as HTMLDetailsElement).setAttribute('open', ''));
-    expect(isNeutral(await rgb(unseen)), '「本次名單未出現」只是資訊，應為中性灰').toBe(true);
+    // D1：收合的「本次名單未出現的班級」details 已被「班名比對報告」的「系統有／本次名冊無」清單取代
+    //（09 §3.3；該清單預設展開）。這裡驗證同一件事在報告清單裡仍是中性灰（資訊，不是待確認）：
+    // 以該清單的表頭列（非彩色狀態徽章）為準——它的背景不得是琥珀或綠色。
+    const systemOnlyHead = page
+      .getByRole('region', { name: '系統有／本次名冊無' })
+      .getByRole('columnheader', { name: '系統班名' });
+    await expect(systemOnlyHead).toBeVisible();
+    const unseen = await rgb(systemOnlyHead);
+    expect(isNeutral(unseen), '「系統有／本次名冊無」只是資訊，應為中性灰').toBe(true);
+    expect(isAmber(unseen), '不應為琥珀色（琥珀＝待確認）').toBe(false);
+    expect(isGreen(unseen), '不應為綠色（綠＝成功）').toBe(false);
 
     // 核對結果：目前使用的資料＝綠；歷史唯讀＝灰
     await page.goto('/');

@@ -2468,3 +2468,38 @@ select {
   color: var(--primary-color);
   font-weight: 600;
 }
+
+/* 班名比對報告清單（ARIA 表格；與可編輯的 .mapping-table 分開，避免既有選取器誤選） */
+.class-name-report-table {
+  font-size: 14px;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.class-name-report-row {
+  display: grid;
+  gap: 8px;
+  align-items: center;
+  min-height: 44px;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.class-name-report-row:last-child {
+  border-bottom: 0;
+}
+
+.class-name-report-table.cols-2 .class-name-report-row {
+  grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr);
+}
+
+.class-name-report-table.cols-3 .class-name-report-row {
+  grid-template-columns: minmax(0, 1.4fr) minmax(0, 0.9fr) minmax(0, 1.1fr);
+}
+
+.class-name-report-head {
+  font-weight: 600;
+  color: var(--text-muted);
+  background: #f8fafc;
+}

@@ -3,9 +3,12 @@ import type { ClassNameMatchReport } from '@/application/class-name-match-report
 import { formatDateTime } from '@/lib/datetime';
 
 /**
- * 班名比對報告（課表設定「班名對應」；04 §8 UX44–UX46；09 §5.5）。
+ * 班名比對報告（課表設定「班名對應」；04 §8 UX44–UX46；09 §3.3）。
  * 兩份清單並排、預設展開（不收合）；每份都標出影響的不重複學生數。純呈現，數字全由 read model 提供。
  * D1 不顯示「類別」。
+ *
+ * 清單用 ARIA 表格（role=table／row／cell）而不是 <table>：下方「待確認米豆奶班名」可編輯表沿用既有 `.mapping-table`，
+ * 兩者分開，既有以 `.mapping-table`、`tr` 選取該表的操作與測試不會誤選到報告清單。
  */
 
 const ALIAS_NOTE =
@@ -51,24 +54,22 @@ export function ClassNameReportPanel({ report }: { report: ClassNameMatchReport 
           {rosterOnly.length === 0 ? (
             <div className="class-name-report-empty">✓ 名冊的班名都已對應到課表。</div>
           ) : (
-            <table className="mapping-table">
-              <thead>
-                <tr>
-                  <th>米豆奶班名</th>
-                  <th>學生數／筆數</th>
-                </tr>
-              </thead>
-              <tbody>
-                {rosterOnly.map((c) => (
-                  <tr key={c.baseName}>
-                    <td style={{ fontWeight: 600 }}>{c.baseName}</td>
-                    <td>
-                      {c.students} 人 <span className="subtle">（{c.tokens} 筆）</span>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+            <div role="table" aria-label="米豆奶班名清單" className="class-name-report-table cols-2">
+              <div role="row" className="class-name-report-row class-name-report-head">
+                <div role="columnheader">米豆奶班名</div>
+                <div role="columnheader">學生數／筆數</div>
+              </div>
+              {rosterOnly.map((c) => (
+                <div role="row" key={c.baseName} className="class-name-report-row">
+                  <div role="cell" style={{ fontWeight: 600 }}>
+                    {c.baseName}
+                  </div>
+                  <div role="cell">
+                    {c.students} 人 <span className="subtle">（{c.tokens} 筆）</span>
+                  </div>
+                </div>
+              ))}
+            </div>
           )}
         </section>
 
@@ -84,29 +85,27 @@ export function ClassNameReportPanel({ report }: { report: ClassNameMatchReport 
           {systemOnly.length === 0 ? (
             <div className="class-name-report-empty">✓ 課表裡的每個班，本次名冊都有人報名。</div>
           ) : (
-            <table className="mapping-table">
-              <thead>
-                <tr>
-                  <th>系統班名</th>
-                  <th>上一份名單人數</th>
-                  <th>備註</th>
-                </tr>
-              </thead>
-              <tbody>
-                {systemOnly.map((c) => (
-                  <tr key={c.baseName}>
-                    <td style={{ fontWeight: 600 }}>{c.baseName}</td>
-                    <td>{c.previousRosterStudents === null ? '—' : `${c.previousRosterStudents} 人`}</td>
-                    <td>
-                      {!c.active && <span className="pill">已停用</span>}
-                      {c.aliasCoveredBy.length > 0 && (
-                        <span className="subtle">由別名覆蓋：{c.aliasCoveredBy.join('、')}</span>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+            <div role="table" aria-label="系統班名清單" className="class-name-report-table cols-3">
+              <div role="row" className="class-name-report-row class-name-report-head">
+                <div role="columnheader">系統班名</div>
+                <div role="columnheader">上一份名單人數</div>
+                <div role="columnheader">備註</div>
+              </div>
+              {systemOnly.map((c) => (
+                <div role="row" key={c.baseName} className="class-name-report-row">
+                  <div role="cell" style={{ fontWeight: 600 }}>
+                    {c.baseName}
+                  </div>
+                  <div role="cell">{c.previousRosterStudents === null ? '—' : `${c.previousRosterStudents} 人`}</div>
+                  <div role="cell">
+                    {!c.active && <span className="pill">已停用</span>}
+                    {c.aliasCoveredBy.length > 0 && (
+                      <span className="subtle">由別名覆蓋：{c.aliasCoveredBy.join('、')}</span>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
           )}
         </section>
       </div>
