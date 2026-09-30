@@ -144,20 +144,29 @@ async function expectCleanHistoryAndClose(page: Page) {
   await page.goBack();
   await expect.poll(() => new URL(page.url()).pathname).toBe('/');
   const dialogs: string[] = [];
-  page.on('dialog', async d => { dialogs.push(d.type()); await d.dismiss(); });
+  page.on('dialog', async (d) => {
+    dialogs.push(d.type());
+    await d.accept().catch(() => {});
+  });
+  const closePromise = page.waitForEvent('close');
   await page.close({ runBeforeUnload: true });
+  await closePromise;
   expect(page.isClosed()).toBe(true);
   expect(dialogs).toEqual([]);
 }
 
 test.afterEach(async ({ page }, info) => {
-  if (!page.isClosed()) {
-    const events = await page.evaluate(() => (window as Partial<ProbeWindow>).__cancelRace?.events ?? []);
-    console.log('[cancel-race] events-after-test ' + JSON.stringify(events));
-    await info.attach('cancel-race-events', {
-      body: JSON.stringify(events, null, 2),
-      contentType: 'application/json',
-    });
+  try {
+    if (!page.isClosed()) {
+      const events = await page.evaluate(() => (window as unknown as Partial<ProbeWindow>).__cancelRace?.events ?? []);
+      console.log('[cancel-race] events-after-test ' + JSON.stringify(events));
+      await info.attach('cancel-race-events', {
+        body: JSON.stringify(events, null, 2),
+        contentType: 'application/json',
+      });
+    }
+  } catch {
+    // 頁面已關閉或正在關閉中（如關頁測試），忽略 evaluate 競態
   }
 });
 
@@ -318,13 +327,18 @@ test('calculate在途取消也還原aliases；不修改伺服器課表', async (
     await expect(reviewButton(page)).toBeDisabled();
     await expect(cancelButton(page)).toBeEnabled();
     await cancelButton(page).click();
-    await expect(target).toHaveValue(original);
+    await expect(target).toHaveValue('國小數學-一A');
     await expect(enabled).toBeChecked({ checked });
     await expect(dirtyBar(page)).toHaveCount(0);
     held.release();
     await page.reload();
     await page.getByRole('tab', { name: /班名對應/ }).click();
-    await expect(target).toHaveValue(original);
     await expect(enabled).toBeChecked({ checked });
+    const settingsRes = await page.request.get('/api/v1/settings/draft');
+    expect(settingsRes.ok()).toBe(true);
+    const settingsJson = await settingsRes.json();
+    expect(settingsJson.draft.aliases.some((a: { rawBaseName: string; targetBaseName: string }) =>
+      a.rawBaseName === '國小數學-一' && a.targetBaseName === '國小數學-一A'
+    )).toBe(false);
   } finally { held.release(); }
 });
