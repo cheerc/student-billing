@@ -46,17 +46,17 @@ export const ALLOWED_RUN_QUERY_PARAMS = new Set([
 ]);
 
 export interface RunStudentQueryParams {
-  classId?: string;
-  enrollmentKey?: string;
-  grade?: string | number;
-  branch?: string;
-  hasClass?: boolean | string;
+  classId?: string | string[];
+  enrollmentKey?: string | string[];
+  grade?: string | number | Array<string | number>;
+  branch?: string | string[];
+  hasClass?: boolean | string | Array<boolean | string>;
   q?: string;
   cursor?: string;
   limit?: number | string;
-  tierMismatch?: boolean | string;
-  hasIssues?: boolean | string;
-  issueCode?: string;
+  tierMismatch?: boolean | string | Array<boolean | string>;
+  hasIssues?: boolean | string | Array<boolean | string>;
+  issueCode?: string | string[];
   [key: string]: any;
 }
 

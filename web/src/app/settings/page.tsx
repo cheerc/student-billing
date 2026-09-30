@@ -8,7 +8,15 @@ import SettingsEditor from '@/components/settings-editor';
 
 export const dynamic = 'force-dynamic';
 
-export default async function SettingsPage() {
+export default async function SettingsPage({
+  searchParams,
+}: {
+  searchParams?: Promise<Record<string, string | string[] | undefined>>;
+} = {}) {
+  const sp = (await searchParams) ?? {};
+  const first = (v: string | string[] | undefined) => (Array.isArray(v) ? v[0] : v);
+  const focusClass = first(sp.class)?.trim() || null;
+  const initialTab = first(sp.tab) === 'mapping' ? 'mapping' : 'schedule';
   const db = getDatabase();
   const active = getCurrentActiveRun(db);
   const latestBatch = getLatestReadyBatch(db);
@@ -66,6 +74,8 @@ export default async function SettingsPage() {
         lastAppliedRevision={latest?.revision ?? active.revision}
         lastAppliedAt={latest?.createdAt ?? null}
         hasActiveImport={hasActiveImport}
+        initialTab={initialTab}
+        focusClass={focusClass}
       />
     </div>
   );

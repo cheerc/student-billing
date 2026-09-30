@@ -33,6 +33,10 @@ interface SettingsEditorProps {
   lastAppliedRevision?: number;
   lastAppliedAt?: string | null;
   hasActiveImport?: boolean;
+  /** 網址 tab 參數決定開啟的頁籤（預設課表） */
+  initialTab?: 'schedule' | 'mapping';
+  /** 「編輯此班課表」帶入的班級（班名）：課表頁定位並列出該班全部時段（F04） */
+  focusClass?: string | null;
 }
 
 /** 計算失敗時的說明（不外露狀態碼或工程字）；ScheduleGrid 會補上「不代表沒有衝堂」。 */
@@ -49,8 +53,10 @@ export default function SettingsEditor({
   lastAppliedRevision,
   lastAppliedAt,
   hasActiveImport = false,
+  initialTab = 'schedule',
+  focusClass = null,
 }: SettingsEditorProps) {
-  const [activeTab, setActiveTab] = useState<'schedule' | 'mapping'>('schedule');
+  const [activeTab, setActiveTab] = useState<'schedule' | 'mapping'>(initialTab);
   const [draft, setDraft] = useState<SettingsDraft>(initialDraft);
 
   // 初始化平鋪排課時段列（對齊 S 表 89 筆）
@@ -367,6 +373,7 @@ export default function SettingsEditor({
             calculateResult={calculateResult}
             calculateInputRows={calculateInputRows}
             calculateError={calculateError}
+            focusClass={focusClass}
           />
         </section>
       )}

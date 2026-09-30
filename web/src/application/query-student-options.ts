@@ -2,6 +2,7 @@ import type Database from 'better-sqlite3';
 import { getCalculationRun } from '@/adapters/sqlite/runs-repository';
 import { parseTagDiscounts } from '@/domain/billing/discount-rules';
 import { normalizeStudentQuery } from '@/contracts/student-query';
+import { rateCategoryOfClass } from './applicable-rate';
 import { ALLOWED_RUN_QUERY_PARAMS, validateRunQueryParams, QueryStudentError, type RunStudentQueryParams } from './query-students';
 
 export interface StudentFilterOption { value: string; count: number; labelKey?: 'unparsedClassLabel' }
@@ -40,7 +41,7 @@ export function queryStudentOptions(db: Database.Database, runId: string, params
   }
   const selected = query.selections.enrollmentKey;
   const classKey = selected && !selected.none && selected.values.length === 1 && typeof selected.values[0] === 'string' ? selected.values[0] : null;
-  const category = classKey?.includes('國小輔導') ? 'care' : classKey?.includes('國小數學') ? 'math' : classKey?.includes('兒童美語') ? 'english' : null;
+  const category = classKey === null ? null : rateCategoryOfClass(classKey);
   const context: RunStudentOptions['applicableRateContext'] = { classKey: classKey === null ? null : wireValue(classKey), status: classKey === null ? 'requires_class' : category ? 'configured' : 'not_configured' };
   const counts = new Map<string, Map<string, number>>();
   for (const key of ['enrollmentKey', 'grade', 'branch', 'anqinDays', 'tutoringDays', 'baseDiscountBps', 'applicableDiscountBps', 'hasExtraDeduction', 'sibling', 'specialDiscount', 'internalStudent', 'hasIssues', 'issueCode', 'tierMismatch', 'tierComparison', 'hasClass']) counts.set(key, new Map());

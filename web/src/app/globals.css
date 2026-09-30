@@ -529,7 +529,7 @@ body {
 }
 
 .main {
-  padding: 32px;
+  padding: 24px;
   max-width: 1800px;
   flex: 1;
   width: 100%;
@@ -1928,4 +1928,445 @@ select {
   border-radius: 6px;
   font-size: 13px;
   background: #ffffff;
+}
+
+/* ==========================================================================
+   B2 表頭篩選與核對結果密度（specs/09 §5.1；11 B2；D36／D38 O01）
+   ========================================================================== */
+
+/* 表頭篩選觸發鈕：▾ 以 CSS 繪製（不放文字，欄名不被污染）；有篩選時變色 */
+.hf-wrap {
+  display: inline-flex;
+  vertical-align: middle;
+  margin-left: 2px;
+}
+
+.hf-trigger {
+  width: 24px;
+  height: 24px;
+  min-width: 24px;
+  min-height: 24px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.hf-trigger:hover {
+  background: #e2e8f0;
+}
+
+.hf-trigger:focus-visible {
+  outline: 2px solid var(--primary-color);
+  outline-offset: 1px;
+}
+
+.hf-caret {
+  width: 0;
+  height: 0;
+  border-left: 4px solid transparent;
+  border-right: 4px solid transparent;
+  border-top: 5px solid currentColor;
+}
+
+.hf-trigger.hf-active {
+  background: #dbeafe;
+  border-color: var(--primary-color);
+  color: #1d4ed8;
+}
+
+/* 面板：portal 到 body、fixed 定位並夾在視窗內；清單在面板內捲動，確定／取消固定在底部 */
+.hf-panel {
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  background: #fff;
+  color: var(--text-primary);
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.18);
+  font-size: 13px;
+  font-weight: 400;
+  text-align: left;
+  white-space: normal;
+}
+
+.hf-head {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px 6px;
+}
+
+.hf-title {
+  font-weight: 700;
+}
+
+.hf-search {
+  min-height: 32px;
+  padding: 4px 8px;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  font-size: 13px;
+}
+
+.hf-actions {
+  display: flex;
+  gap: 14px;
+}
+
+.hf-link {
+  min-height: 24px;
+  padding: 2px 0;
+  border: 0;
+  background: none;
+  color: #1d4ed8;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.hf-link:hover {
+  text-decoration: underline;
+}
+
+.hf-list {
+  flex: 1 1 auto;
+  min-height: 72px;
+  overflow-y: auto;
+  padding: 0 12px;
+  border-top: 1px solid var(--border-color);
+  border-bottom: 1px solid var(--border-color);
+}
+
+.hf-section {
+  min-width: 0;
+  margin: 6px 0;
+  padding: 0;
+  border: 0;
+}
+
+.hf-legend {
+  padding: 4px 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.hf-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 28px;
+  padding: 2px 0;
+  cursor: pointer;
+}
+
+.hf-option-label {
+  flex: 1 1 auto;
+  overflow-wrap: anywhere;
+}
+
+.hf-option-count {
+  flex: 0 0 auto;
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+.hf-empty,
+.hf-none-note {
+  margin: 8px 0;
+  color: var(--text-secondary);
+}
+
+.hf-foot {
+  flex: 0 0 auto;
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 8px 12px;
+}
+
+/* 已套用條件 chips */
+.hf-chips {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.hf-chip {
+  display: inline-flex;
+  align-items: center;
+  min-height: 26px;
+  padding: 0 2px 0 10px;
+  border: 1px solid #bfdbfe;
+  border-radius: 9999px;
+  background: #eff6ff;
+  color: #1e3a8a;
+  font-size: 12px;
+}
+
+.hf-chip-remove {
+  width: 24px;
+  height: 24px;
+  min-width: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 9999px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+
+.hf-chip-remove:hover {
+  background: #dbeafe;
+}
+
+.hf-clear-all {
+  min-height: 24px;
+  padding: 2px 6px;
+  border: 0;
+  background: none;
+  color: #1d4ed8;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.hf-clear-all:hover {
+  text-decoration: underline;
+}
+
+/* 篩選列（姓名搜尋＋chips）與人數行 */
+.results-filterbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border-color);
+  background: #fafbfc;
+}
+
+.results-search {
+  min-height: 32px;
+  min-width: 180px;
+  padding: 4px 10px;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  font-size: 0.8125rem;
+}
+
+.scope-hint {
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.results-summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px 12px;
+  padding: 0 12px;
+}
+
+.results-summary .counts-line {
+  padding: 6px 0;
+}
+
+.counts-pager {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.8125rem;
+  color: var(--text-muted);
+}
+
+.pager-btn {
+  padding: 2px 10px;
+  min-height: 28px;
+  font-size: 0.75rem;
+}
+
+.no-course-wrap {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.no-course-hint {
+  min-height: 24px;
+  padding: 2px 10px;
+  border: 1px solid #fcd34d;
+  border-radius: 9999px;
+  background: var(--warning-bg);
+  color: var(--warning-text);
+  font-size: 0.8125rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.no-course-hint:hover {
+  background: #fde68a;
+}
+
+.table-updating {
+  padding: 4px 12px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+/* 班名：最多兩行＋「另 N 班」（可展開） */
+.enroll-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
+}
+
+.enroll-line {
+  line-height: 1.3;
+}
+
+.enroll-more {
+  min-height: 24px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: #1d4ed8;
+  font-size: 0.75rem;
+  cursor: pointer;
+}
+
+.enroll-more:hover {
+  text-decoration: underline;
+}
+
+/* O01 密度（UX30）：短視窗優先保留表格空間——橫幅、技術資訊、頁籤、表頭與資料列都收緊，
+   表格容器吃掉剩下的視窗高度；寬表仍只在表內捲動（09 §6）。 */
+.results-page .data-banner {
+  padding: 8px 14px;
+  margin-bottom: 8px;
+}
+
+.results-page .data-banner-title {
+  margin: 0 0 2px;
+  font-size: 20px;
+}
+
+.results-page .data-banner-line {
+  font-size: 13px;
+}
+
+.results-page .tech-info-block {
+  margin: 0 0 6px;
+  padding: 0 12px;
+}
+
+.results-page .tech-info-block[open] {
+  padding: 4px 12px 8px;
+}
+
+.results-page .tabs {
+  margin-bottom: 8px;
+}
+
+.results-page .tabs button {
+  padding: 6px 4px;
+}
+
+.results-page .results-table {
+  min-width: 1240px;
+}
+
+.results-page .results-table th {
+  padding: 6px 10px;
+}
+
+.results-page .results-table td {
+  padding: 4px 10px;
+  vertical-align: middle;
+}
+
+.results-page .results-table .enroll-cell {
+  min-width: 260px;
+}
+
+.results-page {
+  /* 表格以上的版面高度（橫幅、技術資訊、頁籤、篩選列、人數行）；表格容器吃掉其餘的視窗高度 */
+  --results-chrome: 330px;
+}
+
+.results-page .results-tabpanel .table-scroll {
+  max-height: max(260px, calc(100vh - var(--results-chrome)));
+}
+
+@media (max-width: 800px) {
+  .results-page {
+    --results-chrome: 400px;
+  }
+
+  .results-page .data-banner {
+    padding: 6px 10px;
+    margin-bottom: 6px;
+  }
+
+  .results-page .data-banner-main {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 2px 12px;
+  }
+
+  .results-page .data-banner-title {
+    margin: 0;
+    font-size: 18px;
+  }
+
+  .results-page .data-banner-line {
+    font-size: 12px;
+    gap: 6px;
+  }
+
+  .results-page .results-filterbar {
+    padding: 4px 8px;
+  }
+
+  .results-page .results-summary .counts-line {
+    padding: 2px 0;
+    gap: 2px 8px;
+    font-size: 0.8125rem;
+  }
+}
+
+.enroll-line {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+.enroll-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 300px;
+}
+
+.results-pager {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 6px 12px;
+  font-size: 0.8125rem;
+  color: var(--text-muted);
+  border-top: 1px solid var(--border-color);
 }

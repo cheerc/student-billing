@@ -1,4 +1,5 @@
 import type { QuerySelection, QueryValue } from '@/contracts/student-query';
+import { rateCategoryOfClass } from './applicable-rate';
 
 export interface QueryPredicate { sql: string; args: Array<string | number> }
 export function sqlValue(value: Exclude<QueryValue, null>): string | number {
@@ -54,10 +55,11 @@ export function escapeLike(value: string): string {
   return value.replace(/[\\%_]/g, (c) => '\\' + c);
 }
 
-/** S-B 凍結的暫定 v2 名稱映射；只讀四個已持久化欄位，不新增計算。D37 後改由設定快照供應。 */
+/** S-B 凍結的暫定 v2 名稱映射（類別判斷見 applicable-rate.ts）；只讀四個已持久化欄位，不新增計算。D37 後改由設定快照供應。 */
 export function applicableRateColumn(className: string): string | null {
-  if (className.includes('國小輔導')) return '(CASE WHEN sc.grade IN (1,2) THEN sc.applicable_anqin_bps WHEN sc.grade BETWEEN 3 AND 6 THEN sc.applicable_tutoring_bps ELSE NULL END)';
-  if (className.includes('國小數學')) return 'sc.applicable_math_bps';
-  if (className.includes('兒童美語')) return 'sc.applicable_english_bps';
+  const category = rateCategoryOfClass(className);
+  if (category === 'care') return '(CASE WHEN sc.grade IN (1,2) THEN sc.applicable_anqin_bps WHEN sc.grade BETWEEN 3 AND 6 THEN sc.applicable_tutoring_bps ELSE NULL END)';
+  if (category === 'math') return 'sc.applicable_math_bps';
+  if (category === 'english') return 'sc.applicable_english_bps';
   return null;
 }

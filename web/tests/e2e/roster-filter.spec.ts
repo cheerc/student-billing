@@ -26,6 +26,9 @@ test.describe('名冊篩選 E2E 驗收測試', () => {
     await expect(page.getByText('已載入就緒名單')).toBeVisible({ timeout: 10000 });
     await expect(page.getByText('尚未啟用')).toBeVisible();
     await expect(page.locator('.stat-card', { hasText: '符合篩選學生數' })).toContainText('477');
+    // 無課程（D38）：與匯入預覽同數（fixture 93 人零報名），附離籍提示
+    await expect(page.locator('.stat-card', { hasText: '無課程' })).toContainText('93');
+    await expect(page.locator('.stat-card', { hasText: '無課程' })).toContainText('請至米豆奶辦理離籍');
 
     // 5. 班級候選篩選 (四年級 A/B 分開)
     const classSelect = page.locator('select', { has: page.locator('option', { hasText: '全部班級' }) });

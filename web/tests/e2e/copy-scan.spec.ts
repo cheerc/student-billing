@@ -1,5 +1,6 @@
 import { test, expect, Page } from '@playwright/test';
 import path from 'path';
+import { openFilter, applyFilter } from './helpers/header-filter';
 
 /**
  * R5 文案全頁掃描（specs/09 §7；specs/04 UX16 相關；specs/10 §5）。
@@ -20,7 +21,7 @@ import path from 'path';
 const FIXTURE = path.resolve(__dirname, '../fixtures/conforming-erp-fixture.xlsx');
 
 /** scan() 呼叫次數（每個頁面狀態一次，標籤不得重複）。 */
-const EXPECTED_STATES = 24;
+const EXPECTED_STATES = 26;
 
 /** 09 §7 文案表 ＋ 任務清單：日常介面不得出現。 */
 const FORBIDDEN: Array<{ term: string; re: RegExp }> = [
@@ -160,11 +161,20 @@ test.describe('R5 文案全頁掃描（09 §7）', () => {
     await scan(page, '核對結果｜空篩選', violations);
     await page.locator('button', { hasText: '清除篩選條件' }).click();
 
-    const classSelect = page.locator('select', { has: page.locator('option', { hasText: '全部班級' }) });
-    await classSelect.selectOption({ label: '國小數學-一' });
+    // 表頭篩選面板（D36）：面板內的文案與選項也在日常介面內，一併掃描
+    const classPanel = await openFilter(page, '所屬班級');
+    await expect(classPanel).toBeVisible();
+    await scan(page, '核對結果｜表頭篩選面板（所屬班級）', violations);
+    await page.keyboard.press('Escape');
+    const issuePanel = await openFilter(page, '需確認');
+    await expect(issuePanel).toBeVisible();
+    await scan(page, '核對結果｜表頭篩選面板（需確認）', violations);
+    await page.keyboard.press('Escape');
+
+    await applyFilter(page, '所屬班級', { pick: ['國小數學-一'] });
     await expect(page.locator('.notice-warn')).toBeVisible();
-    await scan(page, '核對結果｜待設定班級提示', violations);
-    await page.locator('button', { hasText: '重置篩選 ✕' }).click();
+    await scan(page, '核對結果｜已套用篩選條件與待設定班級提示', violations);
+    await page.getByRole('button', { name: '清除全部' }).click();
 
     await page.locator('button[role="tab"]', { hasText: '班級扣天' }).click();
     await expect(page.locator('.deductions-table')).toBeVisible();

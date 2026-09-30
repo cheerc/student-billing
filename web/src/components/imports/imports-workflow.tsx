@@ -301,11 +301,16 @@ export function ImportsWorkflow({
                 <span className="stat-sub">至少報名一門班級</span>
               </div>
               <div className="stat-card">
-                <span className="stat-label">無班級人數</span>
+                <span className="stat-label">無課程</span>
                 <span className="stat-value" style={{ color: '#d97706' }}>
                   {preview.stats.studentsWithoutClass}
                 </span>
-                <span className="stat-sub">未報名班級，保留名冊</span>
+                <span className="stat-sub">請至米豆奶辦理離籍</span>
+                {preview.stats.studentsWithoutClass > 0 && (
+                  <button type="button" className="link-button" onClick={() => setFilterMode('no-class')}>
+                    只看無課程的學生
+                  </button>
+                )}
               </div>
               <div className="stat-card">
                 <span className="stat-label">離班標記人數</span>
@@ -399,7 +404,7 @@ export function ImportsWorkflow({
                   >
                     <option value="all">全部學生 ({preview.stats.totalStudents})</option>
                     <option value="with-class">有班級 ({preview.stats.studentsWithClass})</option>
-                    <option value="no-class">無班級 ({preview.stats.studentsWithoutClass})</option>
+                    <option value="no-class">無課程 ({preview.stats.studentsWithoutClass})</option>
                     <option value="withdrawn">有離班標記 ({preview.stats.withdrawnStudentsCount})</option>
                   </select>
                 </div>
