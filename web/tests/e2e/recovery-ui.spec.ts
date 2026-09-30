@@ -127,7 +127,9 @@ test.describe('R4 重寫：T06 故障恢復與歷程查閱 E2E 驗收', () => {
     const rows = table.locator('tbody tr');
     await expect(rows).toHaveCount(FIXTURE_SCHEDULE_NOT_FOUND);
     for (let i = 0; i < FIXTURE_SCHEDULE_NOT_FOUND; i++) {
-      await expect(rows.nth(i)).toContainText('SCHEDULE_NOT_FOUND');
+      // 每一列都是「排課缺漏」（中文名稱；英文代碼不出現在主畫面，D39 (4)）
+      await expect(rows.nth(i)).toContainText('排課缺漏');
+      await expect(rows.nth(i)).not.toContainText('SCHEDULE_NOT_FOUND', { useInnerText: true });
     }
 
     // 7. 點擊學生列展開明細抽屜：來源列座標與排課問題說明（舊版斷言，恢復）
@@ -135,7 +137,9 @@ test.describe('R4 重寫：T06 故障恢復與歷程查閱 E2E 驗收', () => {
     const drawer = page.locator('[role="dialog"]');
     await expect(drawer).toBeVisible();
     await expect(drawer).toContainText('排課缺漏');
-    await expect(drawer.locator('text=排課缺漏，採相容 fallback 數值比較').first()).toBeVisible();
+    await expect(drawer.locator('text=排課缺漏，暫以相容數值比較，請核對課表設定。').first()).toBeVisible();
+    // 抽屜的比對結果與問題類型都是白話中文，不帶英文標籤或代碼（D39）
+    await expect(drawer).not.toContainText(/\(Match\)|\(Mismatch\)|fallback|SCHEDULE_NOT_FOUND/, { useInnerText: true });
     // 來源列座標在「原始資料」摺疊區（09 §5.1），展開後可見
     await drawer.locator('summary', { hasText: '原始資料' }).click();
     await expect(drawer.locator('text=來源試算表第')).toBeVisible();

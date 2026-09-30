@@ -1,6 +1,7 @@
 import { test, expect, Page } from '@playwright/test';
 import path from 'path';
 import { openFilter, applyFilter } from './helpers/header-filter';
+import { brokenXlsx, missingHeadersXlsx, sideLink, xlsxUpload } from './helpers/c-batch';
 
 /**
  * R5 文案全頁掃描（specs/09 §7；specs/04 UX16 相關；specs/10 §5）。
@@ -10,9 +11,15 @@ import { openFilter, applyFilter } from './helpers/header-filter';
  * aria-label／title／placeholder／alt，掃描 09 §7 文案表列為「日常介面不得出現」的字。
  * 技術資訊可查，但必須收在摺疊區——摺疊區內的內容不算日常介面，展開才看得到。
  *
- * 例外（有依據，不是放寬）：
- *   - 問題類型代碼（SCHEDULE_NOT_FOUND 等）是 UX15 明定保留的短標（「未知碼短標需確認且可查原因」，D17 照實呈現）。
- *   - 檔名、人員代碼、學生姓名是資料，不是文案。
+ * 批次 C（11 C；D39；UX32）擴充：
+ *   - 問題類型代碼（SCHEDULE_NOT_FOUND 等）不再是例外：日常介面只顯示中文名稱，代碼在明細的技術資訊摺疊區（D39 (4)）。
+ *   - 禁用字新增：mismatch、決策／規則編號（D24 等）、大寫底線的錯誤／問題代碼（INVALID_XLSX 等）、「設定草稿格式錯誤」、
+ *     fallback／排課種子、英文系統錯誤（Failed to fetch、404 預設頁）。
+ *   - 新增「使用者實際會走到」的狀態：課表警告（非法／空白星期、計算失敗）、離頁確認、確認視窗的失敗態（預覽 400／409／逾期）、
+ *     匯入錯誤（損毀檔案、缺欄位）、有待確認事項的學生明細、總表查詢失敗、404 與歷史找不到。
+ *     R5 的掃描漏掉了這些實際狀態，工程字才會被使用者看到；之後新增任何畫面狀態都要加進這份清單。
+ *
+ * 例外（有依據，不是放寬）：檔名、人員代碼、學生姓名是資料，不是文案。
  *
  * 一次跑完所有狀態，最後統一斷言「違規清單為空」，失敗時一次列出全部違規（頁面／狀態／命中字／上下文）。
  * 本檔也是文案回歸：之後任何頁面把工程字放回日常介面都會在這裡變紅。
@@ -21,7 +28,7 @@ import { openFilter, applyFilter } from './helpers/header-filter';
 const FIXTURE = path.resolve(__dirname, '../fixtures/conforming-erp-fixture.xlsx');
 
 /** scan() 呼叫次數（每個頁面狀態一次，標籤不得重複）。 */
-const EXPECTED_STATES = 26;
+const EXPECTED_STATES = 40;
 
 /** 09 §7 文案表 ＋ 任務清單：日常介面不得出現。 */
 const FORBIDDEN: Array<{ term: string; re: RegExp }> = [
@@ -47,11 +54,16 @@ const FORBIDDEN: Array<{ term: string; re: RegExp }> = [
   { term: '英文操作提示（應為中文）', re: /Upload XLSX|\(Settings\)|Storage Path/ },
   { term: 'token（解析器內部名詞，日常說「報名班級」）', re: /\btokens?\b/i },
   { term: '規則編號（R04 等 spec 內部編號）', re: /\bR\d{2}\b/ },
+  // ── 批次 C（D39；UX32）──
+  { term: 'mismatch', re: /mismatch/i },
+  { term: '決策／規則編號（D24 等）', re: /\bD\d{2}\b/ },
+  { term: '英文錯誤／問題代碼（大寫底線，如 INVALID_XLSX、SCHEDULE_NOT_FOUND）', re: /\b[A-Z][A-Z0-9]*_[A-Z0-9_]+\b/ },
+  { term: '設定草稿格式錯誤（zod 訊息）', re: /設定草稿格式錯誤/ },
+  { term: 'fallback／排課種子', re: /fallback|排課種子/i },
+  { term: '版本識別（erp-tag、v2 等）', re: /erp-tag|\bv[0-9]\b/i },
+  { term: '英文系統錯誤', re: /Failed to fetch|TypeError|Unexpected token|NetworkError|Internal Server Error|This page could not be found|SQLITE/i },
+  { term: '英文標籤（Match／Mismatch）', re: /\((?:Match|Mismatch)\)/ },
 ];
-
-/** UX15 明定保留的問題類型短標，掃描前先排除。 */
-const ISSUE_CODES =
-  /SCHEDULE_NOT_FOUND|SCHEDULE_EMPTY|UNKNOWN_WEEKDAY|DUPLICATE_SUBJECT_ENROLLMENT|STAFF_FAMILY_NO_DISCOUNT|CONFLICTING_NOTE_SOURCE|NUMERIC_POLICY_DIFFERENCE/g;
 
 interface Violation {
   where: string;
@@ -82,7 +94,7 @@ async function scan(page: Page, where: string, out: Violation[]) {
   // 掃到空白頁不代表乾淨：每個狀態都必須有實質文字
   expect(raw.trim().length, `「${where}」沒有取到任何可見文字，掃描無效`).toBeGreaterThan(30);
   scanned.push(where);
-  const text = raw.replace(ISSUE_CODES, ' ');
+  const text = raw;
   for (const { term, re } of FORBIDDEN) {
     const g = new RegExp(re.source, re.flags.includes('g') ? re.flags : `${re.flags}g`);
     for (const m of text.matchAll(g)) {
@@ -106,6 +118,37 @@ test.describe('R5 文案全頁掃描（09 §7）', () => {
     await expect(page.locator('h1', { hasText: '課表設定' })).toBeVisible({ timeout: 10000 });
     await scan(page, '課表設定｜課表頁籤（空 DB）', violations);
 
+    // 課表警告態（批次 C）：非法星期、空白星期、計算失敗、離頁確認——使用者改課表時實際會看到的畫面
+    const row3 = page.locator('.schedule-table tbody tr').nth(3);
+    const cancelEdits = async () => {
+      await page.locator('button', { hasText: '取消修改' }).click();
+      await expect(page.locator('.save-status-dirty')).toHaveCount(0);
+    };
+    await row3.locator('input.input-weekday').fill('八');
+    await expect(page.locator('[data-unknown-weekday-notice]')).toBeVisible({ timeout: 10000 });
+    await scan(page, '課表設定｜星期無法識別（非法星期）', violations);
+    await row3.locator('input.input-weekday').fill('');
+    await expect(page.locator('[data-unknown-weekday-notice]')).toContainText('沒有填星期', { timeout: 10000 });
+    await scan(page, '課表設定｜星期無法識別（空白星期）', violations);
+    await cancelEdits();
+
+    await page.route('**/api/v1/settings/calculate', (route) =>
+      route.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ error: 'SQLITE_ERROR: internal failure' }) })
+    );
+    await row3.locator('input.input-time').first().fill('14:10');
+    await expect(page.locator('[data-calculate-error]')).toBeVisible({ timeout: 10000 });
+    await scan(page, '課表設定｜計算失敗', violations);
+    await page.unroute('**/api/v1/settings/calculate');
+    await cancelEdits();
+
+    await row3.locator('input.input-time').first().fill('14:20');
+    await sideLink(page, /匯入學生/).click();
+    const leave = page.getByRole('dialog', { name: '有尚未儲存的課表修改' });
+    await expect(leave).toBeVisible({ timeout: 10000 });
+    await scan(page, '課表設定｜離頁確認視窗', violations);
+    await leave.getByRole('button', { name: '繼續編輯' }).click();
+    await cancelEdits();
+
     await page.locator('button', { hasText: '班名對應' }).click();
     await page.waitForTimeout(300);
     await scan(page, '課表設定｜班名對應頁籤（尚未匯入）', violations);
@@ -116,12 +159,28 @@ test.describe('R5 文案全頁掃描（09 §7）', () => {
     await expect(page.locator('dialog.impact-dialog')).toBeVisible({ timeout: 15000 });
     await scan(page, '課表設定｜確認變更視窗（只有課表）', violations);
     await page.keyboard.press('Escape');
+    await cancelEdits();
 
     await page.goto('/imports');
     await scan(page, '匯入學生｜選擇檔案', violations);
 
+    // 匯入錯誤：損毀檔案、缺少必要欄位（D39 (3)；錯誤代碼只在收合的「詳細資訊」裡）
+    await page.locator('input[type="file"]').setInputFiles(xlsxUpload('broken.xlsx', brokenXlsx()));
+    await expect(page.locator('.alert-danger')).toBeVisible({ timeout: 15000 });
+    await scan(page, '匯入學生｜損毀檔案錯誤', violations);
+    await page.goto('/imports');
+    await page.locator('input[type="file"]').setInputFiles(xlsxUpload('wrong-headers.xlsx', await missingHeadersXlsx()));
+    await expect(page.locator('.alert-danger')).toBeVisible({ timeout: 15000 });
+    await scan(page, '匯入學生｜缺少必要欄位錯誤', violations);
+
     await page.goto('/history');
     await scan(page, '匯入紀錄｜空狀態', violations);
+
+    // 打錯網址與找不到的歷史紀錄：不得是英文預設頁
+    await page.goto('/no-such-page');
+    await scan(page, '找不到頁面（404）', violations);
+    await page.goto('/history/not-a-real-run');
+    await scan(page, '歷史檢視｜找不到這筆紀錄', violations);
 
     // ── B. 已上傳、尚未使用 ──────────────────────────────────────
     await page.goto('/imports');
@@ -155,11 +214,39 @@ test.describe('R5 文案全頁掃描（09 §7）', () => {
     await scan(page, '核對結果｜學生明細抽屜', violations);
     await page.keyboard.press('Escape');
 
+    // 有待確認事項的學生（非只有「天數不同」）：抽屜要列出問題類型與說明——R5 沒有掃到的實際狀態
+    const issueRow = page
+      .locator('.results-table tbody tr')
+      .filter({ has: page.locator('.badge-warn', { hasNotText: '天數不同' }) })
+      .first();
+    await expect(issueRow).toBeVisible();
+    await issueRow.click();
+    await expect(page.locator('[role="dialog"]')).toBeVisible();
+    await scan(page, '核對結果｜學生明細抽屜（有待確認事項）', violations);
+    await page.keyboard.press('Escape');
+
     const search = page.locator('input[placeholder*="搜尋"]').first();
     await search.fill('沒有這個學生');
     await expect(page.getByText('沒有符合條件的學生')).toBeVisible({ timeout: 10000 });
     await scan(page, '核對結果｜空篩選', violations);
     await page.locator('button', { hasText: '清除篩選條件' }).click();
+
+    // 總表查詢失敗（伺服器錯誤、連線中斷）：白話說明，不外露英文系統錯誤
+    const studentsApi = '**/api/v1/runs/*/students*';
+    await page.route(studentsApi, (route) =>
+      route.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ error: 'SQLITE_ERROR: no such column' }) })
+    );
+    await search.fill('觸發查詢失敗');
+    await expect(page.locator('.alert-danger')).toBeVisible({ timeout: 10000 });
+    await scan(page, '核對結果｜查詢失敗（伺服器錯誤）', violations);
+    await page.unroute(studentsApi);
+    await page.route(studentsApi, (route) => route.abort('failed'));
+    await search.fill('再次觸發查詢失敗');
+    await expect(page.locator('.alert-danger')).toBeVisible({ timeout: 10000 });
+    await scan(page, '核對結果｜查詢失敗（連線中斷）', violations);
+    await page.unroute(studentsApi);
+    await search.fill('');
+    await expect(page.locator('.results-table tbody tr').first()).toBeVisible({ timeout: 10000 });
 
     // 表頭篩選面板（D36）：面板內的文案與選項也在日常介面內，一併掃描
     const classPanel = await openFilter(page, '所屬班級');
@@ -211,6 +298,46 @@ test.describe('R5 文案全頁掃描（09 §7）', () => {
     await page.locator('button', { hasText: '確認變更' }).click();
     await expect(page.locator('dialog.impact-dialog')).toBeVisible({ timeout: 15000 });
     await scan(page, '課表設定｜確認變更視窗（有名單，影響預覽）', violations);
+
+    // 套用時預覽已逾期（伺服器回 PREVIEW_EXPIRED）
+    const apply = page.locator('dialog.impact-dialog').getByRole('button', { name: /^儲存/ });
+    await expect(apply).toBeEnabled({ timeout: 15000 });
+    await page.route('**/api/v1/settings/apply', (route) =>
+      route.fulfill({ status: 400, contentType: 'application/json', body: JSON.stringify({ error: 'PREVIEW_EXPIRED: 預覽已過期', code: 'PREVIEW_EXPIRED' }) })
+    );
+    await apply.click();
+    await expect(page.locator('dialog.impact-dialog [data-dialog-error]')).toBeVisible({ timeout: 10000 });
+    await scan(page, '課表設定｜確認變更視窗（預覽逾期）', violations);
+    await page.unroute('**/api/v1/settings/apply');
+    await page.keyboard.press('Escape');
+    await cancelEdits();
+
+    // 回到「課表」頁籤（前面的班名對應在另一個頁籤），再操作時段列
+    await page.locator('button[role="tab"]', { hasText: /^課表/ }).first().click();
+    await expect(page.locator('.schedule-table')).toBeVisible();
+
+    // 資料已被另一個視窗更新（預覽回 409，訊息與實際伺服器相同）
+    await page.route('**/api/v1/settings/preview', (route) =>
+      route.fulfill({
+        status: 409,
+        contentType: 'application/json',
+        body: JSON.stringify({ error: '版本衝突：目前 revision 為 3，請求為 2', code: 'REVISION_CONFLICT' }),
+      })
+    );
+    await page.locator('.schedule-table tbody tr').nth(3).locator('input.input-time').first().fill('14:30');
+    await page.locator('button', { hasText: '確認變更' }).click();
+    await expect(page.locator('dialog.impact-dialog [data-dialog-error]')).toBeVisible({ timeout: 15000 });
+    await scan(page, '課表設定｜確認變更視窗（資料已更新 409）', violations);
+    await page.unroute('**/api/v1/settings/preview');
+    await page.keyboard.press('Escape');
+    await cancelEdits();
+
+    // 空白星期：預覽回 400（真實伺服器行為）
+    await page.locator('.schedule-table tbody tr').nth(3).locator('input.input-weekday').fill('');
+    await page.waitForTimeout(500);
+    await page.locator('button', { hasText: '確認變更' }).click();
+    await expect(page.locator('dialog.impact-dialog [data-dialog-error]')).toBeVisible({ timeout: 15000 });
+    await scan(page, '課表設定｜確認變更視窗（空白星期，預覽失敗）', violations);
     await page.keyboard.press('Escape');
 
     // 涵蓋的頁面狀態數（新增狀態時同步調整；少了代表有狀態被略過）

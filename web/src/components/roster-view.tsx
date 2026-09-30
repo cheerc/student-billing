@@ -3,7 +3,15 @@
 import React, { useState } from 'react';
 import StudentTable from './student-table';
 import { RosterQueryResult } from '@/application/roster-query';
-import { ACTIVATE_CONFLICT_MESSAGE } from '@/lib/user-messages';
+import {
+  describeActivateError,
+  describeLoadError,
+  failureFromException,
+  readRawFailure,
+  type UserFacingError,
+} from '@/lib/user-messages';
+import { ErrorNotice } from '@/components/ui/error-notice';
+import { todayInTaipei } from '@/lib/datetime';
 
 interface RosterViewProps {
   importId: string;
@@ -23,7 +31,7 @@ export default function RosterView({
   const [loading, setLoading] = useState(false);
   const [activating, setActivating] = useState(false);
   const [data, setData] = useState<RosterQueryResult>(initialData);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<UserFacingError | null>(null);
 
   // 篩選狀態
   const [searchQuery, setSearchQuery] = useState('');
@@ -66,13 +74,14 @@ export default function RosterView({
 
     try {
       const res = await fetch(`/api/v1/imports/${importId}/students?${params.toString()}`);
-      const json = await res.json();
+      const json = await res.json().catch(() => null);
       if (!res.ok) {
-        throw new Error(json.error || '查詢名單失敗');
+        setError(describeLoadError('查詢名單', readRawFailure(res.status, json)));
+        return;
       }
       setData(json);
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      setError(describeLoadError('查詢名單', failureFromException(err)));
     } finally {
       setLoading(false);
     }
@@ -88,19 +97,19 @@ export default function RosterView({
         body: JSON.stringify({
           expectedRevision: currentRevision,
           idempotencyKey: `act-${Date.now()}`,
-          asOfDate: new Date().toISOString().split('T')[0],
+          // 核對基準日＝台北的今天（O02：不用 UTC 或瀏覽器時區）
+          asOfDate: todayInTaipei(),
         }),
       });
-      const json = await res.json();
+      const json = await res.json().catch(() => null);
       if (!res.ok) {
-        if (res.status === 409) {
-          throw new Error(ACTIVATE_CONFLICT_MESSAGE);
-        }
-        throw new Error(json.error || '啟用計算失敗');
+        setError(describeActivateError(readRawFailure(res.status, json)));
+        setActivating(false);
+        return;
       }
       window.location.reload();
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      setError(describeActivateError(failureFromException(err)));
       setActivating(false);
     }
   };
@@ -243,11 +252,7 @@ export default function RosterView({
       </div>
 
       {/* 錯誤警告 */}
-      {error && (
-        <div className="alert alert-danger" role="alert">
-          {error}
-        </div>
-      )}
+      {error && <ErrorNotice message={error.message} detail={error.detail} />}
 
       {/* 篩選工具列與名單表格 */}
       <div className="table-container">

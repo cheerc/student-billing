@@ -2,6 +2,8 @@
 
 import React, { useEffect, useRef } from 'react';
 import { SplitClassWarning } from '@/contracts/settings';
+import { ErrorNotice } from '@/components/ui/error-notice';
+import type { UserFacingError } from '@/lib/user-messages';
 
 export interface SettingsPreviewData {
   mode: 'settings_only' | 'with_students';
@@ -32,6 +34,10 @@ interface ImpactDialogProps {
   onClose: () => void;
   onApply: () => void;
   applying: boolean;
+  /** 預覽或套用失敗：顯示白話說明（代碼在詳細資訊）；此時不顯示任何影響數字，也不能套用。 */
+  error?: UserFacingError | null;
+  /** 預覽計算中：不顯示 0 人或「未改變」，避免把未知冒充成沒有影響。 */
+  loading?: boolean;
 }
 
 export function ImpactDialog({
@@ -42,6 +48,8 @@ export function ImpactDialog({
   onClose,
   onApply,
   applying,
+  error = null,
+  loading = false,
 }: ImpactDialogProps) {
   const dialogRef = useRef<HTMLDialogElement | null>(null);
   const openerRef = useRef<HTMLElement | null>(null);
@@ -133,8 +141,18 @@ export function ImpactDialog({
           </div>
         )}
 
+        {/* 失敗：白話說明＋可展開的詳細資訊；不顯示任何影響數字（沒有預覽就沒有數字） */}
+        {error && <ErrorNotice data-dialog-error="" message={error.message} detail={error.detail} />}
+
+        {/* 計算中：未知不可冒充「0 人」或「沒有變更」 */}
+        {!error && loading && !preview && (
+          <p className="note" role="status" data-dialog-loading="">
+            正在計算這次修改對學生天數的影響…
+          </p>
+        )}
+
         {/* 模式一：無學生 settings_only */}
-        {isSettingsOnly ? (
+        {error || (loading && !preview) ? null : isSettingsOnly ? (
           <div className="settings-only-notice">
             <div className="notice-box">
               <span className="notice-badge">尚未匯入學生</span>
@@ -165,11 +183,13 @@ export function ImpactDialog({
                 <span className="metric-sub">天數發生變化</span>
               </div>
               <div className="metric-card">
-                <span className="metric-label">級距差異學生數</span>
-                <strong className="metric-value">
-                  mismatch {preview?.mismatchBefore ?? 0} → {preview?.mismatchAfter ?? preview?.mismatchCount ?? 0} 筆
+                <span className="metric-label">米豆奶入班天數比對</span>
+                <strong className="metric-value metric-sentence">
+                  {`系統計算天數與米豆奶入班天數不符：${preview?.mismatchBefore ?? 0} 人 → ${
+                    preview?.mismatchAfter ?? preview?.mismatchCount ?? 0
+                  } 人`}
                 </strong>
-                <span className="metric-sub">天數變動致級距異動</span>
+                <span className="metric-sub">每位學生只要有任一級距比較不符就算 1 人</span>
               </div>
             </div>
 
@@ -221,7 +241,7 @@ export function ImpactDialog({
           type="button"
           className="btn-primary"
           onClick={onApply}
-          disabled={applying}
+          disabled={applying || Boolean(error) || loading || !preview}
         >
           {applying
             ? '儲存中...'

@@ -8,6 +8,8 @@
  * 多值以重複 key 傳送；同欄 OR、跨欄 AND。
  */
 
+import { ISSUE_LABELS } from '@/lib/issue-copy';
+
 export const BLANK = '~blank';
 export const EMPTY = '~empty';
 export const NONE = '~none';
@@ -68,17 +70,7 @@ export const DEDUCTION_FILTER_KEYS = DEDUCTION_FILTER_FIELDS.map((f) => f.key);
 export type StudentFilters = Partial<Record<StudentFilterKey, string[]>>;
 export type DeductionFilters = Partial<Record<DeductionFilterKey, string[]>>;
 
-/** 問題類型只顯示中文名稱（D39 第 4 點）；代碼留在明細技術資訊。 */
-export const ISSUE_LABELS: Record<string, string> = {
-  SCHEDULE_NOT_FOUND: '排課缺漏',
-  DUPLICATE_SUBJECT_ENROLLMENT: '重複報名',
-  STAFF_FAMILY_NO_DISCOUNT: '員工家屬無折扣',
-  CONFLICTING_NOTE_SOURCE: '備註衝突',
-  NUMERIC_POLICY_DIFFERENCE: '數值政策差異',
-  SCHEDULE_EMPTY: '排課空時段',
-  SCHEDULE_INCOMPLETE: '排課時段不完整',
-  UNKNOWN_WEEKDAY: '未知星期',
-};
+export { ISSUE_LABELS };
 
 export const findStudentField = (key: string) => STUDENT_FILTER_FIELDS.find((f) => f.key === key);
 

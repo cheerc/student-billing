@@ -10,6 +10,8 @@ import ClassDeductionsPanel from './results/class-deductions-panel';
 import { HeaderFilter, FilterChips, type FilterSection, type ChipItem } from './filters/header-filter';
 import { DeductionsResponse } from '@/application/schedule-deductions';
 import { formatDateTime } from '@/lib/datetime';
+import { describeLoadError, failureFromException, readRawFailure, type UserFacingError } from '@/lib/user-messages';
+import { ErrorNotice } from '@/components/ui/error-notice';
 import {
   RunStudentsQueryResult,
   StudentCalculationItem,
@@ -105,13 +107,6 @@ function writeStorage(key: string, value: string | null): void {
   }
 }
 
-function errorText(json: unknown, fallback: string): string {
-  const e = (json as { error?: unknown } | null)?.error;
-  if (typeof e === 'string') return e;
-  if (e && typeof e === 'object' && typeof (e as { message?: unknown }).message === 'string') return (e as { message: string }).message;
-  return fallback;
-}
-
 export default function ActiveRunView({
   runId,
   revision,
@@ -135,7 +130,7 @@ export default function ActiveRunView({
   const [loading, setLoading] = useState(false);
   const [data, setData] = useState<RunStudentsQueryResult>(initialData);
   const [options, setOptions] = useState<RunStudentOptions>(initialOptions);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<UserFacingError | null>(null);
 
   const [filters, setFilters] = useState<StudentFilters>(initialFilters);
   const [deductionFilters, setDeductionFilters] = useState<DeductionFilters>(initialDeductionFilters);
@@ -193,13 +188,16 @@ export default function ActiveRunView({
       const params = buildStudentApiParams(nextFilters, q, extra);
       try {
         const res = await fetch(`/api/v1/runs/${runId}/students?${params.toString()}`, { signal: ac.signal });
-        const json = await res.json();
+        const json = await res.json().catch(() => null);
         if (seq !== seqRef.current) return;
-        if (!res.ok) throw new Error(errorText(json, '查詢總表資料失敗'));
+        if (!res.ok) {
+          setError(describeLoadError('查詢學生總表', readRawFailure(res.status, json)));
+          return;
+        }
         setData(json);
       } catch (err) {
         if (seq !== seqRef.current || (err instanceof DOMException && err.name === 'AbortError')) return;
-        setError(err instanceof Error ? err.message : String(err));
+        setError(describeLoadError('查詢學生總表', failureFromException(err)));
       } finally {
         if (seq === seqRef.current) {
           setLoading(false);
@@ -570,11 +568,7 @@ export default function ActiveRunView({
                 已移除「本班適用折扣」條件：它只在恰選一個班級時適用。
               </div>
             )}
-            {error && (
-              <div className="alert alert-danger" role="alert">
-                {error}
-              </div>
-            )}
+            {error && <ErrorNotice message={error.message} detail={error.detail} />}
 
             {/* 人數一行（09 §5.1）：全部／本班／已選N班 · 符合篩選M人 · N位需確認 —— 範圍不同，不可互相冒充 */}
             <div className="results-summary">
