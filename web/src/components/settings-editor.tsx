@@ -107,6 +107,17 @@ export default function SettingsEditor({
   const [applying, setApplying] = useState(false);
   const [dialogError, setDialogError] = useState<UserFacingError | null>(null);
 
+  // F3：班名比對報告 client state，儲存成功後即時刷新最新 persisted 報告，避免畫面停留於舊資料
+  const [persistedReportOverride, setPersistedReportOverride] = useState<ClassNameMatchReport | null>(null);
+  const [prevReportProp, setPrevReportProp] = useState<ClassNameMatchReport | null>(classNameReport);
+  if (prevReportProp !== classNameReport) {
+    setPrevReportProp(classNameReport);
+    setPersistedReportOverride(null);
+  }
+  const report = persistedReportOverride ?? classNameReport;
+  const [reportStaleError, setReportStaleError] = useState<string | null>(null);
+  const reportRefreshSeq = useRef(0);
+
   // 儲存成功後就地更新版本與儲存時間（不必重新整理）：下一次確認變更要帶最新版本，狀態列顯示最新儲存時間
   const [revision, setRevision] = useState(currentRevision);
   const [savedAt, setSavedAt] = useState<string | null>(lastAppliedAt ?? null);
@@ -345,6 +356,25 @@ export default function SettingsEditor({
       setIsImpactDialogOpen(false);
       setPreview(null);
       showToast(preview.mode === 'settings_only' ? '課表已成功儲存' : '課表已套用並完成重算');
+
+      // F3：儲存成功後，就地刷新班名比對報告（維持同頁即時更新，不需整頁 reload）
+      const seq = ++reportRefreshSeq.current;
+      const q = importId ? `?importId=${encodeURIComponent(importId)}` : '';
+      fetch(`/api/v1/settings/class-name-report${q}`)
+        .then(async (r) => {
+          if (!r.ok) {
+            if (seq === reportRefreshSeq.current) setReportStaleError('無法重新取得最新的班名比對報告');
+            return;
+          }
+          const updated = (await r.json()) as ClassNameMatchReport;
+          if (seq === reportRefreshSeq.current) {
+            setPersistedReportOverride(updated);
+            setReportStaleError(null);
+          }
+        })
+        .catch(() => {
+          if (seq === reportRefreshSeq.current) setReportStaleError('無法重新取得最新的班名比對報告');
+        });
     } catch (e) {
       setDialogError(describeSettingsApplyError(failureFromException(e)));
     } finally {
@@ -415,7 +445,7 @@ export default function SettingsEditor({
             candidateTargets={candidateTargets}
             onUpdateCandidateTarget={handleUpdateCandidateTarget}
             onToggleAlias={handleToggleAlias}
-            classNameReport={classNameReport}
+            classNameReport={report}
           />
         </section>
       )}

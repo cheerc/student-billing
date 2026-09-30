@@ -18,7 +18,9 @@ export function ClassNameReportSummaryCard({ summary }: { summary: ClassNameRepo
         </li>
         <li>
           系統有／本次名冊無：<strong>{summary.systemOnlyClassCount} 個班</strong>
-          {previousRoster && summary.systemOnlyPreviousRosterStudentCount !== null ? (
+          {summary.previousRosterStatus === 'unavailable' ? (
+            <>。無法判定上一份現行名冊（歷史記錄不完整）</>
+          ) : previousRoster && summary.systemOnlyPreviousRosterStudentCount !== null ? (
             <>
               。上一份名單（{previousRoster.fileName}，{formatDateTime(previousRoster.createdAt)} 建立）在這{' '}
               {summary.systemOnlyClassCount} 個班共有 {summary.systemOnlyPreviousRosterStudentCount} 位學生

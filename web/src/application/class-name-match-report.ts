@@ -47,6 +47,13 @@ export interface PreviousRosterInfo {
   createdAt: string;
 }
 
+export type PreviousRosterStatus = 'ok' | 'none' | 'unavailable';
+
+export interface PreviousRosterResolution {
+  status: PreviousRosterStatus;
+  importId: string | null;
+}
+
 export interface ClassNameMatchReport {
   importId: string;
   scope: ClassNameReportScope;
@@ -62,6 +69,7 @@ export interface ClassNameMatchReport {
   /** systemOnly 各班在上一份名單的不重複學生數（跨班去重）；沒有上一份名單為 null */
   systemOnlyPreviousRosterStudents: number | null;
   previousRoster: PreviousRosterInfo | null;
+  previousRosterStatus: PreviousRosterStatus;
 }
 
 export class ClassNameReportError extends Error {
@@ -85,30 +93,195 @@ function getBatch(db: Database.Database, importId: string): BatchRow | undefined
   return db.prepare('SELECT id, file_name, created_at FROM import_batches WHERE id = ?').get(importId) as BatchRow | undefined;
 }
 
+interface IdempotencyRecordRow {
+  idempotency_key: string;
+  run_id: string | null;
+  response_payload: string;
+}
+
+interface ActiveEpisode {
+  importId: string;
+  predecessorImportId: string | null;
+  runIds: Set<string>;
+}
+
 /**
- * 上一份名單（Q12-b 的漂移參考來源）：
- *  1. importId 不是現行名單且有現行名單 → 現行名單（匯入預覽：本次剛上傳、尚未啟用）；
- *  2. importId 就是現行名單，或沒有現行名單 → 比它更早建立的最近一份 ready 名單；沒有則 null。
- * 匯入預覽與完整報告都用這個規則，同一份名單兩處的參考來源與數字才會一致。
+ * 依據成功之 idempotency_records activate/apply 收據與 revision 序號，重建可證實的名冊現行歷史（Q12 / F2）。
+ * 嚴禁依據「有 run」或 timestamp 猜測曾現行。
+ * 若遇收據格式毀損、revision 斷裂（gap）、衝突（conflict）或批次不存在，fail-closed 回傳 unavailable。
  */
-export function resolvePreviousRosterImportId(db: Database.Database, importId: string): string | null {
-  const batch = getBatch(db, importId);
-  if (!batch) return null;
-  const active = db.prepare('SELECT active_import_id FROM active_state WHERE id = 1').get() as
-    | { active_import_id: string | null }
-    | undefined;
-  const activeImportId = active?.active_import_id ?? null;
-  if (activeImportId && activeImportId !== importId && getBatch(db, activeImportId)) {
-    return activeImportId;
+export function resolvePreviousRosterProvenance(
+  db: Database.Database,
+  targetImportId: string,
+  scope: ClassNameReportScope = { kind: 'latest' }
+): PreviousRosterResolution {
+  const activeStateRow = db
+    .prepare('SELECT active_import_id, active_run_id, revision FROM active_state WHERE id = 1')
+    .get() as { active_import_id: string | null; active_run_id: string | null; revision: number } | undefined;
+
+  const currentActiveRevision = activeStateRow?.revision ?? 0;
+  const currentActiveImportId = activeStateRow?.active_import_id ?? null;
+
+  const idempRows = db
+    .prepare('SELECT idempotency_key, run_id, response_payload FROM idempotency_records')
+    .all() as IdempotencyRecordRow[];
+
+  type ParsedEvent =
+    | { kind: 'activate'; revision: number; runId: string; importId: string }
+    | { kind: 'apply_with_students'; revision: number; runId: string }
+    | { kind: 'apply_settings_only'; revision: number };
+
+  const events: ParsedEvent[] = [];
+  const revisionSet = new Set<number>();
+
+  for (const row of idempRows) {
+    let payload: any;
+    try {
+      payload = JSON.parse(row.response_payload);
+    } catch {
+      return { status: 'unavailable', importId: null };
+    }
+
+    if (!payload || typeof payload !== 'object' || typeof payload.revision !== 'number' || payload.revision <= 0) {
+      return { status: 'unavailable', importId: null };
+    }
+
+    const revision = payload.revision;
+    if (revisionSet.has(revision)) {
+      return { status: 'unavailable', importId: null };
+    }
+    revisionSet.add(revision);
+
+    if (payload.status === 'completed' && typeof payload.activeImportId === 'string' && typeof payload.activeRunId === 'string') {
+      if (row.run_id !== payload.runId || payload.runId !== payload.activeRunId) {
+        return { status: 'unavailable', importId: null };
+      }
+      const batchExists = db.prepare('SELECT 1 FROM import_batches WHERE id = ?').get(payload.activeImportId);
+      const runRow = db.prepare('SELECT import_id FROM calculation_runs WHERE id = ?').get(payload.runId) as { import_id: string } | undefined;
+      if (!batchExists || !runRow || runRow.import_id !== payload.activeImportId) {
+        return { status: 'unavailable', importId: null };
+      }
+      events.push({ kind: 'activate', revision, runId: payload.runId, importId: payload.activeImportId });
+    } else if (payload.mode === 'with_students' && typeof payload.runId === 'string') {
+      if (row.run_id !== payload.runId) {
+        return { status: 'unavailable', importId: null };
+      }
+      const runRow = db.prepare('SELECT 1 FROM calculation_runs WHERE id = ?').get(payload.runId);
+      if (!runRow) {
+        return { status: 'unavailable', importId: null };
+      }
+      events.push({ kind: 'apply_with_students', revision, runId: payload.runId });
+    } else if (payload.mode === 'settings_only') {
+      if (row.run_id !== null) {
+        return { status: 'unavailable', importId: null };
+      }
+      events.push({ kind: 'apply_settings_only', revision });
+    } else {
+      return { status: 'unavailable', importId: null };
+    }
   }
-  const earlier = db
-    .prepare(
-      `SELECT id FROM import_batches
-        WHERE status = 'ready' AND id != ? AND created_at < ?
-        ORDER BY created_at DESC, id DESC LIMIT 1`
-    )
-    .get(importId, batch.created_at) as { id: string } | undefined;
-  return earlier?.id ?? null;
+
+  events.sort((a, b) => a.revision - b.revision);
+
+  if (events.length === 0) {
+    if (currentActiveRevision === 0 && currentActiveImportId === null) {
+      return { status: 'none', importId: null };
+    }
+    return { status: 'unavailable', importId: null };
+  }
+
+  for (let i = 0; i < events.length; i++) {
+    if (events[i].revision !== i + 1) {
+      return { status: 'unavailable', importId: null };
+    }
+  }
+  if (events[events.length - 1].revision !== currentActiveRevision) {
+    return { status: 'unavailable', importId: null };
+  }
+
+  const episodes: ActiveEpisode[] = [];
+  let currentEpisode: ActiveEpisode | null = null;
+
+  for (const ev of events) {
+    if (ev.kind === 'activate') {
+      if (!currentEpisode) {
+        currentEpisode = {
+          importId: ev.importId,
+          predecessorImportId: null,
+          runIds: new Set([ev.runId]),
+        };
+        episodes.push(currentEpisode);
+      } else if (ev.importId === currentEpisode.importId) {
+        currentEpisode.runIds.add(ev.runId);
+      } else {
+        const prevId: string = currentEpisode.importId;
+        currentEpisode = {
+          importId: ev.importId,
+          predecessorImportId: prevId,
+          runIds: new Set([ev.runId]),
+        };
+        episodes.push(currentEpisode);
+      }
+    } else if (ev.kind === 'apply_with_students') {
+      if (!currentEpisode) {
+        return { status: 'unavailable', importId: null };
+      }
+      currentEpisode.runIds.add(ev.runId);
+    } else if (ev.kind === 'apply_settings_only') {
+      // settings_only 不影響名冊與 run
+    }
+  }
+
+  if (scope.kind === 'run') {
+    const matchedEpisode = episodes.find((ep) => ep.runIds.has(scope.runId));
+    if (!matchedEpisode) {
+      return { status: 'unavailable', importId: null };
+    }
+    if (!matchedEpisode.predecessorImportId) {
+      return { status: 'none', importId: null };
+    }
+    const prevBatch = getBatch(db, matchedEpisode.predecessorImportId);
+    if (!prevBatch) {
+      return { status: 'unavailable', importId: null };
+    }
+    return { status: 'ok', importId: matchedEpisode.predecessorImportId };
+  }
+
+  // scope.kind === 'latest'
+  const activeEpisode = episodes.length > 0 ? episodes[episodes.length - 1] : null;
+  const systemActiveImportId = activeEpisode ? activeEpisode.importId : null;
+
+  if (targetImportId !== systemActiveImportId) {
+    if (!systemActiveImportId) {
+      return { status: 'none', importId: null };
+    }
+    const activeBatch = getBatch(db, systemActiveImportId);
+    if (!activeBatch) {
+      return { status: 'unavailable', importId: null };
+    }
+    return { status: 'ok', importId: systemActiveImportId };
+  } else {
+    if (!activeEpisode || !activeEpisode.predecessorImportId) {
+      return { status: 'none', importId: null };
+    }
+    const prevBatch = getBatch(db, activeEpisode.predecessorImportId);
+    if (!prevBatch) {
+      return { status: 'unavailable', importId: null };
+    }
+    return { status: 'ok', importId: activeEpisode.predecessorImportId };
+  }
+}
+
+/**
+ * 上一份現行名冊（Q12；向後相容 helper）：
+ */
+export function resolvePreviousRosterImportId(
+  db: Database.Database,
+  importId: string,
+  scope: ClassNameReportScope = { kind: 'latest' }
+): string | null {
+  const resolution = resolvePreviousRosterProvenance(db, importId, scope);
+  return resolution.status === 'ok' ? resolution.importId : null;
 }
 
 function distinctStudentsIn(db: Database.Database, importId: string, baseNames: string[]): number {
@@ -132,9 +305,22 @@ export function getClassNameMatchReport(
     throw new ClassNameReportError(404, `找不到名單批次 ${importId}`, 'IMPORT_NOT_FOUND');
   }
 
-  // 上一份名單：未指定＝依規則解析；明確 null＝不比對；與本次相同或不存在也視為沒有
-  const previousImportId = input.previousImportId === undefined ? resolvePreviousRosterImportId(db, importId) : input.previousImportId;
-  const previousBatch = previousImportId && previousImportId !== importId ? getBatch(db, previousImportId) : undefined;
+  // 上一份名冊：明確 null＝不比對；未指定＝依收據歷史解析
+  const resolution =
+    input.previousImportId !== undefined
+      ? input.previousImportId === null
+        ? ({ status: 'none' as const, importId: null })
+        : ({ status: 'ok' as const, importId: input.previousImportId })
+      : resolvePreviousRosterProvenance(db, importId, scope);
+
+  const previousImportId = resolution.importId;
+  const previousRosterStatus = resolution.status;
+
+  const previousBatch =
+    previousImportId && previousImportId !== importId && previousRosterStatus === 'ok'
+      ? getBatch(db, previousImportId)
+      : undefined;
+
   const previousRoster: PreviousRosterInfo | null = previousBatch
     ? { importId: previousBatch.id, fileName: previousBatch.file_name, createdAt: previousBatch.created_at }
     : null;
@@ -163,6 +349,7 @@ export function getClassNameMatchReport(
       rosterOnlyStudents: null,
       systemOnlyPreviousRosterStudents: null,
       previousRoster,
+      previousRosterStatus,
     };
   }
 
@@ -220,6 +407,7 @@ export function getClassNameMatchReport(
       ? distinctStudentsIn(db, previousRoster.importId, systemOnly.map((r) => r.baseName))
       : null,
     previousRoster,
+    previousRosterStatus,
   };
 }
 
@@ -235,6 +423,7 @@ export interface ClassNameReportSummary {
   /** 上一份名單在「系統有／本次名冊無」各班的不重複學生數；沒有上一份名單為 null */
   systemOnlyPreviousRosterStudentCount: number | null;
   previousRoster: PreviousRosterInfo | null;
+  previousRosterStatus: PreviousRosterStatus;
   /** 完整報告的站內連結 */
   reportPath: string;
 }
@@ -247,6 +436,7 @@ export function summarizeClassNameReport(report: ClassNameMatchReport): ClassNam
     systemOnlyClassCount: report.systemOnly?.length ?? 0,
     systemOnlyPreviousRosterStudentCount: report.systemOnlyPreviousRosterStudents,
     previousRoster: report.previousRoster,
+    previousRosterStatus: report.previousRosterStatus,
     reportPath: `/settings?tab=mapping&import=${encodeURIComponent(report.importId)}`,
   };
 }

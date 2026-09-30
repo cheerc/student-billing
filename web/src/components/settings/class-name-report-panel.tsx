@@ -29,10 +29,13 @@ export function ClassNameReportPanel({ report }: { report: ClassNameMatchReport 
     );
   }
 
-  const { rosterOnly, systemOnly, previousRoster } = report;
-  const previousLabel = previousRoster
-    ? `上一份名單是「${previousRoster.fileName}」（${formatDateTime(previousRoster.createdAt)} 建立）；人數是該班在那份名單的學生數，供對照名冊變動。`
-    : '沒有上一份名單可參考，所以不顯示人數。';
+  const { rosterOnly, systemOnly, previousRoster, previousRosterStatus } = report;
+  const previousLabel =
+    previousRosterStatus === 'unavailable'
+      ? '無法判定上一份現行名冊（歷史記錄不完整），所以不顯示人數。'
+      : previousRoster
+      ? `上一份名單是「${previousRoster.fileName}」（${formatDateTime(previousRoster.createdAt)} 建立）；人數是該班在那份名單的學生數，供對照名冊變動。`
+      : '沒有上一份名單可參考，所以不顯示人數。';
 
   return (
     <section className="card class-name-report" aria-label="班名比對報告">
