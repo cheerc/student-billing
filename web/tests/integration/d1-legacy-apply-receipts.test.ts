@@ -15,8 +15,8 @@ import { getClassNameMatchReport, resolvePreviousRosterProvenance } from '@/appl
  *   (a) 真實舊形狀＝無 mode、payload.runId 為字串、row.run_id＝payload.runId：該 run 必須存在、其名單批次必須存在；
  *       run 的名單＝當時現行名冊 → 併入該 episode；不同於當時現行名冊（舊版曾能切換名單）→ 只有被後續收據或現行狀態
  *       佐證時才算切換，否則整段歷史無法判定。
- *   (b) 防禦性形狀（歷史未出現）：無 mode、row.run_id 為 NULL、payload 無 runId → 視為 settings_only（不切名冊、不錨 run）。
- *   其餘（run 不存在、row.run_id 與 payload 不一致、無 mode 但 row 與 payload 各執一詞）→ unavailable。
+ *   其餘一律 unavailable：無 mode 且無 runId 的形狀（歷史上從未寫出過）、run 不存在、row.run_id 與 payload 不一致、
+ *       無 mode 但 row 與 payload 各執一詞、或來歷不明的收據，皆不得填補 revision gap，一律 fail-closed 為 unavailable。
  * 全部使用合成資料（不含真實名單）；收據以 SQL 直接寫入，因為現行 code 已無法產生這些舊形狀。
  */
 
@@ -156,7 +156,7 @@ describe('D1 r2 B3：舊版 apply receipt 的名冊溯源', () => {
     expect(resolvePreviousRosterProvenance(db, 'imp_A', { kind: 'latest' })).toEqual({ status: 'unavailable', importId: null });
   });
 
-  it('(b) 防禦性形狀（歷史未出現）：無 mode、row.run_id 為 NULL、payload 無 runId → 視為 settings_only，不切名冊、不錨 run，歷史仍可證', () => {
+  it('R2-1 反例：無 mode、row.run_id 為 NULL、payload 無 runId 的防禦形狀不得被視為 settings_only，歷史必須 fail-closed unavailable', () => {
     const db = seedAC();
     activateBatch(db, 'imp_A', 'k-act-A'); // rev 1
     db.prepare(
@@ -170,9 +170,72 @@ describe('D1 r2 B3：舊版 apply receipt 的名冊溯源', () => {
     );
     db.prepare('UPDATE active_state SET revision = 2 WHERE id = 1').run();
 
-    expect(resolvePreviousRosterProvenance(db, 'imp_A', { kind: 'latest' })).toEqual({ status: 'none', importId: null });
+    expect(resolvePreviousRosterProvenance(db, 'imp_A', { kind: 'latest' })).toEqual({ status: 'unavailable', importId: null });
+    const reportA = getClassNameMatchReport(db, { importId: 'imp_A', scope: { kind: 'latest' } });
+    expect(reportA.previousRosterStatus).toBe('unavailable');
+
     activateBatch(db, 'imp_C', 'k-act-C'); // rev 3
-    expect(resolvePreviousRosterProvenance(db, 'imp_C', { kind: 'latest' })).toEqual({ status: 'ok', importId: 'imp_A' });
+    expect(resolvePreviousRosterProvenance(db, 'imp_C', { kind: 'latest' })).toEqual({ status: 'unavailable', importId: null });
+    const reportC = getClassNameMatchReport(db, { importId: 'imp_C', scope: { kind: 'latest' } });
+    expect(reportC.previousRosterStatus).toBe('unavailable');
+  });
+
+  it('R2-1 gap 填補反例（primary probe X1）：僅 {revision:2} 的收據不得填補 revision gap 使其後啟用判定為可證歷史', () => {
+    const db = seedAC();
+    activateBatch(db, 'imp_A', 'k-act-A'); // rev 1
+    db.prepare(
+      'INSERT INTO idempotency_records (idempotency_key, request_body_hash, run_id, response_payload, created_at) VALUES (?, ?, ?, ?, ?)'
+    ).run('unknown-X1', 'h', null, JSON.stringify({ revision: 2 }), T(2));
+    db.prepare('UPDATE active_state SET revision = 2 WHERE id = 1').run();
+
+    activateBatch(db, 'imp_C', 'k-act-C'); // rev 3
+    expect(resolvePreviousRosterProvenance(db, 'imp_C', { kind: 'latest' })).toEqual({ status: 'unavailable', importId: null });
+    const reportC = getClassNameMatchReport(db, { importId: 'imp_C', scope: { kind: 'latest' } });
+    expect(reportC.previousRosterStatus).toBe('unavailable');
+  });
+
+  it('R2-1 gap 填補反例（primary probe X2）：帶任意欄位 {revision:2, foo:"bar"} 的收據不得填補 revision gap', () => {
+    const db = seedAC();
+    activateBatch(db, 'imp_A', 'k-act-A'); // rev 1
+    db.prepare(
+      'INSERT INTO idempotency_records (idempotency_key, request_body_hash, run_id, response_payload, created_at) VALUES (?, ?, ?, ?, ?)'
+    ).run('unknown-X2', 'h', null, JSON.stringify({ revision: 2, foo: 'bar' }), T(2));
+    db.prepare('UPDATE active_state SET revision = 2 WHERE id = 1').run();
+
+    activateBatch(db, 'imp_C', 'k-act-C'); // rev 3
+    expect(resolvePreviousRosterProvenance(db, 'imp_C', { kind: 'latest' })).toEqual({ status: 'unavailable', importId: null });
+    const reportC = getClassNameMatchReport(db, { importId: 'imp_C', scope: { kind: 'latest' } });
+    expect(reportC.previousRosterStatus).toBe('unavailable');
+  });
+
+  it('R2-1 gap 填補反例（primary probe X3）：r1 K1 形狀 {runId:null,…} 的收據不得填補 revision gap', () => {
+    const db = seedAC();
+    activateBatch(db, 'imp_A', 'k-act-A'); // rev 1
+    db.prepare(
+      'INSERT INTO idempotency_records (idempotency_key, request_body_hash, run_id, response_payload, created_at) VALUES (?, ?, ?, ?, ?)'
+    ).run(
+      'unknown-X3',
+      'h',
+      null,
+      JSON.stringify({ settingsVersionId: 's', runId: null, revision: 2, totalStudents: null, mismatchCount: null }),
+      T(2)
+    );
+    db.prepare('UPDATE active_state SET revision = 2 WHERE id = 1').run();
+
+    activateBatch(db, 'imp_C', 'k-act-C'); // rev 3
+    expect(resolvePreviousRosterProvenance(db, 'imp_C', { kind: 'latest' })).toEqual({ status: 'unavailable', importId: null });
+    const reportC = getClassNameMatchReport(db, { importId: 'imp_C', scope: { kind: 'latest' } });
+    expect(reportC.previousRosterStatus).toBe('unavailable');
+  });
+
+  it('R2-1 gap 填補反例（對照組）：同一 revision 2 若完全沒有收據（真正的 gap），結果同樣為 unavailable', () => {
+    const dbGap = seedAC();
+    activateBatch(dbGap, 'imp_A', 'k-act-A'); // rev 1
+    dbGap.prepare('UPDATE active_state SET revision = 2 WHERE id = 1').run(); // revision 變為 2，但無收據
+    activateBatch(dbGap, 'imp_C', 'k-act-C'); // rev 3
+    expect(resolvePreviousRosterProvenance(dbGap, 'imp_C', { kind: 'latest' })).toEqual({ status: 'unavailable', importId: null });
+    const reportGap = getClassNameMatchReport(dbGap, { importId: 'imp_C', scope: { kind: 'latest' } });
+    expect(reportGap.previousRosterStatus).toBe('unavailable');
   });
 
   it('K2 守衛（維持 unavailable）：有 run、active_state 有現行名單但完全沒有任何收據 → 不猜歷史', () => {
