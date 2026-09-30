@@ -64,7 +64,9 @@ test.describe('Imports Page E2E Test (R3 匯入頁一次完成使用名單)', ()
     await expect(page.locator('.stats-grid')).toBeVisible({ timeout: 15000 });
     await expect(page.locator('.stat-card', { hasText: '學生總人數' })).toContainText('477');
     await expect(page.locator('.stat-card', { hasText: '有報名班級人數' })).toContainText('384');
-    await expect(page.locator('.stat-card', { hasText: '無班級人數' })).toContainText('93');
+    // 無課程（D38／UX29）：零報名人數，附離籍提示；與有報名班級人數互補
+    await expect(page.locator('.stat-card', { hasText: '無課程' })).toContainText('93');
+    await expect(page.locator('.stat-card', { hasText: '無課程' })).toContainText('請至米豆奶辦理離籍');
 
     // 驗證表格資料渲染
     const table = page.locator('.data-table');

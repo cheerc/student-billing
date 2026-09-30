@@ -1,5 +1,6 @@
 import { test, expect, Page } from '@playwright/test';
 import path from 'path';
+import { openFilter, applyFilter } from './helpers/header-filter';
 
 /**
  * R5 可及性稽核（specs/09 §6；specs/04 UX16）。
@@ -21,7 +22,7 @@ import path from 'path';
  */
 
 const FIXTURE = path.resolve(__dirname, '../fixtures/conforming-erp-fixture.xlsx');
-const EXPECTED_STATES = 12;
+const EXPECTED_STATES = 15;
 
 interface Finding {
   where: string;
@@ -160,6 +161,17 @@ test.describe('R5 可及性稽核（09 §6）', () => {
     await page.locator('button', { hasText: '使用這份名單' }).click();
     await expect(page.locator('.data-banner-current')).toBeVisible({ timeout: 15000 });
     await audit(page, '核對結果｜學生總表', findings, seen);
+
+    // 表頭篩選（D36）：面板開啟、已套用條件（chips）兩個狀態也要通過名稱／label／目標大小／符號稽核
+    await openFilter(page, '所屬班級');
+    await audit(page, '核對結果｜表頭篩選面板（所屬班級）', findings, seen);
+    await page.keyboard.press('Escape');
+    await openFilter(page, '需確認');
+    await audit(page, '核對結果｜表頭篩選面板（需確認，兩個分區）', findings, seen);
+    await page.keyboard.press('Escape');
+    await applyFilter(page, '年級', { pick: ['3年級'] });
+    await audit(page, '核對結果｜已套用篩選條件', findings, seen);
+    await page.getByRole('button', { name: '清除全部' }).click();
 
     await page.locator('.results-table tbody tr').first().locator('button.link-button').click();
     await expect(page.locator('[role="dialog"]')).toBeVisible();

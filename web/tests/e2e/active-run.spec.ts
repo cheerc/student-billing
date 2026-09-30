@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import path from 'path';
+import { openFilter, applyFilter } from './helpers/header-filter';
 
 /** conforming-erp-fixture 的值（09 §7：筆數只在測試/fixture，不進產品文案）。 */
 const FIXTURE_TIER_MISMATCH = 5;
@@ -41,10 +42,11 @@ test.describe('R4 重寫：核對結果頁 E2E 驗收（學生總表 12 欄 + �
     await expect(page.locator('button[role="tab"]', { hasText: '學生總表' })).toBeVisible();
     await expect(page.locator('button[role="tab"]', { hasText: '班級扣天' })).toBeVisible();
 
-    // 4. 人數一行（09 §5.1）：本班N人 · 符合篩選M人 · N位需確認，三者 scope 不同
+    // 4. 人數一行（09 §5.1／O03）：未選班「全部 N 人」· 符合篩選M人 · N位需確認，三者 scope 不同；未選班不寫「本班」
     const counts = page.locator('.counts-line');
     await expect(counts).toBeVisible();
-    await expect(counts).toContainText('本班');
+    await expect(counts).toContainText('全部');
+    await expect(counts).not.toContainText('本班');
     await expect(counts).toContainText('符合篩選');
     await expect(counts).toContainText('位需確認');
     // 不可再以 .stat-card 呈現（09 §5.1 要求單行）
@@ -62,8 +64,11 @@ test.describe('R4 重寫：核對結果頁 E2E 驗收（學生總表 12 欄 + �
     // 既有欄位移而非刪除：美語／數學天數不在預設欄
     await expect(table.locator('th', { hasText: '美語天數' })).toHaveCount(0);
     await expect(table.locator('th', { hasText: '數學天數' })).toHaveCount(0);
-    // 合計折扣說明基本率與指定課程的差別（09 §5.1）
-    await expect(table).toContainText('指定課程可能另有調整');
+    // 合計折扣說明基本率與指定課程的差別（09 §5.1）：只在表頭 tooltip（O01），資料列不逐列重複
+    await expect(table.locator('tbody')).not.toContainText('指定課程可能另有調整');
+    await table.locator('thead').getByRole('button', { name: /合計折扣.*說明/ }).click();
+    await expect(page.getByRole('tooltip')).toContainText('指定課程可能另有調整');
+    await page.keyboard.press('Escape');
 
     // 6. UX14：型別不混，null 顯示為非 0 的符號
     await expect(table).toContainText('—');
@@ -125,7 +130,7 @@ test.describe('R4 重寫：核對結果頁 E2E 驗收（學生總表 12 欄 + �
     await expect(page.locator('.data-banner-current', { hasText: '目前使用的資料' })).toBeVisible({ timeout: 15000 });
   }
 
-  test('UX13: 搜尋／需確認篩選後人數與清單一致，且「本班N人」不受其他條件收斂', async ({ page }) => {
+  test('UX13: 搜尋／需確認篩選後人數與清單一致，且「本班N人」不受其他條件收斂（表頭篩選）', async ({ page }) => {
     await ensureActivated(page);
 
     const counts = page.locator('.counts-line');
@@ -134,28 +139,32 @@ test.describe('R4 重寫：核對結果頁 E2E 驗收（學生總表 12 欄 + �
     const needsReview = counts.locator('[data-count="needs-review"]');
     const table = page.locator('.results-table');
 
-    // 起點：未選班級時「本班」＝全批；「符合篩選」也＝全批
+    // 起點：未選班級時「全部 N 人」；「符合篩選」也＝全批
     const total = Number(await matched.textContent());
     expect(total).toBeGreaterThan(0);
     await expect(classScope).toHaveText(String(total));
+    await expect(counts).toContainText(`全部 ${total} 人`);
 
-    // (1) 搜尋個人：符合篩選收斂，但「本班N人」不變（scope 只到班級）
+    // (1) 搜尋個人：符合篩選收斂，但全部／本班 N 人不變（scope 只到班級）
     const search = page.locator('input[placeholder*="搜尋"]').first();
     await search.fill('STU0001');
     await expect(matched).not.toHaveText(String(total));
     const afterSearch = Number(await matched.textContent());
     expect(afterSearch).toBeGreaterThan(0);
     expect(afterSearch).toBeLessThan(total);
-    await expect(classScope).toHaveText(String(total)); // 本班N人不受搜尋收斂
+    await expect(classScope).toHaveText(String(total)); // 人數範圍不受搜尋收斂
     await expect(table.locator('tbody tr')).toHaveCount(afterSearch); // 清單與人數一致
     expect(page.url()).not.toContain('STU0001'); // q 不得寫入 URL（09 §5.1）
 
-    // (2) 需確認篩選（不寫條件式）：符合篩選 = 「N位需確認」，清單列數一致，且本班N人仍不變
+    // (2) 需確認篩選（問題類型全選，不含「(空白)」）：符合篩選 = 「N位需確認」，清單列數一致，且範圍人數仍不變
     await search.fill('');
     await expect(matched).toHaveText(String(total));
-    const issuesSelect = page.locator('select', { has: page.locator('option', { hasText: '全部問題狀態' }) });
-    await expect(issuesSelect).toBeVisible();
-    await issuesSelect.selectOption({ label: '僅顯示有待確認事項' });
+    const issuePanel = await openFilter(page, '需確認');
+    const issueOptions = issuePanel.locator('[data-filter-section="issueCode"] [data-filter-option]:not([data-filter-option="(空白)"]) input[type="checkbox"]');
+    const issueOptionCount = await issueOptions.count();
+    expect(issueOptionCount).toBeGreaterThan(0);
+    for (let i = 0; i < issueOptionCount; i++) await issueOptions.nth(i).check();
+    await issuePanel.getByRole('button', { name: '確定', exact: true }).click();
     await expect(matched).not.toHaveText(String(total));
     const reviewCount = Number(await needsReview.textContent());
     expect(reviewCount).toBeGreaterThan(0);
@@ -169,16 +178,21 @@ test.describe('R4 重寫：核對結果頁 E2E 驗收（學生總表 12 欄 + �
       await expect(rows.nth(i).locator('td').last().locator('.badge')).not.toHaveCount(0);
     }
 
-    // (3) 選定某班：本班N人＝該班人數（小於全批），再搜尋後本班N人仍不變
-    await page.locator('button', { hasText: '重置篩選 ✕' }).click();
+    // (3) 選定某班：範圍人數＝該班人數（小於全批），再搜尋後仍不變
+    await page.getByRole('button', { name: '清除全部' }).click();
     await expect(matched).toHaveText(String(total));
-    const classSelect = page.locator('select', { has: page.locator('option', { hasText: '全部班級' }) });
-    const firstClassValue = await classSelect.locator('option').nth(1).getAttribute('value');
-    await classSelect.selectOption(firstClassValue!);
+    const classPanel = await openFilter(page, '所屬班級');
+    const firstClass = await classPanel
+      .locator('[data-filter-option]:not([data-filter-option="(空白)"]):not([data-filter-option="班名無法解析"])')
+      .first()
+      .getAttribute('data-filter-option');
+    await classPanel.locator(`[data-filter-option="${firstClass}"] input[type="checkbox"]`).check();
+    await classPanel.getByRole('button', { name: '確定', exact: true }).click();
     await expect(classScope).not.toHaveText(String(total));
     const scoped = Number(await classScope.textContent());
     expect(scoped).toBeGreaterThan(0);
     expect(scoped).toBeLessThan(total);
+    await expect(counts).toContainText(`本班 ${scoped} 人`);
     await expect(matched).toHaveText(String(scoped)); // 只有班級條件時，符合篩選＝本班
     await search.fill('STU0001');
     await expect(classScope).toHaveText(String(scoped)); // 再加搜尋，本班N人不動
@@ -192,9 +206,7 @@ test.describe('R4 重寫：核對結果頁 E2E 驗收（學生總表 12 欄 + �
     const table = page.locator('.results-table');
 
     // 舊版 toHaveCount(5) ＋「級距差異」列內容，恢復（選項標籤不含筆數，筆數由結果決定）
-    const mismatchSelect = page.locator('select', { has: page.locator('option', { hasText: '全部級距狀態' }) });
-    await expect(mismatchSelect.locator('option[value="true"]')).toHaveText('⚠ 僅顯示級距差異');
-    await mismatchSelect.selectOption({ label: '⚠ 僅顯示級距差異' });
+    await applyFilter(page, '需確認', { pick: ['天數不同'] });
 
     const rows = table.locator('tbody tr');
     await expect(rows).toHaveCount(FIXTURE_TIER_MISMATCH);
@@ -214,9 +226,13 @@ test.describe('R4 重寫：核對結果頁 E2E 驗收（學生總表 12 欄 + �
     await expect(drawer).toHaveCount(0);
 
     // 級距吻合 ＋ 有待確認事項 → 列表存在缺排課學生（舊版步驟 7，恢復）
-    await mismatchSelect.selectOption({ label: '✓ 僅顯示級距吻合' });
-    const issuesSelect = page.locator('select', { has: page.locator('option', { hasText: '全部問題狀態' }) });
-    await issuesSelect.selectOption({ label: '僅顯示有待確認事項' });
+    const p = await openFilter(page, '需確認');
+    await p.locator('[data-filter-section="tierMismatch"] [data-filter-option="天數不同"] input[type="checkbox"]').uncheck();
+    await p.locator('[data-filter-section="tierMismatch"] [data-filter-option="天數吻合"] input[type="checkbox"]').check();
+    const issueOptions = p.locator('[data-filter-section="issueCode"] [data-filter-option]:not([data-filter-option="(空白)"]) input[type="checkbox"]');
+    const issueOptionCount = await issueOptions.count();
+    for (let i = 0; i < issueOptionCount; i++) await issueOptions.nth(i).check();
+    await p.getByRole('button', { name: '確定', exact: true }).click();
     await expect(rows.first()).toBeVisible();
     await expect(table.locator('tbody')).toContainText('SCHEDULE_NOT_FOUND');
   });

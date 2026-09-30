@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import path from 'path';
+import { openFilter, applyFilter } from './helpers/header-filter';
 
 /** conforming-erp-fixture 的值（09 §7：筆數只在測試/fixture，不進產品文案）。 */
 const FIXTURE_TOTAL_STUDENTS = 477;
@@ -105,19 +106,19 @@ test.describe('R4 重寫：T06 故障恢復與歷程查閱 E2E 驗收', () => {
     await expect(currentRow).toContainText('目前使用');
     await expect(page.locator('.history-current')).toContainText('目前使用的資料：');
 
-    // 5. 問題類型篩選（09 §7／UX15）：選項標籤不得硬寫筆數（產品端），但測試可斷言 fixture 的實際值
+    // 5. 問題類型篩選（09 §7／UX15）：表頭篩選「需確認」；選項只顯示中文名稱、不硬寫筆數（產品端），測試可斷言 fixture 的實際值
     await page.goto('/');
-    const issueSelect = page.locator('select', { has: page.locator('option', { hasText: '問題類型' }) });
-    await expect(issueSelect).toBeVisible();
-
-    // <option> 非可見元素，以文字斷言（toBeVisible 對 option 恆為 hidden）
-    const scheduleOption = issueSelect.locator('option', { hasText: 'SCHEDULE_NOT_FOUND' });
-    await expect(scheduleOption).toHaveText(/排課缺漏/);
-    await expect(scheduleOption).not.toHaveText(/\d+\s*人/);
+    const issuePanel = await openFilter(page, '需確認');
+    const scheduleOption = issuePanel.locator('[data-filter-section="issueCode"] [data-filter-option="排課缺漏"]');
+    await expect(scheduleOption).toBeVisible();
+    await expect(scheduleOption.locator('[data-filter-count]')).toHaveText(String(FIXTURE_SCHEDULE_NOT_FOUND));
+    // 選項名稱只有中文（工程代碼不出現在主畫面；代碼移至明細技術資訊）
+    await expect(issuePanel.locator('[data-filter-section="issueCode"]')).not.toContainText('SCHEDULE_NOT_FOUND');
+    await page.keyboard.press('Escape');
 
     // 6. 選「排課缺漏」後：筆數 ＝ fixture 值 13（舊版 toHaveCount(13)，斷言強度不降），
     //    並且人數行「符合篩選」、列數、每一列的問題碼三者一致（比舊版更嚴）
-    await issueSelect.selectOption('SCHEDULE_NOT_FOUND');
+    await applyFilter(page, '需確認', { pick: ['排課缺漏'] });
     const counts = page.locator('.counts-line');
     await expect(counts.locator('[data-count="matched"]')).toHaveText(String(FIXTURE_SCHEDULE_NOT_FOUND));
 
@@ -142,8 +143,8 @@ test.describe('R4 重寫：T06 故障恢復與歷程查閱 E2E 驗收', () => {
     await page.keyboard.press('Escape');
     await expect(drawer).toHaveCount(0);
 
-    // 8. 「重置篩選 ✕」按鈕必須存在並可用（舊版斷言，不是「有才點」）
-    const resetBtn = page.locator('button', { hasText: '重置篩選 ✕' });
+    // 8. 「清除全部」必須存在並可用（舊版「重置篩選 ✕」斷言，不是「有才點」）
+    const resetBtn = page.getByRole('button', { name: '清除全部' });
     await expect(resetBtn).toBeVisible();
     await resetBtn.click();
 
@@ -152,11 +153,10 @@ test.describe('R4 重寫：T06 故障恢復與歷程查閱 E2E 驗收', () => {
     await expect(counts.locator('[data-count="matched"]')).toHaveText(String(FIXTURE_TOTAL_STUDENTS));
 
     // 9. 待設定班級提示（09 §8.3：動態判斷，不是寫死班名）。兩種情境都要驗：
-    const classSelect = page.locator('select', { has: page.locator('option', { hasText: '全部班級' }) });
     const unmappedNotice = page.locator('.notice-warn', { hasText: '待設定班級提示：' });
 
     //   ① 不在課表快照的班級（fixture 有「國小數學-一」，課表只有一A／一B…）→ 提示出現，且導向課表設定
-    await classSelect.selectOption({ label: '國小數學-一' });
+    await applyFilter(page, '所屬班級', { pick: ['國小數學-一'] });
     await expect(unmappedNotice).toBeVisible();
     await expect(unmappedNotice).toContainText('國小數學-一');
     const goSettings = unmappedNotice.locator('a', { hasText: '前往課表設定' });
@@ -164,7 +164,7 @@ test.describe('R4 重寫：T06 故障恢復與歷程查閱 E2E 驗收', () => {
     await expect(goSettings).toHaveAttribute('href', '/settings');
 
     //   ② 在課表快照的班級（課表有「國小數學-三A」）→ 提示不出現
-    await classSelect.selectOption({ label: '國小數學-三A' });
+    await applyFilter(page, '所屬班級', { none: true, pick: ['國小數學-三A'] });
     await expect(counts.locator('[data-count="class-scope"]')).not.toHaveText(String(FIXTURE_TOTAL_STUDENTS));
     await expect(unmappedNotice).toHaveCount(0);
   });
@@ -184,8 +184,8 @@ test.describe('R4 重寫：T06 故障恢復與歷程查閱 E2E 驗收', () => {
     expect(filtered).toBeGreaterThan(0);
     expect(filtered).toBeLessThan(full);
 
-    // 清除篩選可回到全批（UX21：可清 filter，不能假成功）——重置按鈕必須存在（不是有才點）
-    const reset = page.locator('button', { hasText: '重置篩選 ✕' });
+    // 清除篩選可回到全批（UX21：可清 filter，不能假成功）——「清除全部」必須存在（不是有才點）
+    const reset = page.getByRole('button', { name: '清除全部' });
     await expect(reset).toBeVisible();
     await reset.click();
     await expect(counts.locator('[data-count="matched"]')).toHaveText(String(FIXTURE_TOTAL_STUDENTS));

@@ -245,7 +245,10 @@ describe('R3 匯入頁工作流程與 UI 元件（RED 測試）', () => {
       // 人數統計（3 列資料中 1 列被略過 → 總人數 2，不含該列）
       expect(html).toContain('學生總人數');
       expect(html).toContain('有報名班級人數');
-      expect(html).toContain('無班級人數');
+      // 無課程（D38／UX29）：零報名人數，附離籍提示，可篩出
+      expect(html).toContain('無課程');
+      expect(html).toContain('請至米豆奶辦理離籍');
+      expect(html).toContain('只看無課程的學生');
       expect(html).not.toContain('477');
 
       // 未知班名提示
