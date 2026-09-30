@@ -90,31 +90,16 @@ describe('類別自動偵測純函式（新模組 @/domain/classification/class-
   });
 });
 
-describe('D1 只交付未接線的純函式', () => {
+describe('class-category 純函式架構約束', () => {
   const SRC = path.resolve(__dirname, '../../src');
-
-  function walk(dir: string, out: string[] = []): string[] {
-    for (const name of fs.readdirSync(dir)) {
-      const full = path.join(dir, name);
-      if (fs.statSync(full).isDirectory()) walk(full, out);
-      else if (/\.(ts|tsx)$/.test(name)) out.push(full);
-    }
-    return out;
-  }
 
   it('模組檔存在於 domain 層（src/domain/classification/class-category.ts）', () => {
     expect(fs.existsSync(path.join(SRC, 'domain', 'classification', 'class-category.ts'))).toBe(true);
   });
 
-  it('src 內沒有任何其他檔案 import 它（D2 才接線）；模組本身不 import DB 或 UI', () => {
+  it('模組本身為純 domain 函式，不得 import DB、UI 或外部層', () => {
     const own = path.join(SRC, 'domain', 'classification', 'class-category.ts');
-    const importers: string[] = [];
-    for (const file of walk(SRC)) {
-      if (file === own) continue;
-      if (/classification\/class-category/.test(fs.readFileSync(file, 'utf-8'))) importers.push(path.relative(SRC, file));
-    }
-    expect(importers, 'D1 不得接線').toEqual([]);
-    // 模組自身：domain 純函式，不得引用 adapters／application／app／components
+    // 模組自身：domain 純函式，不得引用 adapters／application／components
     expect(fs.existsSync(own)).toBe(true);
     const text = fs.readFileSync(own, 'utf-8');
     expect(text).not.toMatch(/from\s+['"][^'"]*(adapters|application|components|next|react)[^'"]*['"]/);

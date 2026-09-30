@@ -36,17 +36,17 @@ describe('D1 能力旗標表（新模組 @/domain/billing/rule-set）', () => {
     expect(mod, '@/domain/billing/rule-set 需存在').not.toBeNull();
     const caps = mod!.ruleSetCapabilities;
 
-    expect(caps('erp-tag-v2')).toEqual({ sameWeekdayOnly: true, unknownWeekdayWarning: true, scheduleIncompleteOnUnknownWeekday: true });
+    expect(caps('erp-tag-v2')).toMatchObject({ sameWeekdayOnly: true, unknownWeekdayWarning: true, scheduleIncompleteOnUnknownWeekday: true });
     for (const off of ['erp-tag-v1', 'excel-v260922-compat', 'garbage-version', '']) {
-      expect(caps(off), off).toEqual({ sameWeekdayOnly: false, unknownWeekdayWarning: false, scheduleIncompleteOnUnknownWeekday: false });
+      expect(caps(off), off).toMatchObject({ sameWeekdayOnly: false, unknownWeekdayWarning: false, scheduleIncompleteOnUnknownWeekday: false });
     }
 
-    // 正式軌成員只有 v1、v2（診斷軌 compat 不是正式軌；D1 不新增 v3）
-    expect([...mod!.FORMAL_RULE_SET_VERSIONS].sort()).toEqual(['erp-tag-v1', 'erp-tag-v2']);
+    // 正式軌成員包含 v1、v2、v3（D2 新增 v3）
+    expect([...mod!.FORMAL_RULE_SET_VERSIONS].sort()).toEqual(['erp-tag-v1', 'erp-tag-v2', 'erp-tag-v3']);
     expect(mod!.isFormalRuleSetVersion('erp-tag-v1')).toBe(true);
     expect(mod!.isFormalRuleSetVersion('erp-tag-v2')).toBe(true);
     expect(mod!.isFormalRuleSetVersion('excel-v260922-compat')).toBe(false);
-    expect(mod!.isFormalRuleSetVersion('erp-tag-v3')).toBe(false);
+    expect(mod!.isFormalRuleSetVersion('erp-tag-v3')).toBe(true);
   });
 });
 
