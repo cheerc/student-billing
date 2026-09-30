@@ -164,7 +164,7 @@ describe('UX18：API 路徑（calculate／deductions）對全量 seed 草稿的�
     }
   }
 
-  it('POST /settings/calculate（全量 seed 草稿，v2）＝ golden', async () => {
+  it('POST /settings/calculate（全量 seed 草稿；D2b Q11 起空 DB 為 v3，逐堂值仍等 v2 golden）', async () => {
     const res = await calculatePOST(
       new NextRequest('http://127.0.0.1:3000/api/v1/settings/calculate', {
         method: 'POST',
@@ -174,7 +174,8 @@ describe('UX18：API 路徑（calculate／deductions）對全量 seed 草稿的�
     );
     expect(res.status).toBe(200);
     const body = await res.json();
-    expect(body.ruleSetVersion).toBe('erp-tag-v2');
+    // 規則版本改為 v3（Q11 空 DB 預設），但逐堂計算值是 D24／D30 層，v3 未改動 → golden 仍成立
+    expect(body.ruleSetVersion).toBe('erp-tag-v3');
     expectMatchesGolden(body.classes, 'calculate');
   });
 

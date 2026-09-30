@@ -9,12 +9,14 @@ import {
   saveSettingsPreview,
   draftToAliasMap,
   draftToScheduleOverride,
+  buildSeedDraft,
   getLatestSettingsVersion,
   readStoredDraft,
 } from '@/adapters/sqlite/settings-repository';
 import { calculateStudentBilling } from '@/domain/billing/billing-calculator';
 import { careWindowsMatchRuleSet, CARE_WINDOWS_MISMATCH_MESSAGE } from './schedule-preview';
-import { resolveFormalRuleSetVersion } from './rule-set-resolver';
+import { resolveTargetRuleSetVersion } from './rule-set-resolver';
+import { buildClassSettingMap } from './calculate-run';
 import { loadStudentsForImport } from '@/adapters/sqlite/import-repository';
 
 export class SettingsPreviewError extends Error {
@@ -54,6 +56,12 @@ export interface SettingsPreviewResult {
   tierTransitions: TierTransition[] | null;
   issueDelta: { before: number; after: number } | null;
   expiresAt: string;
+  /** D2b 4（Q11）：本次套用會產生的規則版本（由 server 決定並記錄，apply 只讀它） */
+  targetRuleSetVersion: string;
+  /** D2b 6：已補科數（類別種數）的變化明細；只列出有變化者 */
+  subjectCountDeltas: Array<{ personCode: string; name: string; before: number | null; after: number | null }> | null;
+  /** D2b 6：合計折扣（基本率收取率 bps）的變化明細；只列出有變化者 */
+  baseDiscountDeltas: Array<{ personCode: string; name: string; before: number | null; after: number | null }> | null;
 }
 
 /** settings_only 預覽：無名單可比對，只保存預覽草稿（hash／revision／TTL 與 with_students 相同）。 */
@@ -81,6 +89,9 @@ function saveSettingsOnlyPreview(
     tierTransitions: null,
     issueDelta: null,
     expiresAt,
+    targetRuleSetVersion,
+    subjectCountDeltas: null,
+    baseDiscountDeltas: null,
   };
 
   saveSettingsPreview(db, {
@@ -118,7 +129,7 @@ export function previewSettingsChange(
   if (!parsed.success) {
     throw new SettingsPreviewError(400, `設定草稿格式錯誤：${parsed.error.message}`, 'INVALID_DRAFT');
   }
-  const { draft, expectedRevision } = parsed.data;
+  const { draft, expectedRevision, targetRuleSetVersion: requestedVersion } = parsed.data;
   // 窗口固定（D33）：draft.careWindows 只允許 ruleSet 值，不同即 400，不靜默忽略（09 §8.1）
   if (!careWindowsMatchRuleSet(draft)) {
     throw new SettingsPreviewError(400, CARE_WINDOWS_MISMATCH_MESSAGE, 'INVALID_DRAFT');
@@ -150,11 +161,15 @@ export function previewSettingsChange(
   // 影響預覽的「前」＝目前生效的設定（最新已儲存設定；尚無才是 seed），不是永遠的 seed（09 §3.2）
   const baseAliasMap = baseDraft ? draftToAliasMap(baseDraft) : undefined;
   const baseScheduleOverride = baseDraft ? draftToScheduleOverride(baseDraft) : undefined;
+  // D2b 1：類別／固定 5 天進「前」側，讓類別式科數的變化也進入影響預覽
+  const baseClassSettings = baseDraft
+    ? buildClassSettingMap(baseDraft)
+    : buildClassSettingMap(buildSeedDraft());
 
-  // 預覽只跑正式軌：有 active run 且為正式軌採其版本，否則（含診斷軌 compat）採現行正式軌 erp-tag-v2（09 §8.1）。
-  // 這個版本同時記錄在 preview 列（target_rule_set_version），apply 建立新 run 時只讀這個值（D1 F-3），
+  // 預覽的版本：使用者明確指定就用該版本（升級），否則沿用現行正式軌（既有 v2 DB 因此不動、空 DB 得 v3）。
+  // 這個版本同時記錄在 preview 列（target_rule_set_version），apply 建立新 run 時只讀這個值（D1 F-3、Q11），
   // 使用者在預覽看到的影響與實際套用的規則版本一致。
-  const formalRuleSetVersion = resolveFormalRuleSetVersion(db);
+  const formalRuleSetVersion = resolveTargetRuleSetVersion(db, requestedVersion);
 
   if (importId === null) {
     return saveSettingsOnlyPreview(db, draft, expectedRevision, latest?.id ?? 'seed-v250922', formalRuleSetVersion);
@@ -167,8 +182,11 @@ export function previewSettingsChange(
 
   const aliasMap = draftToAliasMap(draft);
   const scheduleOverride = draftToScheduleOverride(draft);
+  const classSettings = buildClassSettingMap(draft);
 
   const dayDeltas: SettingsPreviewResult['dayDeltas'] = [];
+  const subjectCountDeltas: NonNullable<SettingsPreviewResult['subjectCountDeltas']> = [];
+  const baseDiscountDeltas: NonNullable<SettingsPreviewResult['baseDiscountDeltas']> = [];
   const tierTransitions: TierTransition[] = [];
   let mismatchBefore = 0;
   let mismatchAfter = 0;
@@ -180,9 +198,15 @@ export function previewSettingsChange(
     const before = calculateStudentBilling(stu, {
       aliasMap: baseAliasMap,
       scheduleOverride: baseScheduleOverride,
+      classSettings: baseClassSettings,
       ruleSetVersion: formalRuleSetVersion,
     });
-    const after = calculateStudentBilling(stu, { aliasMap, scheduleOverride, ruleSetVersion: formalRuleSetVersion });
+    const after = calculateStudentBilling(stu, {
+      aliasMap,
+      scheduleOverride,
+      classSettings,
+      ruleSetVersion: formalRuleSetVersion,
+    });
 
     const beforeDays = stu.grade !== null && stu.grade <= 2
       ? before.careDays.anqin.days
@@ -200,6 +224,14 @@ export function previewSettingsChange(
 
     if (beforeDays !== afterDays) {
       dayDeltas.push({ personCode: stu.personCode, name: stu.name, before: beforeDays, after: afterDays });
+    }
+
+    // D2b 6：類別變更不影響天數時，科數與合計折扣仍須呈現（否則畫面會顯示「未改變收費天數」而漏掉折扣影響）
+    if (before.subjectCount !== after.subjectCount) {
+      subjectCountDeltas.push({ personCode: stu.personCode, name: stu.name, before: before.subjectCount, after: after.subjectCount });
+    }
+    if (before.baseDiscountBps !== after.baseDiscountBps) {
+      baseDiscountDeltas.push({ personCode: stu.personCode, name: stu.name, before: before.baseDiscountBps, after: after.baseDiscountBps });
     }
 
     // 記錄 match/mismatch 轉換
@@ -233,13 +265,16 @@ export function previewSettingsChange(
     mode: 'with_students',
     previewId,
     inputHash,
-    affectedStudents: dayDeltas.length,
+    affectedStudents: dayDeltas.length + Math.max(subjectCountDeltas.length, baseDiscountDeltas.length),
     dayDeltas,
     mismatchBefore,
     mismatchAfter,
     tierTransitions,
     issueDelta: { before: issuesBefore, after: issuesAfter },
     expiresAt,
+    targetRuleSetVersion: formalRuleSetVersion,
+    subjectCountDeltas,
+    baseDiscountDeltas,
   };
 
   saveSettingsPreview(db, {

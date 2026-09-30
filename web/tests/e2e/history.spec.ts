@@ -56,11 +56,13 @@ test.describe('R5 匯入紀錄與歷史唯讀檢視', () => {
     await expect(page.locator('.history-current')).toContainText(/目前使用的資料：.+核對基準日 \d{4}-\d{2}-\d{2}/);
 
     // 技術資訊預設收合，展開後才看得到長 ID／規則版本／雜湊
+    // 規則版本＝本次啟用當時的正式軌版本：空 DB 啟用即建立於目標版本 erp-tag-v3（Q11／D2b）
+    const ruleSetVersion = 'erp-tag-v3';
     const tech = current.locator('details.tech-info');
     await expect(tech).not.toHaveAttribute('open', '');
-    await expect(tech.getByText('erp-tag-v2')).toBeHidden();
+    await expect(tech.getByText(ruleSetVersion)).toBeHidden();
     await tech.locator('summary').click();
-    await expect(tech.getByText('erp-tag-v2')).toBeVisible();
+    await expect(tech.getByText(ruleSetVersion)).toBeVisible();
     await expect(tech).toContainText('檔案雜湊');
   });
 

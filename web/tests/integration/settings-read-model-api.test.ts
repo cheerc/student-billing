@@ -104,7 +104,7 @@ describe('POST /api/v1/settings/calculate（唯讀計算 read model）', () => {
     return Object.fromEntries(names.map((n) => [n, (db.prepare(`SELECT COUNT(*) AS n FROM ${n}`).get() as { n: number }).n]));
   }
 
-  it('200：回 requestKey／draftHash／ruleSetVersion／windows／rows／classes／issues；空 DB 無 active 時 ruleSetVersion＝erp-tag-v2', async () => {
+  it('200：回 requestKey／draftHash／ruleSetVersion／windows／rows／classes／issues；空 DB 無 active 時 ruleSetVersion＝erp-tag-v3（Q11）', async () => {
     getDatabase();
     const draft = draftMathOneA(920, 1010);
     const res = await calculatePOST(calcReq({ draft, requestKey: 'req-1' }));
@@ -112,7 +112,8 @@ describe('POST /api/v1/settings/calculate（唯讀計算 read model）', () => {
     const body = await res.json();
     expect(Object.keys(body).sort()).toEqual(['classes', 'draftHash', 'issues', 'requestKey', 'rows', 'ruleSetVersion', 'windows']);
     expect(body.requestKey).toBe('req-1');
-    expect(body.ruleSetVersion).toBe('erp-tag-v2');
+    // D2b（Q11）：空 DB 無 active run → 目標版本 erp-tag-v3
+    expect(body.ruleSetVersion).toBe('erp-tag-v3');
     expect(body.windows.anqin).toEqual({ startMinutes: CARE_WINDOWS.anqin.start, endMinutes: CARE_WINDOWS.anqin.end, weekdays: ['一', '二', '三', '四', '五'] });
 
     const rows = body.rows.filter((r: any) => r.classKey === '國小數學-一A');
@@ -193,7 +194,7 @@ describe('POST /api/v1/settings/calculate（唯讀計算 read model）', () => {
     }
   });
 
-  it('ruleSetVersion 由 server 決定：active run 為正式軌則採其值；active run 為診斷軌 compat 則改採現行正式軌 erp-tag-v2', async () => {
+  it('ruleSetVersion 由 server 決定：active run 為正式軌則採其值；active run 為診斷軌 compat 則改採目標版本 erp-tag-v3', async () => {
     const db = getDatabase() as any;
     const { runId } = saveReadyAndActivate(db);
     const draft = buildSeedDraft();
@@ -204,7 +205,8 @@ describe('POST /api/v1/settings/calculate（唯讀計算 read model）', () => {
 
     db.prepare('UPDATE calculation_runs SET rule_set_version = ? WHERE id = ?').run('excel-v260922-compat', runId);
     body = await (await calculatePOST(calcReq({ draft, requestKey: 'b' }))).json();
-    expect(body.ruleSetVersion).toBe('erp-tag-v2');
+    // 診斷軌不作正式值 → 採目標版本 erp-tag-v3（D2b Q11）
+    expect(body.ruleSetVersion).toBe('erp-tag-v3');
   });
 
   it('輸入驗證：缺 requestKey、非 JSON、班名重複 → 400；超過 payload 上限 → 413；跨來源 → 403', async () => {
@@ -412,7 +414,8 @@ describe('GET /api/v1/settings/deductions（指定 run 快照／active／已儲�
     expect(body.scope).toBe('seed');
     expect(body.runId).toBeNull();
     expect(body.scheduleVersionId).toBe('seed-v250922');
-    expect(body.ruleSetVersion).toBe('erp-tag-v2');
+    // D2b（Q11）：無 active run → 目標版本 erp-tag-v3
+    expect(body.ruleSetVersion).toBe('erp-tag-v3');
     expect(body.classes).toHaveLength(49);
   });
 

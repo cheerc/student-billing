@@ -1,6 +1,5 @@
 import { describe, it, expect } from 'vitest';
 import {
-  detectClassAttributes,
   resolveClassAttributes,
   toSavedClassAttributes,
   carryAttributesOnRename,
@@ -185,6 +184,3 @@ describe('D2b 1: draft ↔ 班級屬性清單轉換（單一來源）', () => {
     });
   });
 });
-
-// 直接引用以確認匯出存在（編譯期檢查）
-void detectClassAttributes;

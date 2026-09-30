@@ -5,7 +5,8 @@
  * 新增規則版本時只要漏改任何一處，新版本就會靜默退回舊版本的行為，且沒有任何型別錯誤。
  * 現在行為差異一律讀 `ruleSetCapabilities(version)` 的旗標；新版本要在這裡明列每個旗標的值。
  *
- * D1 不新增任何規則版本（沒有 `erp-tag-v3` 型別成員），也不改變 `CURRENT_FORMAL_RULE_SET_VERSION`。
+ * D1 不新增任何規則版本（沒有 `erp-tag-v3` 型別成員），也不改變 `CURRENT_FORMAL_RULE_SET_VERSION`；
+ * D2a 註冊 `erp-tag-v3` 型別成員，D2b 以 `TARGET_FORMAL_RULE_SET_VERSION` 決定空 DB 的目標版本（Q11）。
  */
 
 /** 正式軌 ruleSetVersion（診斷軌 excel-v260922-compat 不作正式值，根 CLAUDE.md §2）。 */
@@ -13,7 +14,20 @@ export type FormalRuleSetVersion = 'erp-tag-v1' | 'erp-tag-v2' | 'erp-tag-v3';
 
 export const FORMAL_RULE_SET_VERSIONS: ReadonlySet<string> = new Set<FormalRuleSetVersion>(['erp-tag-v1', 'erp-tag-v2', 'erp-tag-v3']);
 
-/** 現行正式軌。依 Q11 決策：空 DB 目標 v3，既有 v2 DB 不動。 */
+/** 正式軌版本的可枚舉清單（API 契約用；與 FORMAL_RULE_SET_VERSIONS 同一份定義，不各寫一份）。 */
+export const FORMAL_RULE_SET_VERSION_LIST = ['erp-tag-v1', 'erp-tag-v2', 'erp-tag-v3'] as const;
+
+/**
+ * 空 DB 的目標正式軌（Q11）。既有 v2 DB 走 activate／apply 沿用其 active run 的版本，
+ * 直到使用者明確確認升級（D2b 的升級確認流程），因此這裡不影響既有資料。
+ */
+export const TARGET_FORMAL_RULE_SET_VERSION: FormalRuleSetVersion = 'erp-tag-v3';
+
+/**
+ * D2 之前的「無 active run 時採用的版本」。D2b 起解析器改採 TARGET_FORMAL_RULE_SET_VERSION，
+ * 這個常數已無產品程式碼引用，僅保留作為歷史 run 與規格敘述的對照點；
+ * 新程式碼請用 TARGET_FORMAL_RULE_SET_VERSION 與 resolveTargetRuleSetVersion。
+ */
 export const CURRENT_FORMAL_RULE_SET_VERSION: FormalRuleSetVersion = 'erp-tag-v2';
 
 export function isFormalRuleSetVersion(v: unknown): v is FormalRuleSetVersion {

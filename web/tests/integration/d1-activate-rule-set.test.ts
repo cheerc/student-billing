@@ -18,8 +18,9 @@ import {
  * activate 的規則版本由 server 決定。
  *  - F-1：route 不再接受 client 的 `ruleSetVersion`（與 calculate 的「client 不得指定」一致），收到就 400；
  *    冪等 hash 不再含 client 值；application 層也不留後門。
- *  - F-2：沿用 active 版本（有 active run 且為正式軌），否則用現行正式預設 erp-tag-v2；
- *    active 為診斷軌 compat 時同樣採 v2。
+ *  - F-2：沿用 active 版本（有 active run 且為正式軌），否則用目標版本 erp-tag-v3；
+ *    active 為診斷軌 compat 時同樣採目標版本。
+ *  - D2b（Q11）：目標版本由 erp-tag-v2 改為 erp-tag-v3；既有 v2 active run 仍沿用 v2（不靜默切換）。
  * 舊契約（activate 指定 v1 就建 v1 run）已由 operator 核准改變，見 d-20260930112930661160-25。
  */
 
@@ -48,7 +49,7 @@ describe('F-1：activate 不再接受 client 的 ruleSetVersion', () => {
     expect(activeState(db)).toMatchObject({ active_import_id: null, active_run_id: null, revision: 0 });
   });
 
-  it('route：不帶 ruleSetVersion 的既有呼叫方式不受影響（200，建 run＝現行正式軌 erp-tag-v2）', async () => {
+  it('route：不帶 ruleSetVersion 的既有呼叫方式不受影響（200；空 DB 建 run＝目標版本 erp-tag-v3，Q11）', async () => {
     const db = ctx.db();
     await saveFixtureBatch(db, 'imp_a');
     const res = await activatePOST(activateReq('imp_a', { expectedRevision: 0, idempotencyKey: 'k-plain' }), {
@@ -56,7 +57,8 @@ describe('F-1：activate 不再接受 client 的 ruleSetVersion', () => {
     });
     expect(res.status).toBe(200);
     const body = await res.json();
-    expect(ruleSetOfRun(db, body.runId)).toBe('erp-tag-v2');
+    // D2b（Q11）：空 DB 直接預設 v3；既有 v2 DB 仍沿用其 active 版本（見下一組測試）
+    expect(ruleSetOfRun(db, body.runId)).toBe('erp-tag-v3');
   });
 
   it('application 層沒有後門：activateImport 收到 ruleSetVersion 選項一樣拒絕（ActivateError 400 INVALID_REQUEST），不建 run', async () => {
@@ -121,11 +123,11 @@ describe('F-2：activate 的規則版本由 server 決定（沿用 active 版本
   // 第二次啟用同一份名單（另一個 idempotency key、revision 已遞增）：
   // 同內容的名單只會存成一批（saveImportBatch 判重），所以「再次啟用」就是用同一個 importId。
 
-  it('沒有 active run → 現行正式預設 erp-tag-v2', async () => {
+  it('沒有 active run → 目標版本 erp-tag-v3（Q11：空 DB 直接預設新規則）', async () => {
     const db = ctx.db();
     await saveFixtureBatch(db, 'imp_a');
     const r = activateBatch(db, 'imp_a', 'k1');
-    expect(ruleSetOfRun(db, r.runId)).toBe('erp-tag-v2');
+    expect(ruleSetOfRun(db, r.runId)).toBe('erp-tag-v3');
   });
 
   it('active run 為 erp-tag-v1 → 新啟用的 run 沿用 erp-tag-v1（D1 前會靜默變成 v2）', async () => {
@@ -140,20 +142,22 @@ describe('F-2：activate 的規則版本由 server 決定（沿用 active 版本
     expect(ruleSetOfRun(db, first.runId)).toBe('erp-tag-v1');
   });
 
-  it('active run 為 erp-tag-v2 → 沿用 v2（特徵化）', async () => {
+  it('active run 為 erp-tag-v2 → 沿用 v2（既有 v2 DB 不因 Q11 目標版本改為 v3 而被靜默升級）', async () => {
     const db = ctx.db();
     await saveFixtureBatch(db, 'imp_a');
-    activateBatch(db, 'imp_a', 'k1');
+    const first = activateBatch(db, 'imp_a', 'k1');
+    // 既有 v2 DB 的狀態：active run 為 v2
+    setRunRuleSet(db, first.runId, 'erp-tag-v2');
     const second = activateBatch(db, 'imp_a', 'k2');
     expect(ruleSetOfRun(db, second.runId)).toBe('erp-tag-v2');
   });
 
-  it('active run 為診斷軌 compat → 改採現行正式軌 erp-tag-v2（診斷軌不作正式值）', async () => {
+  it('active run 為診斷軌 compat → 改採目標版本 erp-tag-v3（診斷軌不作正式值；Q11 空 DB 預設）', async () => {
     const db = ctx.db();
     await saveFixtureBatch(db, 'imp_a');
     const first = activateBatch(db, 'imp_a', 'k1');
     setRunRuleSet(db, first.runId, 'excel-v260922-compat');
     const second = activateBatch(db, 'imp_a', 'k2');
-    expect(ruleSetOfRun(db, second.runId)).toBe('erp-tag-v2');
+    expect(ruleSetOfRun(db, second.runId)).toBe('erp-tag-v3');
   });
 });

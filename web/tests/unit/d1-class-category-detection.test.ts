@@ -113,9 +113,12 @@ describe('class-category 純函式架構約束', () => {
       if (file === own) continue;
       if (/classification\/class-category/.test(fs.readFileSync(file, 'utf-8'))) importers.push(path.relative(SRC, file));
     }
-    // R2-4: 接線後的精確 importers 斷言，防止無授權依賴漫延
+    // R2-4: 接線後的精確 importers 斷言，防止無授權依賴漫延；D2b 新增課表 UI 兩檔
+    // D2b：課表 UI 也讀取此模組（顯示自動偵測的類別與固定 5 天），故 importers 為下列五檔
     expect(importers.sort()).toEqual([
       'application/calculate-run.ts',
+      'components/settings-editor.tsx',
+      'components/settings/class-attributes-panel.tsx',
       'domain/billing/billing-calculator.ts',
       'domain/billing/discount-rules.ts',
     ].sort());

@@ -1,7 +1,7 @@
 import Database from 'better-sqlite3';
 import {
-  CURRENT_FORMAL_RULE_SET_VERSION,
   FormalRuleSetVersion,
+  TARGET_FORMAL_RULE_SET_VERSION,
   isFormalRuleSetVersion,
 } from '@/domain/billing/rule-set';
 
@@ -20,7 +20,10 @@ export class RuleSetResolutionError extends Error {
 
 /**
  * 正式軌 ruleSetVersion（09 §8.1）：有 active run 且其版本為正式軌則採其值；
- * 否則（無 active run，或 active run 為診斷軌 compat）採現行正式軌 erp-tag-v2。
+ * 否則（無 active run，或 active run 為診斷軌 compat）採現行預設版本 TARGET_FORMAL_RULE_SET_VERSION。
+ *
+ * D2b（Q11）：空 DB 直接預設 erp-tag-v3（解析器層即可回傳目標版本）；
+ * 既有 v2 DB 走 activate／apply 沿用其 active run 的 v2，直到使用者明確確認升級。
  */
 export function resolveFormalRuleSetVersion(db: Database.Database): FormalRuleSetVersion {
   const active = db.prepare('SELECT active_run_id FROM active_state WHERE id = 1').get() as
@@ -34,7 +37,24 @@ export function resolveFormalRuleSetVersion(db: Database.Database): FormalRuleSe
       return run.rule_set_version;
     }
   }
-  return CURRENT_FORMAL_RULE_SET_VERSION;
+  return TARGET_FORMAL_RULE_SET_VERSION;
+}
+
+/**
+ * 目標規則版本（Q11／S manifest §2.3）：
+ *  - `requested` 明確指定 → 必須是正式軌版本，否則拋錯（不猜、不靜默降級）；
+ *  - 未指定（undefined／null）→ 沿用現行正式軌版本，既有 v2 DB 因此不動、空 DB 得 v3。
+ *
+ * 這個值記錄在 preview 列（target_rule_set_version），apply 只讀它建 run；
+ * 因此「使用者在預覽看到的版本」與「實際套用產生的 run 版本」必然一致（D1 F-3 契約延伸）。
+ */
+export function resolveTargetRuleSetVersion(
+  db: Database.Database,
+  requested?: string | null
+): FormalRuleSetVersion {
+  if (requested === null || requested === undefined) return resolveFormalRuleSetVersion(db);
+  if (isFormalRuleSetVersion(requested)) return requested;
+  throw new RuleSetResolutionError(`目標規則版本「${requested}」不是正式軌版本`);
 }
 
 /**

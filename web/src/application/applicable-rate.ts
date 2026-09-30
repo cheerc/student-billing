@@ -30,9 +30,34 @@ export interface ApplicableRateFields {
 /** 未配置與 null 分開：未配置＝這個班沒有設定適用折扣；null＝已配置但這位學生無法判定／不適用。 */
 export type ApplicableRate = { status: 'not_configured' } | { status: 'configured'; bps: number | null };
 
+/** run 的類別快照單列（v3；run_class_categories 的欄位形狀）。 */
+export interface RunClassCategorySnapshot {
+  base_name: string;
+  category: string;
+  fixed_five_days: number;
+}
+
+/**
+ * v3 run 的類別快照查詢來源。
+ * 以介面注入而非直接吃 db，讓同一份判定邏輯可同時供 server（adapters）與
+ * client component（畫面以 server 傳下的快照陣列查詢）使用，不把 db 帶進瀏覽器。
+ */
 export interface ApplicableRateContext {
-  db?: any;
-  runId?: string;
+  /** 該 run 是否為 v3（v1／v2 走名稱映射，不讀快照） */
+  isV3Run: boolean;
+  /** 以**名冊班名**查快照（快照的 base_name 存的就是名冊班名，secondary N-8 對齊） */
+  findSnapshot: (rosterClassName: string) => RunClassCategorySnapshot | undefined;
+}
+
+/** 由 run_class_categories 查出該 run 的全部快照（server 端；缺表列回空陣列＝無法判定）。 */
+export function loadRunClassCategories(db: any, runId: string): RunClassCategorySnapshot[] {
+  try {
+    return db
+      .prepare('SELECT base_name, category, fixed_five_days FROM run_class_categories WHERE run_id = ?')
+      .all(runId) as RunClassCategorySnapshot[];
+  } catch {
+    return [];
+  }
 }
 
 export function applicableRateForClass(
@@ -40,29 +65,24 @@ export function applicableRateForClass(
   s: ApplicableRateFields,
   context?: ApplicableRateContext
 ): ApplicableRate {
-  if (context?.db && context?.runId) {
-    const run = context.db.prepare('SELECT rule_set_version FROM calculation_runs WHERE id = ?').get(context.runId) as { rule_set_version: string } | undefined;
-    if (run?.rule_set_version === 'erp-tag-v3') {
-      const row = context.db.prepare('SELECT category, fixed_five_days FROM run_class_categories WHERE run_id = ? AND base_name = ?').get(context.runId, className) as {
-        category: string;
-        fixed_five_days: number;
-      } | undefined;
-      if (!row) {
-        return { status: 'not_configured' };
-      }
-      if (row.fixed_five_days === 1) {
-        // Q7-A: 不列入但固定 5 天的班本班適用折扣顯示 100% 而非「未設定」
-        return { status: 'configured', bps: 10000 };
-      }
-      if (row.category === 'math') return { status: 'configured', bps: s.applicableMathBps };
-      if (row.category === 'english') return { status: 'configured', bps: s.applicableEnglishBps };
-      if (row.category === 'care') {
-        if (s.grade === 1 || s.grade === 2) return { status: 'configured', bps: s.applicableAnqinBps };
-        if (s.grade !== null && s.grade >= 3 && s.grade <= 6) return { status: 'configured', bps: s.applicableTutoringBps };
-        return { status: 'configured', bps: null };
-      }
+  if (context?.isV3Run) {
+    const row = context.findSnapshot(className);
+    if (!row) {
+      // v3 run 缺該班快照 → 無法判定，嚴禁以當前班名猜測（03 §5.3.4）
       return { status: 'not_configured' };
     }
+    if (row.fixed_five_days === 1) {
+      // Q7-A: 不列入但固定 5 天的班本班適用折扣顯示 100% 而非「未設定」
+      return { status: 'configured', bps: 10000 };
+    }
+    if (row.category === 'math') return { status: 'configured', bps: s.applicableMathBps };
+    if (row.category === 'english') return { status: 'configured', bps: s.applicableEnglishBps };
+    if (row.category === 'care') {
+      if (s.grade === 1 || s.grade === 2) return { status: 'configured', bps: s.applicableAnqinBps };
+      if (s.grade !== null && s.grade >= 3 && s.grade <= 6) return { status: 'configured', bps: s.applicableTutoringBps };
+      return { status: 'configured', bps: null };
+    }
+    return { status: 'not_configured' };
   }
 
   const category = rateCategoryOfClass(className);

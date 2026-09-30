@@ -3,7 +3,7 @@ import Database from 'better-sqlite3';
 import { runMigrations } from '@/adapters/sqlite/migrator';
 import { saveImportBatch } from '@/adapters/sqlite/import-repository';
 import { executeCalculationRun } from '@/application/calculate-run';
-import { applicableRateForClass } from '@/application/applicable-rate';
+import { applicableRateForClass, loadRunClassCategories } from '@/application/applicable-rate';
 import { saveCalculationRun } from '@/adapters/sqlite/runs-repository';
 import { buildSeedDraft, saveSettingsVersion } from '@/adapters/sqlite/settings-repository';
 
@@ -86,6 +86,12 @@ describe('D2b N-6: run_class_categories 快照持久化與讀模型（完整生�
     db.close();
   });
 
+  /** 以**名冊班名**查該 run 的類別快照（與 UI 的查詢 key 同源；secondary N-8 對齊）。 */
+  function snapshotLookup(d: Database.Database, runId: string) {
+    const rows = loadRunClassCategories(d, runId);
+    return (name: string) => rows.find((r) => r.base_name === name);
+  }
+
   /** 走真實生產呼叫鏈：executeCalculationRun → saveCalculationRun。 */
   function runV3(runId: string) {
     const res = executeCalculationRun(db, 'imp_test', runId, {
@@ -152,10 +158,9 @@ describe('D2b N-6: run_class_categories 快照持久化與讀模型（完整生�
         applicableMathBps: 8888,
         applicableEnglishBps: 8888,
       },
-      { db, runId: 'run_v3_rate' }
+      { isV3Run: true, findSnapshot: snapshotLookup(db, 'run_v3_rate') }
     );
-    expect(hw.status).toBe('configured');
-    expect(hw.bps).toBe(10000);
+    expect(hw).toEqual({ status: 'configured', bps: 10000 });
 
     // 對照組：同樣的類別欄位（care），非固定 5 天 → 依年級取課輔側 8888，證明兩條分支確實不同
     const care = applicableRateForClass(
@@ -167,10 +172,9 @@ describe('D2b N-6: run_class_categories 快照持久化與讀模型（完整生�
         applicableMathBps: 8888,
         applicableEnglishBps: 8888,
       },
-      { db, runId: 'run_v3_rate' }
+      { isV3Run: true, findSnapshot: snapshotLookup(db, 'run_v3_rate') }
     );
-    expect(care.status).toBe('configured');
-    expect(care.bps).toBe(8888);
+    expect(care).toEqual({ status: 'configured', bps: 8888 });
   });
 
   it('讀模型 (N-6): v3 run 缺該班快照時回 not_configured，不以當前班名猜測', () => {
@@ -185,7 +189,7 @@ describe('D2b N-6: run_class_categories 快照持久化與讀模型（完整生�
         applicableMathBps: 8888,
         applicableEnglishBps: 8888,
       },
-      { db, runId: 'run_v3_missing' }
+      { isV3Run: true, findSnapshot: snapshotLookup(db, 'run_v3_missing') }
     );
     // 國小數學-四A 是 seed 班級但本名單沒人報名，快照無此列 → not_configured（不是 8888 的猜測）
     expect(r.status).toBe('not_configured');

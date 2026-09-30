@@ -3,6 +3,7 @@
 import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import {
   SettingsDraft,
+  ClassSetting,
   ScheduleGridRow,
   classesToGridRows,
   gridRowsToClasses,
@@ -13,6 +14,7 @@ import {
   detectSplitClasses,
   SettingsBaseline,
   isSettingsDirty,
+  type ClassAttributeSetting,
 } from '@/contracts/settings';
 import { DynamicCandidate } from '@/domain/schedules/seed-manifest';
 import { CalculatePreviewResponse } from '@/application/schedule-preview';
@@ -22,6 +24,19 @@ import { ScheduleGrid } from '@/components/settings/schedule-grid';
 import { ImpactDialog, SettingsPreviewData } from '@/components/settings/impact-dialog';
 import { LeaveConfirmDialog } from '@/components/settings/leave-confirm-dialog';
 import { MappingPanel } from '@/components/settings/mapping-panel';
+import { ClassAttributesPanel } from '@/components/settings/class-attributes-panel';
+import {
+  attributesFromDraftClasses,
+  attributesFromBaselineClasses,
+  carryAttributesOnRename,
+  detectClassLifecycle,
+  detectMergeConflicts,
+  resolveClassAttributes,
+  toSavedClassAttributes,
+  CATEGORY_LABELS,
+  type ClassAttributesView,
+} from '@/domain/classification/class-attributes';
+import type { ClassCategory } from '@/domain/classification/class-category';
 import { TabList, tabPanelProps } from '@/components/ui/tabs';
 import { useUnsavedChangesGuard } from '@/components/ui/use-unsaved-changes-guard';
 import { formatDateTime } from '@/lib/datetime';
@@ -51,10 +66,68 @@ interface SettingsEditorProps {
   initialTab?: 'schedule' | 'mapping';
   /** 「編輯此班課表」帶入的班級（班名）：課表頁定位並列出該班全部時段（F04） */
   focusClass?: string | null;
+  /**
+   * D2b 4（Q11）：現行 run 的規則版本。v2 時顯示「改用新規則」升級動作（明確確認，不靜默切換）。
+   * null＝尚無啟用的 run（空 DB，該 run 建立時即為目標版本 v3，無需升級動作）。
+   */
+  currentRuleSetVersion?: string | null;
 }
 
 /** 計算失敗時的說明（不外露狀態碼或工程字）；ScheduleGrid 會補上「不代表沒有衝堂」。 */
 const CALCULATE_FAILED_MESSAGE = '無法計算重疊與扣除天數，請稍後再試。';
+
+/** 有效屬性 → isSettingsDirty 的 ClassAttributeSetting 形狀（className 為 key）。 */
+function toClassAttributeSetting(a: ClassAttributesView & { className?: string }): ClassAttributeSetting {
+  return {
+    className: a.className ?? '',
+    category: a.category,
+    categorySource: a.categorySource,
+    fixedFiveDays: a.fixedFiveDays,
+    fixedSource: a.fixedSource,
+  };
+}
+
+/**
+ * 把手動覆寫寫進 draft 的班級（存檔／預覽都用它）。
+ * 只寫 manual 的欄位：未手動者不寫四個欄位，讀取時即自動偵測（改班名會重新偵測）。
+ */
+function applyManualAttrsToClasses<T extends { baseName: string }>(
+  classes: Array<T & Record<string, unknown>>,
+  manualAttrs: Map<string, ClassAttributesView>
+): Array<T & Record<string, unknown>> {
+  return classes.map((c) => {
+    const m = manualAttrs.get(c.baseName);
+    if (!m) return c;
+    return {
+      ...c,
+      category: m.category,
+      categorySource: m.categorySource,
+      fixedFiveDays: m.fixedFiveDays,
+      fixedSource: m.fixedSource,
+    };
+  });
+}
+
+/** 兩份「班名 → 手動屬性」是否逐欄不同（dirty 的一部分）。 */
+function mapsDiffer(
+  a: Map<string, ClassAttributesView>,
+  b: Map<string, ClassAttributesView>
+): boolean {
+  if (a.size !== b.size) return true;
+  for (const [k, av] of a) {
+    const bv = b.get(k);
+    if (!bv) return true;
+    if (
+      av.category !== bv.category ||
+      av.categorySource !== bv.categorySource ||
+      av.fixedFiveDays !== bv.fixedFiveDays ||
+      av.fixedSource !== bv.fixedSource
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
 
 export default function SettingsEditor({
   importId,
@@ -70,6 +143,7 @@ export default function SettingsEditor({
   hasActiveImport = false,
   initialTab = 'schedule',
   focusClass = null,
+  currentRuleSetVersion = null,
 }: SettingsEditorProps) {
   const [activeTab, setActiveTab] = useState<'schedule' | 'mapping'>(initialTab);
   const [draft, setDraft] = useState<SettingsDraft>(initialDraft);
@@ -83,15 +157,35 @@ export default function SettingsEditor({
 
   const [rows, setRows] = useState<ScheduleGridRow[]>(initialRows);
 
+  /**
+   * D2b 1／2：手動覆寫的班級屬性（類別／固定 5 天）以「班名 → 四個欄位」存放。
+   * 未列在此 map 的班＝未手動＝依班名自動偵測（缺欄位即 auto，03 §5.2 版本界線規則第 2 點），
+   * 因此改班名時未手動者會即時重新偵測，手動者則不變（D37 1a）。
+   */
+  const [manualAttrs, setManualAttrs] = useState<Map<string, ClassAttributesView>>(() => {
+    const map = new Map<string, ClassAttributesView>();
+    for (const c of initialDraft.classes) {
+      if (c.categorySource === 'manual' || c.fixedSource === 'manual') {
+        map.set(c.baseName, resolveClassAttributes(c.baseName, c));
+      }
+    }
+    return map;
+  });
+
   // D31: 基準狀態與未儲存 (dirty) 追蹤
   const [baseline, setBaseline] = useState<SettingsBaseline>(() => ({
     rows: initialRows,
     aliases: initialDraft.aliases,
   }));
-
-  const isDirty = useMemo(() => {
-    return isSettingsDirty(baseline, rows, draft.aliases);
-  }, [baseline, rows, draft.aliases]);
+  const [baselineManualAttrs, setBaselineManualAttrs] = useState<Map<string, ClassAttributesView>>(() => {
+    const map = new Map<string, ClassAttributesView>();
+    for (const c of initialDraft.classes) {
+      if (c.categorySource === 'manual' || c.fixedSource === 'manual') {
+        map.set(c.baseName, resolveClassAttributes(c.baseName, c));
+      }
+    }
+    return map;
+  });
 
   // 即時計算狀態
   const [calculateResult, setCalculateResult] = useState<CalculatePreviewResponse | null>(null);
@@ -102,6 +196,11 @@ export default function SettingsEditor({
   const [calculating, setCalculating] = useState(false);
   const reqSeqRef = useRef(0);
   const latestReqKeyRef = useRef<string>('');
+
+  // D2b 4（Q11）：是否已明確確認要改用新規則（v3）。未確認時一切照現行版本走，既有 v2 DB 不動。
+  const [upgradeConfirmed, setUpgradeConfirmed] = useState(false);
+  const canUpgrade = currentRuleSetVersion === 'erp-tag-v2';
+  const isUpgrading = canUpgrade && upgradeConfirmed;
 
   // 儲存確認視窗狀態
   const [isImpactDialogOpen, setIsImpactDialogOpen] = useState(false);
@@ -143,6 +242,124 @@ export default function SettingsEditor({
   const splitWarnings = useMemo(() => {
     return detectSplitClasses(baseline.rows, rows);
   }, [baseline.rows, rows]);
+
+
+  /**
+   * D2b 5（Q9）：以 rowId 追蹤班名變化，分辨整班改名／拆班／同名合併／新班。
+   * 整班改名時手動值跟著走（D37：手動後改名不再重偵測）；同名合併且設定不同時阻擋儲存。
+   */
+  const classLifecycle = useMemo(() => {
+    return detectClassLifecycle(baseline.rows, rows);
+  }, [baseline.rows, rows]);
+
+
+
+  /**
+   * 合併衝突的判定必須用各來源班的**有效**屬性（手動值優先，未手動者依 baseline 班名自動偵測），
+   * 只拿「手動值」會讓兩班中有一班未手動時被誤判為不衝突。
+   */
+  const mergeConflicts = useMemo(() => {
+    if (classLifecycle.merges.length === 0) return [];
+    const effective = new Map<string, ClassAttributesView>();
+    for (const c of classLifecycle.merges) {
+      for (const source of c.sources) {
+        effective.set(source, baselineManualAttrs.get(source) ?? resolveClassAttributes(source));
+      }
+    }
+    return detectMergeConflicts(classLifecycle.merges, effective);
+  }, [classLifecycle, baselineManualAttrs]);
+
+  /**
+   * 整班改名帶走手動值（D37：手動後改名不再重偵測，所以 manual 必須跟著走）。
+   *
+   * 直接在「計算出的生命週期」上做純轉換（`manualAttrs` 本身就是 state，因此是純函式，
+   * 可安全地放進 useMemo）：每次 rows 變動都從 `manualAttrs` 重算目標名的值，
+   * 不依賴任何「已處理過」的紀錄，因此中途插入其他編輯（再次手動指定）也不會漏掉或重複搬移。
+   */
+  const manualAttrsAfterRename = useMemo(() => {
+    const renames = classLifecycle.renames;
+    if (renames.length === 0) return manualAttrs;
+    return carryAttributesOnRename(renames, manualAttrs, baselineManualAttrs);
+  }, [classLifecycle, manualAttrs, baselineManualAttrs]);
+
+  // 顯示與寫入都用「改名後」的手動值
+  const effectiveManualAttrs = manualAttrsAfterRename;
+
+  /**
+   * 只有「手動覆寫」需要獨立計入 dirty：未手動的類別與固定 5 天是由班名推導，
+   * 班名本身已由 rows／baseline 的逐列比對涵蓋，若把自動值也帶進去，
+   * 會讓「沒有任何覆寫」的空 baseline 與整份班級清單永遠長度不同 → 永遠 dirty。
+   */
+  const manualAttrSettings = useMemo(
+    () =>
+      [...effectiveManualAttrs.entries()].map(([className, a]) => toClassAttributeSetting({ ...a, className })),
+    [effectiveManualAttrs]
+  );
+
+  const isDirty = useMemo(() => {
+    return (
+      isSettingsDirty(
+        { ...baseline, classAttrs: [...baselineManualAttrs.entries()].map(([className, a]) => toClassAttributeSetting({ ...a, className })) },
+        rows,
+        draft.aliases,
+        manualAttrSettings
+      ) || mapsDiffer(baselineManualAttrs, effectiveManualAttrs)
+    );
+  }, [baseline, baselineManualAttrs, rows, draft.aliases, manualAttrSettings, effectiveManualAttrs]);
+
+  /**
+   * 課表每個班級目前有效的類別／固定 5 天（手動值優先，未手動者依**目前**班名自動偵測）。
+   * 這是 UI 顯示、影響預覽與儲存共用的單一來源。
+   */
+  const currentAttrs: Map<string, ClassAttributesView> = useMemo(() => {
+    const names = new Set<string>();
+    for (const r of rows) {
+      const n = r.className.trim();
+      if (n) names.add(n);
+    }
+    // 手動值帶過來；其餘依目前班名自動偵測
+    const out = new Map<string, ClassAttributesView>();
+    for (const n of names) {
+      out.set(n, effectiveManualAttrs.get(n) ?? resolveClassAttributes(n));
+    }
+    return out;
+  }, [rows, effectiveManualAttrs]);
+
+
+  // D2b 2：手動選類別 → manual；恢復自動 → 依目前班名重新偵測並標回 auto
+  const handleSelectCategory = (className: string, category: ClassCategory) => {
+    setManualAttrs((prev) => {
+      const next = new Map(prev);
+      const base = next.get(className) ?? resolveClassAttributes(className);
+      next.set(className, { ...base, category, categorySource: 'manual' });
+      return next;
+    });
+    setPreview(null);
+  };
+
+  const handleToggleFixedFiveDays = (className: string, fixed: boolean) => {
+    setManualAttrs((prev) => {
+      const next = new Map(prev);
+      const base = next.get(className) ?? resolveClassAttributes(className);
+      next.set(className, { ...base, fixedFiveDays: fixed, fixedSource: 'manual' });
+      return next;
+    });
+    setPreview(null);
+  };
+
+  const handleRestoreAuto = (className: string) => {
+    setManualAttrs((prev) => {
+      const next = new Map(prev);
+      next.delete(className);
+      return next;
+    });
+    setPreview(null);
+  };
+
+  /** 類別面板只列使用者此刻看得見的班（跟著課表搜尋／星期篩選一致）。 */
+  const visibleClassNames = useMemo(() => {
+    return [...new Set(rows.map((r) => r.className.trim()).filter(Boolean))];
+  }, [rows]);
 
   // 當前有效班級名稱集合
   const currentActiveBaseNames = useMemo(() => {
@@ -193,7 +410,10 @@ export default function SettingsEditor({
 
       setCalculating(true);
       try {
-        const calcClasses = gridRowsToCalculateClasses(rows, draft.classes);
+        const calcClasses = applyManualAttrsToClasses(
+          gridRowsToCalculateClasses(rows, draft.classes),
+          effectiveManualAttrs
+        );
         const calcDraft = {
           ...draft,
           classes: calcClasses,
@@ -228,7 +448,7 @@ export default function SettingsEditor({
     }, 250);
 
     return () => clearTimeout(timer);
-  }, [rows, draft]);
+  }, [rows, draft, effectiveManualAttrs]);
 
   // 更新時段列
   const handleUpdateRow = (rowId: string, updates: Partial<ScheduleGridRow>) => {
@@ -272,6 +492,7 @@ export default function SettingsEditor({
   const resetDraft = () => {
     setRows(baseline.rows);
     setDraft((prev) => ({ ...prev, aliases: baseline.aliases }));
+    setManualAttrs(new Map(baselineManualAttrs));
     setPreview(null);
   };
 
@@ -292,7 +513,10 @@ export default function SettingsEditor({
     setPreview(null);
 
     try {
-      const currentClasses = gridRowsToClasses(rows, draft.classes);
+      const currentClasses = applyManualAttrsToClasses(
+        gridRowsToClasses(rows, draft.classes) as Array<ClassSetting & Record<string, unknown>>,
+        effectiveManualAttrs
+      ) as ClassSetting[];
       const updatedDraft: SettingsDraft = {
         ...draft,
         classes: currentClasses,
@@ -303,6 +527,8 @@ export default function SettingsEditor({
         draft: updatedDraft,
         expectedRevision: revision,
       };
+      // 升級流程（Q11）：只有使用者明確勾選「改用新規則」才帶目標版本；否則沿用現行版本（v2 DB 不動）
+      if (isUpgrading) payload.targetRuleSetVersion = 'erp-tag-v3';
       if (hasActiveImport && importId) {
         payload.importId = importId;
       }
@@ -356,6 +582,9 @@ export default function SettingsEditor({
         rows: [...rows],
         aliases: [...draft.aliases],
       });
+      // 儲存成功後，已套用的手動值成為新的 baseline（此後離開與取消修改都回到這組值）
+      setManualAttrs(new Map(manualAttrs));
+      setBaselineManualAttrs(new Map(manualAttrs));
       if (typeof json?.revision === 'number') setRevision(json.revision);
       if (typeof json?.appliedAt === 'string') setSavedAt(json.appliedAt);
       setIsImpactDialogOpen(false);
@@ -428,6 +657,44 @@ export default function SettingsEditor({
           {/* 唯讀照顧窗口摘要 */}
           <WindowSummary />
 
+          {/* D2b 4（Q11）：首次改用新規則的明確確認——不靜默切換 */}
+          {canUpgrade && (
+            <div
+              className={isUpgrading ? 'notice-inline' : 'notice-warn'}
+              role="status"
+              data-upgrade-banner=""
+              style={{ marginBottom: '16px' }}
+            >
+              <label style={{ display: 'flex', gap: '8px', alignItems: 'flex-start' }}>
+                <input
+                  type="checkbox"
+                  checked={upgradeConfirmed}
+                  data-upgrade-confirm=""
+                  aria-label="改用新規則（erp-tag-v3）"
+                  onChange={(e) => {
+                    setUpgradeConfirmed(e.target.checked);
+                    setPreview(null);
+                  }}
+                />
+                <span>
+                  <strong>改用新規則（v3）</strong>：勾選後，本次確認變更會改用新的計算規則重新計算全部學生
+                  （折扣類別、天數下限與重複報名的判定方式不同），並產生新的核對結果。
+                  <br />
+                  未勾選時維持現行規則，既有結果不受影響；已產生的舊結果不會被改寫。
+                </span>
+              </label>
+            </div>
+          )}
+
+          {/* D2b 2（D37 1a）：折扣類別與固定 5 天（自動偵測＋可手動覆寫／恢復自動） */}
+          <ClassAttributesPanel
+            attributes={currentAttrs}
+            visibleClassNames={visibleClassNames}
+            onSelectCategory={handleSelectCategory}
+            onToggleFixedFiveDays={handleToggleFixedFiveDays}
+            onRestoreAuto={handleRestoreAuto}
+          />
+
           {/* 89 筆平鋪時段表格 */}
           <ScheduleGrid
             rows={rows}
@@ -460,6 +727,24 @@ export default function SettingsEditor({
         </section>
       )}
 
+      {/* D2b 5（Q9）：同名合併且設定不同 → 要求先選擇，不可靜默取其一 */}
+      {mergeConflicts.length > 0 && (
+        <div className="alert alert-danger" role="alert" data-merge-conflict="" style={{ marginBottom: '12px' }}>
+          <strong>無法儲存：班級合併設定衝突</strong>
+          <ul style={{ margin: '6px 0 0 18px' }}>
+            {mergeConflicts.map((c) => (
+              <li key={c.mergedName}>
+                「{c.mergedName}」由 {c.sources.join('、')} 合併而來，各班的類別與固定 5 天設定不同（
+                {c.sourceAttributes
+                  .map((a, i) => `${CATEGORY_LABELS[a.category]}／${a.fixedFiveDays ? '固定 5 天' : '不固定'}`)
+                  .join('、')}
+                ）。請先選擇要保留的設定，或改回不同的班名。
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
       {/* 固定底部操作列 */}
       <div className="savebar">
         <div className="savebar-status">
@@ -488,7 +773,7 @@ export default function SettingsEditor({
           <button
             type="button"
             className="btn-primary"
-            disabled={!isDirty || calculating}
+            disabled={!isDirty || calculating || mergeConflicts.length > 0}
             onClick={handleOpenReview}
           >
             確認變更

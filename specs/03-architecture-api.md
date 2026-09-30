@@ -330,6 +330,51 @@ run 的設定快照＝`run.scheduleVersionId`：`seed-v250922`（該 run 沒有�
   - `shadow(v2)` vs `compat` 天數差 → 標記 `NUMERIC_POLICY_DIFFERENCE`。
   - 新 issue code `RULESET_POLICY_DIFFERENCE` 與 `CLASS_NOT_MAPPED` 登錄於 `KNOWN_ISSUE_CODES` 與 `lib/issue-copy.ts`。
 
+### 5.4 班級類別設定 UI、升級確認與讀模型接線（D2b）
+
+#### 5.4.1 設定草稿的類別／固定 5 天欄位與來源
+- 每班兩項設定各自獨立：`category`（`care`／`math`／`english`／`none`）與 `fixedFiveDays`（布林），各帶 `categorySource`／`fixedSource`（`auto`／`manual`）（D37 1、Q7-A）。
+- **有效值＝已儲存欄位優先，缺值時依班名自動偵測**（`domain/classification/class-attributes` 的 `resolveClassAttributes`）。缺欄位＝未指定＝`auto`，因此：
+  - 舊快照（無新欄位）讀取當下即得到正確的有效值，**不回寫**（03 §5.2 版本界線規則第 2 點）；
+  - 改班名時未手動者即時重新偵測；手動者不變（D37 1a）。
+- 寫回 draft 時**只寫 `manual` 的欄位**（`gridRowsToClasses` 的 `groupGridRowsToClasses`）：未手動者不寫四個欄位，維持「缺欄位＝自動偵測」的語意。
+- 手動值恰等於自動偵測值時仍為 `manual`（來源是使用者意圖，不因值相同而降回 `auto`）。
+
+#### 5.4.2 班級生命週期（Q9；班名＝分組 key）
+以 `rowId` 對 baseline 追蹤（`detectClassLifecycle`，與既有 `detectSplitClasses` 同一資料結構）：
+
+| 情境 | 判定 | 設定繼承 |
+|---|---|---|
+| 整班改名（原班全部列改成同一新名） | `rename` | 手動值帶到新名；`auto` 者依新名重新偵測（`carryAttributesOnRename`） |
+| 拆班（原班的列改成 ≥2 個名） | `split`（沿用 D28 警告） | 原名（若仍有列）保留；新名各自自動偵測 |
+| 同名合併（≥2 個 baseline 班併成 baseline 沒有的新名） | `merge` | 設定相同→沿用；**不同→阻擋儲存**並要求選擇（`detectMergeConflicts`） |
+| 新班 | `new` | 自動偵測 |
+| 停班（`active=false`） | `inactive` | 設定保留；行為同 v2 |
+| alias 指向 | 以**目標系統班**的設定為準 | alias 本身不帶類別（Q13） |
+
+**合併衝突的判定基準是各來源班的「有效屬性」**（手動值優先，未手動者依 baseline 班名自動偵測），不是只看手動值——否則兩班中有一班未手動時會被誤判為不衝突。
+
+#### 5.4.3 影響預覽與 dirty
+- `POST /api/v1/settings/preview` 的 `before`（現行已儲存設定）與 `after`（草稿）**都帶 `classSettings`**，因此類別式科數的變化會進入預覽。
+- 新增兩個明細：`subjectCountDeltas`（已補科數）與 `baseDiscountDeltas`（合計折扣 bps），只列出有變化者。`affectedStudents` 為 `dayDeltas.length + max(科數差異, 折扣差異)`。
+- dirty 只比對**手動覆寫**（`manualAttrs` vs `baselineManualAttrs`）：未手動者由班名推導，班名本身已由 rows／baseline 逐列比對涵蓋；若把自動值也帶進 `isSettingsDirty` 的 `classAttrs`，會讓沒有任何覆寫的空 baseline 與整份班級清單永遠長度不同 → 永遠 dirty。
+- 類別／固定 5 天欄位進 draft JSON，因此 `hashSettingsDraft` 自動涵蓋（值與來源都算，改來源即改 hash），且**不改 `hashSettingsDraft` 契約**（仍是 `sha256(JSON.stringify(draft))`）。
+
+#### 5.4.4 升級確認（Q11；S manifest §2）
+- 空 DB 的目標版本為 `erp-tag-v3`（`TARGET_FORMAL_RULE_SET_VERSION`；`resolveFormalRuleSetVersion` 在無 active run 時採它）。
+- 既有 v2 DB **不動**：`resolveTargetRuleSetVersion(db, requested)` 在未指定時沿用現行正式軌版本，因此既有 v2 資料庫的 preview／apply／activate 都繼續產 v2 run。
+- 升級必須是**明確動作**：課表設定頁在 `currentRuleSetVersion === 'erp-tag-v2'` 時顯示「改用新規則（v3）」勾選；勾選後 preview payload 帶 `targetRuleSetVersion: 'erp-tag-v3'`。
+- `SettingsPreviewRequestSchema.targetRuleSetVersion` 以 `z.enum(FORMAL_RULE_SET_VERSION_LIST)` 驗證：非正式軌值（診斷軌、未知字串）一律 400，不猜、不靜默降級。
+- preview 記錄的 `target_rule_set_version` 仍是 apply 唯一採用的來源（D1 F-3）：新 run 的版本＝preview 的目標版本，舊 run 的值與分類不變；失敗不切 active（整段在 `db.transaction`），冪等鍵先於 CAS。
+
+#### 5.4.5 讀模型接線（N-8 對齊）
+- `applicableRateForClass` 的 v3 分支改以**注入的快照查詢**（`{ isV3Run, findSnapshot }`）取得類別，不再直接吃 `db`：
+  - server 端以 `loadRunClassCategories(db, runId)` 一次取出該 run 的快照；
+  - client component（學生總表）由 server 以 prop 傳下，**不把 db 帶進瀏覽器**。
+- **查詢 key 必須是名冊班名**：快照的 `base_name` 存的就是名冊班名（`executeCalculationRun` 以 `r.base_name` 寫入），畫面 `singleClass` 亦來自名冊報名 key（`exactlyOneClass` → `unescapeWire`），兩者同源。此對齊是隱含契約，由 UI 測試鎖定。
+- v1／v2 run 沒有快照 → 不帶 `isV3Run`，沿用名稱映射（既有行為不變）。
+- v3 run 缺該班快照 → `not_configured`（無法判定），不以當前班名猜測。
+
 ## 6. Agent 使用邊界
 
 未来 agent 流程：取得 current run → 列班級 → 使用 classId／personCode 查固定 run → 按科別或折扣閱讀結果與 trace → 另外解讀使用者提供的財務報表 → 列人工確認項目。
