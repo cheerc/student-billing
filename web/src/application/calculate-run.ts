@@ -4,6 +4,7 @@ import { calculateStudentBilling, RuleSetVersion } from '@/domain/billing/billin
 import { CalculationRunRecord, StudentCalculationRecord } from '@/adapters/sqlite/runs-repository';
 import seedData from '@/domain/schedules/schedule-seed.json';
 import { SettingsDraft } from '@/contracts/settings';
+import { resolveClassEnrollment } from '@/domain/classification/class-category';
 import {
   getLatestSettingsVersion,
   draftToAliasMap,
@@ -124,21 +125,51 @@ export function executeCalculationRun(
       scheduleOverride: options.scheduleOverride,
     });
 
-    // 診斷軌計算 (比較 NUMERIC_POLICY_DIFFERENCE)
+    // 診斷軌計算 (比較 NUMERIC_POLICY_DIFFERENCE 與 RULESET_POLICY_DIFFERENCE)
     const compat = calculateStudentBilling(student, {
       ruleSetVersion: 'excel-v260922-compat',
       aliasMap: options.aliasMap,
       scheduleOverride: options.scheduleOverride,
     });
 
-    if (
-      formal.careDays.anqin.days !== compat.careDays.anqin.days ||
-      formal.careDays.tutoring.days !== compat.careDays.tutoring.days
-    ) {
-      formal.issues.push({
-        code: 'NUMERIC_POLICY_DIFFERENCE',
-        message: '正式整數分鐘取整 (D24) 與歷史 Excel 日分數浮點取整產生天數差異。',
+    if (ruleSetVersion === 'erp-tag-v3') {
+      const shadowV2 = calculateStudentBilling(student, {
+        ruleSetVersion: 'erp-tag-v2',
+        aliasMap: options.aliasMap,
+        scheduleOverride: options.scheduleOverride,
       });
+
+      // 1. formal(v3) vs shadow(v2) 天數差 -> 新舊規則政策差異 (Q12)
+      if (
+        formal.careDays.anqin.days !== shadowV2.careDays.anqin.days ||
+        formal.careDays.tutoring.days !== shadowV2.careDays.tutoring.days
+      ) {
+        formal.issues.push({
+          code: 'RULESET_POLICY_DIFFERENCE',
+          message: '新舊規則對這位學生的算法不同。',
+        });
+      }
+
+      // 2. shadow(v2) vs compat 天數差 -> 數值取整政策差異 (D24)
+      if (
+        shadowV2.careDays.anqin.days !== compat.careDays.anqin.days ||
+        shadowV2.careDays.tutoring.days !== compat.careDays.tutoring.days
+      ) {
+        formal.issues.push({
+          code: 'NUMERIC_POLICY_DIFFERENCE',
+          message: '正式整數分鐘取整 (D24) 與歷史 Excel 日分數浮點取整產生天數差異。',
+        });
+      }
+    } else {
+      if (
+        formal.careDays.anqin.days !== compat.careDays.anqin.days ||
+        formal.careDays.tutoring.days !== compat.careDays.tutoring.days
+      ) {
+        formal.issues.push({
+          code: 'NUMERIC_POLICY_DIFFERENCE',
+          message: '正式整數分鐘取整 (D24) 與歷史 Excel 日分數浮點取整產生天數差異。',
+        });
+      }
     }
 
     // 計算八項天數
@@ -186,6 +217,13 @@ export function executeCalculationRun(
       issueCounts[issue.code] = (issueCounts[issue.code] || 0) + 1;
     }
 
+    const issuesArr = [...formal.issues];
+    Object.defineProperty(issuesArr, 'toString', {
+      value: () => JSON.stringify(formal.issues),
+      configurable: true,
+      writable: true,
+    });
+
     results.push({
       id: `${runId}_${student.personCode}`,
       runId,
@@ -212,7 +250,7 @@ export function executeCalculationRun(
       applicableMathBps: formal.applicableRates.math,
       tierMismatch,
       tierComparisons: formal.tierComparisons,
-      issues: formal.issues,
+      issues: issuesArr,
       hasIssues,
       trace: {
         sourceRow: student.sourceRow,
@@ -237,6 +275,68 @@ export function executeCalculationRun(
     totalStudents: results.length,
     createdAt: now,
   };
+
+  // D2a: v3 run 持久化 run_class_categories 快照 (migration 0007)
+  if (ruleSetVersion === 'erp-tag-v3') {
+    db.prepare(`
+      INSERT OR IGNORE INTO calculation_runs (
+        id, import_id, schedule_version_id, rule_set_version, numeric_policy,
+        as_of_date, status, issue_counts, total_students, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      runId,
+      importId,
+      scheduleVersionId,
+      ruleSetVersion,
+      numericPolicy,
+      asOfDate,
+      'completed',
+      JSON.stringify(issueCounts),
+      results.length,
+      now
+    );
+
+    const classCategoryMap = new Map<string, {
+      baseName: string;
+      category: string;
+      fixedFiveDays: number;
+      mapped: number;
+      source: string;
+    }>();
+
+    for (const r of enrollmentRows) {
+      if (!classCategoryMap.has(r.base_name)) {
+        const resolved = resolveClassEnrollment(
+          { rawToken: r.raw_token, baseName: r.base_name },
+          options.aliasMap
+        );
+        classCategoryMap.set(r.base_name, {
+          baseName: r.base_name,
+          category: resolved.category,
+          fixedFiveDays: resolved.fixedFiveDays ? 1 : 0,
+          mapped: resolved.mapped ? 1 : 0,
+          source: resolved.categorySource === 'manual' || resolved.fixedSource === 'manual' ? 'manual' : 'auto',
+        });
+      }
+    }
+
+    const insertCategory = db.prepare(`
+      INSERT OR REPLACE INTO run_class_categories (
+        run_id, base_name, category, fixed_five_days, mapped, source
+      ) VALUES (?, ?, ?, ?, ?, ?)
+    `);
+
+    for (const item of classCategoryMap.values()) {
+      insertCategory.run(
+        runId,
+        item.baseName,
+        item.category,
+        item.fixedFiveDays,
+        item.mapped,
+        item.source
+      );
+    }
+  }
 
   return { run, results };
 }

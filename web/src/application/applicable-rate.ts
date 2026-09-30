@@ -30,7 +30,41 @@ export interface ApplicableRateFields {
 /** 未配置與 null 分開：未配置＝這個班沒有設定適用折扣；null＝已配置但這位學生無法判定／不適用。 */
 export type ApplicableRate = { status: 'not_configured' } | { status: 'configured'; bps: number | null };
 
-export function applicableRateForClass(className: string, s: ApplicableRateFields): ApplicableRate {
+export interface ApplicableRateContext {
+  db?: any;
+  runId?: string;
+}
+
+export function applicableRateForClass(
+  className: string,
+  s: ApplicableRateFields,
+  context?: ApplicableRateContext
+): ApplicableRate {
+  if (context?.db && context?.runId) {
+    const run = context.db.prepare('SELECT rule_set_version FROM calculation_runs WHERE id = ?').get(context.runId) as { rule_set_version: string } | undefined;
+    if (run?.rule_set_version === 'erp-tag-v3') {
+      const row = context.db.prepare('SELECT category, fixed_five_days FROM run_class_categories WHERE run_id = ? AND base_name = ?').get(context.runId, className) as {
+        category: string;
+        fixed_five_days: number;
+      } | undefined;
+      if (!row) {
+        return { status: 'not_configured' };
+      }
+      if (row.fixed_five_days === 1) {
+        // Q7-A: 不列入但固定 5 天的班本班適用折扣顯示 100% 而非「未設定」
+        return { status: 'configured', bps: 10000 };
+      }
+      if (row.category === 'math') return { status: 'configured', bps: s.applicableMathBps };
+      if (row.category === 'english') return { status: 'configured', bps: s.applicableEnglishBps };
+      if (row.category === 'care') {
+        if (s.grade === 1 || s.grade === 2) return { status: 'configured', bps: s.applicableAnqinBps };
+        if (s.grade !== null && s.grade >= 3 && s.grade <= 6) return { status: 'configured', bps: s.applicableTutoringBps };
+        return { status: 'configured', bps: null };
+      }
+      return { status: 'not_configured' };
+    }
+  }
+
   const category = rateCategoryOfClass(className);
   if (category === null) return { status: 'not_configured' };
   if (category === 'math') return { status: 'configured', bps: s.applicableMathBps };

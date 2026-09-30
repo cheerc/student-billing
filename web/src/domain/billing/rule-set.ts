@@ -9,11 +9,11 @@
  */
 
 /** 正式軌 ruleSetVersion（診斷軌 excel-v260922-compat 不作正式值，根 CLAUDE.md §2）。 */
-export type FormalRuleSetVersion = 'erp-tag-v1' | 'erp-tag-v2';
+export type FormalRuleSetVersion = 'erp-tag-v1' | 'erp-tag-v2' | 'erp-tag-v3';
 
-export const FORMAL_RULE_SET_VERSIONS: ReadonlySet<string> = new Set<FormalRuleSetVersion>(['erp-tag-v1', 'erp-tag-v2']);
+export const FORMAL_RULE_SET_VERSIONS: ReadonlySet<string> = new Set<FormalRuleSetVersion>(['erp-tag-v1', 'erp-tag-v2', 'erp-tag-v3']);
 
-/** 現行正式軌。 */
+/** 現行正式軌。依 Q11 決策：空 DB 目標 v3，既有 v2 DB 不動。 */
 export const CURRENT_FORMAL_RULE_SET_VERSION: FormalRuleSetVersion = 'erp-tag-v2';
 
 export function isFormalRuleSetVersion(v: unknown): v is FormalRuleSetVersion {
@@ -28,12 +28,27 @@ export interface RuleSetCapabilities {
   unknownWeekdayWarning: boolean;
   /** 含未知星期時，該學生各班級的級距核對狀態標為 schedule_incomplete（needs_review）。 */
   scheduleIncompleteOnUnknownWeekday: boolean;
+  /** D2a: 依類別計算科數 (R03: 類別種數) 與 isEnrolled。 */
+  categoryBasedBilling: boolean;
+  /** D2a: 衝堂扣天取該類別中對學生適用側扣除量最多 (正量比較)。 */
+  maxDeductionSelection: boolean;
+  /** D2a / F-8: 美語缺課表補上需確認警告 (SCHEDULE_NOT_FOUND)。 */
+  missingEnglishScheduleWarning: boolean;
+  /** D2a / Q12: 診斷標籤兩段式分解 (RULESET_POLICY_DIFFERENCE 與 NUMERIC_POLICY_DIFFERENCE)。 */
+  diagnosticsDecomposition: boolean;
+  /** D2a / Q4-b: 未對應班標記 CLASS_NOT_MAPPED (限 care/math/english)。 */
+  unmappedClassWarning: boolean;
 }
 
 const NO_CAPABILITIES: RuleSetCapabilities = {
   sameWeekdayOnly: false,
   unknownWeekdayWarning: false,
   scheduleIncompleteOnUnknownWeekday: false,
+  categoryBasedBilling: false,
+  maxDeductionSelection: false,
+  missingEnglishScheduleWarning: false,
+  diagnosticsDecomposition: false,
+  unmappedClassWarning: false,
 };
 
 /**
@@ -50,6 +65,22 @@ const CAPABILITIES: Readonly<Record<string, RuleSetCapabilities>> = {
     sameWeekdayOnly: true,
     unknownWeekdayWarning: true,
     scheduleIncompleteOnUnknownWeekday: true,
+    categoryBasedBilling: false,
+    maxDeductionSelection: false,
+    missingEnglishScheduleWarning: false,
+    diagnosticsDecomposition: false,
+    unmappedClassWarning: false,
+  },
+  // 正式軌 v3（D2）：同星期比對、類別式科數、扣天取最多、美語缺課表警告、未對應班警告、診斷標籤分解。
+  'erp-tag-v3': {
+    sameWeekdayOnly: true,
+    unknownWeekdayWarning: true,
+    scheduleIncompleteOnUnknownWeekday: true,
+    categoryBasedBilling: true,
+    maxDeductionSelection: true,
+    missingEnglishScheduleWarning: true,
+    diagnosticsDecomposition: true,
+    unmappedClassWarning: true,
   },
 };
 

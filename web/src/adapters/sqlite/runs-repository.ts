@@ -51,7 +51,7 @@ export function saveCalculationRun(
   results: StudentCalculationRecord[]
 ): void {
   const insertRun = db.prepare(`
-    INSERT INTO calculation_runs (
+    INSERT OR REPLACE INTO calculation_runs (
       id, import_id, schedule_version_id, rule_set_version, numeric_policy,
       as_of_date, status, issue_counts, total_students, created_at
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)

@@ -292,7 +292,43 @@ run 的設定快照＝`run.scheduleVersionId`：`seed-v250922`（該 run 沒有�
   - `GET /api/v1/settings/class-name-report?runId=&importId=`：唯讀；未知參數 400 `INVALID_QUERY`；`runId` 未知 404 `RUN_NOT_FOUND`；`importId` 未知或資料庫沒有任何名單 404 `IMPORT_NOT_FOUND`；`runId` 與 `importId` 指向不同名單 400 `INVALID_QUERY`；預設名冊＝現行名單，其次最新 ready 批次。
   - `POST /imports/preview` 回應新增 `classNameReport` 摘要：`{importId, rosterOnlyClassCount, rosterOnlyStudentCount, systemOnlyClassCount, systemOnlyPreviousRosterStudentCount, previousRoster, reportPath}`，`reportPath＝/settings?tab=mapping&import=<batchId>`；既有 `pendingClasses` 不變。課表設定頁以 `?import=<批次 id>`（須為 ready 批次）檢視該批名單的班名對應；儲存設定仍以現行名單為準。
   - D1 的報告與摘要不含「類別」（類別屬 D2）。
-- **類別偵測純函式**（`domain/classification/class-category`，**未接線**，D2 才使用）：`detectClassCategory`、`detectFixedFiveDays`、`detectClassAttributes`；規則見 [06 D40](06-handoff-decisions.md)（Q1 寫功課優先、Q2 包含式、Q7-A 固定 5 天）。
+- **類別偵測純函式**（`domain/classification/class-category`）：`detectClassCategory`、`detectFixedFiveDays`、`detectClassAttributes`；規則見 [06 D40](06-handoff-decisions.md)（Q1 寫功課優先、Q2 包含式、Q7-A 固定 5 天）。D2a 正式接線於計算路徑。
+
+### 5.3 erp-tag-v3 規則核心、班級類別接線與 run 類別快照（D2a）
+
+落實 06 D37、D40（Q1–Q14）之核心規則與計算接線（無 UI 部分，UI 與升級流程屬 D2b）：
+
+#### 5.3.1 規則版本與能力旗標擴充
+- `FormalRuleSetVersion` 新增 `'erp-tag-v3'`；`FORMAL_RULE_SET_VERSIONS` 集合同步註冊。
+- `RuleSetCapabilities` 新增能力旗標：
+  - `categoryBasedBilling`: true（v3 依類別計算科數與 isEnrolled；v1/v2 為 false）。
+  - `maxDeductionSelection`: true（v3 衝堂扣天取正量最多；v1/v2 為 false 首班選班）。
+  - `missingEnglishScheduleWarning`: true（v3 美語缺課表出警告；v2 凍結不警告）。
+  - `diagnosticsDecomposition`: true（v3 兩段式診斷分解；v1/v2 為 false）。
+  - `unmappedClassWarning`: true（v3 未對應班出 `CLASS_NOT_MAPPED`；v1/v2 為 false）。
+- 禁止以字面 `=== 'erp-tag-v2'` 比較，新舊行為一律經由能力旗標分流。
+
+#### 5.3.2 班級設定草稿資料模型擴充
+- `ClassSettingSchema` 新增可選欄位：`category`（'care'|'math'|'english'|'none'）、`categorySource`（'auto'|'manual'）、`fixedFiveDays`（boolean）、`fixedSource`（'auto'|'manual'）。
+- 讀取已存舊設定 JSON 時維持 `readStoredDraft` 唯一入口不改形狀，舊快照無新欄位時在 v3 計算當下依班名自動偵測補齊，不回寫舊快照。
+- `isSettingsDirty` 支援 `baseline.classAttrs` 與 `currentAttrs` 之變更比對（F-13）。
+
+#### 5.3.3 計算路徑接線與未對應班契約
+- 類別解析單一來源：名冊班名有對應系統班級時，採用該系統班級設定；無對應時依米豆奶班名自動偵測（Q1 寫功課優先、Q2 包含式、Q7-A 固定 5 天；優先序 安親課輔 > 數學 > 美語）。
+- **未對應班（Q4-b）**：未對應班若自動偵測為 `care`、`math` 或 `english`，出需確認警告 `CLASS_NOT_MAPPED`（「班名未對應課表，請確認米豆奶班名或系統班級名稱」）；若自動偵測為 `none`（如交通車、正音班）則不出警告。未對應之數學／美語班因無時段，扣天沿用 0 fallback。
+- **美語缺課表警告（F-8）**：v3 下美語班找不到排課時發出 `SCHEDULE_NOT_FOUND` 需確認警告（對齊數學班）。
+
+#### 5.3.4 run 類別快照與讀模型
+- `executeCalculationRun` 於執行 v3 run 時，將該 run 採用的班級類別快照持久化至 `run_class_categories`（欄位：`run_id`, `base_name`, `category`, `fixed_five_days`, `mapped`, `source`）。v1／v2 run 保持空表。
+- 讀模型 `applicableRateForClass` 於查詢 v3 run 時讀取該 run 之快照：
+  - 固定 5 天之班級（即使類別為 none，如寫功課）之本班適用折扣顯示 100%（10000 bps）而非「未設定」（Q7-A）。
+  - 若 v3 run 缺失快照，回傳 `not_configured`（無法判定），嚴禁以當前班名猜測。
+
+#### 5.3.5 診斷標籤兩段式分解
+- `calculate-run` 對 v3 run 同時計算 formal(v3)、shadow(v2) 與 compat：
+  - `formal(v3)` vs `shadow(v2)` 天數差 → 標記 `RULESET_POLICY_DIFFERENCE`（白話：「新舊規則對這位學生的算法不同。」）。
+  - `shadow(v2)` vs `compat` 天數差 → 標記 `NUMERIC_POLICY_DIFFERENCE`。
+  - 新 issue code `RULESET_POLICY_DIFFERENCE` 與 `CLASS_NOT_MAPPED` 登錄於 `KNOWN_ISSUE_CODES` 與 `lib/issue-copy.ts`。
 
 ## 6. Agent 使用邊界
 

@@ -6,6 +6,7 @@ import {
 import {
   parseTagDiscounts,
   calculateSubjectCount,
+  calculateSubjectCountV3,
   calculateBaseDiscountBps,
   calculateApplicableRate,
 } from './discount-rules';
@@ -18,8 +19,9 @@ import {
 } from '../schedules/overlap-calculator';
 import seedData from '../schedules/schedule-seed.json';
 import { ruleSetCapabilities } from './rule-set';
+import { resolveClassEnrollment, ClassSettingLookup, ClassCategory } from '../classification/class-category';
 
-export type RuleSetVersion = 'erp-tag-v1' | 'excel-v260922-compat' | 'erp-tag-v2';
+export type RuleSetVersion = 'erp-tag-v1' | 'excel-v260922-compat' | 'erp-tag-v2' | 'erp-tag-v3';
 
 export interface CalculationOptions {
   ruleSetVersion?: RuleSetVersion;
@@ -27,6 +29,8 @@ export interface CalculationOptions {
   aliasMap?: Map<string, string>;
   /** T05: schedule 覆寫（seed baseName → 時段 sessions），供設定維護自訂時段 */
   scheduleOverride?: Map<string, Array<{ start: number; end: number; weekday?: string | null }>>;
+  /** D2a: 班級設定快照 (提供手動/自動類別與固定 5 天) */
+  classSettings?: Map<string, ClassSettingLookup>;
 }
 
 const seedClassMap = new Map<string, any>();
@@ -136,8 +140,17 @@ export function calculateStudentBilling(
   const discountSourceText = isCompat ? student.notesRaw : student.tagsRaw;
   const tagDiscounts = parseTagDiscounts(discountSourceText);
 
-  // 2. 科數 (R09) 與基本折扣 (R10)
-  const subjectCount = calculateSubjectCount(student.enrollments);
+  const isV3 = capabilities.categoryBasedBilling;
+  const resolvedEnrollments = isV3
+    ? student.enrollments.map((e) =>
+        resolveClassEnrollment(e, options.aliasMap, options.classSettings)
+      )
+    : null;
+
+  // 2. 科數 (R09 / v3 R03) 與基本折扣 (R10)
+  const subjectCount = isV3
+    ? calculateSubjectCountV3(resolvedEnrollments!.map((r) => r.category))
+    : calculateSubjectCount(student.enrollments);
   const baseDiscountBps = calculateBaseDiscountBps(
     subjectCount,
     tagDiscounts.sibling,
@@ -145,50 +158,211 @@ export function calculateStudentBilling(
   );
 
   // 3. 抽取數學與美語之衝堂扣天
-  // 找第一個國小數學
-  const mathToken = student.enrollments.find((e) => e.baseName.includes('國小數學'));
-  const mathSessions = resolveClassSessions(
-    mathToken, options.aliasMap, options.scheduleOverride, classMapFor(options)
-  );
   let mathAnqinDed = 0;
   let mathTutoringDed = 0;
-  let mathScheduleStatus = mathSessions.status;
-  let unknownWeekdayCount = 0;
-
-  if (mathSessions.status === 'calculated') {
-    const ded = deductSessions(mathSessions.sessions, ruleSetVersion);
-    mathAnqinDed = ded.anqin;
-    mathTutoringDed = ded.tutoring;
-    unknownWeekdayCount += ded.unknownWeekdayCount;
-  }
-
-  // 找第一個兒童美語
-  const englishToken = student.enrollments.find((e) => e.baseName.includes('兒童美語'));
-  const englishSessions = resolveClassSessions(
-    englishToken, options.aliasMap, options.scheduleOverride, classMapFor(options)
-  );
+  let mathScheduleStatus = 'no_enrollment';
   let englishAnqinDed = 0;
   let englishTutoringDed = 0;
+  let englishScheduleStatus = 'no_enrollment';
+  let unknownWeekdayCount = 0;
+  const additionalIssues: Array<{ code: string; message: string }> = [];
 
-  if (englishSessions.status === 'calculated') {
-    const ded = deductSessions(englishSessions.sessions, ruleSetVersion);
-    englishAnqinDed = ded.anqin;
-    englishTutoringDed = ded.tutoring;
-    unknownWeekdayCount += ded.unknownWeekdayCount;
+  if (capabilities.maxDeductionSelection) {
+    // v3 依類別選扣天最多 (正量最多)
+    const isAnqinSide = student.grade === 1 || student.grade === 2;
+    const isTutoringSide = student.grade !== null && student.grade >= 3 && student.grade <= 6;
+
+    // --- 數學類別 ---
+    const mathCandidates = student.enrollments
+      .map((enr, idx) => ({ enr, idx, res: resolvedEnrollments![idx] }))
+      .filter((item) => item.res.category === 'math')
+      .sort((a, b) => a.idx - b.idx);
+
+    if (mathCandidates.length > 0) {
+      interface CandidateEval {
+        enr: ParsedToken;
+        idx: number;
+        status: string;
+        anqinDed: number;
+        tutoringDed: number;
+        positiveDeduction: number;
+        isCalculable: boolean;
+      }
+
+      const evals: CandidateEval[] = [];
+      for (const cand of mathCandidates) {
+        const ses = resolveClassSessions(cand.enr, options.aliasMap, options.scheduleOverride, classMapFor(options));
+        if (ses.status === 'calculated') {
+          const ded = deductSessions(ses.sessions, ruleSetVersion);
+          const pos = isAnqinSide ? -ded.anqin : isTutoringSide ? -ded.tutoring : 0;
+          evals.push({
+            enr: cand.enr,
+            idx: cand.idx,
+            status: ses.status,
+            anqinDed: ded.anqin,
+            tutoringDed: ded.tutoring,
+            positiveDeduction: pos,
+            isCalculable: true,
+          });
+          unknownWeekdayCount += ded.unknownWeekdayCount;
+        } else {
+          evals.push({
+            enr: cand.enr,
+            idx: cand.idx,
+            status: ses.status,
+            anqinDed: 0,
+            tutoringDed: 0,
+            positiveDeduction: 0,
+            isCalculable: false,
+          });
+          if (ses.status === 'schedule_not_found') {
+            additionalIssues.push({
+              code: 'SCHEDULE_NOT_FOUND',
+              message: `學生報名之數學班級「${cand.enr.rawToken}」未於${
+                options.scheduleOverride ? '現行已儲存排課設定' : '排課種子'
+              }中找到，天數採 0 扣天 fallback，待確認排課或 alias 對應。`,
+            });
+          }
+        }
+      }
+
+      const calculables = evals.filter((e) => e.isCalculable);
+      if (calculables.length > 0) {
+        let best = calculables[0];
+        for (let i = 1; i < calculables.length; i++) {
+          if (calculables[i].positiveDeduction > best.positiveDeduction) {
+            best = calculables[i];
+          }
+        }
+        mathAnqinDed = best.anqinDed;
+        mathTutoringDed = best.tutoringDed;
+        mathScheduleStatus = best.status;
+      } else {
+        const first = evals[0];
+        mathAnqinDed = 0;
+        mathTutoringDed = 0;
+        mathScheduleStatus = first.status;
+      }
+    }
+
+    // --- 美語類別 ---
+    const englishCandidates = student.enrollments
+      .map((enr, idx) => ({ enr, idx, res: resolvedEnrollments![idx] }))
+      .filter((item) => item.res.category === 'english')
+      .sort((a, b) => a.idx - b.idx);
+
+    if (englishCandidates.length > 0) {
+      interface CandidateEval {
+        enr: ParsedToken;
+        idx: number;
+        status: string;
+        anqinDed: number;
+        tutoringDed: number;
+        positiveDeduction: number;
+        isCalculable: boolean;
+      }
+
+      const evals: CandidateEval[] = [];
+      for (const cand of englishCandidates) {
+        const ses = resolveClassSessions(cand.enr, options.aliasMap, options.scheduleOverride, classMapFor(options));
+        if (ses.status === 'calculated') {
+          const ded = deductSessions(ses.sessions, ruleSetVersion);
+          const pos = isAnqinSide ? -ded.anqin : isTutoringSide ? -ded.tutoring : 0;
+          evals.push({
+            enr: cand.enr,
+            idx: cand.idx,
+            status: ses.status,
+            anqinDed: ded.anqin,
+            tutoringDed: ded.tutoring,
+            positiveDeduction: pos,
+            isCalculable: true,
+          });
+          unknownWeekdayCount += ded.unknownWeekdayCount;
+        } else {
+          evals.push({
+            enr: cand.enr,
+            idx: cand.idx,
+            status: ses.status,
+            anqinDed: 0,
+            tutoringDed: 0,
+            positiveDeduction: 0,
+            isCalculable: false,
+          });
+          if (ses.status === 'schedule_not_found' && capabilities.missingEnglishScheduleWarning) {
+            additionalIssues.push({
+              code: 'SCHEDULE_NOT_FOUND',
+              message: `學生報名之美語班級「${cand.enr.rawToken}」未於${
+                options.scheduleOverride ? '現行已儲存排課設定' : '排課種子'
+              }中找到，天數採 0 扣天 fallback，待確認排課或 alias 對應。`,
+            });
+          }
+        }
+      }
+
+      const calculables = evals.filter((e) => e.isCalculable);
+      if (calculables.length > 0) {
+        let best = calculables[0];
+        for (let i = 1; i < calculables.length; i++) {
+          if (calculables[i].positiveDeduction > best.positiveDeduction) {
+            best = calculables[i];
+          }
+        }
+        englishAnqinDed = best.anqinDed;
+        englishTutoringDed = best.tutoringDed;
+        englishScheduleStatus = best.status;
+      } else {
+        const first = evals[0];
+        englishAnqinDed = 0;
+        englishTutoringDed = 0;
+        englishScheduleStatus = first.status;
+      }
+    }
+  } else {
+    // v1 / v2 / compat 首班邏輯
+    const mathToken = student.enrollments.find((e) => e.baseName.includes('國小數學'));
+    const mathSessions = resolveClassSessions(
+      mathToken, options.aliasMap, options.scheduleOverride, classMapFor(options)
+    );
+    mathScheduleStatus = mathSessions.status;
+    if (mathSessions.status === 'calculated') {
+      const ded = deductSessions(mathSessions.sessions, ruleSetVersion);
+      mathAnqinDed = ded.anqin;
+      mathTutoringDed = ded.tutoring;
+      unknownWeekdayCount += ded.unknownWeekdayCount;
+    } else if (mathSessions.status === 'schedule_not_found') {
+      additionalIssues.push({
+        code: 'SCHEDULE_NOT_FOUND',
+        message: `學生報名之數學班級「${mathToken?.rawToken}」未於${
+          options.scheduleOverride ? '現行已儲存排課設定' : '排課種子'
+        }中找到，天數採 0 扣天 fallback，待確認排課或 alias 對應。`,
+      });
+    }
+
+    const englishToken = student.enrollments.find((e) => e.baseName.includes('兒童美語'));
+    const englishSessions = resolveClassSessions(
+      englishToken, options.aliasMap, options.scheduleOverride, classMapFor(options)
+    );
+    englishScheduleStatus = englishSessions.status;
+    if (englishSessions.status === 'calculated') {
+      const ded = deductSessions(englishSessions.sessions, ruleSetVersion);
+      englishAnqinDed = ded.anqin;
+      englishTutoringDed = ded.tutoring;
+      unknownWeekdayCount += ded.unknownWeekdayCount;
+    }
   }
 
-  // 4. 計算安親與課輔每週收費天數 (R11, R12)
-  const hasHomeworkOrMeian = student.enrollments.some(
-    (e) => e.baseName.includes('寫功課') || e.baseName.includes('美安')
-  );
-  const isEnrolledAnqin =
-    (student.grade === 1 || student.grade === 2) &&
-    student.enrollments.some((e) => e.baseName.includes('國小輔導'));
-  const isEnrolledTutoring =
-    student.grade !== null &&
-    student.grade >= 3 &&
-    student.grade <= 6 &&
-    student.enrollments.some((e) => e.baseName.includes('國小輔導'));
+  // 4. 計算安親與課輔每週收費天數 (R11, R12, v3 R17)
+  const hasHomeworkOrMeian = isV3
+    ? resolvedEnrollments!.some((r) => r.fixedFiveDays)
+    : student.enrollments.some((e) => e.baseName.includes('寫功課') || e.baseName.includes('美安'));
+
+  const isEnrolledAnqin = isV3
+    ? (student.grade === 1 || student.grade === 2) && resolvedEnrollments!.some((r) => r.category === 'care')
+    : (student.grade === 1 || student.grade === 2) && student.enrollments.some((e) => e.baseName.includes('國小輔導'));
+
+  const isEnrolledTutoring = isV3
+    ? student.grade !== null && student.grade >= 3 && student.grade <= 6 && resolvedEnrollments!.some((r) => r.category === 'care')
+    : student.grade !== null && student.grade >= 3 && student.grade <= 6 && student.enrollments.some((e) => e.baseName.includes('國小輔導'));
 
   const careDays = calculateCareDays({
     grade: student.grade,
@@ -250,15 +424,25 @@ export function calculateStudentBilling(
     internalStudent: tagDiscounts.internalStudent,
     specialDiscount: tagDiscounts.specialDiscount,
     isStaffFamily: tagDiscounts.isStaffFamily,
+    categoryEnrollments: isV3 ? resolvedEnrollments! : undefined,
   });
 
-  if (mathScheduleStatus === 'schedule_not_found') {
-    issues.push({
-      code: 'SCHEDULE_NOT_FOUND',
-      message: `學生報名之數學班級「${mathToken?.rawToken}」未於${
-        options.scheduleOverride ? '現行已儲存排課設定' : '排課種子'
-      }中找到，天數採 0 扣天 fallback，待確認排課或 alias 對應。`,
-    });
+  issues.push(...additionalIssues);
+
+  // Q4-b: CLASS_NOT_MAPPED 需確認警告 (限 care / math / english 的未對應班)
+  if (capabilities.unmappedClassWarning && resolvedEnrollments) {
+    const unmappedSeen = new Set<string>();
+    for (const r of resolvedEnrollments) {
+      if (!r.mapped && (r.category === 'care' || r.category === 'math' || r.category === 'english')) {
+        if (!unmappedSeen.has(r.baseName)) {
+          unmappedSeen.add(r.baseName);
+          issues.push({
+            code: 'CLASS_NOT_MAPPED',
+            message: `學生報名之班級「${r.rawToken}」班名未對應課表，請確認米豆奶班名或系統班級名稱。`,
+          });
+        }
+      }
+    }
   }
 
   // F3/K2: v2 同星期路徑下未知星期（缺失或無法識別）一律 fail-closed 為 0，並出告警＋needs_review，不靜默

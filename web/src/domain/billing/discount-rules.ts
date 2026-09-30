@@ -1,5 +1,6 @@
 import { ParsedToken } from '../students/types';
 import { TagDiscounts } from './types';
+import { ClassCategory } from '../classification/class-category';
 
 const SPECIAL_DISCOUNT_RULES: [string, number][] = [
   ['特殊折扣95折', 0.95],
@@ -46,7 +47,7 @@ export function parseTagDiscounts(tagsRaw: string | null | undefined): TagDiscou
   }
 
   // 2. 兄弟姊妹折扣 (R06)
-  const sibling = tagsRaw.includes('有兄弟姊妹折扣');
+  const sibling = tagsRaw.includes('有兄弟姊妹折扣') || tagsRaw.includes('有兄弟姊妹');
 
   // 3. 特殊折扣 (R07)
   let specialDiscount: number | null = null;
@@ -78,7 +79,7 @@ export function parseTagDiscounts(tagsRaw: string | null | undefined): TagDiscou
 }
 
 /**
- * 計算已補科數 (R09)。
+ * 計算已補科數 (R09, v2 行為)。
  * 統計三類科別存在性：國小輔導、國小數學、兒童美語。
  * 若含寫功課則減 1 (寫功課不列入多科折扣)。
  */
@@ -101,6 +102,21 @@ export function calculateSubjectCount(tokens: ParsedToken[]): number | null {
   }
 
   return 0;
+}
+
+/**
+ * D2a: 類別式科數計算 (R03, D37 ①, v3 行為)。
+ * 學生所報班級涵蓋的類別種數 (care, math, english)，同類只算 1 科，none 不列入。
+ * 取代 R09 名稱判斷與寫功課減 1。
+ */
+export function calculateSubjectCountV3(categories: ClassCategory[]): number | null {
+  if (categories.length === 0) {
+    return null;
+  }
+  const discountCategories = new Set(
+    categories.filter((c): c is 'care' | 'math' | 'english' => c === 'care' || c === 'math' || c === 'english')
+  );
+  return discountCategories.size;
 }
 
 /**

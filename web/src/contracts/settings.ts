@@ -60,6 +60,10 @@ export const ClassSettingSchema = z.object({
   teacher: z.string().nullable().default(null),
   active: z.boolean().default(true),
   sessions: z.array(SessionSchema).default([]),
+  category: z.enum(['care', 'math', 'english', 'none']).optional(),
+  categorySource: z.enum(['auto', 'manual']).optional(),
+  fixedFiveDays: z.boolean().optional(),
+  fixedSource: z.enum(['auto', 'manual']).optional(),
 });
 
 export type ClassSetting = z.infer<typeof ClassSettingSchema>;
@@ -273,18 +277,28 @@ export function detectSplitClasses(
   return warnings;
 }
 
+export interface ClassAttributeSetting {
+  className: string;
+  category?: 'care' | 'math' | 'english' | 'none';
+  categorySource?: 'auto' | 'manual';
+  fixedFiveDays?: boolean;
+  fixedSource?: 'auto' | 'manual';
+}
+
 export interface SettingsBaseline {
   rows: ScheduleGridRow[];
   aliases: Array<{ rawBaseName: string; targetBaseName: string }>;
+  classAttrs?: ClassAttributeSetting[];
 }
 
 /**
- * D31: 判斷目前排課表格列或 aliases 是否相對於基準狀態有未儲存變更 (dirty)。
+ * D31 / F-13: 判斷目前排課表格列、aliases 或班級屬性是否相對於基準狀態有未儲存變更 (dirty)。
  */
 export function isSettingsDirty(
   baseline: SettingsBaseline,
   currentRows: ScheduleGridRow[],
-  currentAliases: Array<{ rawBaseName: string; targetBaseName: string }>
+  currentAliases: Array<{ rawBaseName: string; targetBaseName: string }>,
+  currentAttrs?: ClassAttributeSetting[]
 ): boolean {
   if (currentRows.length !== baseline.rows.length) return true;
 
@@ -312,6 +326,25 @@ export function isSettingsDirty(
   for (const a of currentAliases) {
     if (!baseAliasKeys.has(`${a.rawBaseName}→${a.targetBaseName}`)) {
       return true;
+    }
+  }
+
+  if (baseline.classAttrs !== undefined || currentAttrs !== undefined) {
+    const baseAttrs = baseline.classAttrs ?? [];
+    const curAttrs = currentAttrs ?? [];
+    if (baseAttrs.length !== curAttrs.length) return true;
+    const baseAttrMap = new Map(baseAttrs.map((b) => [b.className, b]));
+    for (const ca of curAttrs) {
+      const ba = baseAttrMap.get(ca.className);
+      if (!ba) return true;
+      if (
+        ca.category !== ba.category ||
+        ca.categorySource !== ba.categorySource ||
+        ca.fixedFiveDays !== ba.fixedFiveDays ||
+        ca.fixedSource !== ba.fixedSource
+      ) {
+        return true;
+      }
     }
   }
 
