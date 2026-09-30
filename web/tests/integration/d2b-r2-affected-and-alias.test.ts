@@ -137,12 +137,13 @@ describe('D2b r2 R2-1: affectedStudents 為三類 delta 的 personCode 聯集去
     expect(preview.affectedStudents).toBe(2);
   });
 
-  it('(b) 只有科數變化、天數不變時，受影響人數仍為正確人數（不得為 0）', () => {
-    // 只把數學班手動設為「不列入折扣」：完全不動任何時段 → 天數不變
+  it('(b) 只有科數與折扣變化、天數不變時，受影響人數仍為正確人數（不得為 0 或相加）', () => {
+    // 只把「國小輔導-四年級」手動設為不列入折扣：該班在 seed 無時段（扣天 0），
+    // 因此這是**純類別**變化 → 天數不變，只有科數與折扣變化。
     const draft: SettingsDraft = buildSeedDraft();
-    const math = draft.classes.find((c) => c.baseName === '國小數學-三A')!;
-    math.category = 'none';
-    math.categorySource = 'manual';
+    const care = draft.classes.find((c) => c.baseName === '國小輔導-四年級')!;
+    care.category = 'none';
+    care.categorySource = 'manual';
 
     const preview: any = previewSettingsChange(db, 'imp_r2', {
       draft,
@@ -153,11 +154,18 @@ describe('D2b r2 R2-1: affectedStudents 為三類 delta 的 personCode 聯集去
     // 關鍵：只有科數與折扣變化、天數不變
     expect(preview.dayDeltas).toHaveLength(0);
     expect(preview.subjectCountDeltas.length).toBe(2);
-    // 受影響人數必須是 2
+    expect(preview.baseDiscountDeltas.length).toBe(2);
+    // 手算聯集 = 2 人（兩位學生都只在科數／折扣裡各出現一次）
+    const union = new Set([
+      ...preview.dayDeltas.map((d: any) => d.personCode),
+      ...preview.subjectCountDeltas.map((d: any) => d.personCode),
+      ...preview.baseDiscountDeltas.map((d: any) => d.personCode),
+    ]);
+    expect(union.size).toBe(2);
     expect(preview.affectedStudents).toBe(2);
   });
 
-  it('(b2) 同一人同時出現在天數、科數與折扣三種 delta 時也只計一次', () => {
+  it('(b2) 同一人同時出現在天數、科數與折扣三種 delta 時也只計一次（同一案例，天數確實變化）', () => {
     // 同一位學生同時出現在三個陣列：相加寫法會算成 3 次
     const draft: SettingsDraft = buildSeedDraft();
     const math = draft.classes.find((c) => c.baseName === '國小數學-三A')!;
@@ -172,6 +180,7 @@ describe('D2b r2 R2-1: affectedStudents 為三類 delta 的 personCode 聯集去
     });
 
     // 前置確認：三種 delta 都非空，且涵蓋同樣的 2 人
+    // （此案例以「改時段」造成天數變化 + 「改類別」造成科數變化，兩者落在同一人身上）
     expect(preview.dayDeltas.length).toBe(2);
     expect(preview.subjectCountDeltas.length).toBe(2);
     expect(preview.baseDiscountDeltas.length).toBe(2);

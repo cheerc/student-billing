@@ -41,6 +41,28 @@ async function renameWholeClass(page: Page, from: string, to: string) {
     }, [from, to]);
 }
 
+/**
+ * 改「某班」第一列的起始時間。
+ * 不能用 `tr:has-text(...)` 定位：班名在受控 input 的 value 屬性上，文字比對抓不到；
+ * 逐格 `fill()` 也會捲動觸發重算（同 renameWholeClass 的理由）。因此一次批次派發 input 事件。
+ */
+async function setFirstStartTimeOfClass(page: Page, className: string, value: string) {
+  const changed = await page.locator('input.input-time').evaluateAll((inputs, args) => {
+    const [className, value] = args as [string, string];
+    const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')?.set;
+    for (const el of inputs) {
+      const row = el.closest('tr');
+      const name = row?.querySelector<HTMLInputElement>('input.input-classname')?.value;
+      if (name !== className) continue;
+      setter?.call(el, value);
+      el.dispatchEvent(new Event('input', { bubbles: true }));
+      return true;
+    }
+    return false;
+  }, [className, value]);
+  expect(changed, `課表上找不到班「${className}」的起始時間欄位`).toBe(true);
+}
+
 test.describe('D2b：班級類別與固定 5 天設定 UI、升級確認', () => {
   test.beforeEach(async ({ page }) => {
     await page.goto('/settings');
@@ -170,10 +192,12 @@ test.describe('D2b：班級類別與固定 5 天設定 UI、升級確認', () =>
       await expect(page.locator('h1', { hasText: '課表設定' })).toBeVisible({ timeout: 15000 });
     });
 
-    test('R2-1: 只有科數／折扣變化、天數不變時，受影響學生數仍是去重後的人數', async ({ page }) => {
-      // 「兒童美語-Ali」自動偵測為 english，手動改為不列入折扣 → 科數與折扣變化、天數不變
-      await page.locator('[data-category-select="兒童美語-Ali"]').selectOption('none');
-      await expect(page.locator('[data-category-source="兒童美語-Ali"]')).toHaveText('手動');
+    test('R2-1: 只有科數／折扣變化、天數不變時，受影響學生數仍正確（不得為 0）', async ({ page }) => {
+      // 「國小輔導-一A」在 seed 無時段 → 手動改類別是**純類別**變化：天數不變，只有科數與折扣變化。
+      // 這筆資料下「相加」與「聯集去重」同值（皆 21），因此本例是回歸保護：
+      // 確保這條路徑不會因只算天數而顯示 0。能區分兩種算法的斷言在下一個案例。
+      await page.locator('[data-category-select="國小輔導-一A"]').selectOption('none');
+      await expect(page.locator('[data-category-source="國小輔導-一A"]')).toHaveText('手動');
       await expect(page.locator('.save-status-dirty')).toBeVisible();
 
       await page.locator('button', { hasText: '確認變更' }).click();
@@ -182,30 +206,28 @@ test.describe('D2b：班級類別與固定 5 天設定 UI、升級確認', () =>
 
       const metric = dialog.locator('.metric-card', { hasText: '受影響學生數' });
       await expect(metric).toBeVisible();
-      // 合成名單手算：科數差異 17 人、折扣差異 11 人、天數差異 0 人，
-      // 三者聯集去重 = 17 人。相加寫法會得到 0 + max(17, 11) = 17（本例恰巧相同），
-      // 因此這裡另外斷言：同一個人在天數、科數、折扣三種差異中重複出現也只算一次。
-      await expect(metric.locator('.metric-value')).toHaveText('17 人');
+      // 合成名單手算：科數差異 21 人、折扣差異 13 人、天數差異 0 人 → 聯集去重 21 人
+      await expect(metric.locator('.metric-value')).toHaveText('21 人');
       // 顯示的已含科數／折扣變化，metric-sub 不得再寫「天數發生變化」
       await expect(metric.locator('.metric-sub')).not.toContainText('天數發生變化');
     });
 
     test('R2-1: 同一人同時有天數與科數變化時，受影響學生數不得為兩者相加', async ({ page }) => {
-      // 同一個班同時改「類別」與「時段」→ 天數與科數差異落在同一批學生身上
-      await page.locator('[data-category-select="兒童美語-Ali"]').selectOption('none');
-      const row = page.locator('.schedule-table tbody tr', { hasText: '兒童美語-Ali' }).first();
-      await row.locator('input.input-time').first().fill('15:45');
+      // 同一個班同時改「類別」與「時段」→ 天數與科數差異落在同一批學生身上。
+      // 逐格捲動會讓系統誤判拆班，因此一次批次派發。
+      await page.locator('[data-category-select="國小數學-三A"]').selectOption('none');
+      await setFirstStartTimeOfClass(page, '國小數學-三A', '09:45');
       await expect(page.locator('.save-status-dirty')).toBeVisible();
 
       await page.locator('button', { hasText: '確認變更' }).click();
       const dialog = page.locator('dialog.impact-dialog');
       await expect(dialog).toBeVisible({ timeout: 15000 });
 
-      // 合成名單手算：天數差異 16 人、科數差異 17 人、折扣差異 11 人，三者聯集去重 = 17 人；
-      // 相加寫法會得到 16 + max(17, 11) = 33 人。畫面必須是去重後的 17 人。
-      await expect(dialog.locator('.metric-card', { hasText: '受影響學生數' }).locator('.metric-value')).toHaveText('17 人');
       // 天數確實有變化（否則本例不構成 R2-1 的 (a) 情境）
       await expect(dialog).toContainText('天數變動明細');
+      // 合成名單手算：天數差異 12 人、科數差異 12 人、折扣差異 7 人，三者聯集去重 = 12 人；
+      // 相加寫法會得到 12 + max(12, 7) = 24 人。畫面必須是去重後的 12 人。
+      await expect(dialog.locator('.metric-card', { hasText: '受影響學生數' }).locator('.metric-value')).toHaveText('12 人');
     });
 
     test('R2-2: 跨類別別名在影響預覽提示「類別將改由系統班決定」，可展開且不阻擋儲存', async ({ page }) => {
