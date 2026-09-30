@@ -1,12 +1,14 @@
 import Database from 'better-sqlite3';
 import { StudentSnapshot, ParsedToken } from '@/domain/students';
 import { calculateStudentBilling, RuleSetVersion } from '@/domain/billing/billing-calculator';
-import { CalculationRunRecord, StudentCalculationRecord } from '@/adapters/sqlite/runs-repository';
+import { CalculationRunRecord, StudentCalculationRecord, RunClassCategoryRecord } from '@/adapters/sqlite/runs-repository';
 import seedData from '@/domain/schedules/schedule-seed.json';
 import { SettingsDraft } from '@/contracts/settings';
-import { resolveClassEnrollment } from '@/domain/classification/class-category';
+import { resolveClassEnrollment, ClassSettingLookup } from '@/domain/classification/class-category';
 import {
   getLatestSettingsVersion,
+  getSettingsVersionById,
+  buildSeedDraft,
   draftToAliasMap,
   draftToScheduleOverride,
   readStoredDraft,
@@ -20,6 +22,20 @@ for (const cls of seedData.classes) {
   seedMap.set(cls.baseName, cls);
 }
 
+/** 將設定草稿轉為計算管線與類別快照使用的 classSettingMap (D2a R2-2)。 */
+export function buildClassSettingMap(draft: SettingsDraft): Map<string, ClassSettingLookup> {
+  const map = new Map<string, ClassSettingLookup>();
+  for (const c of draft.classes) {
+    map.set(c.baseName, {
+      category: c.category,
+      categorySource: c.categorySource,
+      fixedFiveDays: c.fixedFiveDays,
+      fixedSource: c.fixedSource,
+    });
+  }
+  return map;
+}
+
 export interface CalculateRunOptions {
   scheduleVersionId?: string;
   ruleSetVersion?: RuleSetVersion | string;
@@ -28,6 +44,7 @@ export interface CalculateRunOptions {
   /** T05: 設定覆寫（alias 映射與自訂時段），無則使用 seed 預設 */
   aliasMap?: Map<string, string>;
   scheduleOverride?: Map<string, Array<{ start: number; end: number; weekday?: string | null }>>;
+  classSettings?: Map<string, ClassSettingLookup>;
 }
 
 /**
@@ -38,16 +55,21 @@ export interface CalculateRunOptions {
  */
 export function resolveLatestSavedSettings(
   db: Database.Database
-): Pick<CalculateRunOptions, 'scheduleVersionId' | 'aliasMap' | 'scheduleOverride'> {
+): Pick<CalculateRunOptions, 'scheduleVersionId' | 'aliasMap' | 'scheduleOverride' | 'classSettings'> {
   const latest = getLatestSettingsVersion(db);
   if (!latest) {
-    return { scheduleVersionId: SEED_SCHEDULE_VERSION_ID };
+    const seedDraft = buildSeedDraft();
+    return {
+      scheduleVersionId: SEED_SCHEDULE_VERSION_ID,
+      classSettings: buildClassSettingMap(seedDraft),
+    };
   }
   const draft = readStoredDraft(latest.contentJson);
   return {
     scheduleVersionId: latest.id,
     aliasMap: draftToAliasMap(draft),
     scheduleOverride: draftToScheduleOverride(draft),
+    classSettings: buildClassSettingMap(draft),
   };
 }
 
@@ -56,12 +78,28 @@ export function executeCalculationRun(
   importId: string,
   runId: string,
   options: CalculateRunOptions = {}
-): { run: CalculationRunRecord; results: StudentCalculationRecord[] } {
+): { run: CalculationRunRecord; results: StudentCalculationRecord[]; classCategories?: RunClassCategoryRecord[] } {
   const scheduleVersionId = options.scheduleVersionId || SEED_SCHEDULE_VERSION_ID;
   const ruleSetVersion = options.ruleSetVersion || 'erp-tag-v2';
   const numericPolicy = options.numericPolicy || 'integer-minute-rational-v1';
   const asOfDate = options.asOfDate || new Date().toISOString().split('T')[0];
   const now = new Date().toISOString();
+
+  // R2-2: 由 executeCalculationRun 從已儲存設定或 seed 建立 classSettings，統一供給計算與快照 (同源)
+  let classSettings = options.classSettings;
+  if (!classSettings) {
+    if (scheduleVersionId && scheduleVersionId !== SEED_SCHEDULE_VERSION_ID) {
+      const ver = getSettingsVersionById(db, scheduleVersionId);
+      if (ver) {
+        const draft = readStoredDraft(ver.contentJson);
+        classSettings = buildClassSettingMap(draft);
+      }
+    }
+    if (!classSettings) {
+      const seedDraft = buildSeedDraft();
+      classSettings = buildClassSettingMap(seedDraft);
+    }
+  }
 
   // 1. 讀取學生快照
   const studentRows = db
@@ -123,6 +161,7 @@ export function executeCalculationRun(
       ruleSetVersion: ruleSetVersion as any,
       aliasMap: options.aliasMap,
       scheduleOverride: options.scheduleOverride,
+      classSettings,
     });
 
     // 診斷軌計算 (比較 NUMERIC_POLICY_DIFFERENCE 與 RULESET_POLICY_DIFFERENCE)
@@ -130,6 +169,7 @@ export function executeCalculationRun(
       ruleSetVersion: 'excel-v260922-compat',
       aliasMap: options.aliasMap,
       scheduleOverride: options.scheduleOverride,
+      classSettings,
     });
 
     if (ruleSetVersion === 'erp-tag-v3') {
@@ -137,6 +177,7 @@ export function executeCalculationRun(
         ruleSetVersion: 'erp-tag-v2',
         aliasMap: options.aliasMap,
         scheduleOverride: options.scheduleOverride,
+        classSettings,
       });
 
       // 1. formal(v3) vs shadow(v2) 天數差 -> 新舊規則政策差異 (Q12)
@@ -276,39 +317,17 @@ export function executeCalculationRun(
     createdAt: now,
   };
 
-  // D2a: v3 run 持久化 run_class_categories 快照 (migration 0007)
+  // R2-1 & R2-2: v3 run 產生 run_class_categories 快照物件，供 saveCalculationRun 持久化
+  let classCategories: RunClassCategoryRecord[] | undefined;
   if (ruleSetVersion === 'erp-tag-v3') {
-    db.prepare(`
-      INSERT OR IGNORE INTO calculation_runs (
-        id, import_id, schedule_version_id, rule_set_version, numeric_policy,
-        as_of_date, status, issue_counts, total_students, created_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(
-      runId,
-      importId,
-      scheduleVersionId,
-      ruleSetVersion,
-      numericPolicy,
-      asOfDate,
-      'completed',
-      JSON.stringify(issueCounts),
-      results.length,
-      now
-    );
-
-    const classCategoryMap = new Map<string, {
-      baseName: string;
-      category: string;
-      fixedFiveDays: number;
-      mapped: number;
-      source: string;
-    }>();
+    const classCategoryMap = new Map<string, RunClassCategoryRecord>();
 
     for (const r of enrollmentRows) {
       if (!classCategoryMap.has(r.base_name)) {
         const resolved = resolveClassEnrollment(
           { rawToken: r.raw_token, baseName: r.base_name },
-          options.aliasMap
+          options.aliasMap,
+          classSettings
         );
         classCategoryMap.set(r.base_name, {
           baseName: r.base_name,
@@ -320,23 +339,30 @@ export function executeCalculationRun(
       }
     }
 
-    const insertCategory = db.prepare(`
-      INSERT OR REPLACE INTO run_class_categories (
-        run_id, base_name, category, fixed_five_days, mapped, source
-      ) VALUES (?, ?, ?, ?, ?, ?)
-    `);
+    classCategories = Array.from(classCategoryMap.values());
 
-    for (const item of classCategoryMap.values()) {
-      insertCategory.run(
-        runId,
-        item.baseName,
-        item.category,
-        item.fixedFiveDays,
-        item.mapped,
-        item.source
-      );
+    // 若 calculation_runs 在呼叫前已存在（例如測試中先建好 run），補寫快照；
+    // 生產呼叫鏈（activate-import / apply-settings）會在 saveCalculationRun 執行時統一寫入，避免級聯刪除。
+    const runRow = db.prepare('SELECT 1 FROM calculation_runs WHERE id = ?').get(runId);
+    if (runRow) {
+      const insertCategory = db.prepare(`
+        INSERT OR REPLACE INTO run_class_categories (
+          run_id, base_name, category, fixed_five_days, mapped, source
+        ) VALUES (?, ?, ?, ?, ?, ?)
+      `);
+
+      for (const item of classCategories) {
+        insertCategory.run(
+          runId,
+          item.baseName,
+          item.category,
+          item.fixedFiveDays,
+          item.mapped,
+          item.source
+        );
+      }
     }
   }
 
-  return { run, results };
+  return { run, results, classCategories };
 }

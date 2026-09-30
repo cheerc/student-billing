@@ -43,6 +43,6 @@ export default defineConfig({
     env: { DATABASE_PATH: databasePath as string },
     stdout: 'ignore',
     stderr: 'pipe',
-    timeout: 180_000,
+    timeout: 120_000,
   },
 });

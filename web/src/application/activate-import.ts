@@ -117,15 +117,15 @@ export function activateImport(
     // 執行全量計算：每一次 activate 由 server 解析最新已儲存設定，
     // 忽略 client 傳入的 scheduleVersionId／alias／時段覆寫（09 §8.2.1）。
     // 規則版本同樣由 server 決定（F-2）：沿用現行 run 的正式軌版本；沒有現行 run 或現行 run 是診斷軌 → 現行正式軌。
-    const { run, results } = executeCalculationRun(db, importId, runId, {
+    const { run, results, classCategories } = executeCalculationRun(db, importId, runId, {
       ruleSetVersion: resolveFormalRuleSetVersion(db),
       numericPolicy: options.numericPolicy,
       asOfDate: options.asOfDate,
       ...resolveLatestSavedSettings(db),
     });
 
-    // 儲存計算結果與 run
-    saveCalculationRun(db, run, results);
+    // 儲存計算結果與 run (R2-1: 同步傳入 classCategories)
+    saveCalculationRun(db, run, results, classCategories);
 
     // 切換 ActiveState
     db.prepare(`

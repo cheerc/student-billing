@@ -47,7 +47,7 @@ export function parseTagDiscounts(tagsRaw: string | null | undefined): TagDiscou
   }
 
   // 2. 兄弟姊妹折扣 (R06)
-  const sibling = tagsRaw.includes('有兄弟姊妹折扣') || tagsRaw.includes('有兄弟姊妹');
+  const sibling = tagsRaw.includes('有兄弟姊妹折扣');
 
   // 3. 特殊折扣 (R07)
   let specialDiscount: number | null = null;
