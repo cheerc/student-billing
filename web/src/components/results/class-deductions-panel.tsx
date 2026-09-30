@@ -3,7 +3,8 @@
 import React, { useState } from 'react';
 import Link from 'next/link';
 import { DeductionsResponse } from '@/application/schedule-deductions';
-import { PreviewClass, PreviewRow } from '@/application/schedule-preview';
+import { PreviewClass, PreviewRow, PreviewRowGroup } from '@/application/schedule-preview';
+import { CareStatus, combineCareStatuses } from '@/application/care-status';
 
 /**
  * 班級扣天（09 §5.2，對應 Excel C表）。
@@ -48,9 +49,22 @@ function scheduleSummary(rows: PreviewRow[], rowIds: string[]): string {
   return lines.length > 0 ? lines.join('、') : '待補';
 }
 
+/**
+ * 整班狀態：安親與課輔兩側合併（未知／不完整＞已計算＞無重疊；F02）。
+ * 只看安親側會讓「只與課輔窗口重疊」的班顯示成「無重疊」，未知／不完整也可能被另一側掩蓋。
+ */
+export function classStatus(c: PreviewClass): CareStatus {
+  return combineCareStatuses(c.anqin.status, c.tutoring.status);
+}
+
+/** 逐堂列某一側的（重疊分鐘、原始扣除）兩格：星期未知的列顯示「需確認」，不冒充 0（09 §3.1）。 */
+function sideCells(g: PreviewRowGroup): [React.ReactNode, React.ReactNode] {
+  if (g.status === 'unknown_weekday') return ['需確認', '需確認'];
+  return [g.overlapMinutes ?? '—', formatDeduction(g.rawDeduction, 3)];
+}
+
 /** 班級狀態短標：無重疊／共用窗口／待補／需確認／已計算分開。 */
-function statusLabel(c: PreviewClass): string {
-  const s = c.anqin.status;
+function statusLabel(s: CareStatus): string {
   if (s === 'inactive') return '停用';
   if (s === 'shared_window') return '共用窗口';
   if (s === 'missing_time') return '待補';
@@ -145,8 +159,8 @@ export function ClassDeductionsPanel({ data, onEditClass, expandedClassKey, unav
                     <td className="number cblue">{formatDeduction(c.tutoring.raw, 3)}</td>
                     <td className="number cblue">{formatDeduction(c.tutoring.rounded, 0)}</td>
                     <td>
-                      <span className="ded-status" data-status={c.anqin.status}>
-                        {statusLabel(c)}
+                      <span className="ded-status" data-status={classStatus(c)}>
+                        {statusLabel(classStatus(c))}
                       </span>
                     </td>
                   </tr>
@@ -182,10 +196,10 @@ export function ClassDeductionsPanel({ data, onEditClass, expandedClassKey, unav
                                       : `${String(Math.floor(r.startMinutes / 60)).padStart(2, '0')}:${String(r.startMinutes % 60).padStart(2, '0')}–${String(Math.floor(r.endMinutes / 60)).padStart(2, '0')}:${String(r.endMinutes % 60).padStart(2, '0')}`}
                                   </td>
                                   <td className="number">{r.durationMinutes ?? '—'}</td>
-                                  <td className="number cblue">{r.anqin.overlapMinutes ?? '—'}</td>
-                                  <td className="number cblue">{formatDeduction(r.anqin.rawDeduction, 3)}</td>
-                                  <td className="number cblue">{r.tutoring.overlapMinutes ?? '—'}</td>
-                                  <td className="number cblue">{formatDeduction(r.tutoring.rawDeduction, 3)}</td>
+                                  <td className="number cblue">{sideCells(r.anqin)[0]}</td>
+                                  <td className="number cblue">{sideCells(r.anqin)[1]}</td>
+                                  <td className="number cblue">{sideCells(r.tutoring)[0]}</td>
+                                  <td className="number cblue">{sideCells(r.tutoring)[1]}</td>
                                 </tr>
                               ))}
                             </tbody>

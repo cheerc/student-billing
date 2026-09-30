@@ -35,6 +35,9 @@ interface SettingsEditorProps {
   hasActiveImport?: boolean;
 }
 
+/** 計算失敗時的說明（不外露狀態碼或工程字）；ScheduleGrid 會補上「不代表沒有衝堂」。 */
+const CALCULATE_FAILED_MESSAGE = '無法計算重疊與扣除天數，請稍後再試。';
+
 export default function SettingsEditor({
   importId,
   currentRevision,
@@ -71,6 +74,10 @@ export default function SettingsEditor({
 
   // 即時計算狀態
   const [calculateResult, setCalculateResult] = useState<CalculatePreviewResponse | null>(null);
+  // 產生 calculateResult 時所依據的列：列之後被改動即代表該列舊結果失效（ScheduleGrid 顯示「—」，09 §3.1）
+  const [calculateInputRows, setCalculateInputRows] = useState<ScheduleGridRow[] | null>(null);
+  // 最近一次計算失敗的說明：失敗時不留舊結果，也不顯示成「沒有重疊」
+  const [calculateError, setCalculateError] = useState<string | null>(null);
   const [calculating, setCalculating] = useState(false);
   const reqSeqRef = useRef(0);
   const latestReqKeyRef = useRef<string>('');
@@ -136,6 +143,16 @@ export default function SettingsEditor({
       const requestKey = `req-${Date.now()}-${seq}`;
       latestReqKeyRef.current = requestKey;
 
+      // 這次請求所依據的列（closure 快照）：回應成功後與結果一起保存
+      const rowsAtRequest = rows;
+      const failCalculation = () => {
+        // 只有最新請求的失敗才生效；舊請求晚到的失敗不得覆蓋較新的狀態
+        if (requestKey !== latestReqKeyRef.current) return;
+        setCalculateResult(null);
+        setCalculateInputRows(null);
+        setCalculateError(CALCULATE_FAILED_MESSAGE);
+      };
+
       setCalculating(true);
       try {
         const calcClasses = gridRowsToCalculateClasses(rows, draft.classes);
@@ -150,15 +167,21 @@ export default function SettingsEditor({
           body: JSON.stringify({ requestKey, draft: calcDraft }),
         });
 
-        if (!res.ok) return;
+        if (!res.ok) {
+          failCalculation();
+          return;
+        }
 
         const data = await res.json();
         // 晚到請求保護 (UX08)：只有當前最新 requestKey 的回應才生效
         if (data.requestKey === latestReqKeyRef.current) {
           setCalculateResult(data);
+          setCalculateInputRows(rowsAtRequest);
+          setCalculateError(null);
         }
       } catch {
-        // 唯讀計算異常靜默處理，不中斷 UI
+        // 連線中斷或回應無法解析：不中斷 UI，但不留舊數字、也不顯示成「沒有重疊」
+        failCalculation();
       } finally {
         if (requestKey === latestReqKeyRef.current) {
           setCalculating(false);
@@ -342,6 +365,8 @@ export default function SettingsEditor({
             onAddRow={handleAddRow}
             calculating={calculating}
             calculateResult={calculateResult}
+            calculateInputRows={calculateInputRows}
+            calculateError={calculateError}
           />
         </section>
       )}
