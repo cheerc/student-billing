@@ -1,8 +1,10 @@
 # 技術架構、資料模型與 API 契約
 
-> 2026-09-30 驗收修正補充：學生查詢的多值篩選、選項與「無課程」契約見[§5.1](#51-學生查詢多值篩選選項與無課程契約b1目標)（[06 D36、D38](06-handoff-decisions.md)；目標契約，依[11](11-ui-acceptance-fix-plan.md) B1實作）。§3的設定資料模型不變；班級類別與固定5天的設定欄位、版本快照與ruleSet屬11的D批，本次不改。
+> 2026-09-30 驗收修正補充：學生查詢的多值篩選、選項與「無課程」契約見[§5.1](#51-學生查詢多值篩選選項與無課程契約b1-現況)（[06 D36、D38](06-handoff-decisions.md)；目標契約，依[11](11-ui-acceptance-fix-plan.md) B1實作）。§3的設定資料模型不變；班級類別與固定5天的設定欄位、版本快照與ruleSet屬11的D2，D1不改（D1只交付規則版本入口收斂等，見下一則補充）。
 >
 > 2026-09-29 UI重設補充：依[06 D33](06-handoff-decisions.md)，無學生儲存設定、activate採最新已儲存設定、preview／apply的import由server決定等設定生命週期放寬，見[09 §8](09-ui-workflow-redesign-spec.md)；§4–5其餘交易／版本不變式不變，驗收見[04 §8](04-tdd-acceptance.md)。§3 ScheduleVersion的careWindows與effectiveFrom/To是schema欄位，現行不參與選版或計算；operator已決定安親／課輔窗口固定、不可編輯，有效日期不在範圍（D33）。計費規則沿用目前D24–D32，不由UI改版變更。
+>
+> 2026-09-30 D1補充（[11 §3 D1](11-ui-acceptance-fix-plan.md)、[06 D40](06-handoff-decisions.md)）：規則版本入口收斂（activate不再接受client的ruleSetVersion、apply用preview記錄的目標版本、歷史run的讀取入口一律讀該run的設定快照）、migration 0007（純增量）、已存設定JSON單一讀取入口與班名比對報告，見本檔 §5.2；v1／v2／compat的計算行為不變。
 
 ## 1. 技術選擇
 
@@ -92,10 +94,10 @@ P1 整批重算可接受，5000 筆規模未證明有瓶頸前不實作複雜增
 |方法與路徑|階段|行為|
 |---|---|---|
 |POST /imports/preview|P1|multipart file；解析驗證，回 previewId、標頭、數量、issues、差異摘要|
-|POST /imports/{previewId}/activate|P1|body 帶 expectedRevision、idempotencyKey、asOfDate（可選 ruleSetVersion）；不接受 scheduleVersionId，server 於同一交易內解析最新已儲存設定版本（09 §8.2.1）後計算並原子啟用|
+|POST /imports/{previewId}/activate|P1|body 帶 expectedRevision、idempotencyKey、asOfDate（可選）；**不接受 scheduleVersionId，也不接受 ruleSetVersion（帶了回 400 INVALID_REQUEST，含 null；§5.2）**。server 於同一交易內解析最新已儲存設定版本（09 §8.2.1）與規則版本後計算並原子啟用|
 |GET /imports|P1|批次基本資料；不回傳全部 raw notes|
 |GET /runs/current|P1|回 ActiveState revision 與目前 run；首次空資料回 200、revision=0、run=null|
-|GET /classes?runId=...|P1|本批可見班級、科別、去重學生數、設定狀態|
+|GET /classes?runId=...|P1|本批可見班級、科別、去重學生數、設定狀態；**明確帶 runId 時讀該 run 當時的設定快照，快照缺失回 `snapshotStatus:"unavailable"` 與各班 `mappingStatus:"undetermined"`（無法判定，不猜）；未帶 runId 維持讀最新已存設定（§5.2）**|
 |GET /students?runId=...&classId=...&q=...|P1|學生總表與篩選；分頁，limit 預設 50、最大 200|
 |GET /students/{personCode}/calculation?runId=...&classId=...|P1|八欄、課程適用率、解釋與來源；無匹配 404|
 |GET /settings/classes|P1|可維護班級定義含 revision|
@@ -105,7 +107,8 @@ P1 整批重算可接受，5000 筆規模未證明有瓶頸前不實作複雜增
 |GET /settings/schedules|P1|排課版本及時段|
 |POST /settings/schedules|P1|建立新設定版本與 run；帶 expectedRevision，失敗保留舊版|
 |GET /runs/{runId}/issues|P1|可按學生／班級／規則篩選問題|
-|GET /runs/{runId}/comparison|P1|唯讀診斷；`againstRuleSet` 白名單目前只接受 excel-v260922-compat，其餘回 400。詳見本節後段|
+|GET /runs/{runId}/comparison|P1|唯讀診斷；`againstRuleSet` 白名單目前只接受 excel-v260922-compat，其餘回 400。**以該 run 的設定快照（別名＋時段覆寫）重算，快照缺失回 409 SNAPSHOT_UNAVAILABLE，不改用最新設定或 seed 補算（§5.2）**。詳見本節後段|
+|GET /settings/class-name-report|P1|班名比對報告（唯讀）；參數 `runId`／`importId`，見 §5.2.4|
 |GET /imports/{previewId}/students|P1|ready 批次預覽名單；與正式查詢共用篩選工具，但只接受不依賴計算的參數，其餘回 400。詳見本節後段|
 |GET /exports/review.csv?runId=...|P2|指定篩選核對清單，防公式注入|
 |GET /openapi.json|P2|正式機器可讀契約；P1 先以此文件與契約測試維護|
@@ -242,6 +245,47 @@ ERP token 可有明確離班日期，依使用者決策只顯示不排除。財�
 
 - 整合測試：`web/tests/integration/multivalue-query-nocourse.test.ts`（涵蓋超過 200 人後頁選項、同學生兩班去重、OR+AND、0/null、全部取消、切換 run、cursor 條件防禦、邊界案例與無課程一致性）。
 - 效能以根 CLAUDE.md §8 為門檻：477 人全量合成名冊的多值篩選與 options 查詢，暖機後 10 次 p95 ≤ 200 ms。實測值屬各 PR 的公開驗證紀錄（每次量測會浮動），不寫成本規格的承諾數字。唯讀 GET 不對資料庫產生任何寫入。
+
+### 5.2 規則版本入口、設定快照讀取與班名比對報告（D1）
+
+依 [06 D40](06-handoff-decisions.md)（operator 2026-09-30 裁決，decision `d-20260930112930661160-25`）；D1 只改「版本與快照從哪裡讀」，v1／v2／compat 的計算輸出逐欄不變（驗收 [04 UX34](04-tdd-acceptance.md)）。
+
+#### 5.2.1 規則版本由 server 決定（F-1／F-2／F-3）
+
+- **單一解析器** `application/rule-set-resolver`：`resolveFormalRuleSetVersion(db)`＝有 active run 且其版本為正式軌則採其值，否則（無 active run，或 active run 為診斷軌 compat）採現行正式軌 `erp-tag-v2`。名單差異、班級扣天、calculate、preview、activate 都經它取得版本；client 一律不得指定。
+- **activate**：body 不得含 `ruleSetVersion`（route 與 application 層皆拒絕；HTTP 400 `INVALID_REQUEST`，與 calculate 一致）。新 run 的版本＝`resolveFormalRuleSetVersion(db)`（在與 CAS 同一交易內解析）：現行 run 為 v1 則新 run 沿用 v1，不會靜默變成 v2。冪等雜湊只由 `{importId, expectedRevision, asOfDate}` 決定；D1 之前寫入的紀錄（雜湊含 `ruleSetVersion:"erp-tag-v2"`）同 key 同內容的重送仍回原結果。
+- **preview／apply**：`settings_previews.target_rule_set_version`（migration 0007，nullable）記錄 preview 當下由 server 決定的版本（含 settings_only）；apply **只讀這個欄位**建立新 run（`resolveRuleSetForApply`）。欄位為 NULL（0007 之前建立的舊 preview；TTL 15 分鐘，實務上幾乎不存在）＝「建立當時的 active 版本」：apply 與 preview 之間有 revision CAS，active 沒變，所以等於 apply 當下 server 解析的值。記錄值不是正式軌版本（含診斷軌 compat、未知字串）→ 500 `PREVIEW_CORRUPTED`，不建 run、不動 active。
+- **能力旗標**：`domain/billing/rule-set` 的 `ruleSetCapabilities(version)` 逐版明列 `sameWeekdayOnly`、`unknownWeekdayWarning`、`scheduleIncompleteOnUnknownWeekday`；原本散在各處、會改變行為的 4 處 `=== 'erp-tag-v2'` 字面比較（billing-calculator 3 處、schedule-preview 1 處）一律改讀旗標。未列出的版本（含 compat、未知字串）全關＝與舊語意相同。D1 不新增 `erp-tag-v3` 型別成員，也不改 `CURRENT_FORMAL_RULE_SET_VERSION`。**D2 新增版本時須逐項明列旗標值，並稽核未進旗標的預設值字面**（預設值字面共 7 處：`calculate-run.ts` 1、`roster-changes.ts` 3、`comparison/route.ts` 1、`billing-calculator.ts` 2；另 `roster-changes.ts` 的 `classSide` 以 `!== 'excel-v260922-compat'` 決定同星期規則——對 v1 與 calculator 的純時刻比對不一致，D1 依「除 F-1／2／3／5／6／7 外不改任何輸出」原樣保留，交 D2 處置）。
+
+#### 5.2.2 歷史 run 一律讀該 run 的設定快照（F-5／F-6／F-7）
+
+run 的設定快照＝`run.scheduleVersionId`：`seed-v250922`（該 run 沒有任何已儲存設定，以 seed 課表計算，不帶別名與時段覆寫）或 `settings_versions.id`。`application/run-snapshot` 的 `loadRunSnapshot` 是所有「讀歷史 run」入口的共用載入函式；快照缺失（設定版本不存在）＝無法判定，**不改用最新設定、也不退回 seed 猜**。
+
+- `GET /runs/{runId}/comparison`：以快照的別名與時段覆寫，重算正式軌與診斷軌；缺失回 409 `SNAPSHOT_UNAVAILABLE`（與 `GET /settings/deductions` 既有契約相同）。
+- `GET /classes?runId=`：`settingsScope:"run_snapshot"`、`snapshotStatus:"ok"|"unavailable"`；未帶 runId 時 `settingsScope:"latest_settings"`（維持讀最新已存設定，尚無才用 seed）。
+- `roster-changes` 逐班明細（匯入異動）：`classSide` 與 calculator 對「課表來源」的判斷一致——帶 `scheduleOverride`（已有儲存設定）時以其全量 draft 為唯一來源、不退回 seed，否則用 seed（`classMapFor`）。
+
+#### 5.2.3 已存設定 JSON 的單一讀取入口與版本界線（F-11）
+
+`settings_versions.content_json`（與 `settings_previews.draft_json`）只經 `readStoredDraft(json)` 讀取；先前 7 處各自 `JSON.parse(contentJson) as SettingsDraft`（繞過 zod）已收斂，並以 src 掃描測試防止回頭。D1 的 `readStoredDraft` **不改形狀**（不補預設、不去除未知欄位、不改欄位順序），否則 `draftHash`（＝sha256(JSON.stringify(draft))，對欄位順序敏感；不在 D1 範圍，F-12）會與 D1 前不同。版本界線規則（D2 新增設定欄位時遵守）：
+
+1. v1／v2 的計算與讀取永遠不讀新欄位；
+2. 欄位缺失＝自動偵測，只在新規則版本讀取當下解析，不回寫舊快照；
+3. 新快照一律寫出完整欄位；
+4. 新規則版本的 run 建立時，把「實際採用的類別」寫入 `run_class_categories`，之後不再重新偵測（舊 run 不重新分類）。
+
+#### 5.2.4 migration 0007（純增量）與班名比對報告
+
+- migration `0007_rule_set_target_and_run_class_categories.sql`：`settings_previews.target_rule_set_version TEXT`（nullable）與空表 `run_class_categories(run_id, base_name, category, fixed_five_days, mapped, source)`（PK `(run_id, base_name)`，`run_id` 外鍵 `ON DELETE CASCADE`）。D1 不寫入 `run_class_categories`；不重寫、搬移、刪除任何既有列。`getDatabase()` 首次讀取即自動套用 migration，故驗收含 fresh DB 與升級 DB（舊資料逐列不變）、可重跑、故障整段 rollback（[04 UX42](04-tdd-acceptance.md)）。
+- **班名比對報告**（`application/class-name-match-report`，純資料比對，與規則版本無關；分類沿用 `classifyErpDualTrack`，與課表設定「班名對應」、匯入預覽待確認班名同源同判斷）：
+  - 「米豆奶有／系統無」`rosterOnly`：名冊班名既不是設定裡的班、也沒有被別名解析到設定裡的班；每班附去重學生數與報名筆數；排序依學生數遞減、再依班名。`rosterOnlyStudents` 為涵蓋的不重複學生數（同一人在多班只算 1）。
+  - 「系統有／本次名冊無」`systemOnly`：設定裡的班，名冊沒有以該班名**直接**報名者；附 `active`、`aliasCoveredBy`（本次名冊中被別名對到該班的名稱）與 `previousRosterStudents`。**別名不對稱**：米豆奶側，被別名對到系統班的名稱算「已對應」；系統側，只有別名覆蓋而名冊沒有直接報名的班仍列出（不掩蓋真相，01 §4.3）。
+  - **上一份名單**（Q12-b，漂移參考）：`resolvePreviousRosterImportId`——importId 不是現行名單且有現行名單→現行名單；importId 就是現行名單或沒有現行名單→比它更早建立的最近一份 ready 名單；沒有→`null`。`previousRosterStudents` 與 `systemOnlyPreviousRosterStudents` 是該班／各班在上一份名單的**去重人數**，並帶 `previousRoster{importId,fileName,createdAt}` 註明來源；沒有上一份名單時為 `null`（不寫 0）。
+  - 範圍：`{kind:"latest"}`＝最新已存設定（尚無才 seed）；`{kind:"run",runId}`＝該 run 的設定快照，缺失→`snapshotStatus:"unavailable"`，清單與計數皆 `null`（無法判定，不是空清單）。
+  - `GET /api/v1/settings/class-name-report?runId=&importId=`：唯讀；未知參數 400 `INVALID_QUERY`；`runId` 未知 404 `RUN_NOT_FOUND`；`importId` 未知或資料庫沒有任何名單 404 `IMPORT_NOT_FOUND`；`runId` 與 `importId` 指向不同名單 400 `INVALID_QUERY`；預設名冊＝現行名單，其次最新 ready 批次。
+  - `POST /imports/preview` 回應新增 `classNameReport` 摘要：`{importId, rosterOnlyClassCount, rosterOnlyStudentCount, systemOnlyClassCount, systemOnlyPreviousRosterStudentCount, previousRoster, reportPath}`，`reportPath＝/settings?tab=mapping&import=<batchId>`；既有 `pendingClasses` 不變。課表設定頁以 `?import=<批次 id>`（須為 ready 批次）檢視該批名單的班名對應；儲存設定仍以現行名單為準。
+  - D1 的報告與摘要不含「類別」（類別屬 D2）。
+- **類別偵測純函式**（`domain/classification/class-category`，**未接線**，D2 才使用）：`detectClassCategory`、`detectFixedFiveDays`、`detectClassAttributes`；規則見 [06 D40](06-handoff-decisions.md)（Q1 寫功課優先、Q2 包含式、Q7-A 固定 5 天）。
 
 ## 6. Agent 使用邊界
 

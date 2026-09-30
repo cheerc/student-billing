@@ -28,6 +28,31 @@ export interface SettingsPreviewRecord {
   resultJson: string;
   createdAt: string;
   expiresAt?: string | null;
+  /**
+   * preview 當下由 server 決定的目標規則版本（migration 0007；D1 F-3）。apply 只讀這個值建 run。
+   * null／未記錄＝0007 之前建立的舊 preview（見 resolveRuleSetForApply）。
+   */
+  targetRuleSetVersion?: string | null;
+}
+
+/**
+ * 已存設定 JSON（settings_versions.content_json）唯一的讀取入口（D1 F-11；03 §4.2）。
+ *
+ * 之前有 7 處各自 `JSON.parse(x.contentJson) as SettingsDraft`，全部繞過 zod。之後設定草稿新增欄位時，
+ * 舊 JSON 沒有這些欄位、且 `.default()` 不會套用在這種讀取上，每個讀取點會各自處理「欄位缺失」。
+ * 收斂成單一入口後，欄位缺失的處理只有一處。
+ *
+ * 版本界線規則（D1 定案，寫入 03）：
+ *  1. v1／v2 的計算與讀取永遠不讀新欄位；
+ *  2. 欄位缺失＝自動偵測，只在（D2 之後的）新規則版本讀取當下解析，不回寫舊快照；
+ *  3. 新快照一律寫出完整欄位；
+ *  4. 新規則版本的 run 建立時，把「實際採用的類別」寫入 run_class_categories，之後不再重新偵測。
+ * D1 沒有新欄位，因此本函式「不改形狀」：不補預設、不去除未知欄位、不改變欄位順序——
+ * 否則 deductions 回傳的 draftHash（＝sha256(JSON.stringify(draft))）會與 D1 前不同。
+ * 無效 JSON 與原本一致，拋出 SyntaxError（不吞錯、不回預設）。
+ */
+export function readStoredDraft(contentJson: string): SettingsDraft {
+  return JSON.parse(contentJson) as SettingsDraft;
 }
 
 export function hashSettingsDraft(draft: SettingsDraft): string {
@@ -96,6 +121,7 @@ export function getSettingsPreview(
     resultJson: row.result_json,
     createdAt: row.created_at,
     expiresAt: row.expires_at ?? null,
+    targetRuleSetVersion: row.target_rule_set_version ?? null,
   };
 }
 
@@ -103,41 +129,26 @@ export function saveSettingsPreview(
   db: Database.Database,
   record: SettingsPreviewRecord
 ): void {
-  const cols = db.prepare("PRAGMA table_info(settings_previews)").all() as Array<{ name: string }>;
-  const hasExpiresAt = cols.some((c) => c.name === 'expires_at');
+  const existing = new Set((db.prepare("PRAGMA table_info(settings_previews)").all() as Array<{ name: string }>).map((c) => c.name));
 
-  if (hasExpiresAt) {
-    db.prepare(
-      `INSERT INTO settings_previews
-        (preview_id, input_hash, draft_json, expected_revision, settings_version_id, import_id, result_json, created_at, expires_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
-    ).run(
-      record.previewId,
-      record.inputHash,
-      record.draftJson,
-      record.expectedRevision,
-      record.settingsVersionId,
-      record.importId,
-      record.resultJson,
-      record.createdAt,
-      record.expiresAt ?? null
-    );
-  } else {
-    db.prepare(
-      `INSERT INTO settings_previews
-        (preview_id, input_hash, draft_json, expected_revision, settings_version_id, import_id, result_json, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
-    ).run(
-      record.previewId,
-      record.inputHash,
-      record.draftJson,
-      record.expectedRevision,
-      record.settingsVersionId,
-      record.importId,
-      record.resultJson,
-      record.createdAt
-    );
-  }
+  const columns: Array<[string, unknown]> = [
+    ['preview_id', record.previewId],
+    ['input_hash', record.inputHash],
+    ['draft_json', record.draftJson],
+    ['expected_revision', record.expectedRevision],
+    ['settings_version_id', record.settingsVersionId],
+    ['import_id', record.importId],
+    ['result_json', record.resultJson],
+    ['created_at', record.createdAt],
+  ];
+  // 較舊 schema（0005／0007 之前）沒有的欄位不寫，維持既有的相容行為
+  if (existing.has('expires_at')) columns.push(['expires_at', record.expiresAt ?? null]);
+  if (existing.has('target_rule_set_version')) columns.push(['target_rule_set_version', record.targetRuleSetVersion ?? null]);
+
+  db.prepare(
+    `INSERT INTO settings_previews (${columns.map(([name]) => name).join(', ')})
+     VALUES (${columns.map(() => '?').join(', ')})`
+  ).run(...columns.map(([, value]) => value));
 }
 
 export function saveSettingsVersion(

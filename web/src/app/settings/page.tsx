@@ -1,10 +1,11 @@
 import { getDatabase } from '@/adapters/sqlite';
 import { getLatestReadyBatch } from '@/adapters/sqlite/import-repository';
 import { getCurrentActiveRun } from '@/adapters/sqlite/runs-repository';
-import { getLatestSettingsVersion, buildSeedDraft } from '@/adapters/sqlite/settings-repository';
+import { getLatestSettingsVersion, buildSeedDraft, readStoredDraft } from '@/adapters/sqlite/settings-repository';
 import { SEED_CLASSES, classifyErpDualTrack } from '@/domain/schedules/seed-manifest';
 import { SettingsDraft } from '@/contracts/settings';
 import SettingsEditor from '@/components/settings-editor';
+import { getClassNameMatchReport } from '@/application/class-name-match-report';
 
 export const dynamic = 'force-dynamic';
 
@@ -22,11 +23,18 @@ export default async function SettingsPage({
   const latestBatch = getLatestReadyBatch(db);
   const importId = active.activeImportId ?? latestBatch?.id ?? null;
   const hasActiveImport = Boolean(active.activeImportId);
+  // 班名對應要檢視的名單：預設＝現行名單（無則最新一批）；網址 ?import= 指定另一批（匯入預覽「完整班名比對報告」連結，
+  // 名單尚未啟用也能看）。只影響班名對應的統計與報告；儲存設定仍以現行名單為準（editor 的 importId 不變）。
+  const requestedImportId = first(sp.import)?.trim() || null;
+  const requestedBatchExists = requestedImportId
+    ? Boolean(db.prepare("SELECT 1 FROM import_batches WHERE id = ? AND status = 'ready'").get(requestedImportId))
+    : false;
+  const reviewImportId = requestedBatchExists ? requestedImportId : importId;
 
   let erpBaseNames: string[] = [];
   const candidateCounts = new Map<string, { studentCount: number; tokenCount: number }>();
 
-  if (importId) {
+  if (reviewImportId) {
     const enrollmentRows = db
       .prepare(
         `SELECT base_name,
@@ -34,7 +42,7 @@ export default async function SettingsPage({
                 COUNT(DISTINCT person_code) AS student_count
            FROM student_enrollments WHERE import_id = ? GROUP BY base_name`
       )
-      .all(importId) as Array<{ base_name: string; token_count: number; student_count: number }>;
+      .all(reviewImportId) as Array<{ base_name: string; token_count: number; student_count: number }>;
     erpBaseNames = enrollmentRows.map((r) => r.base_name);
     for (const r of enrollmentRows) {
       candidateCounts.set(r.base_name, {
@@ -46,7 +54,7 @@ export default async function SettingsPage({
 
   const latest = getLatestSettingsVersion(db);
   const initialDraft: SettingsDraft = latest
-    ? (JSON.parse(latest.contentJson) as SettingsDraft)
+    ? readStoredDraft(latest.contentJson)
     : buildSeedDraft(SEED_CLASSES, {
         anqin: { start: 780, end: 960 },
         tutoring: { start: 990, end: 1170 },
@@ -61,6 +69,11 @@ export default async function SettingsPage({
     candidateCounts
   );
 
+  // 班名比對報告：與 dualTrack 同一份設定（最新已儲存設定，尚無才是 seed）、同一份名單，兩處數字同源
+  const classNameReport = reviewImportId
+    ? getClassNameMatchReport(db, { importId: reviewImportId, scope: { kind: 'latest' } })
+    : null;
+
   return (
     <div className="settings-page-container">
       <SettingsEditor
@@ -68,7 +81,7 @@ export default async function SettingsPage({
         currentRevision={active.revision}
         initialDraft={initialDraft}
         unmatched={dualTrack.activeView.unmatched}
-        seedNotAppeared={dualTrack.activeView.seedNotAppeared}
+        classNameReport={classNameReport}
         matchedCount={dualTrack.activeView.matchedCount}
         candidates={dualTrack.candidates}
         lastAppliedRevision={latest?.revision ?? active.revision}

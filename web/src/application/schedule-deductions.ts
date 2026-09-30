@@ -5,18 +5,15 @@ import {
   draftToAliasMap,
   draftToScheduleOverride,
   getLatestSettingsVersion,
-  getSettingsVersionById,
   hashSettingsDraft,
+  readStoredDraft,
 } from '@/adapters/sqlite/settings-repository';
 import { getCalculationRun, getCurrentActiveRun } from '@/adapters/sqlite/runs-repository';
 import { SEED_SCHEDULE_VERSION_ID } from './calculate-run';
-import {
-  buildSchedulePreview,
-  isFormalRuleSetVersion,
-  resolveFormalRuleSetVersion,
-  SchedulePreviewCore,
-  SchedulePreviewError,
-} from './schedule-preview';
+import { buildSchedulePreview, SchedulePreviewCore, SchedulePreviewError } from './schedule-preview';
+import { isFormalRuleSetVersion } from '@/domain/billing/rule-set';
+import { resolveFormalRuleSetVersion } from './rule-set-resolver';
+import { loadRunSnapshot } from './run-snapshot';
 
 /**
  * GET /api/v1/settings/deductions（09 §8.1、§5.2）：班級扣天的固定快照，只讀不寫。
@@ -34,26 +31,6 @@ export interface DeductionsResponse extends SchedulePreviewCore {
   /** 設定版本的 revision；seed 為 null */
   settingsRevision: number | null;
   draftHash: string;
-}
-
-interface Snapshot {
-  draft: SettingsDraft;
-  scheduleVersionId: string;
-  settingsRevision: number | null;
-}
-
-/** 以 run 的 scheduleVersionId 還原當時課表；資料不足（設定版本不存在）回 null。 */
-function loadRunSnapshot(db: Database.Database, scheduleVersionId: string): Snapshot | null {
-  if (scheduleVersionId === SEED_SCHEDULE_VERSION_ID) {
-    return { draft: buildSeedDraft(), scheduleVersionId, settingsRevision: null };
-  }
-  const version = getSettingsVersionById(db, scheduleVersionId);
-  if (!version) return null;
-  return {
-    draft: JSON.parse(version.contentJson) as SettingsDraft,
-    scheduleVersionId: version.id,
-    settingsRevision: version.revision,
-  };
 }
 
 function respondForRun(db: Database.Database, runId: string, scope: 'run' | 'active_run'): DeductionsResponse {
@@ -100,7 +77,7 @@ export function getScheduleDeductions(db: Database.Database, options: { runId?: 
   const latest = getLatestSettingsVersion(db);
   const ruleSetVersion = resolveFormalRuleSetVersion(db);
   if (latest) {
-    const draft = JSON.parse(latest.contentJson) as SettingsDraft;
+    const draft = readStoredDraft(latest.contentJson);
     return {
       scope: 'saved_settings',
       runId: null,

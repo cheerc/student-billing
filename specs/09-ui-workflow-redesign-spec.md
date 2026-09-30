@@ -2,7 +2,7 @@
 
 日期：2026-09-29。設計基準：origin/main `25e0ebf`；PR #22 合併後（`66d6371`）依[review意見](https://github.com/cheerc/student-billing/pull/22#issuecomment-5885578455)對照`web/src`修正§3、§8，引用現況處附path:line（行號為`66d6371`）。方向依[06 D33](06-handoff-decisions.md)。狀態：R0–R5 已依[10](10-ui-workflow-redesign-plan.md)交付並合併（驗收見[progress](progress/ui-redesign-acceptance.md)）。
 
-> 2026-09-30修訂（[11](11-ui-acceptance-fix-plan.md) PR-0）：operator第一次人工驗收後，§2、§3.1、§3.2、§3.3、§4、§5.1、§5.2、§7依[06 D34–D39](06-handoff-decisions.md)改寫為**目標契約**。標「（目標，11 X）」處尚未實作到產品，以11對應批次（A、B1、B2、C、D）合併為完成；標「（11 B2 已實作）」「（11 C 已實作）」處為該批落地的現況；未標者為已交付現況。
+> 2026-09-30修訂（[11](11-ui-acceptance-fix-plan.md) PR-0）：operator第一次人工驗收後，§2、§3.1、§3.2、§3.3、§4、§5.1、§5.2、§7依[06 D34–D39](06-handoff-decisions.md)改寫為**目標契約**。標「（目標，11 X）」處尚未實作到產品，以11對應批次（A、B1、B2、C、D）合併為完成；標「（11 B2 已實作）」「（11 C 已實作）」「（11 D1 已實作）」處為該批落地的現況；未標者為已交付現況。
 
 ## 1. 目的、範圍與依據
 
@@ -83,11 +83,19 @@
 
 ### 3.3 班名對應
 
-呈現ERP班名、去重學生數、系統班級選擇、狀態。用「ERP班名 → 系統班級」，不顯alias/baseName。D32建議目標維持空白，由人員選擇；動態差集與已對齊隱藏保留，禁止模糊自動批准。區分「選現有班級」與「建立新班級」。本次未出現班級放可展開次區，不自動停用。
+呈現ERP班名、去重學生數、系統班級選擇、狀態。用「ERP班名 → 系統班級」，不顯alias/baseName。D32建議目標維持空白，由人員選擇；動態差集與已對齊隱藏保留，禁止模糊自動批准。區分「選現有班級」與「建立新班級」。本次未出現班級列在「系統有／本次名冊無」清單（預設展開，見下），不自動停用。
 
 對應與課表同一草稿、同一次影響預覽／交易，保留改散與失效警告。數量標班名數，不與學生／報名筆數混用。
 
-**班名比對報告（目標，11 D；D37第4點）**：「班名對應」頁籤改為兩份清單並排、預設展開——「米豆奶有／系統無」與「系統有／本次名冊無」——各附影響人數。匯入預覽在「使用這份名單」前顯示兩份清單的數量與影響人數，並連到完整報告（§4）。兩份清單各自的範圍（本次米豆奶名冊／當前設定／指定歷史快照）、別名是否算匹配、去重人數、報告入口，待[11](11-ui-acceptance-fix-plan.md) S-D 9分析後於D批定稿；本文件不預先定義。D批交付前維持上段的現行行為。
+**班名比對報告（11 D1 已實作；D37第4點、[06 D40](06-handoff-decisions.md) Q12-b）**：「班名對應」頁籤最上方是「班名比對報告」區塊，兩份清單**並排、預設展開**（不收合、不需點擊）：
+
+- 左「米豆奶有／系統無」：標題下一行「N 個班，影響 M 位學生」；每班列米豆奶班名與「學生數（筆數）」。M 是涵蓋的**不重複**學生數（同一人在多班只算 1）。
+- 右「系統有／本次名冊無」：標題下一行「N 個班」；每班列系統班名、上一份名單該班的人數與備註（已停用；由哪些別名覆蓋）。人數是**上一份名單**（漂移參考）該班的不重複學生數，並註明來源（檔名、建立時間）；沒有上一份名單時不顯示人數，明說「沒有上一份名單可參考」，不寫 0。
+- **別名不對稱**以文字說明：已建立別名對應的米豆奶班名在左邊算「已對應」；右邊只看名冊有沒有直接用該班名報名，所以只靠別名覆蓋、名冊沒有直接報名的系統班仍列在右邊並標出由哪些別名覆蓋。
+- 「上一份名單」的規則：檢視的名單不是現行名單且有現行名單→現行名單；檢視的名單就是現行名單或沒有現行名單→比它更早建立的最近一份 ready 名單（[03 §5.2.4](03-architecture-api.md)）。
+- 範圍：檢視的名單預設為現行名單（無則最新一批），網址 `?import=<批次 id>` 可指定另一批（尚未啟用的新上傳也可看，儲存設定仍以現行名單為準）；設定範圍為最新已儲存設定（尚無才是 seed）。歷史 run 的快照範圍由 `GET /api/v1/settings/class-name-report?runId=` 提供，快照缺失時回「無法判定」，畫面不猜。
+- **D1 的報告不顯示「類別」**（類別是 D2 的設定與計算功能）。
+- 報告下方保留既有「待確認米豆奶班名」可編輯表（建立對應）；原「本次名單未出現的班級」收合區由右清單取代。窄螢幕（≤720px）兩份清單改上下排列。
 
 ## 4. 匯入學生
 
@@ -98,7 +106,7 @@
 **無課程人數與比對摘要（目標，11 B1／B2／D）**：
 
 - **無課程**（D38）：預覽以顯眼提示顯示「無課程」人數——米豆奶名冊中沒有任何班級的學生——並提示使用者至米豆奶辦理離籍。它是獨立計數，不併入「需確認」；與結果頁針對同一批資料，判定與人數相同。「無課程」只指零報名，精確判定（解析失敗、只有寫功課／交通車、有離班標記者都不算）見[03 §5.1](03-architecture-api.md)。
-- **比對摘要**（D37第4點）：「使用這份名單」前顯示§3.3兩份清單的數量與影響人數，並連到完整報告；細節待D批（[11](11-ui-acceptance-fix-plan.md) S-D 9）。
+- **比對摘要**（11 D1 已實作；D37第4點）：「使用這份名單」按鈕之前的「班名比對」摘要區塊顯示§3.3兩份清單的班數與影響人數（「米豆奶有／系統無：N 個班，影響 M 位學生」「系統有／本次名冊無：N 個班」，有上一份名單時附來源檔名與人數合計，沒有時明說），並以「查看完整班名比對報告」連到 `/settings?tab=mapping&import=<批次 id>`。兩處數字同源同判斷；既有「N 個班名待確認」提示不變。摘要不含「類別」。
 
 主按鈕「使用這份名單」在本頁接activate，不先返回首頁找另一顆啟用按鈕。顯示可確認的核對基準日；套用最新已儲存課表與班名對應（由server於activate解析，§8.2.1）；版本已變需重新確認。成功顯「已更新N位學生」＋「開始核對」。重傳同檔保留判重與用新課表重算能力。財務報表不是此入口的輸入。
 
@@ -232,7 +240,7 @@ tooltip短句、數值；hover/focus/click均可開、Esc可關。多步說明�
 
 現況：roster-view送出activate只帶expectedRevision／idempotencyKey／asOfDate（`web/src/components/roster-view.tsx:84-91`）；route只轉交asOfDate／scheduleVersionId／ruleSetVersion（`web/src/app/api/v1/imports/[previewId]/activate/route.ts:22-32`）；activateImport以此options呼叫executeCalculationRun（`activate-import.ts:112`），options沒有aliasMap／scheduleOverride（`web/src/application/calculate-run.ts:92-93,99-100`皆為undefined），scheduleVersionId預設`seed-v250922`（同檔28）。結果：「套用設定→匯入新名單→啟用」的新run計算退回seed課表、不套班名對應，且run.scheduleVersionId（同檔200）標成seed。D17要求照實呈現，這是靜默丟失人工設定。apply路徑則正確傳入（`web/src/application/apply-settings.ts:129-135`）。
 
-目標契約：**每一次**activate，server於同一交易內解析最新已儲存settings version（`getLatestSettingsVersion`，`settings-repository.ts:62-69`，取revision最大者，不依日期）：有則經draftToAliasMap／draftToScheduleOverride（同apply）計算，run.scheduleVersionId＝該version id；尚無任何已儲存設定才用seed（scheduleVersionId維持`seed-v250922`）。client傳入的scheduleVersionId一律忽略（現況它只被寫成run標籤，會讓run宣稱用了實際沒用的版本），冪等hash不含它。activate的ruleSetVersion維持現行可由client指定正式軌（既有測試`web/tests/integration/api-t06-routes.test.ts:157`依此驗erp-tag-v1不可變契約），本文件不改。activate與設定變更之間的競爭由revision CAS擋下（apply與settings_only皆遞增revision）。
+目標契約：**每一次**activate，server於同一交易內解析最新已儲存settings version（`getLatestSettingsVersion`，`settings-repository.ts:62-69`，取revision最大者，不依日期）：有則經draftToAliasMap／draftToScheduleOverride（同apply）計算，run.scheduleVersionId＝該version id；尚無任何已儲存設定才用seed（scheduleVersionId維持`seed-v250922`）。client傳入的scheduleVersionId一律忽略（現況它只被寫成run標籤，會讓run宣稱用了實際沒用的版本），冪等hash不含它。activate的ruleSetVersion原可由client指定正式軌；**11 D1 起改為 server 決定（[06 D40](06-handoff-decisions.md)）**：body 帶 `ruleSetVersion`（含 null）一律 400 `INVALID_REQUEST`，application 層也拒絕；新 run 的版本沿用現行 run 的正式軌版本，沒有現行 run 或現行 run 是診斷軌則用現行正式軌 erp-tag-v2；冪等 hash 不含版本（D1 前的紀錄同 key 同內容重送仍回原結果）。細節見[03 §5.2.1](03-architecture-api.md)，驗收 UX36。activate與設定變更之間的競爭由revision CAS擋下（apply與settings_only皆遞增revision）。
 
 `effectiveFrom／effectiveTo`現況只在apply寫入（`apply-settings.ts:121-122`），沒有任何選版或計算讀取，設定編輯器也無此欄；operator已決定窗口固定（D33），無需依日期選版，有效日期**不在範圍**：欄位保留於schema但不使用，本文件不描述、UI不提供有效日期能力；核對基準日asOfDate是既有概念（§2、§4），與有效日期無關。
 
@@ -265,7 +273,7 @@ dirty helper涵蓋班級／老師／星期／起迄／停用／班名對應；�
 
 ### 8.3 查詢與歷史
 
-維持run固定分頁、白名單。移除UI UNMAPPED_CLASSES固定集合做狀態判斷（`web/src/components/active-run-view.tsx:19,499`），改讀當前resolution／D32動態候選。不能把最新已批准的D30同星期規則退回舊v1。歷史UI只讀，不新增「恢復為現行」寫入功能。
+維持run固定分頁、白名單。**歷史 run 的讀取入口（班級扣天、待設定班級、comparison、`GET /classes?runId=`、班名比對報告的 run 範圍）一律讀該 run 當時的設定快照（`run.scheduleVersionId`），快照缺失＝無法判定，不改用最新設定或 seed 補算（11 D1 已實作；[03 §5.2.2](03-architecture-api.md)，驗收 UX38、UX39）。** 移除UI UNMAPPED_CLASSES固定集合做狀態判斷（`web/src/components/active-run-view.tsx:19,499`），改讀當前resolution／D32動態候選。不能把最新已批准的D30同星期規則退回舊v1。歷史UI只讀，不新增「恢復為現行」寫入功能。
 
 ## 9. 完成門檻
 

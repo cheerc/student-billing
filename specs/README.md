@@ -9,7 +9,7 @@ UI 重設（先課表 → 匯入 → 核對）R0–R5 已交付並合併，驗�
 - [11 第一次人工驗收修正 Plan](11-ui-acceptance-fix-plan.md)（PR-0、A、S、B1、B2、C、D 分批；決策見[06 D34–D39](./06-handoff-decisions.md)）
 - [可點選介面示意（合成資料）](design/ui-workflow-prototype.html)
 
-先課表 → 匯入 → 核對的方向記於[06 D33](./06-handoff-decisions.md)；操作介面契約見09，實作分批見10與11（執行計畫），驗收矩陣見[04 §8](./04-tdd-acceptance.md)。窗口固定、不可編輯，有效日期不在範圍（D33）；D24–D32計算決策不變，計算規則變更（D37）只走 11 的 D 批與新 ruleSet 版本。
+先課表 → 匯入 → 核對的方向記於[06 D33](./06-handoff-decisions.md)；操作介面契約見09，實作分批見10與11（執行計畫），驗收矩陣見[04 §8](./04-tdd-acceptance.md)。窗口固定、不可編輯，有效日期不在範圍（D33）；D24–D32計算決策不變，計算規則變更（D37）只走 11 的 D2 與新 ruleSet 版本（D 批依 [06 D40](./06-handoff-decisions.md) 拆為 D1 入口收斂與 D2 v3）。
 
 ## 閱讀順序
 

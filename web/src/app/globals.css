@@ -2408,3 +2408,63 @@ select {
 .leave-dialog .dialogfooter {
   justify-content: flex-end;
 }
+
+/* 班名比對報告（D1；04 §8 UX44–UX47）：兩份清單並排、預設展開；窄螢幕改上下排列 */
+.class-name-report-alias-note {
+  margin: 0;
+  padding: 12px 20px 0;
+}
+
+.class-name-report-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+  padding: 16px 20px 20px;
+  align-items: start;
+}
+
+.class-name-report-list h3 {
+  margin: 0 0 4px;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.class-name-report-list .note {
+  margin: 0 0 8px;
+}
+
+.class-name-report-empty {
+  padding: 16px;
+  text-align: center;
+  color: var(--text-muted);
+}
+
+@media (max-width: 720px) {
+  .class-name-report-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.class-name-report-summary {
+  margin: 16px 20px 0;
+  padding: 12px 20px;
+  background: #f8fafc;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  font-size: 13px;
+}
+
+.class-name-report-summary-title {
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+
+.class-name-report-summary ul {
+  margin: 0 0 8px;
+  padding-left: 20px;
+}
+
+.class-name-report-summary-link {
+  color: var(--primary-color);
+  font-weight: 600;
+}

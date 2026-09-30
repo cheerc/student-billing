@@ -1,4 +1,4 @@
-import { calculateStudentBilling, resolveClassSessions, CalculationOptions } from '@/domain/billing/billing-calculator';
+import { calculateStudentBilling, classMapFor, resolveClassSessions, CalculationOptions } from '@/domain/billing/billing-calculator';
 import { calculateClassDeductionD24 } from '@/domain/schedules/overlap-calculator';
 import { StudentSnapshot } from '@/domain/students';
 
@@ -135,7 +135,9 @@ type Token = StudentSnapshot['enrollments'][number];
 
 /** 單一報名 token 在某一側（名單＋課表 context）的逐班扣天數；token 不在該側名單時 status='no_enrollment'。 */
 function classSide(token: Token | undefined, ctx: RosterChangeContext) {
-  const resolved = resolveClassSessions(token, ctx.aliasMap, ctx.scheduleOverride);
+  // 班級來源與 calculator 一致（D1 F-7）：帶 scheduleOverride＝已有儲存設定，其全量 draft 是唯一來源、不退回 seed；
+  // 否則用 seed。之前這裡沒帶 classMap（預設 seed），會與 calculator 對同一位學生的判斷互相矛盾。
+  const resolved = resolveClassSessions(token, ctx.aliasMap, ctx.scheduleOverride, classMapFor(ctx));
   if (!token || resolved.status !== 'calculated') {
     return { status: resolved.status, anqin: null as number | null, tutoring: null as number | null };
   }

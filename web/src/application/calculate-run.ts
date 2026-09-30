@@ -8,6 +8,7 @@ import {
   getLatestSettingsVersion,
   draftToAliasMap,
   draftToScheduleOverride,
+  readStoredDraft,
 } from '@/adapters/sqlite/settings-repository';
 
 /** 尚無任何已儲存設定時的課表版本 id（seed 預設課表）。 */
@@ -41,7 +42,7 @@ export function resolveLatestSavedSettings(
   if (!latest) {
     return { scheduleVersionId: SEED_SCHEDULE_VERSION_ID };
   }
-  const draft = JSON.parse(latest.contentJson) as SettingsDraft;
+  const draft = readStoredDraft(latest.contentJson);
   return {
     scheduleVersionId: latest.id,
     aliasMap: draftToAliasMap(draft),

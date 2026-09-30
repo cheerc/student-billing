@@ -18,6 +18,8 @@ import {
 } from '@/domain/schedules/overlap-calculator';
 import seedData from '@/domain/schedules/schedule-seed.json';
 import type { CareStatus } from './care-status';
+import { FormalRuleSetVersion, ruleSetCapabilities } from '@/domain/billing/rule-set';
+import { resolveFormalRuleSetVersion } from './rule-set-resolver';
 
 /**
  * 唯讀計算 read model（09 §8.1／04 §8 UX05–UX08、UX19、UX24）。
@@ -32,12 +34,6 @@ import type { CareStatus } from './care-status';
  * 「存檔等價 draft」（toSaveEquivalentDraft：去掉不完整列與 rowId，同 gridRowsToClasses 存檔的結果）計算，
  * 所以預覽數字等於這份設定存檔後 run 的數字。
  */
-
-/** 正式軌 ruleSetVersion（診斷軌 excel-v260922-compat 不作正式值，根 CLAUDE.md §2）。 */
-export type FormalRuleSetVersion = 'erp-tag-v1' | 'erp-tag-v2';
-const FORMAL_RULE_SET_VERSIONS: ReadonlySet<string> = new Set<FormalRuleSetVersion>(['erp-tag-v1', 'erp-tag-v2']);
-/** 現行正式軌。 */
-export const CURRENT_FORMAL_RULE_SET_VERSION: FormalRuleSetVersion = 'erp-tag-v2';
 
 export type { CareStatus };
 
@@ -159,29 +155,6 @@ export function careWindowsMatchRuleSet(draft: Pick<SettingsDraft, 'careWindows'
 export const CARE_WINDOWS_MISMATCH_MESSAGE =
   'careWindows 與系統固定窗口不同：安親（週一至五 13:00–16:00）與課輔（週一至五 16:30–19:30）窗口固定不可編輯，請帶系統窗口值。';
 
-/**
- * 由 server 決定的正式軌 ruleSetVersion（09 §8.1）：有 active run 且其版本為正式軌則採其值；
- * 否則（無 active run，或 active run 為診斷軌 compat）採現行正式軌 erp-tag-v2。client 不得指定。
- */
-export function resolveFormalRuleSetVersion(db: Database.Database): FormalRuleSetVersion {
-  const active = db.prepare('SELECT active_run_id FROM active_state WHERE id = 1').get() as
-    | { active_run_id: string | null }
-    | undefined;
-  if (active?.active_run_id) {
-    const run = db.prepare('SELECT rule_set_version FROM calculation_runs WHERE id = ?').get(active.active_run_id) as
-      | { rule_set_version: string }
-      | undefined;
-    if (run && FORMAL_RULE_SET_VERSIONS.has(run.rule_set_version)) {
-      return run.rule_set_version as FormalRuleSetVersion;
-    }
-  }
-  return CURRENT_FORMAL_RULE_SET_VERSION;
-}
-
-export function isFormalRuleSetVersion(v: string): v is FormalRuleSetVersion {
-  return FORMAL_RULE_SET_VERSIONS.has(v);
-}
-
 const normZero = (n: number): number => (n === 0 ? 0 : n);
 
 /**
@@ -245,7 +218,7 @@ function aggregateStatus(a: {
  * 每個 draft 班級、每一個輸入列都有結果（不漏掉不能計算的班／列）；班級不在 draft 內不會出現（run 端落 schedule_not_found）。
  */
 export function buildSchedulePreview(draft: CalculateDraft, ruleSetVersion: FormalRuleSetVersion): SchedulePreviewCore {
-  const options: RuleSetOptions = { sameWeekdayOnly: ruleSetVersion === 'erp-tag-v2' };
+  const options: RuleSetOptions = { sameWeekdayOnly: ruleSetCapabilities(ruleSetVersion).sameWeekdayOnly };
   // 與 run 計算（apply／activate）同一個轉換，且輸入是存檔等價 draft：停用、空 sessions 皆為空覆寫（不扣天，09 §8.2.4）
   const override = draftToScheduleOverride(toSaveEquivalentDraft(draft));
 

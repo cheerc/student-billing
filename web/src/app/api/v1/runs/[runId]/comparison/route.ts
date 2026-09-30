@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getDatabase } from '@/adapters/sqlite';
 import { getCalculationRun } from '@/adapters/sqlite/runs-repository';
+import { draftToAliasMap, draftToScheduleOverride } from '@/adapters/sqlite/settings-repository';
+import { loadRunSnapshot } from '@/application/run-snapshot';
 import { calculateStudentBilling } from '@/domain/billing/billing-calculator';
 import { StudentSnapshot, ParsedToken } from '@/domain/students';
 import { sanitizePathParam, maskSensitiveInfo, SecurityError } from '@/contracts/security';
@@ -34,6 +36,24 @@ export async function GET(
     if (!run) {
       return NextResponse.json({ error: `找不到 run: ${runId}` }, { status: 404 });
     }
+
+    // 以該 run 當時的設定快照重算（D1 F-5）：alias 與時段覆寫與 run 實際計算所用的一致；
+    // seed 課表的 run（scheduleVersionId＝seed-v250922）不帶覆寫。快照缺失就回 409，不改用最新設定或 seed 補算
+    //（與 schedule-deductions 的既有契約相同）。
+    const snapshot = loadRunSnapshot(db, run.scheduleVersionId);
+    if (!snapshot) {
+      return NextResponse.json(
+        {
+          error: `找不到該 run 當時的課表快照（版本 ${run.scheduleVersionId}）：資料不足，無法重建，不會改用最新設定補算。`,
+          code: 'SNAPSHOT_UNAVAILABLE',
+        },
+        { status: 409 }
+      );
+    }
+    const isSeedSnapshot = snapshot.settingsRevision === null;
+    const snapshotContext = isSeedSnapshot
+      ? {}
+      : { aliasMap: draftToAliasMap(snapshot.draft), scheduleOverride: draftToScheduleOverride(snapshot.draft) };
 
     // 讀取該批次學生與報名
     const studentRows = db
@@ -84,8 +104,8 @@ export async function GET(
       };
 
       const formalRuleSet = (run.ruleSetVersion as any) || 'erp-tag-v2';
-      const formal = calculateStudentBilling(student, { ruleSetVersion: formalRuleSet });
-      const compat = calculateStudentBilling(student, { ruleSetVersion: 'excel-v260922-compat' });
+      const formal = calculateStudentBilling(student, { ruleSetVersion: formalRuleSet, ...snapshotContext });
+      const compat = calculateStudentBilling(student, { ruleSetVersion: 'excel-v260922-compat', ...snapshotContext });
 
       // 比較基本折扣率差異
       if (formal.baseDiscountBps !== compat.baseDiscountBps) {

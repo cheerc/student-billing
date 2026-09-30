@@ -16,6 +16,7 @@ import {
 } from '@/contracts/settings';
 import { DynamicCandidate } from '@/domain/schedules/seed-manifest';
 import { CalculatePreviewResponse } from '@/application/schedule-preview';
+import type { ClassNameMatchReport } from '@/application/class-name-match-report';
 import { WindowSummary } from '@/components/settings/window-summary';
 import { ScheduleGrid } from '@/components/settings/schedule-grid';
 import { ImpactDialog, SettingsPreviewData } from '@/components/settings/impact-dialog';
@@ -37,7 +38,8 @@ interface SettingsEditorProps {
   currentRevision: number;
   initialDraft: SettingsDraft;
   unmatched?: string[];
-  seedNotAppeared?: string[];
+  /** 班名比對報告（D1）；由 server 依 ?import= 的名單（預設現行名單）產生 */
+  classNameReport?: ClassNameMatchReport | null;
   matchedCount?: number;
   candidates?: DynamicCandidate[];
   lastAppliedRevision?: number;
@@ -57,7 +59,7 @@ export default function SettingsEditor({
   currentRevision,
   initialDraft,
   unmatched = [],
-  seedNotAppeared = [],
+  classNameReport = null,
   matchedCount = 0,
   candidates = [],
   lastAppliedRevision,
@@ -413,7 +415,7 @@ export default function SettingsEditor({
             candidateTargets={candidateTargets}
             onUpdateCandidateTarget={handleUpdateCandidateTarget}
             onToggleAlias={handleToggleAlias}
-            seedNotAppeared={seedNotAppeared}
+            classNameReport={classNameReport}
           />
         </section>
       )}
