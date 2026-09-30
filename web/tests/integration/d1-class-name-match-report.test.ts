@@ -2,7 +2,19 @@ import { describe, it, expect } from 'vitest';
 import { SEED_BASE_NAMES } from '@/domain/schedules/seed-manifest';
 import { buildSeedDraft } from '@/adapters/sqlite/settings-repository';
 import type { SettingsDraft } from '@/contracts/settings';
-import { loadModule, makeStudent, saveRun, saveSettings, saveSyntheticBatch, useGlobalTempDb } from '../helpers/d1-test-kit';
+import {
+  activateBatch,
+  activeState,
+  loadModule,
+  makeStudent,
+  saveRun,
+  saveSettings,
+  saveSyntheticBatch,
+  useGlobalTempDb,
+} from '../helpers/d1-test-kit';
+import { activateImport } from '@/application/activate-import';
+import { previewSettingsChange } from '@/application/settings-preview';
+import { applySettingsPreview } from '@/application/apply-settings';
 
 /**
  * D1 班名比對報告 read model（specs/11 §3 D1、04 §8 UX44–UX47；S manifest §8、Q12-b、D-09）。
@@ -33,10 +45,11 @@ interface Report {
   rosterOnlyStudents: number | null;
   systemOnlyPreviousRosterStudents: number | null;
   previousRoster: { importId: string; fileName: string; createdAt: string } | null;
+  previousRosterStatus?: 'ok' | 'none' | 'unavailable';
 }
 interface Mod {
   getClassNameMatchReport: (db: unknown, input: { importId: string; scope: Scope; previousImportId?: string | null }) => Report;
-  resolvePreviousRosterImportId: (db: unknown, importId: string) => string | null;
+  resolvePreviousRosterImportId: (db: unknown, importId: string, scope?: Scope) => string | null;
 }
 
 /** 小型設定：五個班＋兩個別名（其餘 seed 班刪除，讓清單可手算）。 */
@@ -95,7 +108,7 @@ describe('班名比對報告 read model（新模組 @/application/class-name-mat
       makeStudent('s7', ['國小輔導-三年級A']),
     ]);
     saveSettings(db, 'setv_1', 1, smallDraft());
-    db.prepare('UPDATE active_state SET active_import_id = ? WHERE id = 1').run('imp_old');
+    activateBatch(db, 'imp_old', 'k-act-old');
     return db;
   }
 
@@ -251,38 +264,202 @@ describe('班名比對報告 read model（新模組 @/application/class-name-mat
     });
   });
 
-  describe('上一份名單的解析（resolvePreviousRosterImportId）', () => {
-    // 規則（寫入 04 UX45、03）：
-    //   1. importId 不是現行名單且有現行名單 → 上一份＝現行名單（匯入預覽：本次剛上傳、尚未啟用）；
-    //   2. importId 就是現行名單，或沒有現行名單 → 上一份＝比它更早建立的最近一份 ready 名單；沒有 → null。
-    it('importId 不是現行名單 → 上一份＝現行名單（匯入預覽的情境：本次剛上傳、尚未啟用）', async () => {
+  describe('上一份名冊的解析（resolvePreviousRosterImportId 與收據溯源，Q12 / F2）', () => {
+    // 依據 Q12（d-20260930112930661160-25）與 r1 rework 規範：
+    // 「上一份名冊」指的是「上一份曾現行的名冊」（以 activate 成功收據＋revision 序號為唯一準則），
+    // 絕對不能選到僅上傳預覽而從未啟用的 ready 批次。
+
+    it('F2 核心反例：A 已啟用(X班2人) → B 僅上傳未啟用(X班7人) → C 上傳並啟用(無X班1人)；C 啟用前後上一份名冊均為 A（2人），絕不取 B（7人）', async () => {
       const mod = await loadModule<Mod>(MODULE);
       expect(mod, `${MODULE} 需存在`).not.toBeNull();
-      const db = scenario();
-      expect(mod!.resolvePreviousRosterImportId(db, 'imp_new')).toBe('imp_old');
+      const db = ctx.db();
+
+      // 1. 上傳 A 並啟用：A 有 2 位學生報名「國小數學-二A」
+      saveSyntheticBatch(db, 'imp_A', 'A.xlsx', '2026-09-01T08:00:00.000Z', [
+        makeStudent('a1', ['國小數學-二A']),
+        makeStudent('a2', ['國小數學-二A']),
+      ]);
+      activateBatch(db, 'imp_A', 'k-act-A');
+
+      // 2. 上傳 B，但從不啟用：B 有 7 位學生報名「國小數學-二A」
+      saveSyntheticBatch(db, 'imp_B', 'B.xlsx', '2026-09-02T08:00:00.000Z', [
+        makeStudent('b1', ['國小數學-二A']),
+        makeStudent('b2', ['國小數學-二A']),
+        makeStudent('b3', ['國小數學-二A']),
+        makeStudent('b4', ['國小數學-二A']),
+        makeStudent('b5', ['國小數學-二A']),
+        makeStudent('b6', ['國小數學-二A']),
+        makeStudent('b7', ['國小數學-二A']),
+      ]);
+
+      // 3. 上傳 C，暫未啟用：C 只有 1 位學生報名「國小數學-一A」（不含二A）
+      saveSyntheticBatch(db, 'imp_C', 'C.xlsx', '2026-09-03T08:00:00.000Z', [
+        makeStudent('c1', ['國小數學-一A']),
+      ]);
+
+      // 【C 啟用前：匯入預覽與未啟用報告情境】
+      // 依規則：C 尚未啟用，目前現行名單為 A；上一份現行名冊必須是 A！
+      const prevBeforeActivate = mod!.resolvePreviousRosterImportId(db, 'imp_C', { kind: 'latest' });
+      expect(prevBeforeActivate, 'C 啟用前上一份名冊應為現行 A，絕不取未啟用的 B').toBe('imp_A');
+
+      const reportBefore = mod!.getClassNameMatchReport(db, { importId: 'imp_C', scope: { kind: 'latest' } });
+      expect(reportBefore.previousRoster?.importId).toBe('imp_A');
+      const class2ABefore = reportBefore.systemOnly?.find((c) => c.baseName === '國小數學-二A');
+      expect(class2ABefore?.previousRosterStudents, 'C 啟用前二A人數應為 A 的 2 人，絕不為 B 的 7 人').toBe(2);
+
+      // 【C 啟用後：C 成為現行名單】
+      activateBatch(db, 'imp_C', 'k-act-C');
+
+      // 依規則：C 本身是現行名單，要找當前 episode 的前一個現行名冊（predecessor）；
+      // 因為 B 從未啟用，前一個現行名冊依然是 A！
+      const prevAfterActivate = mod!.resolvePreviousRosterImportId(db, 'imp_C', { kind: 'latest' });
+      expect(prevAfterActivate, 'C 啟用後上一份名冊依然應為 A，絕不取未啟用的 B').toBe('imp_A');
+
+      const reportAfter = mod!.getClassNameMatchReport(db, { importId: 'imp_C', scope: { kind: 'latest' } });
+      expect(reportAfter.previousRoster?.importId).toBe('imp_A');
+      const class2AAfter = reportAfter.systemOnly?.find((c) => c.baseName === '國小數學-二A');
+      expect(class2AAfter?.previousRosterStudents, 'C 啟用後二A人數依然應為 A 的 2 人，絕不為 B 的 7 人').toBe(2);
     });
 
-    it('importId 就是現行名單 → 上一份＝更早建立的最近一份 ready 名單；沒有更早的 → null', async () => {
+    it('初次使用無任何現行名冊時：上傳預覽的上一份名單為 null（可證無前份，status: none，人數為 null）；首次啟用後亦無前份', async () => {
       const mod = await loadModule<Mod>(MODULE);
       expect(mod, `${MODULE} 需存在`).not.toBeNull();
-      const db = scenario();
-      // imp_old 是現行名單，且是最早的一份 → 沒有上一份
-      expect(mod!.resolvePreviousRosterImportId(db, 'imp_old')).toBeNull();
-      // 改成 imp_new 現行 → 上一份是更早建立的 imp_old
-      db.prepare('UPDATE active_state SET active_import_id = ? WHERE id = 1').run('imp_new');
-      expect(mod!.resolvePreviousRosterImportId(db, 'imp_new')).toBe('imp_old');
-      // 規則是「現行名單優先」：importId 不是現行名單時，上一份一律是現行名單（即使現行名單比它晚建立），
-      // 讓匯入預覽（重傳同檔會沿用較舊的既有批次）與完整報告用同一份名單當參考，兩處數字一致
-      expect(mod!.resolvePreviousRosterImportId(db, 'imp_old')).toBe('imp_new');
+      const db = ctx.db();
+
+      saveSyntheticBatch(db, 'imp_first', 'first.xlsx', '2026-09-01T08:00:00.000Z', [
+        makeStudent('f1', ['國小數學-一A']),
+      ]);
+
+      // 啟用前：沒有任何名單被啟用過
+      const prevBefore = mod!.resolvePreviousRosterImportId(db, 'imp_first', { kind: 'latest' });
+      expect(prevBefore).toBeNull();
+
+      const reportBefore = mod!.getClassNameMatchReport(db, { importId: 'imp_first', scope: { kind: 'latest' } });
+      expect(reportBefore.previousRoster).toBeNull();
+      expect(reportBefore.previousRosterStatus).toBe('none');
+      expect(reportBefore.systemOnlyPreviousRosterStudents).toBeNull();
+
+      // 首次啟用後：它就是系統第 1 份現行名單，沒有前份
+      activateBatch(db, 'imp_first', 'k-act-first');
+      const prevAfter = mod!.resolvePreviousRosterImportId(db, 'imp_first', { kind: 'latest' });
+      expect(prevAfter).toBeNull();
+
+      const reportAfter = mod!.getClassNameMatchReport(db, { importId: 'imp_first', scope: { kind: 'latest' } });
+      expect(reportAfter.previousRoster).toBeNull();
+      expect(reportAfter.previousRosterStatus).toBe('none');
+      expect(reportAfter.systemOnlyPreviousRosterStudents).toBeNull();
     });
 
-    it('沒有現行名單時：取比 importId 更早建立的最近一份 ready 名單', async () => {
+    it('上傳順序與啟用順序不同：以 revision 序列而非 upload.created_at 為準重建前份', async () => {
       const mod = await loadModule<Mod>(MODULE);
       expect(mod, `${MODULE} 需存在`).not.toBeNull();
-      const db = scenario();
-      db.prepare('UPDATE active_state SET active_import_id = NULL WHERE id = 1').run();
-      expect(mod!.resolvePreviousRosterImportId(db, 'imp_new')).toBe('imp_old');
-      expect(mod!.resolvePreviousRosterImportId(db, 'imp_old')).toBeNull();
+      const db = ctx.db();
+
+      // 上傳順序：A (9/1) -> C (9/2) -> B (9/3)
+      saveSyntheticBatch(db, 'imp_A', 'A.xlsx', '2026-09-01T08:00:00.000Z', [makeStudent('a1', ['國小數學-一A'])]);
+      saveSyntheticBatch(db, 'imp_C', 'C.xlsx', '2026-09-02T08:00:00.000Z', [makeStudent('c1', ['國小數學-一A'])]);
+      saveSyntheticBatch(db, 'imp_B', 'B.xlsx', '2026-09-03T08:00:00.000Z', [makeStudent('b1', ['國小數學-一A'])]);
+
+      // 啟用順序：先啟用 B (rev 1) -> 再啟用 A (rev 2) -> 最後啟用 C (rev 3)
+      activateBatch(db, 'imp_B', 'k-act-1');
+      activateBatch(db, 'imp_A', 'k-act-2');
+      activateBatch(db, 'imp_C', 'k-act-3');
+
+      // 即使 B 的上傳時間晚於 A，但在啟用時序上，C 的前一個現行名單是 A！
+      const prev = mod!.resolvePreviousRosterImportId(db, 'imp_C', { kind: 'latest' });
+      expect(prev, '應依據啟用 revision 順序選取前份名單 A，而非依上傳時間選 B').toBe('imp_A');
+    });
+
+    it('同名冊連續啟用或 apply 重算：同屬一個 active episode，前份保持不變，不以自己為前份', async () => {
+      const mod = await loadModule<Mod>(MODULE);
+      expect(mod, `${MODULE} 需存在`).not.toBeNull();
+      const db = ctx.db();
+
+      saveSyntheticBatch(db, 'imp_A', 'A.xlsx', '2026-09-01T08:00:00.000Z', [makeStudent('a1', ['國小數學-一A'])]);
+      saveSyntheticBatch(db, 'imp_C', 'C.xlsx', '2026-09-02T08:00:00.000Z', [makeStudent('c1', ['國小數學-一A'])]);
+
+      activateBatch(db, 'imp_A', 'k-act-A'); // rev 1
+      activateBatch(db, 'imp_C', 'k-act-C1'); // rev 2, predecessor = A
+
+      // 對 C 重算（例如 apply settings with_students，或以新 key 再次 activate C）
+      const rev = activeState(db).revision;
+      const preview = previewSettingsChange(db, undefined, { draft: smallDraft(), expectedRevision: rev });
+      applySettingsPreview(db, { previewId: preview.previewId, expectedRevision: rev, idempotencyKey: 'k-apply-C' }); // rev 3
+
+      // C 的上一份名冊依然必須是 A，不能變成 C 自己！
+      const prev = mod!.resolvePreviousRosterImportId(db, 'imp_C', { kind: 'latest' });
+      expect(prev, '同名冊重算後，上一份現行名冊依然是 A，絕不可為自己').toBe('imp_A');
+    });
+
+    it('A -> C -> A 重啟用舊名單：末次 A 的前份為 C；歷史 C run 的前份仍為 A，不隨現在 active 漂移', async () => {
+      const mod = await loadModule<Mod>(MODULE);
+      expect(mod, `${MODULE} 需存在`).not.toBeNull();
+      const db = ctx.db();
+
+      saveSyntheticBatch(db, 'imp_A', 'A.xlsx', '2026-09-01T08:00:00.000Z', [makeStudent('a1', ['國小數學-一A'])]);
+      saveSyntheticBatch(db, 'imp_C', 'C.xlsx', '2026-09-02T08:00:00.000Z', [makeStudent('c1', ['國小數學-一A'])]);
+
+      const actA1 = activateBatch(db, 'imp_A', 'k-act-A1'); // episode 1 (A), predecessor = null
+      const actC = activateBatch(db, 'imp_C', 'k-act-C');   // episode 2 (C), predecessor = A
+      const actA2 = activateBatch(db, 'imp_A', 'k-act-A2'); // episode 3 (A), predecessor = C
+
+      // 最新狀態下檢視 A：前份為 C
+      const prevLatestA = mod!.resolvePreviousRosterImportId(db, 'imp_A', { kind: 'latest' });
+      expect(prevLatestA).toBe('imp_C');
+
+      // 檢視歷史 C 的計算 run：該 run 屬於 episode 2，其前份依然是 A！
+      const reportRunC = mod!.getClassNameMatchReport(db, { importId: 'imp_C', scope: { kind: 'run', runId: actC.runId } });
+      expect(reportRunC.previousRoster?.importId, '歷史 C run 的前份必須錨定在當時的 A').toBe('imp_A');
+
+      // 檢視最初 A1 的計算 run：該 run 屬於 episode 1，無前份名冊
+      const reportRunA1 = mod!.getClassNameMatchReport(db, { importId: 'imp_A', scope: { kind: 'run', runId: actA1.runId } });
+      expect(reportRunA1.previousRoster).toBeNull();
+      expect(reportRunA1.previousRosterStatus).toBe('none');
+    });
+
+    it('失敗的 activation 或未經 activate 的 raw run 不污染來源', async () => {
+      const mod = await loadModule<Mod>(MODULE);
+      expect(mod, `${MODULE} 需存在`).not.toBeNull();
+      const db = ctx.db();
+
+      saveSyntheticBatch(db, 'imp_A', 'A.xlsx', '2026-09-01T08:00:00.000Z', [makeStudent('a1', ['國小數學-一A'])]);
+      saveSyntheticBatch(db, 'imp_bad', 'bad.xlsx', '2026-09-02T08:00:00.000Z', [makeStudent('b1', ['國小數學-一A'])]);
+      activateBatch(db, 'imp_A', 'k-act-A');
+
+      // 故意用錯誤的 expectedRevision 觸發 CAS 衝突失敗
+      expect(() => {
+        activateImport(db, { importId: 'imp_bad', expectedRevision: 999, idempotencyKey: 'k-bad' });
+      }).toThrow();
+
+      // 純 raw 保存 run（未經 activate 或 apply 切換 active_state）
+      saveRun(db, 'run_raw', 'imp_bad', 'seed-v250922', '2026-09-03T00:00:00.000Z');
+
+      // 查詢未啟用的批次：前份依然是 A，imp_bad 完全不被視為曾現行名冊
+      saveSyntheticBatch(db, 'imp_next', 'next.xlsx', '2026-09-04T08:00:00.000Z', [makeStudent('n1', ['國小數學-一A'])]);
+      const prev = mod!.resolvePreviousRosterImportId(db, 'imp_next', { kind: 'latest' });
+      expect(prev).toBe('imp_A');
+
+      // 若查詢 raw run 的 scope：因為沒有收據證明其曾現行，fail-closed 為 unavailable
+      const reportRaw = mod!.getClassNameMatchReport(db, { importId: 'imp_bad', scope: { kind: 'run', runId: 'run_raw' } });
+      expect(reportRaw.previousRosterStatus).toBe('unavailable');
+      expect(reportRaw.previousRoster).toBeNull();
+    });
+
+    it('收據毀損、revision gap 或衝突時 fail-closed 回傳 unavailable，不猜測歷史', async () => {
+      const mod = await loadModule<Mod>(MODULE);
+      expect(mod, `${MODULE} 需存在`).not.toBeNull();
+      const db = ctx.db();
+
+      saveSyntheticBatch(db, 'imp_A', 'A.xlsx', '2026-09-01T08:00:00.000Z', [makeStudent('a1', ['國小數學-一A'])]);
+      activateBatch(db, 'imp_A', 'k-act-A'); // rev 1
+
+      // 人為注入衝突：直接修改 idempotency_records 使其出現非法 gap 或 payload 毀損
+      db.prepare("UPDATE idempotency_records SET response_payload = 'corrupted_json' WHERE idempotency_key = 'k-act-A'").run();
+
+      const report = mod!.getClassNameMatchReport(db, { importId: 'imp_A', scope: { kind: 'latest' } });
+      expect(report.previousRosterStatus, '收據毀損時必須 fail-closed 回傳 unavailable').toBe('unavailable');
+      expect(report.previousRoster).toBeNull();
+      expect(report.systemOnlyPreviousRosterStudents).toBeNull();
     });
   });
 

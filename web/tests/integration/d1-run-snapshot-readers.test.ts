@@ -4,16 +4,18 @@ import { GET as classesGET } from '@/app/api/v1/classes/route';
 import { previewSettingsChange } from '@/application/settings-preview';
 import { applySettingsPreview } from '@/application/apply-settings';
 import { calculateStudentBilling } from '@/domain/billing/billing-calculator';
-import { buildSeedDraft, draftToAliasMap, draftToScheduleOverride } from '@/adapters/sqlite/settings-repository';
+import { buildSeedDraft } from '@/adapters/sqlite/settings-repository';
 import type { SettingsDraft } from '@/contracts/settings';
 import {
   activateBatch,
   activeState,
   fixturePreview,
   getRequest,
+  makeStudent,
   saveFixtureBatch,
   saveRun,
   saveSettings,
+  saveSyntheticBatch,
   useGlobalTempDb,
 } from '../helpers/d1-test-kit';
 
@@ -50,49 +52,48 @@ describe('F-5：comparison 以 run 的設定快照重算', () => {
     };
   }
 
-  it('已存設定的 run：差異清單以該 run 的設定快照（別名＋時段）重算——與 seed 重算不同，與快照重算逐筆相同', async () => {
-    // 快照＝三A 改成 週六＋週一 16:30–18:00（990–1080）：
-    //   手算（課輔窗口 990–1170；正式軌 v2 只比對同星期，診斷軌純時刻不看星期）：
-    //     正式軌只算週一 → 重疊 90 → 扣 0.5；診斷軌 週六＋週一 → 重疊 180 → 扣 1。
-    //   所以 三A 學生（未被 5 天下限壓平者）的課輔天數：正式軌比診斷軌多 0.5。
-    //   seed 課表的三A＝週一 16:30–18:00＋週三 18:00–19:30（兩軌同為 180 分），三A 學生本身沒有這個差異——
-    //   D1 前 comparison 用 seed 重算，看不到這批差異。
-    // 期望清單由 domain 函式在「快照情境」與「seed 情境」各自獨立算出（不經 route）：
-    const students = (await fixturePreview()).students;
-    const snapshotCtx = { aliasMap: draftToAliasMap(saturdayDraft()), scheduleOverride: draftToScheduleOverride(saturdayDraft()) };
-    const diffsOf = (ctxOpts: Record<string, unknown>) => {
-      const out: Array<{ personCode: string; field: string; formalValue: number | null; compatValue: number | null; category: string }> = [];
-      for (const s of students) {
-        const f = calculateStudentBilling(s, { ruleSetVersion: 'erp-tag-v2', ...ctxOpts });
-        const c = calculateStudentBilling(s, { ruleSetVersion: 'excel-v260922-compat', ...ctxOpts });
-        if (f.baseDiscountBps !== c.baseDiscountBps)
-          out.push({ personCode: s.personCode, field: 'baseDiscountBps', formalValue: f.baseDiscountBps, compatValue: c.baseDiscountBps, category: 'DISCOUNT_DIFFERENCE' });
-        if (f.careDays.anqin.days !== c.careDays.anqin.days)
-          out.push({ personCode: s.personCode, field: 'anqinDays', formalValue: f.careDays.anqin.days, compatValue: c.careDays.anqin.days, category: 'CARE_DAYS_DIFFERENCE' });
-        if (f.careDays.tutoring.days !== c.careDays.tutoring.days)
-          out.push({ personCode: s.personCode, field: 'tutoringDays', formalValue: f.careDays.tutoring.days, compatValue: c.careDays.tutoring.days, category: 'CARE_DAYS_DIFFERENCE' });
-      }
-      return out;
-    };
-    const expectedFromSnapshot = diffsOf(snapshotCtx);
-    const expectedFromSeed = diffsOf({});
-    // 前提（鑑別力）：兩個情境的差異清單不同，且快照情境有三A 學生的 0.5 天差異（手算見上）
-    expect(expectedFromSnapshot).not.toEqual(expectedFromSeed);
-    const enrolled3A = new Set(
-      students.filter((s) => s.enrollments.some((e) => e.baseName === '國小數學-三A')).map((s) => s.personCode)
-    );
-    const extra = expectedFromSnapshot.filter(
-      (d) => d.field === 'tutoringDays' && enrolled3A.has(d.personCode) && d.formalValue! - d.compatValue! === 0.5
-    );
-    expect(extra.length, '快照情境應有三A 學生的課輔天數 0.5 差異').toBeGreaterThan(0);
-    expect(expectedFromSeed.filter((d) => extra.some((e) => e.personCode === d.personCode && e.field === d.field)).length).toBe(0);
+  it('已存設定的 run：差異清單以該 run 的設定快照（別名＋時段）重算——與 seed 重算不同，與規格獨立手算預期一致（F1 / F5）', async () => {
+    // 依據 CLAUDE.md §8 與 operator 裁決（d-20260930131128030911-29），
+    // 測試預期值必須依規格（02/D24/D30）獨立手算，絕對不可調用待測函式 calculateStudentBilling 動態產生 expected。
+    //
+    // 合成名冊情境（2 位學生）：
+    //   1. 學生 S_3A（三年級，報名「國小數學-三A」）：
+    //      - 快照課表將三A排在：週六 16:30–18:00（990–1080）與週一 16:30–18:00（990–1080）。
+    //      - 課輔照顧窗口為平日 16:30–19:30（990–1170，每日 180 分鐘）。
+    //      - 正式軌 v2（sameWeekdayOnly=true）：週六不計，僅週一重疊 90 分鐘 → 90/180 = 0.5 天。
+    //        依 D24 取整扣 0.5 天，課輔天數 = 5.0 - 0.5 = 4.5 天。
+    //      - 診斷軌 compat（sameWeekdayOnly=false）：純時刻比對，週六與週一各重疊 90 分鐘，合計 180 分鐘 → 扣 1.0 天。
+    //        課輔天數 = 5.0 - 1.0 = 4.0 天。
+    //      - 差異：tutoringDays 4.5（正式）vs 4.0（診斷），差異 0.5 天。
+    //   2. 學生 S_NORM（一年級，報名「國小數學-一A」）：
+    //      - 一A 時段為 seed 預設（週一、週三 16:30–18:00，均為平日）。
+    //      - 兩軌重疊皆為 180 分鐘，扣 1.0 天，安親天數均為 4.0 天，無差異。
+    //
+    // 鑑別力（Discriminative check）：
+    //   若 comparison route 錯誤地退回使用 seed 課表重算：
+    //   seed 課表的三A 是週一與週三（均為平日），兩軌重疊皆 180 分鐘扣 1.0 天，差異為 0 筆！
+    //   只有正確使用快照課表重算時，才會產生 S_3A 的 1 筆差異。
+
+    const HAND_COMPUTED_EXPECTED_DIFFERENCES = [
+      {
+        personCode: 'S_3A',
+        field: 'tutoringDays',
+        formalValue: 4.5,
+        compatValue: 4.0,
+        category: 'CARE_DAYS_DIFFERENCE',
+      },
+    ];
 
     const db = ctx.db();
-    await saveFixtureBatch(db, 'imp_a');
-    activateBatch(db, 'imp_a', 'k-act');
+    saveSyntheticBatch(db, 'imp_f5', 'f5.xlsx', '2026-09-01T08:00:00.000Z', [
+      makeStudent('S_3A', ['國小數學-三A'], { grade: 3, name: '學生3A' }),
+      makeStudent('S_NORM', ['國小數學-一A'], { grade: 1, name: '學生一A' }),
+    ]);
+
+    activateBatch(db, 'imp_f5', 'k-act-f5');
     const revision = activeState(db).revision;
     const preview = previewSettingsChange(db, undefined, { draft: saturdayDraft(), expectedRevision: revision });
-    const applied = applySettingsPreview(db, { previewId: preview.previewId, expectedRevision: revision, idempotencyKey: 'k-apply' });
+    const applied = applySettingsPreview(db, { previewId: preview.previewId, expectedRevision: revision, idempotencyKey: 'k-apply-f5' });
     const runId = applied.runId as string;
 
     const res = await callComparison(runId);
@@ -105,8 +106,10 @@ describe('F-5：comparison 以 run 的設定快照重算', () => {
       compatValue: d.compatValue,
       category: d.category,
     }));
-    expect(body.totalDifferences).toBe(expectedFromSnapshot.length);
-    expect(got).toEqual(expectedFromSnapshot);
+
+    // 斷言比對獨立手算的 expected
+    expect(body.totalDifferences).toBe(HAND_COMPUTED_EXPECTED_DIFFERENCES.length);
+    expect(got).toEqual(HAND_COMPUTED_EXPECTED_DIFFERENCES);
   });
 
   it('快照缺失（run.scheduleVersionId 指向不存在的設定版本）→ 409 SNAPSHOT_UNAVAILABLE，不改用最新設定或 seed 補算', async () => {

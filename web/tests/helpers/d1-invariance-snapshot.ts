@@ -18,8 +18,11 @@ import type { CalculateDraft, SettingsDraft } from '@/contracts/settings';
  * 這個 helper 只使用 8961c03 就已存在的公開函式（calculateStudentBilling、executeCalculationRun、
  * buildSchedulePreview），輸入是 repo 內合成 fixture（conforming-erp-fixture.xlsx，477 人）。
  * golden（tests/fixtures/d1-invariance-golden.json）由**未修改的 8961c03** 執行
- * `npx tsx tests/helpers/generate-d1-invariance-golden.ts` 產生，之後任何提交重跑此腳本都必須得到
- * byte-identical 的結果——這是「D1 前後相同」的獨立基準，不是用新程式輸出當 expected（CLAUDE.md §8）。
+ * `npx tsx tests/helpers/generate-d1-invariance-golden.ts` 產生。
+ *
+ * 政策邊界（operator 裁決 d-20260930131128030911-29 授權）：
+ * 本工具屬於狹義之 pre-change baseline 差異特徵化（differential characterization），僅用於驗證重構
+ * 前後未發生非預期漂移，不得作為獨立計費正確性 oracle。
  *
  * 每位學生只存業務欄位的 SHA-256 摘要（前 16 碼）：golden 不含任何學生資料，也不放大 repo。
  * 摘要涵蓋：天數（days／displayDays／status／額外扣天旗標／是否報名）、科數、基本折扣、六種課程適用率、

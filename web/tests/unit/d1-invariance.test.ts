@@ -5,9 +5,14 @@ import { computeInvarianceSnapshot, type InvarianceSnapshot } from '../helpers/d
 /**
  * D1 核心驗收（specs/11 §3 D1、04 §8 UX34）：v1／v2／compat 的計算輸出在 D1 前後逐欄相同。
  *
- * golden（tests/fixtures/d1-invariance-golden.json）由**未修改的 8961c03**執行
+ * golden（tests/fixtures/d1-invariance-golden.json）由**未修改的 8961c03** 執行
  * `npx tsx tests/helpers/generate-d1-invariance-golden.ts` 產生（可在 8961c03 的 worktree 重跑驗證，
- * 內容 byte-identical）；本檔對目前程式碼重算並逐位元比對——不是拿新程式的輸出當 expected（CLAUDE.md §8）。
+ * 內容 byte-identical）。本檔對目前程式碼重算並比對。
+ *
+ * 政策邊界（operator 裁決 d-20260930131128030911-29 授權）：
+ * 本項測試屬於狹義之 pre-change baseline 差異特徵化（differential characterization），僅用於證明 D1 重構
+ * 前後之計算行為「未發生非預期改變」；本 golden 不是業務計算正確性之獨立 oracle。新規則、新行為或 bug 修正
+ * 之測試 expected，仍必須依據規格獨立手算或由外部驗證建立。
  *
  * 比對粒度：合成 fixture 477 人 × {seed 設定、已儲存設定（含 alias／週六時段／整班移除／未知星期／停班）}
  * × {v1、v2、compat}（calculateStudentBilling），以及 run 層 {seed、saved} × {v1、v2}

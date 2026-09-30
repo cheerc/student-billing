@@ -127,4 +127,47 @@ test.describe('班名比對報告（D1）', () => {
     // 上一份名單沒有學生的 seed 班：人數 0（有上一份名單，所以是 0 而不是「沒有資料」）
     await expect(right.getByRole('row', { name: /國小數學-一A/ })).toContainText('0 人');
   });
+
+  test('成功儲存 alias 後，班名比對報告同頁即時刷新，已對應的班級從米豆奶有／系統無中消失（F3）', async ({ page }) => {
+    // 1. 進入 /imports，上傳 FIXTURE 並啟用為現行名單
+    await page.goto('/imports');
+    await page.locator('input[type="file"]').setInputFiles(FIXTURE);
+    await expect(page.locator('.stats-grid')).toBeVisible({ timeout: 15000 });
+    const useBtn = page.locator('button', { hasText: '使用這份名單' });
+    await expect(useBtn).toBeVisible({ timeout: 15000 });
+    await useBtn.click();
+    await expect(page.locator('.success-stage-card')).toBeVisible({ timeout: 15000 });
+
+    // 2. 到課表設定的「班名對應」頁籤
+    await page.goto('/settings');
+    await expect(page.locator('h1', { hasText: '課表設定' })).toBeVisible({ timeout: 10000 });
+    await page.locator('button', { hasText: '班名對應' }).click();
+    await expect(page.locator('.mapping-table')).toBeVisible({ timeout: 10000 });
+
+    const left = rosterOnlyOf(page);
+    await expect(left).toBeVisible({ timeout: 15000 });
+    await expect(left).toContainText('12 個班');
+    await expect(left.getByRole('row', { name: /國小數學-一/ })).toBeVisible();
+
+    // 3. 在待確認清單為「國小數學-一」填目標「國小數學-一A」並勾選對應
+    const row = page.locator('tr', { hasText: '國小數學-一' });
+    await expect(row).toBeVisible();
+    await row.locator('input.input-target-classname').fill('國小數學-一A');
+    await row.locator('input[type="checkbox"]').check();
+
+    // 4. 點擊底部操作列「確認變更」開啟 ImpactDialog
+    await page.locator('button', { hasText: '確認變更' }).click();
+    const dialog = page.locator('dialog.impact-dialog');
+    await expect(dialog).toBeVisible({ timeout: 15000 });
+    await dialog.locator('button', { hasText: '儲存並更新結果' }).click();
+
+    // 5. 等待 Toast 成功訊息且對話框關閉
+    await expect(page.locator('#toast')).toContainText('課表已套用並完成重算', { timeout: 15000 });
+    await expect(dialog).not.toBeVisible();
+
+    // 6. 核心驗證（F3）：同頁上的班名比對報告必須立即刷新！
+    // 米豆奶有／系統無應即時更新為 11 個班，且「國小數學-一」應消失！
+    await expect(left).toContainText('11 個班');
+    await expect(left.getByRole('row', { name: /國小數學-一/ })).not.toBeVisible();
+  });
 });

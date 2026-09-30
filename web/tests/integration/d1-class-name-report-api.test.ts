@@ -3,7 +3,7 @@ import fs from 'fs';
 import path from 'path';
 import { POST as previewPOST } from '@/app/api/v1/imports/preview/route';
 import { buildSeedDraft } from '@/adapters/sqlite/settings-repository';
-import { getRequest, loadModule, makeStudent, saveRun, saveSettings, saveSyntheticBatch, useGlobalTempDb } from '../helpers/d1-test-kit';
+import { activateBatch, getRequest, loadModule, makeStudent, saveRun, saveSettings, saveSyntheticBatch, useGlobalTempDb } from '../helpers/d1-test-kit';
 
 /**
  * D1 班名比對報告的兩個入口（specs/11 §3 D1、04 §8 UX44–UX47；S manifest §8.2）：
@@ -59,7 +59,7 @@ describe('GET /api/v1/settings/class-name-report', () => {
     saveSettings(db, 'setv_new', 2, { ...base, aliases: [] });
     saveRun(db, 'run_old', 'imp_new', 'setv_old', '2026-09-11T00:00:00.000Z');
     saveRun(db, 'run_gone', 'imp_new', 'setv_missing', '2026-09-11T01:00:00.000Z');
-    db.prepare('UPDATE active_state SET active_import_id = ? WHERE id = 1').run('imp_old');
+    activateBatch(db, 'imp_old', 'k-act-old');
     return db;
   }
 
@@ -182,7 +182,7 @@ describe('POST /api/v1/imports/preview：classNameReport 摘要（使用這份�
       makeStudent('q4', ['國小數學-一B']),
       makeStudent('q5', ['交通車']), // 本次名冊有的班，不在「系統有／名冊無」
     ]);
-    db.prepare('UPDATE active_state SET active_import_id = ? WHERE id = 1').run('imp_prev');
+    activateBatch(db, 'imp_prev', 'k-act-prev');
 
     const body = await (await previewPOST(uploadRequest())).json();
     expect(body.classNameReport).toMatchObject({

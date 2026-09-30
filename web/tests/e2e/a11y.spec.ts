@@ -467,6 +467,16 @@ test.describe('R5 可及性稽核（09 §6）', () => {
     expect(isAmber(unseen), '不應為琥珀色（琥珀＝待確認）').toBe(false);
     expect(isGreen(unseen), '不應為綠色（綠＝成功）').toBe(false);
 
+    // N2 補強：除了表頭，實際資料列（row / cell）同樣應為資訊呈現之中性色，不應為琥珀色或綠色
+    const systemOnlyRow = page
+      .getByRole('region', { name: '系統有／本次名冊無' })
+      .getByRole('row')
+      .nth(1);
+    await expect(systemOnlyRow).toBeVisible();
+    const cellColor = await rgb(systemOnlyRow.getByRole('cell').first());
+    expect(isAmber(cellColor), '清單資料列不應為琥珀色').toBe(false);
+    expect(isGreen(cellColor), '清單資料列不應為綠色').toBe(false);
+
     // 核對結果：目前使用的資料＝綠；歷史唯讀＝灰
     await page.goto('/');
     await expect(page.locator('.data-banner-current')).toBeVisible({ timeout: 15000 });
