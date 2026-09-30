@@ -19,6 +19,11 @@ interface ScheduleGridProps {
   calculateInputRows?: ScheduleGridRow[] | null;
   /** 最近一次計算失敗的說明（有值時顯示 role=alert；此時 calculateResult 應為 null，各欄顯示「—」）。 */
   calculateError?: string | null;
+  /**
+   * 由「編輯此班課表」帶入的穩定班級識別（班名；F04）：只列該班的全部時段，並可回到全部班級。
+   * 以進入時該班的列 id 記住，編輯中改班名或新增該班時段都不會讓列消失。
+   */
+  focusClass?: string | null;
 }
 
 /** 影響某一列計算結果的輸入：星期、起迄、班名（決定所屬班級）、班級是否啟用。 */
@@ -71,7 +76,13 @@ export function ScheduleGrid({
   calculateResult,
   calculateInputRows,
   calculateError = null,
+  focusClass = null,
 }: ScheduleGridProps) {
+  const [focus, setFocus] = useState<string | null>(focusClass);
+  // 進入時屬於該班的列（改班名後仍留在畫面上，不因編輯而消失）
+  const [focusRowIds] = useState<Set<string>>(
+    () => new Set(focusClass ? rows.filter((r) => r.className.trim() === focusClass).map((r) => r.rowId) : [])
+  );
   const [search, setSearch] = useState('');
   const [weekdayFilter, setWeekdayFilter] = useState('');
   const [showAddForm, setShowAddForm] = useState(false);
@@ -124,14 +135,30 @@ export function ScheduleGrid({
     return { count, blank };
   }, [rows, resultMap]);
 
+  // 定位班級（F04）：找不到該班（例如已改名）時明說，並顯示全部班級
+  const focusMissing = focus !== null && focusRowIds.size === 0;
+  const focusActive = focus !== null && !focusMissing;
+
   // 篩選時段列
   const filteredRows = useMemo(() => {
     return rows.filter((r) => {
+      if (focusActive) return focusRowIds.has(r.rowId) || r.className.trim() === focus;
       const matchSearch = search.trim() === '' || r.className.includes(search.trim());
       const matchWeekday = weekdayFilter === '' || r.weekday === weekdayFilter;
       return matchSearch && matchWeekday;
     });
-  }, [rows, search, weekdayFilter]);
+  }, [rows, search, weekdayFilter, focusActive, focus, focusRowIds]);
+
+  const clearFocus = () => {
+    setFocus(null);
+    try {
+      const url = new URL(window.location.href);
+      url.searchParams.delete('class');
+      window.history.replaceState(window.history.state, '', url.toString());
+    } catch {
+      /* 網址同步失敗不影響畫面 */
+    }
+  };
 
   // 統計班級與時段數量
   const uniqueClassesCount = useMemo(() => {
@@ -199,6 +226,19 @@ export function ScheduleGrid({
           {showAddForm ? '取消新增' : '＋ 新增時段'}
         </button>
       </div>
+
+      {/* 由班級扣天帶入的班級：只列該班全部時段，可回到全部班級（09 §2；F04） */}
+      {focusActive && (
+        <div className="notice-inline" role="status" data-focus-class="">
+          只顯示班級「{focus}」的全部時段（{filteredRows.length} 個時段）
+          <button type="button" className="link-button" onClick={clearFocus}>顯示全部班級</button>
+        </div>
+      )}
+      {focusMissing && (
+        <div className="notice-warn" role="status" data-focus-class-missing="">
+          課表中找不到班級「{focus}」，可能已改名或停用；先顯示全部班級。
+        </div>
+      )}
 
       {/* 計算失敗：不顯示舊值、不當成「沒有重疊」（09 §3.1） */}
       {calculateError && (

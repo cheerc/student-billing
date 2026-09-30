@@ -229,11 +229,16 @@ export default function RosterView({
           <span className="stat-sub">至少報名 1 個班級</span>
         </div>
         <div className="stat-card">
-          <span className="stat-label">無班級學生人數</span>
+          <span className="stat-label">無課程</span>
           <span className="stat-value" style={{ color: '#d97706' }}>
-            {stats.studentsWithoutClass}
+            {data?.noCourseTotal ?? stats.studentsWithoutClass}
           </span>
-          <span className="stat-sub">未報名班級保留名冊</span>
+          <span className="stat-sub">請至米豆奶辦理離籍</span>
+          {(data?.noCourseTotal ?? stats.studentsWithoutClass) > 0 && (
+            <button type="button" className="link-button" onClick={() => handleHasClassChange('false')}>
+              只看無課程的學生
+            </button>
+          )}
         </div>
       </div>
 
@@ -313,7 +318,7 @@ export default function RosterView({
 
             {/* 有無班級 */}
             <select
-              aria-label="有無班級篩選"
+              aria-label="有無課程篩選"
               value={selectedHasClass}
               onChange={(e) => handleHasClassChange(e.target.value)}
               style={{
@@ -324,9 +329,9 @@ export default function RosterView({
                 background: '#fff',
               }}
             >
-              <option value="">全部有無班級</option>
-              <option value="true">僅有班級</option>
-              <option value="false">僅無班級</option>
+              <option value="">全部有無課程</option>
+              <option value="true">僅有課程</option>
+              <option value="false">僅無課程</option>
             </select>
           </div>
 

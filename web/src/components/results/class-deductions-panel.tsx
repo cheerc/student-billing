@@ -1,10 +1,21 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import Link from 'next/link';
 import { DeductionsResponse } from '@/application/schedule-deductions';
 import { PreviewClass, PreviewRow, PreviewRowGroup } from '@/application/schedule-preview';
 import { CareStatus, combineCareStatuses } from '@/application/care-status';
+import { HeaderFilter, FilterChips, type FilterSection, type ChipItem } from '@/components/filters/header-filter';
+import {
+  BLANK,
+  DEDUCTION_FILTER_FIELDS,
+  NONE,
+  chipsOf,
+  escapeLiteral,
+  hasAnySelection,
+  type DeductionFilterKey,
+  type DeductionFilters,
+} from '@/lib/results-filters';
 
 /**
  * 班級扣天（09 §5.2，對應 Excel C表）。
@@ -13,6 +24,9 @@ import { CareStatus, combineCareStatuses } from '@/application/care-status';
  * 四個扣除欄單位天、**正量顯示**（domain 為負值不改，這裡只改顯示）；原始三位小數、
  * 實際依 domain 先整班相加再取整（D24）。狀態區分「無重疊／共用窗口／待補／需確認」，
  * 不混為同一種。
+ *
+ * 班級／老師／狀態三欄使用與學生總表同一個表頭篩選元件（D36），選項取自整個 run 的全部班級列；
+ * 條件與學生總表各自獨立、各自保留（F03）。
  *
  * 有 active run 時與學生總表讀同一份快照（scope=active_run）；無 active 時讀已儲存課表並
  * 標「尚未匯入學生，可先檢查扣天」——不得宣告帳單已對帳正確。
@@ -83,11 +97,24 @@ interface ClassDeductionsPanelProps {
    * 明示資料不足、無法重建，不顯示任何表格或數字，也不改用最新設定補算。
    */
   unavailable?: { code: string; message: string };
+  /** 班級／老師／狀態的表頭篩選條件（由頁面保存，切頁籤再回來仍在）；未提供＝不篩選 */
+  filters?: DeductionFilters;
+  onFiltersChange?: (next: DeductionFilters) => void;
 }
 
-export function ClassDeductionsPanel({ data, onEditClass, expandedClassKey, unavailable }: ClassDeductionsPanelProps) {
-  const [search, setSearch] = useState('');
+const wireOf = (v: string | null | undefined): string => (v === null || v === undefined || v === '' ? BLANK : escapeLiteral(v));
+
+export function ClassDeductionsPanel({ data, onEditClass, expandedClassKey, unavailable, filters = {}, onFiltersChange }: ClassDeductionsPanelProps) {
   const [expanded, setExpanded] = useState<string | null>(expandedClassKey ?? null);
+
+  const rowsWithFacets = useMemo(
+    () =>
+      (data?.classes ?? []).map((c) => ({
+        c,
+        facets: { dClass: wireOf(c.classKey), dTeacher: wireOf(c.teacher), dStatus: escapeLiteral(statusLabel(classStatus(c))) },
+      })),
+    [data]
+  );
 
   if (unavailable || !data) {
     return (
@@ -101,9 +128,48 @@ export function ClassDeductionsPanel({ data, onEditClass, expandedClassKey, unav
     );
   }
 
-  const classes = data.classes.filter((c) =>
-    search.trim() === '' || c.classKey.includes(search.trim()) || (c.teacher ?? '').includes(search.trim())
-  );
+  // 選項取自整個 run 的全部班級列（不受目前條件收斂）
+  const optionsOf = (key: DeductionFilterKey): FilterSection => {
+    const map = new Map<string, string>();
+    for (const { facets, c } of rowsWithFacets) {
+      const wire = facets[key];
+      const label = wire === BLANK ? '(空白)' : key === 'dClass' ? c.classKey : key === 'dTeacher' ? (c.teacher ?? '') : statusLabel(classStatus(c));
+      if (!map.has(wire)) map.set(wire, label);
+    }
+    const options = [...map].map(([value, label]) => ({ value, label }));
+    options.sort((a, b) => (a.value === BLANK ? -1 : b.value === BLANK ? 1 : a.label.localeCompare(b.label, 'zh-Hant')));
+    return { key, options };
+  };
+
+  const matches = (facets: Record<DeductionFilterKey, string>): boolean =>
+    DEDUCTION_FILTER_FIELDS.every((f) => {
+      const wires = filters[f.key];
+      if (!wires || wires.length === 0) return true;
+      if (wires[0] === NONE) return false;
+      return wires.includes(facets[f.key]);
+    });
+
+  const classes = rowsWithFacets.filter((r) => matches(r.facets)).map((r) => r.c);
+
+  const apply = (next: DeductionFilters) => {
+    const merged: DeductionFilters = {};
+    for (const [k, v] of Object.entries(next)) {
+      if (v && v.length > 0) merged[k as DeductionFilterKey] = v;
+    }
+    onFiltersChange?.(merged);
+  };
+
+  const filterFor = (key: DeductionFilterKey, column: string) =>
+    onFiltersChange ? (
+      <HeaderFilter column={column} sections={[optionsOf(key)]} value={{ [key]: filters[key] }} onApply={(next) => apply({ ...filters, ...next })} />
+    ) : null;
+
+  const chipItems: ChipItem[] = chipsOf(filters, DEDUCTION_FILTER_FIELDS).map((c) => ({
+    id: `${c.key}:${c.label}`,
+    column: c.column,
+    label: c.label,
+    onRemove: () => apply({ ...filters, [c.key]: c.remaining.length > 0 ? c.remaining : undefined }),
+  }));
 
   return (
     <section className="class-deductions" aria-label="班級扣天">
@@ -111,16 +177,11 @@ export function ClassDeductionsPanel({ data, onEditClass, expandedClassKey, unav
         <p className="notice-inline">尚未匯入學生，可先檢查扣天。這裡只顯示課表計算結果，不代表帳單已核對。</p>
       ) : null}
 
-      <div className="toolbar">
-        <input
-          type="text"
-          className="search"
-          placeholder="搜尋班級或老師..."
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          aria-label="搜尋班級或老師"
-        />
-        <span className="note end">共 {classes.length} 個班級 · 每班扣除天數</span>
+      <div className="results-filterbar">
+        <FilterChips items={chipItems} onClearAll={() => apply({})} />
+        <span className="note end">
+          共 {classes.length} 個班級 · 每班扣除天數{hasAnySelection(filters) ? `（全部 ${rowsWithFacets.length} 個班級）` : ''}
+        </span>
       </div>
 
       <div className="table-scroll">
@@ -131,11 +192,19 @@ export function ClassDeductionsPanel({ data, onEditClass, expandedClassKey, unav
                 <th key={c} className={i >= 3 && i <= 6 ? 'number cblue' : undefined}>
                   {c}
                   {i >= 3 && i <= 6 ? <span className="th-unit">天</span> : null}
+                  {c === '班級' ? filterFor('dClass', '班級') : null}
+                  {c === '老師' ? filterFor('dTeacher', '老師') : null}
+                  {c === '狀態' ? filterFor('dStatus', '狀態') : null}
                 </th>
               ))}
             </tr>
           </thead>
           <tbody>
+            {classes.length === 0 && (
+              <tr>
+                <td colSpan={8} className="empty-row-text">沒有符合條件的班級。</td>
+              </tr>
+            )}
             {classes.map((c) => {
               const isOpen = expanded === c.classKey;
               const own = data.rows.filter((r) => c.rowIds.includes(r.rowId));

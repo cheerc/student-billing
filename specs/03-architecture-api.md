@@ -241,7 +241,7 @@ ERP token 可有明確離班日期，依使用者決策只顯示不排除。財�
 **驗收與效能**：
 
 - 整合測試：`web/tests/integration/multivalue-query-nocourse.test.ts`（涵蓋超過 200 人後頁選項、同學生兩班去重、OR+AND、0/null、全部取消、切換 run、cursor 條件防禦、邊界案例與無課程一致性）。
-- 效能實測：477 人全量合成名冊 API 多值篩選與 options 查詢，暖機後 10 次 p95 皆遠低於 200 ms（實測 median < 15ms, p95 < 20ms），符合根 CLAUDE.md §8 門檻。唯讀 GET 不對資料庫產生任何寫入。
+- 效能以根 CLAUDE.md §8 為門檻：477 人全量合成名冊的多值篩選與 options 查詢，暖機後 10 次 p95 ≤ 200 ms。實測值屬各 PR 的公開驗證紀錄（每次量測會浮動），不寫成本規格的承諾數字。唯讀 GET 不對資料庫產生任何寫入。
 
 ## 6. Agent 使用邊界
 

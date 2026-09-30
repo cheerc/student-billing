@@ -5,7 +5,7 @@ import { formatDateTime } from '@/lib/datetime';
 import { getLatestReadyBatch } from '@/adapters/sqlite/import-repository';
 import { getCurrentActiveRun } from '@/adapters/sqlite/runs-repository';
 import { queryImportStudents } from '@/application/roster-query';
-import { queryRunStudents } from '@/application/query-students';
+import { resolveResultsView } from '@/application/results-view';
 import RosterView from '@/components/roster-view';
 import ActiveRunView from '@/components/active-run-view';
 import { findUnmappedClasses, getScheduleDeductions } from '@/application/schedule-deductions';
@@ -13,15 +13,18 @@ import { getImportBatch } from '@/adapters/sqlite/import-repository';
 
 export const dynamic = 'force-dynamic';
 
-export default async function HomePage() {
+export default async function HomePage({
+  searchParams,
+}: {
+  searchParams?: Promise<Record<string, string | string[] | undefined>>;
+} = {}) {
+  const rawParams = (await searchParams) ?? {};
   const db = getDatabase();
   const currentActive = getCurrentActiveRun(db);
 
   // 若已有啟用的正式 Run，進入展示B核對總表
   if (currentActive.run && currentActive.activeRunId) {
     const activeRun = currentActive.run;
-    const initialRunData = queryRunStudents(db, activeRun.id, { limit: 50 });
-
     const classRows = db
       .prepare(`
         SELECT DISTINCT base_name
@@ -33,6 +36,8 @@ export default async function HomePage() {
 
     const availableClasses = classRows.map((r) => r.base_name);
     const sourceBatch = getImportBatch(db, activeRun.importId);
+    // 頁籤與兩頁籤各自的條件由網址還原（重新整理／返回不丟）；姓名搜尋不在網址
+    const view = resolveResultsView(db, activeRun.id, rawParams);
 
     return (
       <div>
@@ -47,8 +52,12 @@ export default async function HomePage() {
             updatedAt: activeRun.createdAt,
           }}
           unmappedClasses={findUnmappedClasses(db, activeRun.id, availableClasses)}
-          initialAvailableClasses={availableClasses}
-          initialData={initialRunData}
+          initialData={view.data}
+          initialOptions={view.options}
+          initialView={view.view}
+          initialFilters={view.filters}
+          initialDeductionFilters={view.deductionFilters}
+          initialNotices={{ invalid: view.invalid, pruned: view.pruned }}
         />
       </div>
     );
