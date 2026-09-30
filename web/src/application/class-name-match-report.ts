@@ -173,7 +173,7 @@ export function resolvePreviousRosterProvenance(
       }
       events.push({ kind: 'apply_with_students', revision, runId: payload.runId, importId: runRow.import_id });
     } else if (payload.mode === 'settings_only') {
-      if (row.run_id !== null) {
+      if (row.run_id !== null || payload.runId !== null) {
         return { status: 'unavailable', importId: null };
       }
       events.push({ kind: 'apply_settings_only', revision });
