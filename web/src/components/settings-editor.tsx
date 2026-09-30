@@ -438,7 +438,7 @@ export default function SettingsEditor({
           <button
             type="button"
             className="btn-secondary"
-            disabled={!isDirty || calculating}
+            disabled={!isDirty}
             onClick={handleDiscard}
           >
             取消修改
