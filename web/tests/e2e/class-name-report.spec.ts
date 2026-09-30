@@ -1,4 +1,4 @@
-import { test, expect, type Page } from '@playwright/test';
+import { test, expect, type Page, type Route } from '@playwright/test';
 import fs from 'fs';
 import JSZip from 'jszip';
 import { FIXTURE, xlsxUpload } from './helpers/c-batch';
@@ -170,4 +170,132 @@ test.describe('班名比對報告（D1）', () => {
     await expect(left).toContainText('11 個班');
     await expect(left.getByRole('row', { name: /國小數學-一/ })).not.toBeVisible();
   });
+
+  /**
+   * D1 r2 B1／B2：F3 儲存後刷新的兩條邊界（r1 brief 明列，primary round-1 REJECTED 的 B1／B2）。
+   * 走真實 preview／apply，不注入任何狀態；每個 spec 檔用全新隔離 DB（npm run test:e2e:isolated）。
+   */
+
+  /** 上傳標準 fixture 並啟用為現行名單（現行名單＝A）。 */
+  async function activateFixtureAsCurrent(page: Page) {
+    await page.goto('/imports');
+    await page.locator('input[type="file"]').setInputFiles(FIXTURE);
+    await expect(page.locator('.stats-grid')).toBeVisible({ timeout: 15000 });
+    const useBtn = page.locator('button', { hasText: '使用這份名單' });
+    await expect(useBtn).toBeVisible({ timeout: 15000 });
+    await useBtn.click();
+    await expect(page.locator('.success-stage-card')).toBeVisible({ timeout: 15000 });
+  }
+
+  /** 在「班名對應」為某個待確認班名填目標並勾選，經確認視窗儲存並更新結果，等到成功 toast。 */
+  async function mapAliasAndApply(page: Page, raw: string, target: string) {
+    const row = page.locator('tr', { hasText: raw });
+    await expect(row).toBeVisible();
+    await row.locator('input.input-target-classname').fill(target);
+    await row.locator('input[type="checkbox"]').check();
+    await page.locator('button', { hasText: '確認變更' }).click();
+    const dialog = page.locator('dialog.impact-dialog');
+    await expect(dialog).toBeVisible({ timeout: 15000 });
+    await dialog.locator('button', { hasText: '儲存並更新結果' }).click();
+    await expect(page.locator('#toast')).toContainText('課表已套用並完成重算', { timeout: 15000 });
+    await expect(dialog).not.toBeVisible();
+  }
+
+  /** 讀報告 API 的當前值（不帶 importId＝現行名單；帶 importId＝該批名單），當作「同 scope 的真實值」對照 UI。 */
+  async function reportApi(page: Page, importId?: string) {
+    const q = importId ? `?importId=${encodeURIComponent(importId)}` : '';
+    const res = await page.request.get(`/api/v1/settings/class-name-report${q}`);
+    expect(res.ok(), '報告 API 應回 200').toBe(true);
+    return (await res.json()) as { rosterOnly: unknown[]; systemOnly: unknown[] };
+  }
+
+  test('B1：檢視另一份尚未啟用的名單（?import=B）時，儲存 alias 後同頁報告仍是 B 的內容，不跳成現行名單 A 的報告', async ({ page }) => {
+    test.setTimeout(90_000);
+    await activateFixtureAsCurrent(page); // 現行名單 A＝標準 fixture
+
+    // 再上傳變體（STU0001 多報 seed 班「國小輔導-四年級」）當作尚未啟用的預覽批次 B，取其完整報告連結
+    await page.goto('/imports');
+    await page.locator('input[type="file"]').setInputFiles(xlsxUpload('variant-roster.xlsx', await buildPreviousRoster()));
+    const link = summaryOf(page).getByRole('link', { name: /完整班名比對報告/ });
+    await expect(link).toBeVisible({ timeout: 15000 });
+    const href = (await link.getAttribute('href'))!;
+    const importB = new URL(href, 'http://local.test').searchParams.get('import')!;
+    expect(importB, '完整報告連結要帶預覽批次 B 的 import').toBeTruthy();
+
+    // 鑑別力前提：同一時間 A（現行）與 B（預覽）的「系統有／本次名冊無」班數不同，否則跳成 A 看不出來
+    const apiA0 = await reportApi(page);
+    const apiB0 = await reportApi(page, importB);
+    expect(apiA0.systemOnly.length, 'A 與 B 的系統有／名冊無班數要不同（變體多報一個 seed 班）').not.toBe(apiB0.systemOnly.length);
+
+    // 以 ?import=B 開啟課表設定：頁面報告是 B 的內容
+    await page.goto(href);
+    const right = systemOnlyOf(page);
+    const left = rosterOnlyOf(page);
+    await expect(right).toBeVisible({ timeout: 15000 });
+    await expect(right).toContainText(`${apiB0.systemOnly.length} 個班`);
+    await expect(left).toContainText(`${apiB0.rosterOnly.length} 個班`);
+
+    // 在這一頁儲存 alias（真實 preview／apply）
+    await mapAliasAndApply(page, '國小國語文-小三四', '國小國語文-小三小四');
+
+    // 刷新後同頁報告必須仍是 B 的內容，並與同 scope 的 API 一致（不是現行名單 A 的班數）
+    const apiB1 = await reportApi(page, importB);
+    expect(apiB1.rosterOnly.length, '儲存 alias 後 B 的米豆奶有／系統無少一個班').toBe(apiB0.rosterOnly.length - 1);
+    await expect(left).toContainText(`${apiB1.rosterOnly.length} 個班`, { timeout: 15000 });
+    await expect(right).toContainText(`${apiB1.systemOnly.length} 個班`);
+    await expect(right).not.toContainText(`${apiA0.systemOnly.length} 個班`);
+    await expect(page).toHaveURL(new RegExp(`import=${importB}`));
+  });
+
+  for (const [label, failRefresh, firstPair, secondPair] of [
+    [
+      '伺服器回 500',
+      (route: Route) => route.fulfill({ status: 500, contentType: 'application/json', body: '{"error":"x"}' }),
+      ['國小輔導-四年級B', '國小輔導-四年級'],
+      ['小六國文加強班', '小六加強班-國文'],
+    ],
+    [
+      '連線中斷',
+      (route: Route) => route.abort('failed'),
+      ['小六數學加強班', '小六加強班-數學'],
+      ['國小輔導-四年級A', '國小輔導-四年級'],
+    ],
+  ] as const) {
+    test(`B2：儲存成功後重新取得報告失敗（${label}）→ 明確標示無法取得最新報告，不以舊數字冒充最新；下次成功刷新後標示消失、數字為新值`, async ({ page }) => {
+      test.setTimeout(90_000);
+      await activateFixtureAsCurrent(page);
+      const before = await reportApi(page);
+      await page.goto('/settings');
+      await expect(page.locator('h1', { hasText: '課表設定' })).toBeVisible({ timeout: 10000 });
+      await page.locator('button', { hasText: '班名對應' }).click();
+      const left = rosterOnlyOf(page);
+      await expect(left).toContainText(`${before.rosterOnly.length} 個班`, { timeout: 15000 });
+
+      // 只讓第一次「重新取得報告」失敗；apply 本身成功
+      let reportCalls = 0;
+      await page.route('**/api/v1/settings/class-name-report**', async (route) => {
+        reportCalls += 1;
+        if (reportCalls === 1) return failRefresh(route);
+        return route.continue();
+      });
+
+      await mapAliasAndApply(page, firstPair[0], firstPair[1]);
+
+      // 已成功的儲存不能被說成儲存失敗；要有明確、可被讀屏讀到的「無法取得最新報告」標示
+      const notice = page.getByRole('alert').filter({ hasText: '無法取得最新的班名比對報告' });
+      await expect(notice).toBeVisible({ timeout: 15000 });
+      await expect(notice).toContainText('課表已儲存');
+      await expect(notice).not.toContainText('儲存失敗');
+      // 舊數字不得再以「目前設定的比對結果」出現：兩份清單（含儲存前的班數與影響人數）都不再顯示
+      await expect(rosterOnlyOf(page)).toHaveCount(0);
+      await expect(systemOnlyOf(page)).toHaveCount(0);
+      expect(reportCalls, '失敗的是第一次重新取得').toBe(1);
+
+      // 使用者再儲存另一個 alias：這次重新取得成功 → 標示消失，數字是新值（比儲存前少 2 個班）
+      await mapAliasAndApply(page, secondPair[0], secondPair[1]);
+      await expect(notice).toHaveCount(0, { timeout: 15000 });
+      await expect(rosterOnlyOf(page)).toContainText(`${before.rosterOnly.length - 2} 個班`, { timeout: 15000 });
+      expect(reportCalls, '第二次重新取得成功').toBe(2);
+    });
+  }
 });
