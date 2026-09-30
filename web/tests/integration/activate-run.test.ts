@@ -7,6 +7,8 @@ import { runMigrations } from '@/adapters/sqlite/migrator';
 import { saveImportBatch } from '@/adapters/sqlite/import-repository';
 import { generateImportPreview } from '@/application/import-preview';
 import { activateImport, ActivateConflictError } from '@/application/activate-import';
+import { executeCalculationRun, resolveLatestSavedSettings } from '@/application/calculate-run';
+import { saveCalculationRun } from '@/adapters/sqlite/runs-repository';
 import { queryRunStudents, getStudentCalculationDetail } from '@/application/query-students';
 
 describe('T04: 計算生命週期、CAS 409 啟用與總表查詢整合測試 (I09, I16, I17)', () => {
@@ -158,58 +160,65 @@ describe('T04: 計算生命週期、CAS 409 啟用與總表查詢整合測試 (I
     expect(actRes.issueCounts['SCHEDULE_NOT_FOUND']).toBe(13);
   });
 
-  it('F2: 同 key 不同 ruleSetVersion 不互相命中（版本隔離），同 key 同版本重送回原 run', () => {
-    const resV2 = activateImport(db, {
+  // D1 契約改寫（F-1；specs/11 §3 D1、04 §8 UX35）：
+  //   舊斷言：同 key 不同 ruleSetVersion（v2 → v1）不互相命中，拒絕「不同的請求內容」。
+  //   新斷言：規則版本不再是 client 輸入，冪等雜湊只由 importId／expectedRevision／asOfDate 決定；
+  //           同 key 同內容重送回原 run，同 key 不同內容（這裡用不同 asOfDate）拒絕「不同的請求內容」。
+  //   原因：ruleSetVersion 已不在 activate 的請求裡，「版本隔離」改由「請求內容不同即拒絕」這條不變式承接。
+  it('F2: 同 key 同內容重送回原 run；同 key 不同內容（不同 asOfDate）不得靜默回傳原 run', () => {
+    const first = activateImport(db, {
       importId: previewId,
       expectedRevision: 0,
       idempotencyKey: 'key-f2-isolation',
-      ruleSetVersion: 'erp-tag-v2',
     });
 
-    // 同 key＋同版本＋同 body → 回原結果（冪等命中）
+    // 同 key＋同 body → 回原結果（冪等命中）
     const replay = activateImport(db, {
       importId: previewId,
       expectedRevision: 0,
       idempotencyKey: 'key-f2-isolation',
-      ruleSetVersion: 'erp-tag-v2',
     });
-    expect(replay.runId).toBe(resV2.runId);
+    expect(replay.runId).toBe(first.runId);
 
-    // 同 key＋不同版本 → 不得靜默回錯版 run，必須拒絕
+    // 同 key＋不同內容 → 不得靜默回錯的 run，必須拒絕
     expect(() =>
       activateImport(db, {
         importId: previewId,
         expectedRevision: 0,
         idempotencyKey: 'key-f2-isolation',
-        ruleSetVersion: 'erp-tag-v1',
+        asOfDate: '2026-01-01',
       })
     ).toThrowError(/不同的請求內容/);
   });
 
+  // D1 契約改寫（F-1）：
+  //   舊斷言：以 activateImport 的 client 參數 ruleSetVersion 分別啟用 erp-tag-v2、erp-tag-v1 兩個 run 後比對。
+  //   新斷言：v2 run 由 activateImport（版本由 server 決定＝現行正式規則 v2）建立；v1 run 是「既有的舊版本 run」，
+  //           改由 application 層 executeCalculationRun＋saveCalculationRun 直接建立（不經 activate、client 不可指定）；
+  //           比對內容與舊測試完全相同（477 人的天數、基本折扣、issue 旗標逐人相同）。
   it('D30 / I17: erp-tag-v2 與 erp-tag-v1 雙版本對照驗證，在 seed 基準下 477 筆學生計算天數完全一致且版本記錄精確', () => {
-    // 1. 啟用預設 erp-tag-v2 run
+    // 1. 啟用 run：版本由 server 決定（現行正式規則 erp-tag-v2）
     const actV2 = activateImport(db, {
       importId: previewId,
       expectedRevision: 0,
       idempotencyKey: 'key-verify-v2',
-      ruleSetVersion: 'erp-tag-v2',
     });
     const runV2 = db.prepare('SELECT rule_set_version FROM calculation_runs WHERE id = ?').get(actV2.runId) as any;
     expect(runV2.rule_set_version).toBe('erp-tag-v2');
 
-    // 2. 啟用 erp-tag-v1 run
-    const actV1 = activateImport(db, {
-      importId: previewId,
-      expectedRevision: 1,
-      idempotencyKey: 'key-verify-v1',
+    // 2. 既有的 erp-tag-v1 run（application 層建立；同一份名單、同一份設定解析）
+    const v1RunId = 'run_v1_dual_version_fixture';
+    const built = executeCalculationRun(db, previewId, v1RunId, {
       ruleSetVersion: 'erp-tag-v1',
+      ...resolveLatestSavedSettings(db),
     });
-    const runV1 = db.prepare('SELECT rule_set_version FROM calculation_runs WHERE id = ?').get(actV1.runId) as any;
+    saveCalculationRun(db, built.run, built.results);
+    const runV1 = db.prepare('SELECT rule_set_version FROM calculation_runs WHERE id = ?').get(v1RunId) as any;
     expect(runV1.rule_set_version).toBe('erp-tag-v1');
 
     // 3. 比對兩 run 學生計算結果：因排課種子之數學/美語週六時段均在上午，全量 477 人計算結果位元相同
     const studentsV2 = queryRunStudents(db, actV2.runId, { limit: 1000 }).items;
-    const studentsV1 = queryRunStudents(db, actV1.runId, { limit: 1000 }).items;
+    const studentsV1 = queryRunStudents(db, v1RunId, { limit: 1000 }).items;
 
     expect(studentsV2.length).toBe(studentsV1.length);
     for (let i = 0; i < studentsV2.length; i++) {

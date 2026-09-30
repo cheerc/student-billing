@@ -21,6 +21,13 @@ interface ColInfo {
   pk: number;
 }
 
+/**
+ * D1 改寫（specs/11 §3 D1；migration 0007 新增欄位與資料表）：
+ *   舊斷言：`runMigrations(db)`（套用全部 migration）後，斷言欄位清單、資料表名稱、`SELECT *` 與 0006 剛套用完的狀態相同。
+ *   新斷言：`runMigrations(db, migrationsDir(6))`——只套用到 0006；0006 的斷言內容一字不改。
+ *   原因：這份測試綁定「0006 是最新 migration」；0007 之後套用全部 migration 會多一個欄位與一張表，
+ *         0007 自己的 schema／升級／rollback 由 d1-migration-0007.test.ts 驗證。
+ */
 describe('UX17：migration 0006——settings_previews.import_id、idempotency_records.run_id 改可 null', () => {
   let tempDir: string;
   let dbPath: string;
@@ -96,7 +103,7 @@ describe('UX17：migration 0006——settings_previews.import_id、idempotency_r
   });
 
   it('套用 0006：兩欄改可 null，其餘欄位（含 0005 expires_at）與其 NOT NULL／PK 不變', () => {
-    runMigrations(db);
+    runMigrations(db, migrationsDir(6));
     expect(getAppliedMigrations(db).map((m) => m.version)).toContain(6);
 
     expect(col('settings_previews', 'import_id').notnull).toBe(0);
@@ -125,7 +132,7 @@ describe('UX17：migration 0006——settings_previews.import_id、idempotency_r
     expect(before.previews).toHaveLength(3);
     expect(before.idempotency).toHaveLength(2);
 
-    runMigrations(db);
+    runMigrations(db, migrationsDir(6));
 
     const after = dumpLegacyRows();
     expect(after.previews).toEqual(before.previews);
@@ -134,7 +141,7 @@ describe('UX17：migration 0006——settings_previews.import_id、idempotency_r
 
   it('migration 後：無多餘／殘留資料表、PK 唯一性仍生效、完整性檢查通過', () => {
     const namesBefore = tableNames();
-    runMigrations(db);
+    runMigrations(db, migrationsDir(6));
     expect(tableNames()).toEqual(namesBefore);
 
     expect(() =>
@@ -151,7 +158,7 @@ describe('UX17：migration 0006——settings_previews.import_id、idempotency_r
   });
 
   it('migration 後可寫入 null import_id／null run_id（settings_only 所需），且既有列不受影響', () => {
-    runMigrations(db);
+    runMigrations(db, migrationsDir(6));
     db.prepare(
       `INSERT INTO settings_previews
         (preview_id, input_hash, draft_json, expected_revision, settings_version_id, import_id, result_json, created_at, expires_at)
@@ -170,9 +177,9 @@ describe('UX17：migration 0006——settings_previews.import_id、idempotency_r
   });
 
   it('重跑已套用的 migration 為 no-op（冪等），資料不變', () => {
-    runMigrations(db);
+    runMigrations(db, migrationsDir(6));
     const once = dumpLegacyRows();
-    const again = runMigrations(db);
+    const again = runMigrations(db, migrationsDir(6));
     expect(again.applied).toEqual([]);
     expect(dumpLegacyRows()).toEqual(once);
   });
@@ -193,7 +200,7 @@ describe('UX17：migration 0006——settings_previews.import_id、idempotency_r
     expect(db.prepare('PRAGMA integrity_check').all()).toEqual([{ integrity_check: 'ok' }]);
 
     // 復原：以正式的 0006 重試即成功，資料逐列保留
-    runMigrations(db);
+    runMigrations(db, migrationsDir(6));
     expect(col('settings_previews', 'import_id').notnull).toBe(0);
     expect(dumpLegacyRows()).toEqual(before);
   });
@@ -202,7 +209,7 @@ describe('UX17：migration 0006——settings_previews.import_id、idempotency_r
     const backupPath = path.join(tempDir, 'backup.sqlite');
     db.prepare('VACUUM INTO ?').run(backupPath);
 
-    runMigrations(db);
+    runMigrations(db, migrationsDir(6));
     const migrated = dumpLegacyRows();
 
     const backup = new Database(backupPath);
@@ -213,7 +220,7 @@ describe('UX17：migration 0006——settings_previews.import_id、idempotency_r
       expect((backup.prepare('SELECT MAX(version) AS v FROM schema_migrations').get() as any).v).toBe(5);
 
       // 以備份還原後重新 migrate：資料與原 DB migrate 後逐列相同
-      runMigrations(backup);
+      runMigrations(backup, migrationsDir(6));
       expect(backup.prepare('SELECT * FROM settings_previews ORDER BY preview_id').all()).toEqual(migrated.previews);
       expect(backup.prepare('SELECT * FROM idempotency_records ORDER BY idempotency_key').all()).toEqual(migrated.idempotency);
     } finally {
