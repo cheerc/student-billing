@@ -1,5 +1,7 @@
 import Database from 'better-sqlite3';
 import { StudentSnapshot, ParsedToken } from '@/domain/students';
+import { normalizeStudentQuery, StudentQueryInputError, queryIdentity, decodeStudentCursor, encodeStudentCursor } from '@/contracts/student-query';
+import { classPredicate, selectionPredicate, branchPredicate, escapeLike, type QueryPredicate } from './student-query-sql';
 
 export class RosterQueryError extends Error {
   statusCode: number;
@@ -40,6 +42,9 @@ export const FORBIDDEN_CALCULATION_PARAMS = new Set([
   'hasIssues',
   'scheduleStatus',
   'issueCode',
+  'anqinDays',
+  'tutoringDays',
+  'options',
 ]);
 
 export interface RosterQueryParams {
@@ -61,193 +66,77 @@ export interface RosterQueryParams {
 export interface RosterQueryResult {
   items: StudentSnapshot[];
   totalStudents: number;
+  noCourseTotal: number;
   nextCursor: string | null;
   stats: {
     totalStudents: number;
     studentsWithClass: number;
     studentsWithoutClass: number;
+    filteredNoCourseCount: number;
   };
 }
 
-/**
- * 驗證傳入之查詢參數是否符合 03 §5 預覽名單白名單規範。
- */
 export function validateImportQueryParams(params: Record<string, any>): void {
+  parseImportQuery(params);
+}
+
+function parseImportQuery(params: RosterQueryParams) {
   for (const key of Object.keys(params)) {
-    if (params[key] === undefined || params[key] === null || params[key] === '') {
-      continue;
-    }
-
-    if (FORBIDDEN_CALCULATION_PARAMS.has(key)) {
-      throw new RosterQueryError(
-        400,
-        `參數「${key}」為正式計算 run 專屬參數，預覽名單查詢不支援此參數。`
-      );
-    }
-
-    if (!ALLOWED_IMPORT_QUERY_PARAMS.has(key)) {
-      throw new RosterQueryError(400, `未知或不支援的查詢參數: 「${key}」`);
-    }
+    if (FORBIDDEN_CALCULATION_PARAMS.has(key)) throw new RosterQueryError(400, `參數「${key}」為正式計算 run 專屬參數，預覽名單查詢不支援此參數。`);
+  }
+  try { return normalizeStudentQuery(params, ALLOWED_IMPORT_QUERY_PARAMS); }
+  catch (error) {
+    if (error instanceof StudentQueryInputError) throw new RosterQueryError(400, error.message);
+    throw error;
   }
 }
 
-/**
- * 查詢指定 importId 之名單，支援關鍵字、年級、班級、有無班級等條件與 cursor 分頁。
- */
-export function queryImportStudents(
-  db: Database.Database,
-  importId: string,
-  params: RosterQueryParams
-): RosterQueryResult {
-  validateImportQueryParams(params);
-
-  // 解析 limit (預設 50，最大 200)
-  let limit = 50;
-  if (params.limit !== undefined) {
-    const parsedLimit = parseInt(String(params.limit), 10);
-    if (isNaN(parsedLimit) || parsedLimit <= 0) {
-      throw new RosterQueryError(400, 'limit 必須為大於 0 之正整數');
-    }
-    limit = Math.min(200, parsedLimit);
+export function queryImportStudents(db: Database.Database, importId: string, params: RosterQueryParams): RosterQueryResult {
+  const query = parseImportQuery(params);
+  const limit = query.limit;
+  const identity = queryIdentity(`import:${importId}`, query);
+  let lastPersonCode: string | null;
+  try { lastPersonCode = decodeStudentCursor(query.cursor, identity); }
+  catch (error) { throw new RosterQueryError(400, (error as Error).message); }
+  const whereClauses = ['s.import_id = ?'];
+  const queryArgs: Array<string | number> = [importId];
+  const add = (p: QueryPredicate) => { whereClauses.push(p.sql); queryArgs.push(...p.args); };
+  const selected = query.selections;
+  add(classPredicate(importId, 's', selected.enrollmentKey));
+  add(selectionPredicate(selected.grade, 's.grade'));
+  add(branchPredicate('s.branch', selected.branch));
+  const hasClass = 'EXISTS (SELECT 1 FROM student_enrollments e WHERE e.import_id = s.import_id AND e.person_code = s.person_code)';
+  add(selectionPredicate(selected.hasClass, hasClass, '0'));
+  if (query.q) {
+    whereClauses.push("(s.name LIKE ? ESCAPE '\\' OR s.person_code LIKE ? ESCAPE '\\')");
+    queryArgs.push(`%${escapeLike(query.q)}%`, `%${escapeLike(query.q)}%`);
   }
-
-  // 解析 cursor
-  let lastPersonCode: string | null = null;
-  if (params.cursor) {
-    try {
-      const decoded = Buffer.from(params.cursor, 'base64').toString('utf-8');
-      if (!decoded || !/^STU[0-9A-Za-z_-]+$/.test(decoded)) {
-        throw new Error('invalid format');
-      }
-      lastPersonCode = decoded;
-    } catch (_e) {
-      throw new RosterQueryError(400, `無效的 cursor 參數: ${params.cursor}`);
-    }
+  if (query.subject) {
+    whereClauses.push("EXISTS (SELECT 1 FROM student_enrollments e WHERE e.import_id = s.import_id AND e.person_code = s.person_code AND (e.base_name LIKE ? ESCAPE '\\' OR e.raw_token LIKE ? ESCAPE '\\'))");
+    queryArgs.push(`%${escapeLike(query.subject)}%`, `%${escapeLike(query.subject)}%`);
   }
-
-  // 建立查詢過濾條件
-  const whereClauses: string[] = ['s.import_id = ?'];
-  const queryArgs: any[] = [importId];
-
-  // 1. 班級 / enrollmentKey (baseName 精確匹配)
-  const targetClassKey = params.enrollmentKey || params.classId;
-  if (targetClassKey) {
-    whereClauses.push(
-      `EXISTS (SELECT 1 FROM student_enrollments e WHERE e.import_id = s.import_id AND e.person_code = s.person_code AND e.base_name = ?)`
-    );
-    queryArgs.push(targetClassKey);
-  }
-
-  // 2. 年級
-  if (params.grade !== undefined && params.grade !== '') {
-    const gNum = parseInt(String(params.grade), 10);
-    if (!isNaN(gNum)) {
-      whereClauses.push(`s.grade = ?`);
-      queryArgs.push(gNum);
-    } else {
-      whereClauses.push(`s.grade_raw = ?`);
-      queryArgs.push(String(params.grade));
+  const tiers = selected.erpBillingTier;
+  if (tiers) {
+    if (tiers.none) add({ sql: '0', args: [] });
+    else {
+      const p = selectionPredicate(tiers, 'e.erp_billing_tier');
+      add({ sql: `EXISTS (SELECT 1 FROM student_enrollments e WHERE e.import_id = s.import_id AND e.person_code = s.person_code AND ${p.sql})`, args: p.args });
     }
   }
-
-  // 3. 分校（D3 Task 5: 換行複值集合語義——整值相等或換行邊界精確匹配，相容 CRLF/LF）
-  if (params.branch) {
-    const b = String(params.branch).trim().replace(/\r\n/g, '\n').replace(/\r/g, '\n');
-    whereClauses.push(`(
-      replace(replace(s.branch, char(13)||char(10), char(10)), char(13), char(10)) = ?
-      OR replace(replace(s.branch, char(13)||char(10), char(10)), char(13), char(10)) LIKE ? ESCAPE '\\'
-      OR replace(replace(s.branch, char(13)||char(10), char(10)), char(13), char(10)) LIKE ? ESCAPE '\\'
-      OR replace(replace(s.branch, char(13)||char(10), char(10)), char(13), char(10)) LIKE ? ESCAPE '\\'
-    )`);
-    const esc = b.replace(/[\\%_]/g, (c) => '\\' + c);
-    queryArgs.push(b, `${esc}\n%`, `%\n${esc}`, `%\n${esc}\n%`);
-  }
-
-  // 4. 有無班級 (hasClass)
-  if (params.hasClass !== undefined && params.hasClass !== '') {
-    const hasClassBool = params.hasClass === true || params.hasClass === 'true';
-    if (hasClassBool) {
-      whereClauses.push(
-        `EXISTS (SELECT 1 FROM student_enrollments e WHERE e.import_id = s.import_id AND e.person_code = s.person_code)`
-      );
-    } else {
-      whereClauses.push(
-        `NOT EXISTS (SELECT 1 FROM student_enrollments e WHERE e.import_id = s.import_id AND e.person_code = s.person_code)`
-      );
-    }
-  }
-
-  // 5. 搜尋關鍵字 (姓名或代碼)
-  if (params.q && params.q.trim()) {
-    const term = `%${params.q.trim()}%`;
-    whereClauses.push(`(s.name LIKE ? OR s.person_code LIKE ?)`);
-    queryArgs.push(term, term);
-  }
-
-  // 6. erpBillingTier
-  if (params.erpBillingTier !== undefined && params.erpBillingTier !== '') {
-    const tierNum = parseFloat(String(params.erpBillingTier));
-    whereClauses.push(
-      `EXISTS (SELECT 1 FROM student_enrollments e WHERE e.import_id = s.import_id AND e.person_code = s.person_code AND e.erp_billing_tier = ?)`
-    );
-    queryArgs.push(tierNum);
-  }
-
-  // 計算符合條件的總人數與去重統計
   const baseWhereSql = whereClauses.join(' AND ');
-  const totalCountRow = db
-    .prepare(`SELECT COUNT(DISTINCT s.person_code) as total FROM imported_students s WHERE ${baseWhereSql}`)
-    .get(...queryArgs) as { total: number };
-  const totalStudents = totalCountRow ? totalCountRow.total : 0;
-
-  // 統計有班與無班人數
-  const withClassCountRow = db
-    .prepare(`
-      SELECT COUNT(DISTINCT s.person_code) as total
-      FROM imported_students s
-      WHERE ${baseWhereSql}
-        AND EXISTS (SELECT 1 FROM student_enrollments e WHERE e.import_id = s.import_id AND e.person_code = s.person_code)
-    `)
-    .get(...queryArgs) as { total: number };
-
-  const withoutClassCountRow = db
-    .prepare(`
-      SELECT COUNT(DISTINCT s.person_code) as total
-      FROM imported_students s
-      WHERE ${baseWhereSql}
-        AND NOT EXISTS (SELECT 1 FROM student_enrollments e WHERE e.import_id = s.import_id AND e.person_code = s.person_code)
-    `)
-    .get(...queryArgs) as { total: number };
-
-  // 分頁過濾 (cursor)
+  const totalCountRow = db.prepare(`SELECT COUNT(DISTINCT s.person_code) AS total FROM imported_students s WHERE ${baseWhereSql}`).get(...queryArgs) as { total: number };
+  const totalStudents = totalCountRow.total;
+  const withClassCountRow = db.prepare(`SELECT COUNT(DISTINCT s.person_code) AS total FROM imported_students s WHERE ${baseWhereSql} AND ${hasClass}`).get(...queryArgs) as { total: number };
+  const withoutClassCountRow = db.prepare(`SELECT COUNT(DISTINCT s.person_code) AS total FROM imported_students s WHERE ${baseWhereSql} AND NOT (${hasClass})`).get(...queryArgs) as { total: number };
+  const noCourseTotal = (db.prepare(`SELECT COUNT(DISTINCT s.person_code) AS total FROM imported_students s WHERE s.import_id = ? AND NOT (${hasClass})`).get(importId) as { total: number }).total;
   const pagedWhereClauses = [...whereClauses];
   const pagedArgs = [...queryArgs];
-
-  if (lastPersonCode) {
-    pagedWhereClauses.push(`s.person_code > ?`);
-    pagedArgs.push(lastPersonCode);
-  }
-
-  pagedArgs.push(limit + 1); // 多取一筆判斷是否有下一頁
-
-  const pagedSql = `
-    SELECT s.*
-    FROM imported_students s
-    WHERE ${pagedWhereClauses.join(' AND ')}
-    ORDER BY s.person_code ASC
-    LIMIT ?
-  `;
-
-  const studentRows = db.prepare(pagedSql).all(...pagedArgs) as any[];
-
+  if (lastPersonCode) { pagedWhereClauses.push('s.person_code > ?'); pagedArgs.push(lastPersonCode); }
+  pagedArgs.push(limit + 1);
+  const studentRows = db.prepare(`SELECT s.* FROM imported_students s WHERE ${pagedWhereClauses.join(' AND ')} ORDER BY s.person_code ASC LIMIT ?`).all(...pagedArgs) as any[];
   const hasNextPage = studentRows.length > limit;
   const itemsRows = hasNextPage ? studentRows.slice(0, limit) : studentRows;
-
-  let nextCursor: string | null = null;
-  if (hasNextPage && itemsRows.length > 0) {
-    const lastItem = itemsRows[itemsRows.length - 1];
-    nextCursor = Buffer.from(lastItem.person_code).toString('base64');
-  }
+  const nextCursor = hasNextPage && itemsRows.length ? encodeStudentCursor(identity, itemsRows[itemsRows.length - 1].person_code) : null;
 
   // 取得學生對應的 enrollments
   const personCodes = itemsRows.map((r) => r.person_code);
@@ -304,10 +193,12 @@ export function queryImportStudents(
     items,
     totalStudents,
     nextCursor,
+    noCourseTotal,
     stats: {
       totalStudents,
       studentsWithClass: withClassCountRow ? withClassCountRow.total : 0,
       studentsWithoutClass: withoutClassCountRow ? withoutClassCountRow.total : 0,
+      filteredNoCourseCount: withoutClassCountRow ? withoutClassCountRow.total : 0,
     },
   };
 }

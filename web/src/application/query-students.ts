@@ -1,6 +1,9 @@
 import Database from 'better-sqlite3';
 import { StudentCalculationRecord, getCalculationRun } from '@/adapters/sqlite/runs-repository';
 import { ParsedToken } from '@/domain/students';
+import { parseTagDiscounts } from '@/domain/billing/discount-rules';
+import { normalizeStudentQuery, StudentQueryInputError, queryIdentity, decodeStudentCursor, encodeStudentCursor, type NormalizedStudentQuery } from '@/contracts/student-query';
+import { selectionPredicate, classPredicate, branchPredicate, noCoursePredicate, applicableRateColumn, escapeLike, type QueryPredicate } from './student-query-sql';
 
 export class QueryStudentError extends Error {
   statusCode: number;
@@ -36,6 +39,10 @@ export const ALLOWED_RUN_QUERY_PARAMS = new Set([
   'hasIssues',
   'scheduleStatus',
   'issueCode',
+  'anqinDays',
+  'tutoringDays',
+  'options',
+  'mappingStatus',
 ]);
 
 export interface RunStudentQueryParams {
@@ -64,6 +71,7 @@ export interface RunStudentsQueryResult {
   runId: string;
   items: StudentCalculationItem[];
   totalStudents: number;
+  noCourseTotal: number;
   nextCursor: string | null;
   stats: {
     /** 符合目前篩選條件的人數（同範圍） */
@@ -77,329 +85,121 @@ export interface RunStudentsQueryResult {
      * 未選班時為全批人數。
      */
     classScopeTotal: number;
+    filteredNoCourseCount: number;
   };
 }
 
-export const KNOWN_ISSUE_CODES = new Set([
-  'DUPLICATE_SUBJECT_ENROLLMENT',
-  'STAFF_FAMILY_NO_DISCOUNT',
-  'CONFLICTING_NOTE_SOURCE',
-  'NUMERIC_POLICY_DIFFERENCE',
-  'SCHEDULE_NOT_FOUND',
-  'SCHEDULE_EMPTY',
-  'SCHEDULE_INCOMPLETE',
-  'UNKNOWN_WEEKDAY',
-]);
+export { KNOWN_ISSUE_CODES, VALID_TIER_COMPARISONS } from '@/contracts/student-query';
 
-export const VALID_TIER_COMPARISONS = new Set([
-  'match',
-  'mismatch',
-  'not_applicable',
-  'unavailable',
-]);
-
-export function validateRunQueryParams(params: Record<string, any>): void {
-  for (const key of Object.keys(params)) {
-    if (params[key] === undefined || params[key] === null || params[key] === '') {
-      continue;
-    }
-    if (!ALLOWED_RUN_QUERY_PARAMS.has(key)) {
-      throw new QueryStudentError(400, `未知或不支援的查詢參數: 「${key}」`);
-    }
-  }
-
-  // issueCode 檢驗
-  if (params.issueCode !== undefined && params.issueCode !== '') {
-    if (!KNOWN_ISSUE_CODES.has(String(params.issueCode))) {
-      throw new QueryStudentError(400, `未知或不支援的問題碼: 「${params.issueCode}」`);
-    }
-    if (params.hasIssues === false || params.hasIssues === 'false') {
-      throw new QueryStudentError(400, 'hasIssues=false 與 issueCode 不得同時指定');
-    }
-  }
-
-  // tierComparison 檢驗與 tierMismatch 矛盾檢查
-  if (params.tierComparison !== undefined && params.tierComparison !== '') {
-    if (!VALID_TIER_COMPARISONS.has(String(params.tierComparison))) {
-      throw new QueryStudentError(400, `無效的 tierComparison 參數值: 「${params.tierComparison}」`);
-    }
-    const isMismatchTrue = params.tierMismatch === true || params.tierMismatch === 'true';
-    const isMismatchFalse = params.tierMismatch === false || params.tierMismatch === 'false';
-    if (isMismatchTrue && params.tierComparison === 'match') {
-      throw new QueryStudentError(400, 'tierMismatch=true 與 tierComparison=match 衝突矛盾');
-    }
-    if (isMismatchFalse && params.tierComparison === 'mismatch') {
-      throw new QueryStudentError(400, 'tierMismatch=false 與 tierComparison=mismatch 衝突矛盾');
-    }
-  }
-
-  // careType 與 billingTier 檢驗
-  if (params.careType !== undefined && params.careType !== '') {
-    if (params.careType !== 'anqin' && params.careType !== 'tutoring') {
-      throw new QueryStudentError(400, `careType 僅接受 'anqin' 或 'tutoring'，無效值: 「${params.careType}」`);
-    }
-  }
-  if (params.billingTier !== undefined && params.billingTier !== '') {
-    if (!params.careType) {
-      throw new QueryStudentError(400, '指定 billingTier 時必須同時指定 careType (anqin 或 tutoring)');
-    }
-    const tierNum = parseFloat(String(params.billingTier));
-    if (isNaN(tierNum)) {
-      throw new QueryStudentError(400, `無效的 billingTier 數值: 「${params.billingTier}」`);
-    }
-  }
-
-  // applicableDiscountBps 檢驗 (需 classId)
-  if (params.applicableDiscountBps !== undefined && params.applicableDiscountBps !== '') {
-    if (!params.classId && !params.enrollmentKey) {
-      throw new QueryStudentError(400, '指定 applicableDiscountBps 時必須同時指定 classId');
-    }
+function parseRunQuery(params: RunStudentQueryParams): NormalizedStudentQuery {
+  try {
+    return normalizeStudentQuery(params, ALLOWED_RUN_QUERY_PARAMS);
+  } catch (error) {
+    if (error instanceof StudentQueryInputError) throw new QueryStudentError(400, error.message);
+    throw error;
   }
 }
 
-export function queryRunStudents(
-  db: Database.Database,
-  runId: string,
-  params: RunStudentQueryParams
-): RunStudentsQueryResult {
-  validateRunQueryParams(params);
+export function validateRunQueryParams(params: Record<string, any>): void {
+  parseRunQuery(params);
+}
 
+export function queryRunStudents(db: Database.Database, runId: string, params: RunStudentQueryParams): RunStudentsQueryResult {
+  const query = parseRunQuery(params);
   const run = getCalculationRun(db, runId);
-  if (!run) {
-    throw new QueryStudentError(404, `找不到計算 run: ${runId}`);
+  if (!run) throw new QueryStudentError(404, `找不到計算 run: ${runId}`);
+  if (query.runId && query.runId !== runId) throw new QueryStudentError(400, 'runId 與路徑不符');
+  const limit = query.limit;
+  const identity = queryIdentity(`run:${runId}:import:${run.importId}`, query);
+  let lastPersonCode: string | null;
+  try { lastPersonCode = decodeStudentCursor(query.cursor, identity); }
+  catch (error) { throw new QueryStudentError(400, (error as Error).message); }
+  const whereClauses = ['sc.run_id = ?'];
+  const queryArgs: Array<string | number> = [runId];
+  const add = (predicate: QueryPredicate) => {
+    whereClauses.push(predicate.sql);
+    queryArgs.push(...predicate.args);
+  };
+  const selected = query.selections;
+  const classes = classPredicate(run.importId, 'sc', selected.enrollmentKey);
+  add(classes);
+  for (const [key, column] of Object.entries({
+    grade: 'sc.grade', baseDiscountBps: 'sc.base_discount_bps', anqinDays: 'sc.anqin_days', tutoringDays: 'sc.tutoring_days',
+    hasIssues: 'sc.has_issues', tierMismatch: 'sc.tier_mismatch',
+  })) add(selectionPredicate(selected[key], column));
+  add(branchPredicate('sc.branch', selected.branch));
+  add(selectionPredicate(selected.hasClass, '(coalesce(sc.subject_count,0) > 0)', '0'));
+  if (selected.billingTier) add(selectionPredicate(selected.billingTier, query.careType === 'anqin' ? 'sc.anqin_days' : 'sc.tutoring_days'));
+  if (selected.applicableDiscountBps) {
+    const target = String(selected.enrollmentKey.values[0]);
+    const column = applicableRateColumn(target);
+    add(column ? selectionPredicate(selected.applicableDiscountBps, column) : { sql: '0', args: [] });
   }
-
-  // 解析 limit
-  let limit = 50;
-  if (params.limit !== undefined) {
-    const parsedLimit = parseInt(String(params.limit), 10);
-    if (isNaN(parsedLimit) || parsedLimit <= 0) {
-      throw new QueryStudentError(400, 'limit 必須為大於 0 之正整數');
-    }
-    limit = Math.min(200, parsedLimit);
+  if (query.q) {
+    whereClauses.push("(sc.name LIKE ? ESCAPE '\\' OR sc.person_code LIKE ? ESCAPE '\\')");
+    queryArgs.push(`%${escapeLike(query.q)}%`, `%${escapeLike(query.q)}%`);
   }
-
-  // 解析 cursor
-  let lastPersonCode: string | null = null;
-  if (params.cursor) {
-    try {
-      const decoded = Buffer.from(params.cursor, 'base64').toString('utf-8');
-      if (!decoded || !/^STU[0-9A-Za-z_-]+$/.test(decoded)) {
-        throw new Error('invalid format');
+  if (query.subject) {
+    whereClauses.push("EXISTS (SELECT 1 FROM student_enrollments e WHERE e.import_id = ? AND e.person_code = sc.person_code AND (e.base_name LIKE ? ESCAPE '\\' OR e.raw_token LIKE ? ESCAPE '\\'))");
+    queryArgs.push(run.importId, `%${escapeLike(query.subject)}%`, `%${escapeLike(query.subject)}%`);
+  }
+  for (const [key, column, source] of [
+    ['issueCode', "json_extract(j.value, '$.code')", 'sc.issues'],
+    ['tierComparison', "json_extract(j.value, '$.status')", 'sc.tier_comparisons'],
+  ]) {
+    const group = selected[key];
+    if (!group) continue;
+    if (group.none) { add({ sql: '0', args: [] }); continue; }
+    const parts: string[] = [];
+    const args: Array<string | number> = [];
+    for (const value of group.values) {
+      if (value === null) parts.push(`json_array_length(${source}) = 0`);
+      else {
+        parts.push(`EXISTS (SELECT 1 FROM json_each(${source}) j WHERE ${column} = ?)`);
+        args.push(String(value));
       }
-      lastPersonCode = decoded;
-    } catch (_e) {
-      throw new QueryStudentError(400, `無效的 cursor 參數: ${params.cursor}`);
     }
+    add({ sql: `(${parts.join(' OR ')})`, args });
   }
-
-  const whereClauses: string[] = ['sc.run_id = ?'];
-  const queryArgs: any[] = [runId];
-
-  // 1. 班級 / enrollmentKey
-  const targetClass = params.enrollmentKey || params.classId;
-  let classArgsIndex = -1;
-  if (targetClass) {
-    classArgsIndex = queryArgs.length;
-    whereClauses.push(`
-      EXISTS (
-        SELECT 1 FROM student_enrollments e
-        WHERE e.import_id = ? AND e.person_code = sc.person_code AND e.base_name = ?
-      )
-    `);
-    queryArgs.push(run.importId, targetClass);
+  for (const [key, tag] of [['sibling', '有兄弟姊妹折扣'], ['internalStudent', '園內生']]) {
+    const column = `EXISTS (SELECT 1 FROM imported_students s WHERE s.import_id = '${run.importId.replace(/'/g, "''")}' AND s.person_code = sc.person_code AND instr(s.tags_raw, '${tag}') > 0)`;
+    add(selectionPredicate(selected[key], column, '0'));
   }
-
-  // 2. 年級
-  if (params.grade !== undefined && params.grade !== '') {
-    const gNum = parseInt(String(params.grade), 10);
-    if (!isNaN(gNum)) {
-      whereClauses.push('sc.grade = ?');
-      queryArgs.push(gNum);
+  // 額外扣天與結果表同源：讀已持久化的 hasExtraFlag，不以天數是否為 0 推測。
+  add(selectionPredicate(selected.hasExtraDeduction,
+    "(coalesce(json_extract(sc.trace, '$.careDays.anqin.hasExtraFlag'),0) OR coalesce(json_extract(sc.trace, '$.careDays.tutoring.hasExtraFlag'),0))", '0'));
+  if (selected.specialDiscount) {
+    const tagged = db.prepare('SELECT person_code, trace FROM student_calculations WHERE run_id = ?').all(runId) as Array<{ person_code: string; trace: string }>;
+    const codes = tagged.filter((row) => parseTagDiscounts(JSON.parse(row.trace).rawTags).specialDiscount !== null).map((row) => row.person_code);
+    const hasSpecial = codes.length ? `sc.person_code IN (${codes.map(() => '?').join(',')})` : '0';
+    const terms: string[] = [];
+    const args: Array<string | number> = [];
+    if (selected.specialDiscount.none) terms.push('0');
+    for (const value of selected.specialDiscount.values) {
+      if (value === null) { terms.push('0'); continue; }
+      terms.push(value ? `(${hasSpecial})` : `NOT (${hasSpecial})`);
+      args.push(...codes);
     }
+    add({ sql: `(${terms.join(' OR ')})`, args });
   }
-
-  // 3. tierMismatch 篩選
-  if (params.tierMismatch !== undefined && params.tierMismatch !== '') {
-    const isMismatch = params.tierMismatch === true || params.tierMismatch === 'true';
-    whereClauses.push(`sc.tier_mismatch = ?`);
-    queryArgs.push(isMismatch ? 1 : 0);
-  }
-
-  // 4. hasIssues 篩選
-  if (params.hasIssues !== undefined && params.hasIssues !== '') {
-    const hasIssues = params.hasIssues === true || params.hasIssues === 'true';
-    whereClauses.push(`sc.has_issues = ?`);
-    queryArgs.push(hasIssues ? 1 : 0);
-  }
-
-  // 5. 搜尋關鍵字
-  if (params.q && params.q.trim()) {
-    const term = `%${params.q.trim()}%`;
-    whereClauses.push('(sc.name LIKE ? OR sc.person_code LIKE ?)');
-    queryArgs.push(term, term);
-  }
-
-  // 6. issueCode 篩選
-  if (params.issueCode) {
-    whereClauses.push(`sc.issues LIKE '%"code":"' || ? || '"%'`);
-    queryArgs.push(params.issueCode);
-  }
-
-  // 7. tierComparison 篩選
-  if (params.tierComparison) {
-    whereClauses.push(`sc.tier_comparisons LIKE '%"status":"' || ? || '"%'`);
-    queryArgs.push(params.tierComparison);
-  }
-
-  // 8. branch 分校篩選（D3 Task 5: 換行複值集合語義——整值相等或換行邊界精確匹配，相容 CRLF/LF）
-  if (params.branch) {
-    const b = String(params.branch).trim().replace(/\r\n/g, '\n').replace(/\r/g, '\n');
-    whereClauses.push(`(
-      replace(replace(sc.branch, char(13)||char(10), char(10)), char(13), char(10)) = ?
-      OR replace(replace(sc.branch, char(13)||char(10), char(10)), char(13), char(10)) LIKE ? ESCAPE '\\'
-      OR replace(replace(sc.branch, char(13)||char(10), char(10)), char(13), char(10)) LIKE ? ESCAPE '\\'
-      OR replace(replace(sc.branch, char(13)||char(10), char(10)), char(13), char(10)) LIKE ? ESCAPE '\\'
-    )`);
-    const esc = b.replace(/[\\%_]/g, (c) => '\\' + c);
-    queryArgs.push(b, `${esc}\n%`, `%\n${esc}`, `%\n${esc}\n%`);
-  }
-
-  // 9. hasClass 有無班級篩選
-  if (params.hasClass !== undefined && params.hasClass !== '') {
-    const hasClassBool = params.hasClass === true || params.hasClass === 'true';
-    if (hasClassBool) {
-      whereClauses.push('sc.subject_count > 0');
-    } else {
-      whereClauses.push('(sc.subject_count = 0 OR sc.subject_count IS NULL)');
-    }
-  }
-
-  // 10. billingTier + careType 篩選
-  if (params.billingTier !== undefined && params.billingTier !== '') {
-    const tierNum = parseFloat(String(params.billingTier));
-    if (params.careType === 'anqin') {
-      whereClauses.push('sc.anqin_days = ?');
-      queryArgs.push(tierNum);
-    } else if (params.careType === 'tutoring') {
-      whereClauses.push('sc.tutoring_days = ?');
-      queryArgs.push(tierNum);
-    }
-  }
-
-  // 11. baseDiscountBps 基本折扣篩選
-  if (params.baseDiscountBps !== undefined && params.baseDiscountBps !== '') {
-    const bps = parseInt(String(params.baseDiscountBps), 10);
-    if (!isNaN(bps)) {
-      whereClauses.push('sc.base_discount_bps = ?');
-      queryArgs.push(bps);
-    }
-  }
-
-  // 12. subject 科別篩選
-  if (params.subject) {
-    whereClauses.push(`
-      EXISTS (
-        SELECT 1 FROM student_enrollments e
-        WHERE e.import_id = ? AND e.person_code = sc.person_code
-          AND (e.base_name LIKE '%' || ? || '%' OR e.raw_token LIKE '%' || ? || '%')
-      )
-    `);
-    queryArgs.push(run.importId, params.subject, params.subject);
-  }
-
-  // 13. sibling, internalStudent
-  if (params.sibling !== undefined && params.sibling !== '') {
-    const isSib = params.sibling === true || params.sibling === 'true';
-    if (isSib) {
-      whereClauses.push(`EXISTS (SELECT 1 FROM imported_students s WHERE s.import_id = ? AND s.person_code = sc.person_code AND s.tags_raw LIKE '%有兄弟姊妹折扣%')`);
-    } else {
-      whereClauses.push(`NOT EXISTS (SELECT 1 FROM imported_students s WHERE s.import_id = ? AND s.person_code = sc.person_code AND s.tags_raw LIKE '%有兄弟姊妹折扣%')`);
-    }
-    queryArgs.push(run.importId);
-  }
-
-  if (params.internalStudent !== undefined && params.internalStudent !== '') {
-    const isInternal = params.internalStudent === true || params.internalStudent === 'true';
-    if (isInternal) {
-      whereClauses.push(`EXISTS (SELECT 1 FROM imported_students s WHERE s.import_id = ? AND s.person_code = sc.person_code AND s.tags_raw LIKE '%園內生%')`);
-    } else {
-      whereClauses.push(`NOT EXISTS (SELECT 1 FROM imported_students s WHERE s.import_id = ? AND s.person_code = sc.person_code AND s.tags_raw LIKE '%園內生%')`);
-    }
-    queryArgs.push(run.importId);
-  }
-
   const baseWhereSql = whereClauses.join(' AND ');
-
-  // 統計總人數
-  const totalRow = db
-    .prepare(`SELECT COUNT(*) as total FROM student_calculations sc WHERE ${baseWhereSql}`)
-    .get(...queryArgs) as { total: number };
-  const totalStudents = totalRow ? totalRow.total : 0;
-
-  // 統計 mismatch 人數
-  const mismatchRow = db
-    .prepare(`SELECT COUNT(*) as total FROM student_calculations sc WHERE ${baseWhereSql} AND sc.tier_mismatch = 1`)
-    .get(...queryArgs) as { total: number };
-
-  // 統計 issues 人數
-  const issuesRow = db
-    .prepare(`SELECT COUNT(*) as total FROM student_calculations sc WHERE ${baseWhereSql} AND sc.has_issues = 1`)
-    .get(...queryArgs) as { total: number };
-
-  // 本班人數（09 §5.1「本班N人」）：scope 只到班級，不含其他篩選。
-  //   已選班 → 該班人數
-  //   未選班 → 全批人數（「本班」退為整份名冊；不可拿其他條件篩完的數字冒充）
-  // 刻意不重用 baseWhereSql 再扣除班級：那是「全批套其他條件」，scope 不同。
-  let classScopeTotal: number;
-  if (classArgsIndex === -1) {
-    const rosterRow = db
-      .prepare('SELECT COUNT(*) as total FROM student_calculations sc WHERE sc.run_id = ?')
-      .get(runId) as { total: number };
-    classScopeTotal = rosterRow ? rosterRow.total : 0;
-  } else {
-    const classScopeRow = db
-      .prepare(`
-        SELECT COUNT(*) as total
-        FROM student_calculations sc
-        WHERE sc.run_id = ? AND EXISTS (
-          SELECT 1 FROM student_enrollments e
-          WHERE e.import_id = ? AND e.person_code = sc.person_code AND e.base_name = ?
-        )
-      `)
-      .get(runId, run.importId, targetClass) as { total: number };
-    classScopeTotal = classScopeRow ? classScopeRow.total : 0;
-  }
-
-  // 分頁查詢
+  const noCourse = noCoursePredicate(run.importId, 'sc');
+  const totalRow = db.prepare(`SELECT COUNT(*) AS total FROM student_calculations sc WHERE ${baseWhereSql}`).get(...queryArgs) as { total: number };
+  const totalStudents = totalRow.total;
+  const mismatchRow = db.prepare(`SELECT COUNT(*) AS total FROM student_calculations sc WHERE ${baseWhereSql} AND sc.tier_mismatch = 1`).get(...queryArgs) as { total: number };
+  const issuesRow = db.prepare(`SELECT COUNT(*) AS total FROM student_calculations sc WHERE ${baseWhereSql} AND sc.has_issues = 1`).get(...queryArgs) as { total: number };
+  const noCourseTotal = (db.prepare(`SELECT COUNT(*) AS total FROM student_calculations sc WHERE sc.run_id = ? AND ${noCourse.sql}`).get(runId, ...noCourse.args) as { total: number }).total;
+  const filteredNoCourseCount = (db.prepare(`SELECT COUNT(*) AS total FROM student_calculations sc WHERE ${baseWhereSql} AND ${noCourse.sql}`).get(...queryArgs, ...noCourse.args) as { total: number }).total;
+  const emptySelection = Object.values(selected).some((s) => s.none);
+  const classScopeTotal = emptySelection ? 0 : (db.prepare(`SELECT COUNT(*) AS total FROM student_calculations sc WHERE sc.run_id = ? AND ${classes.sql}`).get(runId, ...classes.args) as { total: number }).total;
   const pagedWhere = [...whereClauses];
   const pagedArgs = [...queryArgs];
-
-  if (lastPersonCode) {
-    pagedWhere.push('sc.person_code > ?');
-    pagedArgs.push(lastPersonCode);
-  }
-
+  if (lastPersonCode) { pagedWhere.push('sc.person_code > ?'); pagedArgs.push(lastPersonCode); }
   pagedArgs.push(limit + 1);
-
-  const sql = `
-    SELECT sc.*, s.source_row
-    FROM student_calculations sc
-    LEFT JOIN imported_students s ON s.import_id = ? AND s.person_code = sc.person_code
-    WHERE ${pagedWhere.join(' AND ')}
-    ORDER BY sc.person_code ASC
-    LIMIT ?
-  `;
-
-  const rows = db.prepare(sql).all(run.importId, ...pagedArgs) as any[];
-
+  const rows = db.prepare(`SELECT sc.*, s.source_row FROM student_calculations sc LEFT JOIN imported_students s ON s.import_id = ? AND s.person_code = sc.person_code WHERE ${pagedWhere.join(' AND ')} ORDER BY sc.person_code ASC LIMIT ?`).all(run.importId, ...pagedArgs) as any[];
   const hasNext = rows.length > limit;
   const itemRows = hasNext ? rows.slice(0, limit) : rows;
-
-  let nextCursor: string | null = null;
-  if (hasNext && itemRows.length > 0) {
-    nextCursor = Buffer.from(itemRows[itemRows.length - 1].person_code).toString('base64');
-  }
+  const nextCursor = hasNext && itemRows.length ? encodeStudentCursor(identity, itemRows[itemRows.length - 1].person_code) : null;
 
   // 查詢 enrollments
   const personCodes = itemRows.map((r) => r.person_code);
@@ -482,11 +282,13 @@ export function queryRunStudents(
     items,
     totalStudents,
     nextCursor,
+    noCourseTotal,
     stats: {
       totalStudents,
       mismatchCount: mismatchRow ? mismatchRow.total : 0,
       issuesCount: issuesRow ? issuesRow.total : 0,
       classScopeTotal,
+      filteredNoCourseCount,
     },
   };
 }

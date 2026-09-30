@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getDatabase } from '@/adapters/sqlite';
 import { queryImportStudents, RosterQueryError } from '@/application/roster-query';
+import { readStudentQuery } from '@/contracts/student-query';
 import { sanitizePathParam, maskSensitiveInfo, SecurityError } from '@/contracts/security';
 
 export async function GET(
@@ -12,10 +13,7 @@ export async function GET(
     const previewId = sanitizePathParam(rawPreviewId, 'previewId');
     const url = new URL(request.url);
 
-    const queryParams: Record<string, string> = {};
-    url.searchParams.forEach((val, key) => {
-      queryParams[key] = val;
-    });
+    const queryParams = readStudentQuery(url.searchParams);
 
     const db = getDatabase();
     const result = queryImportStudents(db, previewId, queryParams);
