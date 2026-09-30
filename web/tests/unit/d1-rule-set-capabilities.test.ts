@@ -24,6 +24,11 @@ interface Capabilities {
   sameWeekdayOnly: boolean;
   unknownWeekdayWarning: boolean;
   scheduleIncompleteOnUnknownWeekday: boolean;
+  categoryBasedBilling: boolean;
+  maxDeductionSelection: boolean;
+  missingEnglishScheduleWarning: boolean;
+  diagnosticsDecomposition: boolean;
+  unmappedClassWarning: boolean;
 }
 
 describe('D1 能力旗標表（新模組 @/domain/billing/rule-set）', () => {
@@ -36,9 +41,28 @@ describe('D1 能力旗標表（新模組 @/domain/billing/rule-set）', () => {
     expect(mod, '@/domain/billing/rule-set 需存在').not.toBeNull();
     const caps = mod!.ruleSetCapabilities;
 
-    expect(caps('erp-tag-v2')).toMatchObject({ sameWeekdayOnly: true, unknownWeekdayWarning: true, scheduleIncompleteOnUnknownWeekday: true });
+    // R2-4: 嚴格 toEqual 斷言全量 8 項旗標，防止靜默弱化
+    expect(caps('erp-tag-v2')).toEqual({
+      sameWeekdayOnly: true,
+      unknownWeekdayWarning: true,
+      scheduleIncompleteOnUnknownWeekday: true,
+      categoryBasedBilling: false,
+      maxDeductionSelection: false,
+      missingEnglishScheduleWarning: false,
+      diagnosticsDecomposition: false,
+      unmappedClassWarning: false,
+    });
     for (const off of ['erp-tag-v1', 'excel-v260922-compat', 'garbage-version', '']) {
-      expect(caps(off), off).toMatchObject({ sameWeekdayOnly: false, unknownWeekdayWarning: false, scheduleIncompleteOnUnknownWeekday: false });
+      expect(caps(off), off).toEqual({
+        sameWeekdayOnly: false,
+        unknownWeekdayWarning: false,
+        scheduleIncompleteOnUnknownWeekday: false,
+        categoryBasedBilling: false,
+        maxDeductionSelection: false,
+        missingEnglishScheduleWarning: false,
+        diagnosticsDecomposition: false,
+        unmappedClassWarning: false,
+      });
     }
 
     // 正式軌成員包含 v1、v2、v3（D2 新增 v3）

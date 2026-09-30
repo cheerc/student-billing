@@ -1,7 +1,12 @@
 import { describe, it, expect } from 'vitest';
+import Database from 'better-sqlite3';
 import { calculateStudentBilling } from '@/domain/billing/billing-calculator';
 import { calculateSubjectCount } from '@/domain/billing/discount-rules';
 import { StudentSnapshot } from '@/domain/students/types';
+import { SEED_BASE_NAMES } from '@/domain/schedules/seed-manifest';
+import { runMigrations } from '@/adapters/sqlite/migrator';
+import { saveImportBatch } from '@/adapters/sqlite/import-repository';
+import { executeCalculationRun } from '@/application/calculate-run';
 
 describe('D2a: erp-tag-v3 班級類別計費核心與選班演算法', () => {
   // 基礎 helper: 構造最小 StudentSnapshot
@@ -68,12 +73,12 @@ describe('D2a: erp-tag-v3 班級類別計費核心與選班演算法', () => {
     });
 
     it('手算案例 D-02 + 兄弟姊妹折扣標籤', () => {
-      // 在 D-02 基礎上加標籤「有兄弟姊妹」
+      // 在 D-02 基礎上加標籤「有兄弟姊妹折扣」
       // v2: effectiveCount = 1 + 1 = 2 -> 9500 bps
       // v3: effectiveCount = 2 + 1 = 3 -> 9000 bps
       const student = makeStudent({
         grade: 4,
-        tagsRaw: '有兄弟姊妹',
+        tagsRaw: '有兄弟姊妹折扣',
         enrollments: [
           { rawToken: '國小輔導-四年級', baseName: '國小輔導-四年級' },
           { rawToken: '國小輔導-寫功課', baseName: '國小輔導-寫功課' },
@@ -94,7 +99,7 @@ describe('D2a: erp-tag-v3 班級類別計費核心與選班演算法', () => {
       // v3: {care} = 1 科, effectiveCount = 1 + 1 = 2 -> 基本率 9500 bps
       const student = makeStudent({
         grade: 4,
-        tagsRaw: '有兄弟姊妹',
+        tagsRaw: '有兄弟姊妹折扣',
         enrollments: [
           { rawToken: '國小輔導-四年級', baseName: '國小輔導-四年級' },
           { rawToken: '國小輔導-寫功課', baseName: '國小輔導-寫功課' },
@@ -401,6 +406,210 @@ describe('D2a: erp-tag-v3 班級類別計費核心與選班演算法', () => {
 
       const resV3 = calculateStudentBilling(student, { ruleSetVersion: 'erp-tag-v3' as any, scheduleOverride });
       expect(resV3.issues.some((i) => i.code === 'CLASS_NOT_MAPPED')).toBe(false);
+    });
+  });
+
+  describe('R2-3: R06 兄弟姊妹折扣嚴格字面與全版本零回退', () => {
+    it('標籤為「有兄弟姊妹」(無後綴) 時，v1/v2/compat/v3 之 sibling 恆 false，基本折扣維持 10000 bps', () => {
+      const student = makeStudent({
+        grade: 4,
+        tagsRaw: '有兄弟姊妹',
+        enrollments: [{ rawToken: '國小數學-四A', baseName: '國小數學-四A' }],
+      });
+
+      const resV1 = calculateStudentBilling(student, { ruleSetVersion: 'erp-tag-v1' });
+      expect(resV1.baseDiscountBps).toBe(10000);
+
+      const resV2 = calculateStudentBilling(student, { ruleSetVersion: 'erp-tag-v2' });
+      expect(resV2.baseDiscountBps).toBe(10000);
+
+      const resCompat = calculateStudentBilling(student, { ruleSetVersion: 'excel-v260922-compat' });
+      expect(resCompat.baseDiscountBps).toBe(10000);
+
+      const resV3 = calculateStudentBilling(student, { ruleSetVersion: 'erp-tag-v3' as any });
+      expect(resV3.baseDiscountBps).toBe(10000);
+    });
+
+    it('compat 軌備註為「有兄弟姊妹」(無後綴) 時，基本折扣維持 10000 bps', () => {
+      const student = makeStudent({
+        grade: 4,
+        notesRaw: '有兄弟姊妹',
+        enrollments: [{ rawToken: '國小數學-四A', baseName: '國小數學-四A' }],
+      });
+
+      const resCompat = calculateStudentBilling(student, { ruleSetVersion: 'excel-v260922-compat' });
+      expect(resCompat.baseDiscountBps).toBe(10000);
+    });
+
+    it('標籤為「有兄弟姊妹折扣」時，v1/v2/v3 之 sibling 命中，基本折扣為 9500 bps', () => {
+      const student = makeStudent({
+        grade: 4,
+        tagsRaw: '有兄弟姊妹折扣',
+        enrollments: [{ rawToken: '國小數學-四A', baseName: '國小數學-四A' }],
+      });
+
+      const resV1 = calculateStudentBilling(student, { ruleSetVersion: 'erp-tag-v1' });
+      expect(resV1.baseDiscountBps).toBe(9500);
+
+      const resV2 = calculateStudentBilling(student, { ruleSetVersion: 'erp-tag-v2' });
+      expect(resV2.baseDiscountBps).toBe(9500);
+
+      const resV3 = calculateStudentBilling(student, { ruleSetVersion: 'erp-tag-v3' as any });
+      expect(resV3.baseDiscountBps).toBe(9500);
+    });
+
+    it('compat 軌備註為「有兄弟姊妹折扣」時，sibling 命中，基本折扣為 9500 bps', () => {
+      const student = makeStudent({
+        grade: 4,
+        notesRaw: '有兄弟姊妹折扣',
+        enrollments: [{ rawToken: '國小數學-四A', baseName: '國小數學-四A' }],
+      });
+
+      const resCompat = calculateStudentBilling(student, { ruleSetVersion: 'excel-v260922-compat' });
+      expect(resCompat.baseDiscountBps).toBe(9500);
+    });
+
+    it('標籤為「員工家屬, 有兄弟姊妹」時，R18 STAFF_FAMILY_NO_DISCOUNT 提示不被抑制', () => {
+      const student = makeStudent({
+        grade: 4,
+        tagsRaw: '員工家屬, 有兄弟姊妹',
+        enrollments: [{ rawToken: '國小數學-四A', baseName: '國小數學-四A' }],
+      });
+
+      const resV2 = calculateStudentBilling(student, { ruleSetVersion: 'erp-tag-v2' });
+      expect(resV2.issues.some((i) => i.code === 'STAFF_FAMILY_NO_DISCOUNT')).toBe(true);
+    });
+  });
+
+  describe('R2-2: 49 個種子班級生產形狀計算 0 誤發與未對應班判定', () => {
+    it('掃描全部 49 個 seed 班級，以生產形狀計算 v3，已存在班級 0 個 CLASS_NOT_MAPPED', () => {
+      const db = new Database(':memory:');
+      runMigrations(db);
+
+      const now = new Date().toISOString();
+      const students = SEED_BASE_NAMES.map((name, idx) => ({
+        personCode: `SEED_${String(idx).padStart(3, '0')}`,
+        name: `種子生_${idx}`,
+        grade: 4,
+        gradeRaw: '4',
+        gradeStatus: 'valid' as const,
+        branch: '本部',
+        contact: null,
+        schoolInfo: null,
+        tagsRaw: '',
+        tags: [],
+        notesRaw: '',
+        sourceRow: idx + 1,
+        enrollments: [
+          {
+            rawToken: name,
+            yearPrefix: null,
+            baseName: name,
+            groupFlag: null,
+            modifiers: [],
+            withdrawalDate: null,
+            erpBillingTierRaw: null,
+            erpBillingTier: null,
+            tierParseStatus: 'not_applicable' as const,
+            parseStatus: 'ok' as const,
+          },
+        ],
+      }));
+
+      saveImportBatch(
+        db,
+        {
+          id: 'imp_seed_all',
+          fileName: 'seed_classes.xlsx',
+          fileHash: 'h_seed',
+          contentHash: 'c_seed',
+          sheetName: 'Sheet1',
+          headerMap: {},
+          parserVersion: '1.0.0',
+          scopeNote: '',
+          rowCount: students.length,
+          status: 'ready',
+          createdAt: now,
+        },
+        students
+      );
+
+      const { run, results } = executeCalculationRun(db, 'imp_seed_all', 'run_seed_v3', {
+        ruleSetVersion: 'erp-tag-v3' as any,
+      });
+
+      expect(run.issueCounts['CLASS_NOT_MAPPED'] || 0).toBe(0);
+
+      const unmappedStudents = results.filter((r) =>
+        r.issues.some((i: any) => i.code === 'CLASS_NOT_MAPPED')
+      );
+      expect(unmappedStudents.length).toBe(0);
+
+      db.close();
+    });
+
+    it('真正不存在於系統班級來源的名冊班名，care/math/english 正確產生 CLASS_NOT_MAPPED 且扣天為 0 fallback', () => {
+      const db = new Database(':memory:');
+      runMigrations(db);
+
+      const now = new Date().toISOString();
+      saveImportBatch(
+        db,
+        {
+          id: 'imp_unmapped',
+          fileName: 'unmapped.xlsx',
+          fileHash: 'h_unmapped',
+          contentHash: 'c_unmapped',
+          sheetName: 'Sheet1',
+          headerMap: {},
+          parserVersion: '1.0.0',
+          scopeNote: '',
+          rowCount: 1,
+          status: 'ready',
+          createdAt: now,
+        },
+        [
+          {
+            personCode: 'U001',
+            name: '未對應生',
+            grade: 4,
+            gradeRaw: '4',
+            gradeStatus: 'valid' as const,
+            branch: '本部',
+            contact: null,
+            schoolInfo: null,
+            tagsRaw: '',
+            tags: [],
+            notesRaw: '',
+            sourceRow: 1,
+            enrollments: [
+              {
+                rawToken: '國小數學-全新未開班',
+                yearPrefix: null,
+                baseName: '國小數學-全新未開班',
+                groupFlag: null,
+                modifiers: [],
+                withdrawalDate: null,
+                erpBillingTierRaw: null,
+                erpBillingTier: null,
+                tierParseStatus: 'not_applicable' as const,
+                parseStatus: 'ok' as const,
+              },
+            ],
+          },
+        ]
+      );
+
+      const { run, results } = executeCalculationRun(db, 'imp_unmapped', 'run_unmapped_v3', {
+        ruleSetVersion: 'erp-tag-v3' as any,
+      });
+
+      expect(run.issueCounts['CLASS_NOT_MAPPED']).toBe(1);
+      const studentRes = results[0];
+      expect(studentRes.issues.some((i: any) => i.code === 'CLASS_NOT_MAPPED')).toBe(true);
+      expect(studentRes.tutoringDays).toBe(5); // 未對應扣天 fallback 為 0 (年級 4 滿天 5)
+
+      db.close();
     });
   });
 });

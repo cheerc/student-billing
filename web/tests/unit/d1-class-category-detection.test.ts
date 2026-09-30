@@ -93,12 +93,33 @@ describe('類別自動偵測純函式（新模組 @/domain/classification/class-
 describe('class-category 純函式架構約束', () => {
   const SRC = path.resolve(__dirname, '../../src');
 
+  function walk(dir: string, out: string[] = []): string[] {
+    for (const name of fs.readdirSync(dir)) {
+      const full = path.join(dir, name);
+      if (fs.statSync(full).isDirectory()) walk(full, out);
+      else if (/\.(ts|tsx)$/.test(name)) out.push(full);
+    }
+    return out;
+  }
+
   it('模組檔存在於 domain 層（src/domain/classification/class-category.ts）', () => {
     expect(fs.existsSync(path.join(SRC, 'domain', 'classification', 'class-category.ts'))).toBe(true);
   });
 
-  it('模組本身為純 domain 函式，不得 import DB、UI 或外部層', () => {
+  it('src 內 importers 恰為本批三個檔案（calculate-run、billing-calculator、discount-rules）；模組本身不 import DB 或 UI', () => {
     const own = path.join(SRC, 'domain', 'classification', 'class-category.ts');
+    const importers: string[] = [];
+    for (const file of walk(SRC)) {
+      if (file === own) continue;
+      if (/classification\/class-category/.test(fs.readFileSync(file, 'utf-8'))) importers.push(path.relative(SRC, file));
+    }
+    // R2-4: 接線後的精確 importers 斷言，防止無授權依賴漫延
+    expect(importers.sort()).toEqual([
+      'application/calculate-run.ts',
+      'domain/billing/billing-calculator.ts',
+      'domain/billing/discount-rules.ts',
+    ].sort());
+
     // 模組自身：domain 純函式，不得引用 adapters／application／components
     expect(fs.existsSync(own)).toBe(true);
     const text = fs.readFileSync(own, 'utf-8');
