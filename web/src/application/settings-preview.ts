@@ -18,6 +18,7 @@ import { careWindowsMatchRuleSet, CARE_WINDOWS_MISMATCH_MESSAGE } from './schedu
 import { resolveTargetRuleSetVersion } from './rule-set-resolver';
 import { buildClassSettingMap } from './calculate-run';
 import { loadStudentsForImport } from '@/adapters/sqlite/import-repository';
+import { detectAliasCategoryChanges, type AliasCategoryNotice } from '@/domain/classification/class-attributes';
 
 export class SettingsPreviewError extends Error {
   statusCode: number;
@@ -62,6 +63,13 @@ export interface SettingsPreviewResult {
   subjectCountDeltas: Array<{ personCode: string; name: string; before: number | null; after: number | null }> | null;
   /** D2b 6：合計折扣（基本率收取率 bps）的變化明細；只列出有變化者 */
   baseDiscountDeltas: Array<{ personCode: string; name: string; before: number | null; after: number | null }> | null;
+  /**
+   * D2b r2（R2-2／Q13／06 D37）：米豆奶班名經 alias 對應到系統班後，兩側自動偵測的折扣類別
+   * 不同者（該別名的類別將改由系統班決定）。**提示而非阻擋**——與 Q9 同名合併衝突不同，
+   * 預覽照常成功、儲存照常進行（09 §3.1）。
+   * 兩種 mode 都會產出（settings_only 亦然：提示是草稿的靜態推導，不需名冊）。
+   */
+  aliasCategoryNotices: AliasCategoryNotice[];
 }
 
 /** settings_only 預覽：無名單可比對，只保存預覽草稿（hash／revision／TTL 與 with_students 相同）。 */
@@ -92,6 +100,7 @@ function saveSettingsOnlyPreview(
     targetRuleSetVersion,
     subjectCountDeltas: null,
     baseDiscountDeltas: null,
+    aliasCategoryNotices: detectAliasCategoryChanges(draft.aliases),
   };
 
   saveSettingsPreview(db, {
@@ -265,7 +274,13 @@ export function previewSettingsChange(
     mode: 'with_students',
     previewId,
     inputHash,
-    affectedStudents: dayDeltas.length + Math.max(subjectCountDeltas.length, baseDiscountDeltas.length),
+    // R2-1：三種差異是同一批學生的不同欄位變化，必須以 personCode **聯集去重計數**。
+    // 相加會把同一人重複計算（primary B-1）。語意＝「受影響去重人數」，與 09 §3.1 一致。
+    affectedStudents: new Set<string>([
+      ...dayDeltas.map((d) => d.personCode),
+      ...subjectCountDeltas.map((d) => d.personCode),
+      ...baseDiscountDeltas.map((d) => d.personCode),
+    ]).size,
     dayDeltas,
     mismatchBefore,
     mismatchAfter,
@@ -275,6 +290,7 @@ export function previewSettingsChange(
     targetRuleSetVersion: formalRuleSetVersion,
     subjectCountDeltas,
     baseDiscountDeltas,
+    aliasCategoryNotices: detectAliasCategoryChanges(draft.aliases),
   };
 
   saveSettingsPreview(db, {

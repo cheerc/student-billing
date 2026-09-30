@@ -356,7 +356,9 @@ run 的設定快照＝`run.scheduleVersionId`：`seed-v250922`（該 run 沒有�
 
 #### 5.4.3 影響預覽與 dirty
 - `POST /api/v1/settings/preview` 的 `before`（現行已儲存設定）與 `after`（草稿）**都帶 `classSettings`**，因此類別式科數的變化會進入預覽。
-- 新增兩個明細：`subjectCountDeltas`（已補科數）與 `baseDiscountDeltas`（合計折扣 bps），只列出有變化者。`affectedStudents` 為 `dayDeltas.length + max(科數差異, 折扣差異)`。
+- 新增兩個明細：`subjectCountDeltas`（已補科數）與 `baseDiscountDeltas`（合計折扣 bps），只列出有變化者。
+- `affectedStudents` 為三個明細的 **`personCode` 聯集去重計數**（天數、科數、折扣是同一批學生的不同欄位變化，同一人只能算一次）。**不得相加**——相加會把同時有天數與科數變化的學生重複計算。語意為「受影響去重人數」，與 09 §3.1 一致；三種明細皆空時為 0。
+- 新增 `aliasCategoryNotices`（`AliasCategoryNotice[]`）：米豆奶班名經 alias 對應到系統班後，兩側**自動偵測**類別不同者（`detectAliasCategoryChanges(draft.aliases)`），每項含 `rawBaseName`／`targetBaseName`／`rawDetected`／`targetDetected`。**提示而非阻擋**（Q13、06 D37）——預覽照常成功、儲存照常進行。`settings_only` 與 `with_students` 兩種 mode 都會產出（提示是草稿的靜態推導，不需名冊）。
 - dirty 只比對**手動覆寫**（`manualAttrs` vs `baselineManualAttrs`）：未手動者由班名推導，班名本身已由 rows／baseline 逐列比對涵蓋；若把自動值也帶進 `isSettingsDirty` 的 `classAttrs`，會讓沒有任何覆寫的空 baseline 與整份班級清單永遠長度不同 → 永遠 dirty。
 - 類別／固定 5 天欄位進 draft JSON，因此 `hashSettingsDraft` 自動涵蓋（值與來源都算，改來源即改 hash），且**不改 `hashSettingsDraft` 契約**（仍是 `sha256(JSON.stringify(draft))`）。
 

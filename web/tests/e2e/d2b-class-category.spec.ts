@@ -230,6 +230,22 @@ test.describe('D2b：班級類別與固定 5 天設定 UI、升級確認', () =>
       await expect(dialog.locator('.metric-card', { hasText: '受影響學生數' }).locator('.metric-value')).toHaveText('12 人');
     });
 
+    test('R2-2: 兩側自動偵測相同的別名不產生提示', async ({ page }) => {
+      await page.locator('button', { hasText: '班名對應' }).click();
+      await expect(page.locator('.mapping-table')).toBeVisible({ timeout: 10000 });
+
+      // 「國小輔導-四年級A」自動偵測為安親課輔班（care）→ 對應到同為 care 的班 ＝ 非跨類別
+      const row = page.locator('tr', { hasText: '國小輔導-四年級A' });
+      await expect(row).toBeVisible();
+      await row.locator('input.input-target-classname').fill('國小輔導-一A');
+      await row.locator('input[type="checkbox"]').check();
+      await expect(row.locator('.pill', { hasText: '已對應' })).toBeVisible();
+
+      await page.locator('button', { hasText: '確認變更' }).click();
+      const dialog = page.locator('dialog.impact-dialog');
+      await expect(dialog).toBeVisible({ timeout: 15000 });
+      await expect(dialog.locator('[data-alias-category-notice]')).toHaveCount(0);
+    });
     test('R2-2: 跨類別別名在影響預覽提示「類別將改由系統班決定」，可展開且不阻擋儲存', async ({ page }) => {
       await page.locator('button', { hasText: '班名對應' }).click();
       await expect(page.locator('.mapping-table')).toBeVisible({ timeout: 10000 });
@@ -262,21 +278,5 @@ test.describe('D2b：班級類別與固定 5 天設定 UI、升級確認', () =>
       await expect(page.locator('#toast')).toContainText('課表已套用並完成重算', { timeout: 15000 });
     });
 
-    test('R2-2: 兩側自動偵測相同的別名不產生提示', async ({ page }) => {
-      await page.locator('button', { hasText: '班名對應' }).click();
-      await expect(page.locator('.mapping-table')).toBeVisible({ timeout: 10000 });
-
-      // 「國小輔導-四年級A」自動偵測為安親課輔班（care）→ 對應到同為 care 的班 ＝ 非跨類別
-      const row = page.locator('tr', { hasText: '國小輔導-四年級A' });
-      await expect(row).toBeVisible();
-      await row.locator('input.input-target-classname').fill('國小輔導-一A');
-      await row.locator('input[type="checkbox"]').check();
-      await expect(row.locator('.pill', { hasText: '已對應' })).toBeVisible();
-
-      await page.locator('button', { hasText: '確認變更' }).click();
-      const dialog = page.locator('dialog.impact-dialog');
-      await expect(dialog).toBeVisible({ timeout: 15000 });
-      await expect(dialog.locator('[data-alias-category-notice]')).toHaveCount(0);
-    });
   });
 });

@@ -2,6 +2,7 @@
 
 import React, { useEffect, useRef } from 'react';
 import { SplitClassWarning } from '@/contracts/settings';
+import { CATEGORY_LABELS } from '@/domain/classification/class-attributes';
 import { ErrorNotice } from '@/components/ui/error-notice';
 import type { UserFacingError } from '@/lib/user-messages';
 
@@ -24,6 +25,16 @@ export interface SettingsPreviewData {
     before: number | null;
     after: number | null;
   }> | null;
+  /**
+   * D2b r2（R2-2／Q13／06 D37）：跨類別別名提示。**不阻擋儲存**，只在使用者確認前列出
+   * 哪些別名的折扣類別將改由系統班決定。
+   */
+  aliasCategoryNotices?: Array<{
+    rawBaseName: string;
+    targetBaseName: string;
+    rawDetected: 'care' | 'math' | 'english' | 'none';
+    targetDetected: 'care' | 'math' | 'english' | 'none';
+  }>;
 }
 
 interface ImpactDialogProps {
@@ -97,6 +108,7 @@ export function ImpactDialog({
 
   const isSettingsOnly = mode === 'settings_only' || preview?.mode === 'settings_only';
   const hasDeltas = Array.isArray(preview?.dayDeltas) && preview!.dayDeltas!.length > 0;
+  const aliasNotices = preview?.aliasCategoryNotices ?? [];
 
   return (
     <dialog
@@ -180,7 +192,7 @@ export function ImpactDialog({
               <div className="metric-card">
                 <span className="metric-label">受影響學生數</span>
                 <strong className="metric-value">{preview?.affectedStudents ?? 0} 人</strong>
-                <span className="metric-sub">天數發生變化</span>
+                <span className="metric-sub">天數、科數或折扣有變化（每人只計一次）</span>
               </div>
               <div className="metric-card">
                 <span className="metric-label">米豆奶入班天數比對</span>
@@ -227,6 +239,25 @@ export function ImpactDialog({
           </div>
         )}
       </div>
+
+      {aliasNotices.length > 0 && (
+        <details className="alert alert-warning" data-alias-category-notice="" style={{ marginTop: '16px' }}>
+          <summary style={{ cursor: 'pointer', fontWeight: 600 }}>
+            {aliasNotices.length} 個別名的類別將改由系統班決定
+          </summary>
+          <p className="note" style={{ marginTop: '8px' }}>
+            下列米豆奶班名對應到系統班級後，其折扣類別會以系統班為準。這是提示，不會阻止您儲存。
+          </p>
+          <ul style={{ marginTop: '8px', paddingLeft: '20px' }}>
+            {aliasNotices.map((n) => (
+              <li key={n.rawBaseName}>
+                {n.rawBaseName}（{CATEGORY_LABELS[n.rawDetected]}）→ {n.targetBaseName}（
+                {CATEGORY_LABELS[n.targetDetected]}）
+              </li>
+            ))}
+          </ul>
+        </details>
+      )}
 
       <div className="dialogfooter">
         <button
