@@ -315,4 +315,302 @@ describe('D1 r2 B3：舊版 apply receipt 的名冊溯源', () => {
     expect(reportC.previousRosterStatus).toBe('ok');
     expect(reportC.previousRoster?.importId).toBe('imp_A');
   });
+
+  describe('D1 follow-up 補強：上一份名冊 resolver 跨筆一致性（R4-1、R4-2、N-G）', () => {
+    it('R4-1 反例 probe G1：with_students 收據的 run 不屬於當時現行名冊（run.importId !== currentEpisode.importId）不得被併入，名冊必須 fail-closed unavailable', () => {
+      const db = seedAC();
+      activateBatch(db, 'imp_A', 'k-act-A'); // rev 1 (episode A)
+      activateBatch(db, 'imp_C', 'k-act-C'); // rev 2 (episode C)
+
+      // 在 imp_A 上建一個 run_A_app，其 import_id 為 imp_A（非當時現行名冊 imp_C）
+      saveRun(db, 'run_A_app', 'imp_A', 'seed-v250922', T(3));
+      db.prepare(
+        'INSERT INTO idempotency_records (idempotency_key, request_body_hash, run_id, response_payload, created_at) VALUES (?, ?, ?, ?, ?)'
+      ).run(
+        'with-students-wrong-roster',
+        'h',
+        'run_A_app',
+        JSON.stringify({
+          mode: 'with_students',
+          settingsVersionId: 's',
+          runId: 'run_A_app',
+          revision: 3,
+          totalStudents: 1,
+          mismatchCount: 0,
+          appliedAt: T(3),
+        }),
+        T(3)
+      );
+      db.prepare('UPDATE active_state SET active_run_id = ?, revision = 3 WHERE id = 1').run('run_A_app');
+
+      // latest 查 C 的上一份名冊：因 rev 3 with_students run 名冊不屬於 episode C，必須 fail-closed unavailable
+      expect(
+        resolvePreviousRosterProvenance(db, 'imp_C', { kind: 'latest' }),
+        'with_students 的 run 所屬名冊與當時 episode 不一致，整段歷史必須 unavailable'
+      ).toEqual({ status: 'unavailable', importId: null });
+      const reportC = getClassNameMatchReport(db, { importId: 'imp_C', scope: { kind: 'latest' } });
+      expect(reportC.previousRosterStatus).toBe('unavailable');
+
+      // run scope 查該 run_A_app：同樣必須為 unavailable，不得誤認歸入 episode C 回 ok/imp_A
+      expect(
+        resolvePreviousRosterProvenance(db, 'imp_A', { kind: 'run', runId: 'run_A_app' }),
+        'run scope 查不一致 run 亦必須 fail-closed unavailable'
+      ).toEqual({ status: 'unavailable', importId: null });
+    });
+
+    it('R4-1 反例 probe G1b：在 A 現行期間插入指涉 C 名冊 run 的 with_students 收據，其後啟用 D 必須 fail-closed unavailable', () => {
+      const db = seedAC();
+      saveSyntheticBatch(db, 'imp_D', 'D.xlsx', T(3), [makeStudent('d1', ['國小數學-一A'])]);
+      activateBatch(db, 'imp_A', 'k-act-A'); // rev 1 (episode A)
+
+      // 在 imp_C 上建 run_C_rogue（非當時現行名冊 imp_A）
+      saveRun(db, 'run_C_rogue', 'imp_C', 'seed-v250922', T(2));
+      db.prepare(
+        'INSERT INTO idempotency_records (idempotency_key, request_body_hash, run_id, response_payload, created_at) VALUES (?, ?, ?, ?, ?)'
+      ).run(
+        'with-students-G1b',
+        'h',
+        'run_C_rogue',
+        JSON.stringify({
+          mode: 'with_students',
+          settingsVersionId: 's',
+          runId: 'run_C_rogue',
+          revision: 2,
+          totalStudents: 1,
+          mismatchCount: 0,
+          appliedAt: T(2),
+        }),
+        T(2)
+      );
+      db.prepare('UPDATE active_state SET revision = 2 WHERE id = 1').run();
+
+      activateBatch(db, 'imp_D', 'k-act-D'); // rev 3
+      expect(
+        resolvePreviousRosterProvenance(db, 'imp_D', { kind: 'latest' }),
+        '歷史中存在名冊不一致之 with_students 收據，D 的上一份名冊必須 fail-closed unavailable'
+      ).toEqual({ status: 'unavailable', importId: null });
+      const reportD = getClassNameMatchReport(db, { importId: 'imp_D', scope: { kind: 'latest' } });
+      expect(reportD.previousRosterStatus).toBe('unavailable');
+    });
+
+    it('R4-2 反例 probe G2：with_students 收據重用先前 activate 收據之 runId（填補 gap 企圖），必須 fail-closed unavailable', () => {
+      const db = seedAC();
+      const actA = activateBatch(db, 'imp_A', 'k-act-A'); // rev 1, runId: actA.runId
+
+      // rev 2 with_students 重用 actA.runId
+      db.prepare(
+        'INSERT INTO idempotency_records (idempotency_key, request_body_hash, run_id, response_payload, created_at) VALUES (?, ?, ?, ?, ?)'
+      ).run(
+        'with-students-reuse-runId',
+        'h',
+        actA.runId,
+        JSON.stringify({
+          mode: 'with_students',
+          settingsVersionId: 's',
+          runId: actA.runId,
+          revision: 2,
+          totalStudents: 1,
+          mismatchCount: 0,
+          appliedAt: T(2),
+        }),
+        T(2)
+      );
+      db.prepare('UPDATE active_state SET revision = 2 WHERE id = 1').run();
+
+      activateBatch(db, 'imp_C', 'k-act-C'); // rev 3
+      expect(
+        resolvePreviousRosterProvenance(db, 'imp_C', { kind: 'latest' }),
+        '跨收據重用 runId 屬偽造／毀損資料，不得填補 revision gap，C 的前份名冊必須 unavailable'
+      ).toEqual({ status: 'unavailable', importId: null });
+      const reportC = getClassNameMatchReport(db, { importId: 'imp_C', scope: { kind: 'latest' } });
+      expect(reportC.previousRosterStatus).toBe('unavailable');
+    });
+
+    it('R4-2 反例 probe G2b：activate 收據重用前一筆 activate 收據之 runId，必須 fail-closed unavailable', () => {
+      const db = seedAC();
+      const actA = activateBatch(db, 'imp_A', 'k-act-A'); // rev 1, runId: actA.runId
+
+      // rev 2 activate 收據再次使用 actA.runId
+      db.prepare(
+        'INSERT INTO idempotency_records (idempotency_key, request_body_hash, run_id, response_payload, created_at) VALUES (?, ?, ?, ?, ?)'
+      ).run(
+        'activate-reuse-runId',
+        'h',
+        actA.runId,
+        JSON.stringify({
+          status: 'completed',
+          activeImportId: 'imp_A',
+          activeRunId: actA.runId,
+          runId: actA.runId,
+          revision: 2,
+        }),
+        T(2)
+      );
+      db.prepare('UPDATE active_state SET revision = 2 WHERE id = 1').run();
+
+      activateBatch(db, 'imp_C', 'k-act-C'); // rev 3
+      expect(
+        resolvePreviousRosterProvenance(db, 'imp_C', { kind: 'latest' }),
+        'activate 收據重用既有 runId 必須 fail-closed unavailable'
+      ).toEqual({ status: 'unavailable', importId: null });
+      const reportC = getClassNameMatchReport(db, { importId: 'imp_C', scope: { kind: 'latest' } });
+      expect(reportC.previousRosterStatus).toBe('unavailable');
+    });
+
+    it('R4-2 反例 probe G2c：legacy apply 收據重用先前 activate 收據之 runId，必須 fail-closed unavailable', () => {
+      const db = seedAC();
+      const actA = activateBatch(db, 'imp_A', 'k-act-A'); // rev 1, runId: actA.runId
+
+      // rev 2 legacy apply 收據重用 actA.runId（run 已存在於 DB，skipRun: true）
+      insertLegacyApply(db, { key: 'legacy-reuse-runId', revision: 2, runId: actA.runId, importId: 'imp_A', skipRun: true });
+
+      activateBatch(db, 'imp_C', 'k-act-C'); // rev 3
+      expect(
+        resolvePreviousRosterProvenance(db, 'imp_C', { kind: 'latest' }),
+        'legacy apply 收據重用既有 runId 必須 fail-closed unavailable'
+      ).toEqual({ status: 'unavailable', importId: null });
+      const reportC = getClassNameMatchReport(db, { importId: 'imp_C', scope: { kind: 'latest' } });
+      expect(reportC.previousRosterStatus).toBe('unavailable');
+    });
+
+    it('N-G 反例：with_students 混入 activate 鑑別欄位（status 或 activeImportId）時不得被接受，必須 fail-closed unavailable', () => {
+      const db = seedAC();
+      activateBatch(db, 'imp_A', 'k-act-A'); // rev 1
+
+      saveRun(db, 'run_A_app2', 'imp_A', 'seed-v250922', T(2));
+      // 混入 status: 'completed' 與 activeImportId
+      db.prepare(
+        'INSERT INTO idempotency_records (idempotency_key, request_body_hash, run_id, response_payload, created_at) VALUES (?, ?, ?, ?, ?)'
+      ).run(
+        'with-students-mixed-fields',
+        'h',
+        'run_A_app2',
+        JSON.stringify({
+          mode: 'with_students',
+          settingsVersionId: 's',
+          runId: 'run_A_app2',
+          revision: 2,
+          totalStudents: 1,
+          mismatchCount: 0,
+          appliedAt: T(2),
+          status: 'completed',
+          activeImportId: 'imp_A',
+        }),
+        T(2)
+      );
+      db.prepare('UPDATE active_state SET revision = 2 WHERE id = 1').run();
+
+      activateBatch(db, 'imp_C', 'k-act-C'); // rev 3
+      expect(
+        resolvePreviousRosterProvenance(db, 'imp_C', { kind: 'latest' }),
+        'with_students 混入 activate 鑑別欄位屬畸形收據，不得填補 revision gap，C 的前份名冊必須 unavailable'
+      ).toEqual({ status: 'unavailable', importId: null });
+      const reportC = getClassNameMatchReport(db, { importId: 'imp_C', scope: { kind: 'latest' } });
+      expect(reportC.previousRosterStatus).toBe('unavailable');
+    });
+
+    it('N-G 反例：settings_only 混入 activate 鑑別欄位（status 或 activeImportId）時不得被接受，必須 fail-closed unavailable', () => {
+      const db = seedAC();
+      activateBatch(db, 'imp_A', 'k-act-A'); // rev 1
+
+      // 混入 activeImportId
+      db.prepare(
+        'INSERT INTO idempotency_records (idempotency_key, request_body_hash, run_id, response_payload, created_at) VALUES (?, ?, ?, ?, ?)'
+      ).run(
+        'settings-only-mixed-fields',
+        'h',
+        null,
+        JSON.stringify({
+          mode: 'settings_only',
+          settingsVersionId: 's',
+          runId: null,
+          revision: 2,
+          totalStudents: null,
+          mismatchCount: null,
+          appliedAt: T(2),
+          activeImportId: 'imp_A',
+        }),
+        T(2)
+      );
+      db.prepare('UPDATE active_state SET revision = 2 WHERE id = 1').run();
+
+      activateBatch(db, 'imp_C', 'k-act-C'); // rev 3
+      expect(
+        resolvePreviousRosterProvenance(db, 'imp_C', { kind: 'latest' }),
+        'settings_only 混入 activate 鑑別欄位屬畸形收據，不得填補 revision gap，C 的前份名冊必須 unavailable'
+      ).toEqual({ status: 'unavailable', importId: null });
+      const reportC = getClassNameMatchReport(db, { importId: 'imp_C', scope: { kind: 'latest' } });
+      expect(reportC.previousRosterStatus).toBe('unavailable');
+    });
+
+    it('N-G 反例：activate 混入 mode 欄位時不得被接受為 activate，必須 fail-closed unavailable', () => {
+      const db = seedAC();
+      saveRun(db, 'run_A_act1', 'imp_A', 'seed-v250922', T(1));
+
+      // activate 收據混入 mode: 'with_students'
+      db.prepare(
+        'INSERT INTO idempotency_records (idempotency_key, request_body_hash, run_id, response_payload, created_at) VALUES (?, ?, ?, ?, ?)'
+      ).run(
+        'activate-mixed-mode',
+        'h',
+        'run_A_act1',
+        JSON.stringify({
+          status: 'completed',
+          activeImportId: 'imp_A',
+          activeRunId: 'run_A_act1',
+          runId: 'run_A_act1',
+          revision: 1,
+          mode: 'with_students',
+        }),
+        T(1)
+      );
+      db.prepare('UPDATE active_state SET active_import_id = ?, active_run_id = ?, revision = 1 WHERE id = 1').run(
+        'imp_A',
+        'run_A_act1'
+      );
+
+      activateBatch(db, 'imp_C', 'k-act-C'); // rev 2
+      expect(
+        resolvePreviousRosterProvenance(db, 'imp_C', { kind: 'latest' }),
+        'activate 混入 mode 欄位屬畸形收據，C 的前份名冊必須 unavailable'
+      ).toEqual({ status: 'unavailable', importId: null });
+    });
+
+    it('正向驗收：合法 with_students（run 名冊等於當前 episode、runId 全域唯一）與 activate 序列正常可證', () => {
+      const db = seedAC();
+      activateBatch(db, 'imp_A', 'k-act-A'); // rev 1 (episode A)
+
+      // 在 imp_A 上建全新 run_A_app2，runId 不重複且名冊等於 episode A
+      saveRun(db, 'run_A_app2', 'imp_A', 'seed-v250922', T(2));
+      db.prepare(
+        'INSERT INTO idempotency_records (idempotency_key, request_body_hash, run_id, response_payload, created_at) VALUES (?, ?, ?, ?, ?)'
+      ).run(
+        'with-students-legit',
+        'h',
+        'run_A_app2',
+        JSON.stringify({
+          mode: 'with_students',
+          settingsVersionId: 's',
+          runId: 'run_A_app2',
+          revision: 2,
+          totalStudents: 1,
+          mismatchCount: 0,
+          appliedAt: T(2),
+        }),
+        T(2)
+      );
+      db.prepare('UPDATE active_state SET active_run_id = ?, revision = 2 WHERE id = 1').run('run_A_app2');
+
+      // 此時 A 仍在同一 episode，前份為 none
+      expect(resolvePreviousRosterProvenance(db, 'imp_A', { kind: 'latest' })).toEqual({ status: 'none', importId: null });
+      expect(resolvePreviousRosterProvenance(db, 'imp_A', { kind: 'run', runId: 'run_A_app2' })).toEqual({ status: 'none', importId: null });
+
+      // 其後啟用 C（rev 3）：C 的前份為 A
+      activateBatch(db, 'imp_C', 'k-act-C');
+      expect(resolvePreviousRosterProvenance(db, 'imp_C', { kind: 'latest' })).toEqual({ status: 'ok', importId: 'imp_A' });
+      const reportC = getClassNameMatchReport(db, { importId: 'imp_C', scope: { kind: 'latest' } });
+      expect(reportC.previousRosterStatus).toBe('ok');
+      expect(reportC.previousRoster?.importId).toBe('imp_A');
+    });
+  });
 });

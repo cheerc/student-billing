@@ -134,6 +134,7 @@ export function resolvePreviousRosterProvenance(
 
   const events: ParsedEvent[] = [];
   const revisionSet = new Set<number>();
+  const seenRunIds = new Set<string>();
 
   for (const row of idempRows) {
     let payload: any;
@@ -153,37 +154,70 @@ export function resolvePreviousRosterProvenance(
     }
     revisionSet.add(revision);
 
-    if (payload.status === 'completed' && typeof payload.activeImportId === 'string' && typeof payload.activeRunId === 'string') {
+    if (
+      payload.status === 'completed' &&
+      typeof payload.activeImportId === 'string' &&
+      typeof payload.activeRunId === 'string' &&
+      payload.mode === undefined
+    ) {
       if (row.run_id !== payload.runId || payload.runId !== payload.activeRunId) {
         return { status: 'unavailable', importId: null };
       }
+      if (seenRunIds.has(payload.runId)) {
+        return { status: 'unavailable', importId: null };
+      }
+      seenRunIds.add(payload.runId);
       const batchExists = db.prepare('SELECT 1 FROM import_batches WHERE id = ?').get(payload.activeImportId);
       const runRow = db.prepare('SELECT import_id FROM calculation_runs WHERE id = ?').get(payload.runId) as { import_id: string } | undefined;
       if (!batchExists || !runRow || runRow.import_id !== payload.activeImportId) {
         return { status: 'unavailable', importId: null };
       }
       events.push({ kind: 'activate', revision, runId: payload.runId, importId: payload.activeImportId });
-    } else if (payload.mode === 'with_students' && typeof payload.runId === 'string') {
+    } else if (
+      payload.mode === 'with_students' &&
+      typeof payload.runId === 'string' &&
+      payload.status === undefined &&
+      payload.activeImportId === undefined &&
+      payload.activeRunId === undefined
+    ) {
       if (row.run_id !== payload.runId) {
         return { status: 'unavailable', importId: null };
       }
+      if (seenRunIds.has(payload.runId)) {
+        return { status: 'unavailable', importId: null };
+      }
+      seenRunIds.add(payload.runId);
       const runRow = db.prepare('SELECT import_id FROM calculation_runs WHERE id = ?').get(payload.runId) as { import_id: string } | undefined;
       if (!runRow) {
         return { status: 'unavailable', importId: null };
       }
       events.push({ kind: 'apply_with_students', revision, runId: payload.runId, importId: runRow.import_id });
-    } else if (payload.mode === 'settings_only') {
+    } else if (
+      payload.mode === 'settings_only' &&
+      payload.status === undefined &&
+      payload.activeImportId === undefined &&
+      payload.activeRunId === undefined
+    ) {
       if (row.run_id !== null || payload.runId !== null) {
         return { status: 'unavailable', importId: null };
       }
       events.push({ kind: 'apply_settings_only', revision });
-    } else if (payload.mode === undefined && payload.status === undefined && payload.activeImportId === undefined) {
+    } else if (
+      payload.mode === undefined &&
+      payload.status === undefined &&
+      payload.activeImportId === undefined &&
+      payload.activeRunId === undefined
+    ) {
       // 35c8bde 之前寫入的 apply 收據（沒有 mode 欄位）。只接受「可證明」且歷史真實存在的舊形狀 (a)，其餘一律 unavailable：
       if (typeof payload.runId === 'string' && payload.runId !== '') {
         // (a) 真實舊形狀：舊版 apply 一律建 run，收據的 run_id 欄位＝該 runId；run 與其名單批次必須都存在。
         if (row.run_id !== payload.runId) {
           return { status: 'unavailable', importId: null };
         }
+        if (seenRunIds.has(payload.runId)) {
+          return { status: 'unavailable', importId: null };
+        }
+        seenRunIds.add(payload.runId);
         const runRow = db.prepare('SELECT import_id FROM calculation_runs WHERE id = ?').get(payload.runId) as { import_id: string } | undefined;
         if (!runRow || !getBatch(db, runRow.import_id)) {
           return { status: 'unavailable', importId: null };
@@ -255,7 +289,7 @@ export function resolvePreviousRosterProvenance(
         episodes.push(currentEpisode);
       }
     } else if (ev.kind === 'apply_with_students') {
-      if (!currentEpisode) {
+      if (!currentEpisode || ev.importId !== currentEpisode.importId) {
         return { status: 'unavailable', importId: null };
       }
       currentEpisode.runIds.add(ev.runId);
