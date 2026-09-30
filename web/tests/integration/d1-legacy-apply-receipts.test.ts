@@ -245,4 +245,74 @@ describe('D1 r2 B3：舊版 apply receipt 的名冊溯源', () => {
 
     expect(resolvePreviousRosterProvenance(db, 'imp_C', { kind: 'latest' })).toEqual({ status: 'unavailable', importId: null });
   });
+
+  it('B-1 反例 Y1：mode 為 settings_only 卻帶 runId 字串（內部矛盾收據）不得被接受，C 的上一份名冊必須 fail-closed unavailable', () => {
+    const db = seedAC();
+    activateBatch(db, 'imp_A', 'k-act-A'); // rev 1
+    db.prepare(
+      'INSERT INTO idempotency_records (idempotency_key, request_body_hash, run_id, response_payload, created_at) VALUES (?, ?, ?, ?, ?)'
+    ).run(
+      'settings-only-with-runId',
+      'h',
+      null,
+      JSON.stringify({ mode: 'settings_only', settingsVersionId: 's', runId: 'run_x', revision: 2, totalStudents: null, mismatchCount: null, appliedAt: T(2) }),
+      T(2)
+    );
+    db.prepare('UPDATE active_state SET revision = 2 WHERE id = 1').run();
+
+    activateBatch(db, 'imp_C', 'k-act-C'); // rev 3
+    expect(
+      resolvePreviousRosterProvenance(db, 'imp_C', { kind: 'latest' }),
+      'settings_only 帶 runId 字串屬內部矛盾收據，不得填補 revision gap，C 的前份名冊必須為 unavailable'
+    ).toEqual({ status: 'unavailable', importId: null });
+    const reportC = getClassNameMatchReport(db, { importId: 'imp_C', scope: { kind: 'latest' } });
+    expect(reportC.previousRosterStatus).toBe('unavailable');
+  });
+
+  it('B-1 反例 S0：mode 為 settings_only 卻缺 runId 欄位（未對齊生產者 runId: null 契約）不得被接受，C 的上一份名冊必須 fail-closed unavailable', () => {
+    const db = seedAC();
+    activateBatch(db, 'imp_A', 'k-act-A'); // rev 1
+    db.prepare(
+      'INSERT INTO idempotency_records (idempotency_key, request_body_hash, run_id, response_payload, created_at) VALUES (?, ?, ?, ?, ?)'
+    ).run(
+      'settings-only-missing-runId',
+      'h',
+      null,
+      JSON.stringify({ mode: 'settings_only', settingsVersionId: 's', revision: 2 }),
+      T(2)
+    );
+    db.prepare('UPDATE active_state SET revision = 2 WHERE id = 1').run();
+
+    activateBatch(db, 'imp_C', 'k-act-C'); // rev 3
+    expect(
+      resolvePreviousRosterProvenance(db, 'imp_C', { kind: 'latest' }),
+      'settings_only 缺少 runId: null 契約欄位，不得填補 revision gap，C 的前份名冊必須為 unavailable'
+    ).toEqual({ status: 'unavailable', importId: null });
+    const reportC = getClassNameMatchReport(db, { importId: 'imp_C', scope: { kind: 'latest' } });
+    expect(reportC.previousRosterStatus).toBe('unavailable');
+  });
+
+  it('B-1 正向案例：真實 settings_only 收據（對齊生產者 runId: null 契約、row.run_id 為 NULL）正常被接受為可證歷史', () => {
+    const db = seedAC();
+    activateBatch(db, 'imp_A', 'k-act-A'); // rev 1
+    db.prepare(
+      'INSERT INTO idempotency_records (idempotency_key, request_body_hash, run_id, response_payload, created_at) VALUES (?, ?, ?, ?, ?)'
+    ).run(
+      'settings-only-real',
+      'h',
+      null,
+      JSON.stringify({ mode: 'settings_only', settingsVersionId: 's', runId: null, revision: 2, totalStudents: null, mismatchCount: null, appliedAt: T(2) }),
+      T(2)
+    );
+    db.prepare('UPDATE active_state SET revision = 2 WHERE id = 1').run();
+
+    activateBatch(db, 'imp_C', 'k-act-C'); // rev 3
+    expect(
+      resolvePreviousRosterProvenance(db, 'imp_C', { kind: 'latest' }),
+      '合法的 settings_only 收據可證名冊延續，C 的前份名冊為 A'
+    ).toEqual({ status: 'ok', importId: 'imp_A' });
+    const reportC = getClassNameMatchReport(db, { importId: 'imp_C', scope: { kind: 'latest' } });
+    expect(reportC.previousRosterStatus).toBe('ok');
+    expect(reportC.previousRoster?.importId).toBe('imp_A');
+  });
 });
