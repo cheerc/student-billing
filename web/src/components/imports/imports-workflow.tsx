@@ -6,7 +6,15 @@ import { ImportPreviewResult } from '@/application/import-preview';
 import type { RosterChange } from '@/application/roster-changes';
 import { StudentSnapshot } from '@/domain/students';
 import { RosterChangesDetails } from './roster-changes-details';
-import { ACTIVATE_CONFLICT_MESSAGE } from '@/lib/user-messages';
+import {
+  describeActivateError,
+  describeImportUploadError,
+  failureFromException,
+  readRawFailure,
+  type UserFacingError,
+} from '@/lib/user-messages';
+import { ErrorNotice } from '@/components/ui/error-notice';
+import { formatDateTime, todayInTaipei } from '@/lib/datetime';
 
 /**
  * 匯入預覽回應（含重複判重與相對於現行名單的差異統計，specs/09 §4）。
@@ -61,8 +69,9 @@ export function ImportsWorkflow({
   const [preview, setPreview] = useState<PreviewWithDiff | null>(initialPreview);
   const [loading, setLoading] = useState(false);
   const [activating, setActivating] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [asOfDate, setAsOfDate] = useState(() => new Date().toISOString().split('T')[0]);
+  const [error, setError] = useState<UserFacingError | null>(null);
+  // 核對基準日預設＝台北的今天（O02：不用 UTC 或瀏覽器時區）
+  const [asOfDate, setAsOfDate] = useState(() => todayInTaipei());
   const [activatedCount, setActivatedCount] = useState(defaultActivatedCount);
 
   // 篩選與搜尋狀態
@@ -71,15 +80,15 @@ export function ImportsWorkflow({
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // 格式化課表時間
+  // 課表儲存時間：全站統一 Asia/Taipei、YYYY-MM-DD HH:mm（O02）
   const scheduleTimeLabel = lastScheduleSavedAt
-    ? `${new Date(lastScheduleSavedAt).toLocaleDateString()} ${new Date(lastScheduleSavedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} 已儲存`
+    ? `${formatDateTime(lastScheduleSavedAt)} 已儲存`
     : '已載入初始課表，請確認';
 
   // 檔案上傳與預覽處理
   const handleFileUpload = async (file: File) => {
     if (!file.name.endsWith('.xlsx')) {
-      setError('僅支援 .xlsx 格式之試算表檔案，不支援 .xls、CSV 或其他格式。');
+      setError({ message: '僅支援 .xlsx 格式之試算表檔案，不支援 .xls、CSV 或其他格式。', detail: '' });
       return;
     }
 
@@ -95,16 +104,17 @@ export function ImportsWorkflow({
         body: formData,
       });
 
-      const data = await res.json();
+      const data = await res.json().catch(() => null);
       if (!res.ok) {
-        const errorCode = data.code ? `[${data.code}] ` : '';
-        throw new Error(`${errorCode}${data.error || '解析上傳試算表失敗'}`);
+        // D39：白話主文；錯誤代碼與原始訊息只在「詳細資訊」
+        setError(describeImportUploadError(readRawFailure(res.status, data)));
+        return;
       }
 
       setPreview(data);
       setStage('preview');
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      setError(describeImportUploadError(failureFromException(err)));
     } finally {
       setLoading(false);
     }
@@ -146,18 +156,16 @@ export function ImportsWorkflow({
         }),
       });
 
-      const json = await res.json();
+      const json = await res.json().catch(() => null);
       if (!res.ok) {
-        if (res.status === 409) {
-          throw new Error(ACTIVATE_CONFLICT_MESSAGE);
-        }
-        throw new Error(json.error || '啟用計算失敗');
+        setError(describeActivateError(readRawFailure(res.status, json)));
+        return;
       }
 
       setActivatedCount(preview.stats.totalStudents);
       setStage('success');
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      setError(describeActivateError(failureFromException(err)));
     } finally {
       setActivating(false);
     }
@@ -223,10 +231,7 @@ export function ImportsWorkflow({
 
       {/* 錯誤警示 */}
       {error && (
-        <div className="alert alert-danger" role="alert" style={{ marginBottom: '20px' }}>
-          <div style={{ fontWeight: 700, marginBottom: '4px' }}>操作錯誤：</div>
-          <div>{error}</div>
-        </div>
+        <ErrorNotice title="操作錯誤：" message={error.message} detail={error.detail} style={{ marginBottom: '20px' }} />
       )}
 
       {/* 階段 1：選擇檔案 (Upload) */}

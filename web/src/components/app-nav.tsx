@@ -3,6 +3,10 @@
 import React from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
+import { installEarlyPopstateListener } from '@/lib/leave-guard-registry';
+
+// 根版面載入時（Next 掛載之前）先安裝 popstate 先手監聽器，讓離頁守衛的處理器排在 Next 前面（09 §3.2）
+installEarlyPopstateListener();
 
 export function AppNav() {
   const pathname = usePathname();

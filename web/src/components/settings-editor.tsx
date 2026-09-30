@@ -19,8 +19,18 @@ import { CalculatePreviewResponse } from '@/application/schedule-preview';
 import { WindowSummary } from '@/components/settings/window-summary';
 import { ScheduleGrid } from '@/components/settings/schedule-grid';
 import { ImpactDialog, SettingsPreviewData } from '@/components/settings/impact-dialog';
+import { LeaveConfirmDialog } from '@/components/settings/leave-confirm-dialog';
 import { MappingPanel } from '@/components/settings/mapping-panel';
 import { TabList, tabPanelProps } from '@/components/ui/tabs';
+import { useUnsavedChangesGuard } from '@/components/ui/use-unsaved-changes-guard';
+import { formatDateTime } from '@/lib/datetime';
+import {
+  describeSettingsApplyError,
+  describeSettingsPreviewError,
+  failureFromException,
+  readRawFailure,
+  type UserFacingError,
+} from '@/lib/user-messages';
 
 interface SettingsEditorProps {
   importId: string | null;
@@ -93,7 +103,11 @@ export default function SettingsEditor({
   const [preview, setPreview] = useState<SettingsPreviewData | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
   const [applying, setApplying] = useState(false);
-  const [dialogError, setDialogError] = useState<string | null>(null);
+  const [dialogError, setDialogError] = useState<UserFacingError | null>(null);
+
+  // 儲存成功後就地更新版本與儲存時間（不必重新整理）：下一次確認變更要帶最新版本，狀態列顯示最新儲存時間
+  const [revision, setRevision] = useState(currentRevision);
+  const [savedAt, setSavedAt] = useState<string | null>(lastAppliedAt ?? null);
 
   // Toast 通知
   const [toastMessage, setToastMessage] = useState<string | null>(null);
@@ -236,19 +250,28 @@ export default function SettingsEditor({
     setPreview(null);
   };
 
-  // 取消修改（還原到 baseline）
-  const handleDiscard = () => {
+  // 還原到 baseline（取消修改與離頁時「捨棄修改」共用）
+  const resetDraft = () => {
     setRows(baseline.rows);
     setDraft((prev) => ({ ...prev, aliases: baseline.aliases }));
     setPreview(null);
+  };
+
+  // 取消修改
+  const handleDiscard = () => {
+    resetDraft();
     showToast('已取消未儲存的變更');
   };
+
+  // 離頁提醒（09 §3.2；D38 F07）：有未儲存修改時，站內離開（側欄、品牌連結、瀏覽器 Back）先確認；儲存成功後不再提醒
+  const leaveGuard = useUnsavedChangesGuard(isDirty, resetDraft);
 
   // 開啟確認視窗並載入影響預覽
   const handleOpenReview = async () => {
     setIsImpactDialogOpen(true);
     setPreviewLoading(true);
     setDialogError(null);
+    setPreview(null);
 
     try {
       const currentClasses = gridRowsToClasses(rows, draft.classes);
@@ -260,7 +283,7 @@ export default function SettingsEditor({
       // 依 server 決定的模式：無 active 名單時不傳送 importId（走 settings_only）
       const payload: Record<string, unknown> = {
         draft: updatedDraft,
-        expectedRevision: currentRevision,
+        expectedRevision: revision,
       };
       if (hasActiveImport && importId) {
         payload.importId = importId;
@@ -272,11 +295,15 @@ export default function SettingsEditor({
         body: JSON.stringify(payload),
       });
 
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.error || '載入預覽失敗');
+      const json = await res.json().catch(() => null);
+      if (!res.ok) {
+        setDialogError(describeSettingsPreviewError(readRawFailure(res.status, json)));
+        return;
+      }
       setPreview(json);
     } catch (e) {
-      setDialogError(e instanceof Error ? e.message : String(e));
+      // 連線中斷或回應無法解析：白話說明，例外訊息只放詳細資訊
+      setDialogError(describeSettingsPreviewError(failureFromException(e)));
     } finally {
       setPreviewLoading(false);
     }
@@ -295,32 +322,29 @@ export default function SettingsEditor({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           previewId: preview.previewId,
-          expectedRevision: currentRevision,
+          expectedRevision: revision,
           idempotencyKey,
         }),
       });
 
-      const json = await res.json();
+      const json = await res.json().catch(() => null);
       if (!res.ok) {
-        if (res.status === 409) {
-          throw new Error('設定版本已變更，請重新確認變更後再行套用。');
-        }
-        if (res.status === 400 && json.error?.includes('PREVIEW_EXPIRED')) {
-          throw new Error('預覽已逾期，請重新確認變更後再行套用。');
-        }
-        throw new Error(json.error || '套用失敗');
+        setDialogError(describeSettingsApplyError(readRawFailure(res.status, json)));
+        return;
       }
 
-      // 套用成功：更新 baseline，清除 dirty 狀態
+      // 套用成功：更新 baseline，清除 dirty 狀態（此後離頁不再提醒）；就地更新版本與儲存時間
       setBaseline({
         rows: [...rows],
         aliases: [...draft.aliases],
       });
+      if (typeof json?.revision === 'number') setRevision(json.revision);
+      if (typeof json?.appliedAt === 'string') setSavedAt(json.appliedAt);
       setIsImpactDialogOpen(false);
       setPreview(null);
       showToast(preview.mode === 'settings_only' ? '課表已成功儲存' : '課表已套用並完成重算');
     } catch (e) {
-      setDialogError(e instanceof Error ? e.message : String(e));
+      setDialogError(describeSettingsApplyError(failureFromException(e)));
     } finally {
       setApplying(false);
     }
@@ -406,7 +430,7 @@ export default function SettingsEditor({
             <span className="save-status-clean">
               <span className="dot dot-clean" aria-hidden="true" />
               課表已為最新儲存狀態
-              {lastAppliedAt && ` · ${new Date(lastAppliedAt).toLocaleTimeString()}`}
+              {savedAt && ` · ${formatDateTime(savedAt)}`}
             </span>
           )}
         </div>
@@ -439,9 +463,19 @@ export default function SettingsEditor({
         onClose={() => {
           setIsImpactDialogOpen(false);
           setPreview(null);
+          setDialogError(null);
         }}
         onApply={handleApply}
-        applying={applying || previewLoading}
+        applying={applying}
+        loading={previewLoading}
+        error={dialogError}
+      />
+
+      {/* 離頁確認（未儲存的課表修改） */}
+      <LeaveConfirmDialog
+        open={leaveGuard.pending !== null}
+        onKeepEditing={leaveGuard.keepEditing}
+        onDiscard={leaveGuard.discardAndLeave}
       />
 
       {/* Toast 訊息 */}

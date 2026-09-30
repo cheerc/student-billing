@@ -6,6 +6,7 @@ import { formatDiscountBps } from '@/application/roster-changes';
 import { applicableRateForClass } from '@/application/applicable-rate';
 import { parseTagDiscounts } from '@/domain/billing/discount-rules';
 import { InfoTip } from './ui/info-tip';
+import { issueLabel } from '@/lib/issue-copy';
 
 /**
  * 學生總表（09 §5.1）。
@@ -252,7 +253,7 @@ export default function SummaryTable({
                     )}
                     {stu.hasIssues && (
                       <span className="badge badge-warn">
-                        {stu.issues.length > 0 ? stu.issues[0].code : '待核對'}
+                        {stu.issues.length > 0 ? issueLabel(stu.issues[0].code) : '待核對'}
                       </span>
                     )}
                     {!stu.tierMismatch && !stu.hasIssues && <span className="subtle">—</span>}

@@ -2370,3 +2370,41 @@ select {
   color: var(--text-muted);
   border-top: 1px solid var(--border-color);
 }
+
+/* ────────────────────────────────────────────────────────────────
+   批次 C：錯誤說明（白話主文＋詳細資訊）、離頁確認視窗（specs/09 §3.2、§7；11 C；D38／D39）
+   ──────────────────────────────────────────────────────────────── */
+.error-notice-title {
+  font-weight: 700;
+  margin-bottom: 4px;
+}
+.error-notice-message {
+  line-height: 1.6;
+}
+.error-details {
+  margin-top: 8px;
+  font-size: 0.8125rem;
+}
+.error-details > summary {
+  cursor: pointer;
+  font-weight: 600;
+  color: var(--text-secondary);
+  min-height: 24px;
+}
+.error-details .tech-pre {
+  margin: 6px 0 0;
+  white-space: pre-wrap;
+  word-break: break-all;
+  max-height: 200px;
+  overflow: auto;
+}
+.metric-value.metric-sentence {
+  font-size: 1rem;
+  line-height: 1.5;
+}
+.leave-dialog {
+  width: min(480px, calc(100vw - 32px));
+}
+.leave-dialog .dialogfooter {
+  justify-content: flex-end;
+}

@@ -518,7 +518,7 @@ export function ScheduleGrid({
 
       <div className="tablefoot">
         <span className="note">
-          扣除欄為單堂未取整數值（以正量顯示）。整班扣除天數採同班先合計再取整（D24）。
+          扣除欄為單堂未取整數值（以正量顯示）。整班重疊加總後，不足 0.3 天不扣、0.3～0.8 天扣半天、0.8 天以上扣 1 天。
         </span>
       </div>
     </div>

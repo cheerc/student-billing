@@ -22,3 +22,27 @@ export function formatDateTime(iso: string): string {
   const p = Object.fromEntries(FORMATTER.formatToParts(d).map((x) => [x.type, x.value]));
   return `${p.year}-${p.month}-${p.day} ${p.hour}:${p.minute}`;
 }
+
+const DATE_FORMATTER = new Intl.DateTimeFormat('en-CA', {
+  timeZone: 'Asia/Taipei',
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+});
+
+/** ISO 時間或日期 → 'YYYY-MM-DD'（Asia/Taipei）；無法解析時原樣回傳。核對基準日等純日期用這個。 */
+export function formatDate(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  const p = Object.fromEntries(DATE_FORMATTER.formatToParts(d).map((x) => [x.type, x.value]));
+  return `${p.year}-${p.month}-${p.day}`;
+}
+
+/**
+ * 台北時間的「今天」（'YYYY-MM-DD'）。核對基準日的預設值用它：
+ * 不能用 new Date().toISOString().slice(0, 10)（UTC 日期，台北凌晨 0–8 點會是前一天），
+ * 也不能用瀏覽器 locale／時區（O02：全站統一 Asia/Taipei）。
+ */
+export function todayInTaipei(now: Date = new Date()): string {
+  return formatDate(now.toISOString());
+}

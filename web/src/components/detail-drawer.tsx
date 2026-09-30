@@ -2,6 +2,7 @@
 
 import React, { useEffect, useRef } from 'react';
 import { StudentCalculationItem } from '@/application/query-students';
+import { issueLabel, issueMessage } from '@/lib/issue-copy';
 
 interface DetailDrawerProps {
   student: StudentCalculationItem | null;
@@ -130,7 +131,7 @@ function DrawerPanel({ student, onClose }: { student: StudentCalculationItem; on
               <ul style={{ paddingLeft: '18px', marginTop: '6px' }}>
                 {student.issues.map((iss, i) => (
                   <li key={i} style={{ fontSize: '0.8125rem' }}>
-                    <strong>[{iss.code}]</strong> {iss.message}
+                    <strong>{issueLabel(iss.code)}</strong>：{issueMessage(iss)}
                   </li>
                 ))}
               </ul>
@@ -275,9 +276,9 @@ function DrawerPanel({ student, onClose }: { student: StudentCalculationItem; on
                       }}
                     >
                       {comp.status === 'match'
-                        ? '吻合 (Match)'
+                        ? '吻合'
                         : comp.status === 'mismatch'
-                        ? '級距差異 (Mismatch)'
+                        ? '級距差異'
                         : comp.status === 'not_applicable'
                         ? '非天數課程'
                         : '未識別'}
@@ -288,7 +289,7 @@ function DrawerPanel({ student, onClose }: { student: StudentCalculationItem; on
                   </div>
                   {comp.needsReview && (
                     <div style={{ color: '#b45309', marginTop: '4px', fontSize: '0.75rem' }}>
-                      ⚠ 排課缺漏，採相容 fallback 數值比較，請核對排課設定。
+                      ⚠ 排課缺漏，暫以相容數值比較，請核對課表設定。
                     </div>
                   )}
                 </div>
@@ -347,7 +348,7 @@ function DrawerPanel({ student, onClose }: { student: StudentCalculationItem; on
                 overflow: 'auto',
               }}
             >
-              {JSON.stringify({ personCode: student.personCode, runId: student.runId, subjectCount: student.subjectCount, baseDiscountBps: student.baseDiscountBps, applicableRates: { anqin: student.applicableAnqinBps, tutoring: student.applicableTutoringBps, english: student.applicableEnglishBps, math: student.applicableMathBps }, sourceRow: student.sourceRow }, null, 2)}
+              {JSON.stringify({ personCode: student.personCode, runId: student.runId, issues: student.issues.map((i) => ({ code: i.code, message: i.message })), subjectCount: student.subjectCount, baseDiscountBps: student.baseDiscountBps, applicableRates: { anqin: student.applicableAnqinBps, tutoring: student.applicableTutoringBps, english: student.applicableEnglishBps, math: student.applicableMathBps }, sourceRow: student.sourceRow }, null, 2)}
             </pre>
           </details>
         </div>
