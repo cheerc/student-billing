@@ -38,3 +38,60 @@ export function detectFixedFiveDays(baseName: string): boolean {
 export function detectClassAttributes(baseName: string): ClassAttributes {
   return { category: detectClassCategory(baseName), fixedFiveDays: detectFixedFiveDays(baseName) };
 }
+
+export interface ResolvedClassEnrollment {
+  rawToken: string;
+  baseName: string;
+  resolvedBaseName: string;
+  mapped: boolean;
+  category: ClassCategory;
+  categorySource: 'auto' | 'manual';
+  fixedFiveDays: boolean;
+  fixedSource: 'auto' | 'manual';
+}
+
+export interface ClassSettingLookup {
+  category?: ClassCategory;
+  categorySource?: 'auto' | 'manual';
+  fixedFiveDays?: boolean;
+  fixedSource?: 'auto' | 'manual';
+}
+
+/**
+ * D2a: 解析學生報名班級的類別與固定 5 天屬性 (S manifest §4.2, §7, D37 3)。
+ * 名冊班名有對應系統班級 -> 用該班級設定；無對應 -> 依米豆奶班名自動偵測。
+ */
+export function resolveClassEnrollment(
+  token: { rawToken: string; baseName: string },
+  aliasMap?: Map<string, string>,
+  classSettingMap?: Map<string, ClassSettingLookup>
+): ResolvedClassEnrollment {
+  const resolvedBaseName = aliasMap?.get(token.baseName) ?? token.baseName;
+  const cls = classSettingMap?.get(resolvedBaseName);
+
+  if (cls) {
+    const auto = detectClassAttributes(resolvedBaseName);
+    return {
+      rawToken: token.rawToken,
+      baseName: token.baseName,
+      resolvedBaseName,
+      mapped: true,
+      category: cls.category ?? auto.category,
+      categorySource: cls.categorySource ?? 'auto',
+      fixedFiveDays: cls.fixedFiveDays ?? auto.fixedFiveDays,
+      fixedSource: cls.fixedSource ?? 'auto',
+    };
+  }
+
+  const auto = detectClassAttributes(resolvedBaseName);
+  return {
+    rawToken: token.rawToken,
+    baseName: token.baseName,
+    resolvedBaseName,
+    mapped: false,
+    category: auto.category,
+    categorySource: 'auto',
+    fixedFiveDays: auto.fixedFiveDays,
+    fixedSource: 'auto',
+  };
+}

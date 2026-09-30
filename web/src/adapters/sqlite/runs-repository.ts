@@ -45,10 +45,19 @@ export interface StudentCalculationRecord {
   createdAt: string;
 }
 
+export interface RunClassCategoryRecord {
+  baseName: string;
+  category: string;
+  fixedFiveDays: number;
+  mapped: number;
+  source: string;
+}
+
 export function saveCalculationRun(
   db: Database.Database,
   run: CalculationRunRecord,
-  results: StudentCalculationRecord[]
+  results: StudentCalculationRecord[],
+  classCategories?: RunClassCategoryRecord[]
 ): void {
   const insertRun = db.prepare(`
     INSERT INTO calculation_runs (
@@ -113,6 +122,26 @@ export function saveCalculationRun(
       JSON.stringify(r.trace),
       r.createdAt
     );
+  }
+
+  // R2-1: v3 run 持久化 run_class_categories 快照，置於 calculation_runs 確定存在後執行，避免級聯刪除
+  if (run.ruleSetVersion === 'erp-tag-v3' && classCategories && classCategories.length > 0) {
+    const insertCategory = db.prepare(`
+      INSERT OR REPLACE INTO run_class_categories (
+        run_id, base_name, category, fixed_five_days, mapped, source
+      ) VALUES (?, ?, ?, ?, ?, ?)
+    `);
+
+    for (const item of classCategories) {
+      insertCategory.run(
+        run.id,
+        item.baseName,
+        item.category,
+        item.fixedFiveDays,
+        item.mapped,
+        item.source
+      );
+    }
   }
 }
 
