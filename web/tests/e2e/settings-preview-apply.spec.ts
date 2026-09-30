@@ -6,7 +6,7 @@ import path from 'path';
  * 舊 spec（T05：勾選數學一→一A → preview 13人/-0.5/5→18 → 套用）對齊 R2 新工作流程：
  * - 舊版在同一頁面展開待設定清單並以「預覽影響」／「套用並重算」按鈕提交；
  * - 新版（R2）按 specs/09 §3 採用「課表」與「班名對應」頁籤，由底部操作列「確認變更」開啟 ImpactDialog，
- *   在確認視窗內顯示 13 人天數變化與 18 筆級距差異 (mismatch 5 → 18)，再點擊「儲存並更新結果」完成原子套用與重算。
+ *   在確認視窗內顯示 13 人天數變化與「系統計算天數與米豆奶入班天數不符：5 人 → 18 人」（D39；單位是人），再點擊「儲存並更新結果」完成原子套用與重算。
  */
 test.describe('T05 設定 preview→apply E2E（R2 課表與班名對應工作流程）', () => {
   test('T05 (UX03/UX09/UX10): 上傳 → 啟用 → 班名對應勾選數學一→一A → ImpactDialog 預覽 13人/18筆差異 → 儲存並更新結果', async ({
@@ -46,9 +46,10 @@ test.describe('T05 設定 preview→apply E2E（R2 課表與班名對應工作�
     const dialog = page.locator('dialog.impact-dialog');
     await expect(dialog).toBeVisible({ timeout: 15000 });
 
-    // 斷言 D18 預期結果：13 人天數變化、18 筆級距差異
+    // 斷言 D18 預期結果：13 人天數變化、天數不符 5 人 → 18 人（D39 定稿文案；單位是人，不是筆）
     await expect(dialog).toContainText('13 人');
-    await expect(dialog).toContainText('18 筆');
+    await expect(dialog).toContainText('系統計算天數與米豆奶入班天數不符：5 人 → 18 人', { useInnerText: true });
+    await expect(dialog).not.toContainText('mismatch', { useInnerText: true });
 
     // 7. 點擊確認視窗內主按鈕「儲存並更新結果」完成套用與重算
     await dialog.locator('button', { hasText: '儲存並更新結果' }).click();

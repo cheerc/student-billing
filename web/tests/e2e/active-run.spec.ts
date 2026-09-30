@@ -199,7 +199,7 @@ test.describe('R4 重寫：核對結果頁 E2E 驗收（學生總表 12 欄 + �
     expect(Number(await matched.textContent())).toBeLessThanOrEqual(scoped);
   });
 
-  test('UX12: 級距差異篩選＝fixture 的 5 筆，列內容與抽屜可查；吻合＋待確認含 SCHEDULE_NOT_FOUND', async ({ page }) => {
+  test('UX12: 級距差異篩選＝fixture 的 5 筆，列內容與抽屜可查；吻合＋待確認含「排課缺漏」（中文名稱，代碼不外露）', async ({ page }) => {
     await ensureActivated(page);
 
     const counts = page.locator('.counts-line');
@@ -234,6 +234,8 @@ test.describe('R4 重寫：核對結果頁 E2E 驗收（學生總表 12 欄 + �
     for (let i = 0; i < issueOptionCount; i++) await issueOptions.nth(i).check();
     await p.getByRole('button', { name: '確定', exact: true }).click();
     await expect(rows.first()).toBeVisible();
-    await expect(table.locator('tbody')).toContainText('SCHEDULE_NOT_FOUND');
+    // 問題類型只顯示中文名稱（D39 (4)）：同一列仍看得到「排課缺漏」，英文代碼不出現在主畫面
+    await expect(table.locator('tbody')).toContainText('排課缺漏');
+    await expect(table.locator('tbody')).not.toContainText('SCHEDULE_NOT_FOUND', { useInnerText: true });
   });
 });
