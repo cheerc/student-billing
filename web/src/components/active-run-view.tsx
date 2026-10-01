@@ -2,7 +2,8 @@
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
+import { parseResultsState, pruneResultsState } from '@/lib/results-state';
 import SummaryTable, { type StudentColumnKey } from './summary-table';
 import type { RunClassCategorySnapshot } from '@/application/applicable-rate';
 import DetailDrawer from './detail-drawer';
@@ -119,9 +120,7 @@ export default function ActiveRunView({
   asOfDate,
   initialData,
   initialOptions,
-  initialView = 'students',
   initialFilters = {},
-  initialDeductionFilters = {},
   initialNotices,
   initialDeductions,
   deductionsUnavailable,
@@ -132,19 +131,29 @@ export default function ActiveRunView({
 }: ActiveRunViewProps) {
   const isHistory = mode === 'history';
   const router = useRouter();
+  const searchParams = useSearchParams();
+  // Back 的 RSC props 可能來自無條件入口；在首次 render 用目前網址還原，不在 effect 後跳頁籤。
+  const [restored] = useState(() => {
+    const parsed = parseResultsState(new URLSearchParams(searchParams.toString()));
+    const deferredRate = Boolean(parsed.filters.applicableDiscountBps && exactlyOneClass(parsed.filters)
+      && initialOptions.applicableRateContext.classKey !== parsed.filters.enrollmentKey?.[0]);
+    const state = pruneResultsState(parsed, initialOptions.options, deferredRate);
+    return { ...state, deferredRate, needsLoad: deferredRate || JSON.stringify(state.filters) !== JSON.stringify(initialFilters) };
+  });
+  const [restoring, setRestoring] = useState(restored.needsLoad);
   // 結果雙頁籤（09 §2／§5.2）：學生總表、班級扣天；頁籤與條件寫在網址，重新整理／返回不丟
-  const [resultTab, setResultTab] = useState<'students' | 'deductions'>(initialView);
-  const [loading, setLoading] = useState(false);
+  const [resultTab, setResultTab] = useState<'students' | 'deductions'>(restored.view);
+  const [loading, setLoading] = useState(restored.needsLoad);
   const [data, setData] = useState<RunStudentsQueryResult>(initialData);
   const [options, setOptions] = useState<RunStudentOptions>(initialOptions);
   const [error, setError] = useState<UserFacingError | null>(null);
 
-  const [filters, setFilters] = useState<StudentFilters>(initialFilters);
-  const [deductionFilters, setDeductionFilters] = useState<DeductionFilters>(initialDeductionFilters);
+  const [filters, setFilters] = useState<StudentFilters>(restored.filters);
+  const [deductionFilters, setDeductionFilters] = useState<DeductionFilters>(restored.deductionFilters);
   const [searchQuery, setSearchQuery] = useState('');
   const [appliedQ, setAppliedQ] = useState('');
-  const [prunedNotice, setPrunedNotice] = useState(initialNotices?.pruned ?? []);
-  const [invalidNotice, setInvalidNotice] = useState(Boolean(initialNotices?.invalid));
+  const [prunedNotice, setPrunedNotice] = useState(restored.pruned.length ? restored.pruned : initialNotices?.pruned ?? []);
+  const [invalidNotice, setInvalidNotice] = useState(restored.invalid || Boolean(initialNotices?.invalid));
   const [applicableRemoved, setApplicableRemoved] = useState(false);
 
   // 分頁狀態
@@ -202,6 +211,7 @@ export default function ActiveRunView({
           return;
         }
         setData(json);
+        setRestoring(false);
       } catch (err) {
         if (seq !== seqRef.current || (err instanceof DOMException && err.name === 'AbortError')) return;
         setError(describeLoadError('查詢學生總表', failureFromException(err)));
@@ -218,25 +228,38 @@ export default function ActiveRunView({
 
   /** 恰選一班時，取該班的本班適用折扣選項（其他欄選項取自整個 run，不受影響）。 */
   const ensureApplicableOptions = useCallback(
-    async (next: StudentFilters) => {
+    async (next: StudentFilters, resolveDeferred = false): Promise<StudentFilters | null> => {
       const single = exactlyOneClass(next);
       const wire = next.enrollmentKey?.[0];
-      if (!single || !wire || optionsRef.current.applicableRateContext.classKey === wire) return;
+      if (!single || !wire || optionsRef.current.applicableRateContext.classKey === wire) return next;
       try {
         const res = await fetch(`/api/v1/runs/${runId}/students?options=true&enrollmentKey=${encodeURIComponent(wire)}`);
-        if (!res.ok) return;
+        if (!res.ok) throw new Error('無法還原本班適用折扣選項');
         const json = (await res.json()) as RunStudentOptions;
-        if (exactlyOneClass(filtersRef.current) !== single) return;
+        if (exactlyOneClass(filtersRef.current) !== single) return null;
         setOptions((prev) => ({
           ...prev,
           options: { ...prev.options, applicableDiscountBps: json.options.applicableDiscountBps },
           applicableRateContext: json.applicableRateContext,
         }));
-      } catch {
-        /* 選項載入失敗時，本班適用折扣的篩選面板維持空清單；欄位值本身不受影響 */
+        if (!resolveDeferred) return next;
+        // 等待期間另有操作時，不用舊 options 還原／載入過期條件。
+        if (JSON.stringify(filtersRef.current) !== JSON.stringify(next)) return null;
+        const resolved = pruneResultsState({ ...restored, filters: next, pruned: [] }, json.options);
+        filtersRef.current = resolved.filters;
+        setFilters(resolved.filters);
+        if (resolved.pruned.length) setPrunedNotice((prev) => [...prev, ...resolved.pruned]);
+        return resolved.filters;
+      } catch (error) {
+        if (resolveDeferred && JSON.stringify(filtersRef.current) === JSON.stringify(next)) {
+          setError(describeLoadError('還原本班適用折扣', failureFromException(error)));
+          setLoading(false);
+        }
+        /* 選項載入失敗時，不猜有效性，也不刪掉原條件。 */
+        return null;
       }
     },
-    [runId]
+    [runId, restored]
   );
 
   const resetPaging = () => {
@@ -259,6 +282,7 @@ export default function ActiveRunView({
       setApplicableRemoved(removed);
       setPrunedNotice([]);
       setInvalidNotice(false);
+      filtersRef.current = merged;
       setFilters(merged);
       resetPaging();
       void load(merged, qRef.current, null);
@@ -294,6 +318,7 @@ export default function ActiveRunView({
     setApplicableRemoved(false);
     setPrunedNotice([]);
     setInvalidNotice(false);
+    filtersRef.current = {};
     setFilters({});
     resetPaging();
     void load({}, '', null);
@@ -307,22 +332,29 @@ export default function ActiveRunView({
     // 開發模式的 StrictMode 會重跑 effect：已讀到但尚未套用的位置不重讀（重讀會讀到被覆寫的值）
     if (returning && !pendingScroll.current) {
       try {
-        const raw = readStorage(SCROLL_KEY(runId, initialView));
+        const raw = readStorage(SCROLL_KEY(runId, restored.view));
         if (raw) pendingScroll.current = JSON.parse(raw);
       } catch {
         pendingScroll.current = null;
       }
     }
-    if (savedQ) {
-      qRef.current = savedQ;
+    if (savedQ) qRef.current = savedQ;
+    if (savedQ || restored.needsLoad) {
       awaitingLoad.current = true;
-      queueMicrotask(() => {
-        setSearchQuery(savedQ);
-        setAppliedQ(savedQ);
-        void load(filtersRef.current, savedQ, null);
+      const startingFilters = filtersRef.current;
+      queueMicrotask(async () => {
+        if (savedQ) {
+          setSearchQuery(savedQ);
+          setAppliedQ(savedQ);
+        }
+        const next = restored.deferredRate ? await ensureApplicableOptions(startingFilters, true) : startingFilters;
+        if (!restored.deferredRate) void ensureApplicableOptions(startingFilters);
+        if (!next || JSON.stringify(filtersRef.current) !== JSON.stringify(next)) return;
+        void load(next, qRef.current, null);
       });
+    } else {
+      void ensureApplicableOptions(filtersRef.current);
     }
-    void ensureApplicableOptions(filtersRef.current);
     // 只在掛載時執行一次
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -578,7 +610,7 @@ export default function ActiveRunView({
             {error && <ErrorNotice message={error.message} detail={error.detail} />}
 
             {/* 人數一行（09 §5.1）：全部／本班／已選N班 · 符合篩選M人 · N位需確認 —— 範圍不同，不可互相冒充 */}
-            <div className="results-summary">
+            {restoring ? (!error && <p role="status">載入符合還原條件的學生總表中…</p>) : <div className="results-summary">
             <div className="counts-line" role="status" aria-live="polite">
               <span className="counts-item" data-scope={scope.kind}>{scopeLabel}</span>
               <span className="counts-sep" aria-hidden="true">·</span>
@@ -617,7 +649,7 @@ export default function ActiveRunView({
                 </span>
               )}
             </div>
-            </div>
+            </div>}
 
             {/* 待設定班級提示（09 §8.3）：依該 run 課表快照與班名對應動態判斷，不用寫死的班名清單 */}
             {unmappedSelected.length > 0 && (
@@ -632,7 +664,7 @@ export default function ActiveRunView({
             )}
 
             <SummaryTable
-              students={data?.items || []}
+              students={restoring ? [] : data?.items || []}
               loading={loading}
               singleClass={singleClass}
               classCategorySnapshots={classCategorySnapshots ?? null}
@@ -640,7 +672,7 @@ export default function ActiveRunView({
               onSelectStudent={(s) => setSelectedStudent(s)}
               onResetFilters={handleResetFilters}
             />
-            <div className="results-pager">
+            {!restoring && <div className="results-pager">
               <span className="counts-item">顯示 {data?.items.length ?? 0} 筆 (共 {data?.totalStudents ?? 0} 人)</span>
               <button type="button" className="btn-secondary pager-btn" onClick={handlePrevPage} disabled={historyCursors.length === 0 || loading}>
                 上一頁
@@ -648,7 +680,7 @@ export default function ActiveRunView({
               <button type="button" className="btn-secondary pager-btn" onClick={handleNextPage} disabled={!data?.nextCursor || loading}>
                 下一頁
               </button>
-            </div>
+            </div>}
           </>
         ) : (
           <ClassDeductionsPanel

@@ -1,12 +1,9 @@
 import type Database from 'better-sqlite3';
-import { queryRunStudents, validateRunQueryParams, QueryStudentError, type RunStudentsQueryResult } from './query-students';
+import { queryRunStudents, QueryStudentError, type RunStudentsQueryResult } from './query-students';
+import { parseResultsState, pruneResultsState } from '@/lib/results-state';
 import { queryStudentOptions, type RunStudentOptions } from './query-student-options';
 import {
-  displayValue,
   exactlyOneClass,
-  findStudentField,
-  pruneStudentFilters,
-  readResultsUrl,
   type DeductionFilters,
   type StudentFilters,
 } from '@/lib/results-filters';
@@ -32,35 +29,13 @@ export interface ResultsInitialState {
 
 type RawParams = Record<string, string | string[] | undefined>;
 
-function dropApplicable(filters: StudentFilters, removed: ResultsInitialState['pruned']): void {
-  if (!filters.applicableDiscountBps || exactlyOneClass(filters)) return;
-  const field = findStudentField('applicableDiscountBps')!;
-  for (const w of filters.applicableDiscountBps) removed.push({ column: field.column, label: displayValue(field, w) });
-  delete filters.applicableDiscountBps;
-}
-
 export function resolveResultsView(db: Database.Database, runId: string, raw: RawParams): ResultsInitialState {
-  const url = readResultsUrl(raw);
-  let filters: StudentFilters = { ...url.filters };
-  let invalid = false;
-  const removed: ResultsInitialState['pruned'] = [];
-
-  // 本班適用折扣只在恰選一班時成立，否則不是「無效網址」，而是這個條件已不適用
-  dropApplicable(filters, removed);
-  try {
-    validateRunQueryParams({ ...filters });
-  } catch (error) {
-    if (!(error instanceof QueryStudentError)) throw error;
-    invalid = true;
-    filters = {};
-  }
-
-  const classParam = filters.enrollmentKey && exactlyOneClass(filters) ? { enrollmentKey: filters.enrollmentKey } : {};
+  const url = parseResultsState(raw);
+  const classParam = url.filters.enrollmentKey && exactlyOneClass(url.filters) ? { enrollmentKey: url.filters.enrollmentKey } : {};
   const options = queryStudentOptions(db, runId, classParam);
-  const result = pruneStudentFilters(filters, options.options);
-  let pruned = result.filters;
-  removed.push(...result.removed);
-  dropApplicable(pruned, removed);
+  const resolved = pruneResultsState(url, options.options);
+  let invalid = resolved.invalid;
+  let pruned = resolved.filters;
 
   let data: RunStudentsQueryResult;
   try {
@@ -79,6 +54,6 @@ export function resolveResultsView(db: Database.Database, runId: string, raw: Ra
     data,
     options,
     invalid,
-    pruned: removed,
+    pruned: resolved.pruned,
   };
 }

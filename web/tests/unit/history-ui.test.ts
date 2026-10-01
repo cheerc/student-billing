@@ -19,6 +19,7 @@ import type { HistoryEntry } from '@/application/history-view';
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ push: () => {}, refresh: () => {} }),
   usePathname: () => '/history',
+  useSearchParams: () => new URLSearchParams(),
   notFound: () => {
     throw new Error('NEXT_NOT_FOUND');
   },
