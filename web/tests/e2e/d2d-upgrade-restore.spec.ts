@@ -7,14 +7,15 @@ import { test, expect } from '@playwright/test';
  * `settings-editor.tsx` 的 `resetDraft()`（取消修改與離頁捨棄共用）與 apply 成功後的
  * 版本更新路徑都**沒有**清除 `upgradeConfirmed`，也沒有更新「目前生效的版本」。
  *
- * 1. **F-1 取消／捨棄**：`upgradeConfirmed` 留在 `true` → 畫面仍顯示
+ * 1. **F-1 取消修改**：`upgradeConfirmed` 留在 `true` → 畫面仍顯示
  *    「有未儲存的變更 · 請確認變更後儲存」（`isDirty` 含 `upgradeChanged`），
- *    但使用者明明已經取消全部修改。按「取消修改」應回到乾淨狀態。
- * 2. **F-1 捨棄（離頁守衛）**：離開時選「捨棄修改」→ 草稿已丟棄，但升級勾選還留著，
- *    回頁後畫面又是 dirty、banner 又是升級中狀態。
- * 3. **F-2 套用成功**：server 已套用 v3，但 client 端 `canUpgrade` 仍看舊的
- *    `currentRuleSetVersion`（v2）→ `[data-upgrade-banner]` 仍在（錯誤地說「可以升級」）、
- *    `isDirty` 仍 true、「確認變更」仍可點。banner 應消失、狀態列應乾淨。
+ *    但使用者明明已經取消全部修改，而且**這個 state 無法再從畫面清除**。
+ * 2. **F-2 套用成功**：server 已套用 v3，但 client 端 `canUpgrade` 仍看舊的
+ *    `currentRuleSetVersion`（v2，server-render prop，session 內不更新）→
+ *    `[data-upgrade-banner]` 仍在（錯誤地說「可以升級」）、`isDirty` 仍 true、
+ *    「確認變更」仍可點、離頁仍被守衛與 beforeunload 攔截。banner 應消失、狀態列應乾淨。
+ *
+ * 「捨棄修改」路徑的狀態**不另立測試**，理由見下方 F-1 describe 內的說明。
  *
  * ── 這些是本輪的 tests-only RED ────────────────────────────────────────
  * 上一輪把測試與修正放在同一個 commit（F-3 違反 TDD）。本檔在 `672ca40`
@@ -37,12 +38,14 @@ test.beforeEach(async ({ page }) => {
 
 test.describe('D2d r3／F1：取消修改必須清除升級勾選', () => {
   // 說明：F-1 缺陷只有 `resetDraft` 一條路徑（「取消修改」按鈕與離頁守衛的「捨棄修改」
-  // 都經由 `useUnsavedChangesGuard(dirty, resetDraft)` → `onDiscardRef.current()` 呼叫它）。
-  // 本檔只測「取消修改」是因為：走「捨棄修改」必須離開 /settings，離開時
-  // `settings-editor` 元件已卸載、`upgradeConfirmed` 的 client state 隨之消失，
-  // 無論有沒有修正，回到頁面後勾選都會是 false——那樣的斷言在缺陷版上會通過，
-  // 不構成有效 RED（同樣的道理，`page.goto` 與 `goBack` 都不保留該 state）。
-  // 因此捨棄路徑由「取消修改」這條涵蓋 resetDraft 本身，見 `resetDraft` 的單一實作點。
+  // 都經由 `useUnsavedChangesGuard(dirty, resetDraft)` → `onDiscardRef.current()` 呼叫它），
+  // 本檔的「取消修改」一條即涵蓋 `resetDraft` 本身。
+  //
+  // 「捨棄修改」路徑**無法**用來做 RED／回歸防護：它必須離開 /settings，離開時
+  // `settings-editor` 已卸載、`upgradeConfirmed` 的 client state 隨之消失，無論有沒有
+  // 修正，回到頁面後勾選都會是 false（實測 `page.goto` 與 `goBack` 皆如此）。
+  // 那樣的斷言在缺陷版與修正版上結果相同，屬 characterization 而非 RED，
+  // 寫進去只會假裝有防護，所以不寫。
 
   test('按「取消修改」→ 升級勾選清除、狀態列回到乾淨', async ({ page }) => {
     const checkbox = page.locator('[data-upgrade-confirm]');

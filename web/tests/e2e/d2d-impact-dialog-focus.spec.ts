@@ -81,9 +81,14 @@ test.describe('D2d r3／F4：確認變更視窗 late-disable 後焦點仍須還�
     // 前置確認 2：disabled 期間焦點確實遺失（這是被修的行為，不是測試造成的）
     await expect(opener, 'disabled 期間焦點不應停在 disabled 按鈕上').not.toBeFocused();
 
-    // 放行 calculate response → setCalculating(false) → opener 恢復 enabled
+    // 推進 virtual time 讓頁面 timers（debounce 之後的收尾等）繼續跑完。
+    // ⚠ 精確說明：`page.clock` 只控制**頁面內**的 timers（setTimeout／rAF／Date），
+    //   **不控制 Node／網路回應**。所以這一行的作用不是「放行 calculate response」——
+    //   真正證明 response 已回來、setCalculating(false) 已執行的是下一行的
+    //   `toBeEnabled()` 觀測（opener 從 disabled 回到 enabled 只可能是 response 到了）。
     await page.clock.runFor(1000);
-    await expect(opener, 'response 回來後「確認變更」應恢復 enabled').toBeEnabled();
+    // 真正的事件順序證據：觀察到 enabled（＝response 已回來並 setCalculating(false)）
+    await expect(opener, 'response 回來、setCalculating(false) 後「確認變更」應恢復 enabled').toBeEnabled();
 
     // ★ 核心斷言：09 §6「Esc 關閉後焦點回到觸發點」——焦點遺失是這次還原造成的，必須補回
     await expect(opener, 'late-disable 造成焦點遺失後，opener 恢復可用時焦點必須還原').toBeFocused();
