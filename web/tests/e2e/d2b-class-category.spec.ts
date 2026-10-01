@@ -284,18 +284,6 @@ test.describe('D2b：班級類別與固定 5 天設定 UI、升級確認', () =>
       await expect(row.locator('.pill', { hasText: '已對應' })).toBeVisible();
       // 勾選別名本身就是一項草稿變更 → 必須變 dirty，否則「確認變更」會是停用的
       await expect(page.locator('.save-status-dirty')).toBeVisible();
-      if (process.env.D2C_PROBE) {
-        let reqs = 0;
-        page.on('request', (r) => { if (r.url().includes('/calculate')) reqs++; });
-        for (let i = 0; i < 8; i++) {
-          console.log(
-            `PROBE13 t=${i * 500}ms disabled=` +
-              (await page.locator('button', { hasText: '確認變更' }).isDisabled()) +
-              ` calcReqs=` + reqs
-          );
-          await page.waitForTimeout(500);
-        }
-      }
 
       await page.locator('button', { hasText: '確認變更' }).click();
       const dialog = page.locator('dialog.impact-dialog');

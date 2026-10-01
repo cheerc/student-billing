@@ -1,16 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
-
-async function restoreCategoryToAutoAndSave(page: Page, className: string) {
-  const row = page.locator(`[data-class-attribute-row="${className}"]`);
-  await expect(row).toBeVisible();
-  await row.locator(`[data-restore-auto="${className}"]`).click();
-  await expect(row.locator(`[data-category-source="${className}"]`)).toHaveText('自動');
-  await page.locator('button', { hasText: '確認變更' }).click();
-  const dialog = page.locator('dialog.impact-dialog');
-  await expect(dialog).toBeVisible({ timeout: 15000 });
-  await dialog.locator('button', { hasText: /儲存並更新結果|儲存課表/ }).click();
-  await expect(page.locator('#toast')).toContainText('課表已', { timeout: 15000 });
-}
+import { resetSeedSettings, saveSettings } from './helpers/d2c-settings';
 
 async function renameWholeClass(page: Page, from: string, to: string) {
   await page
@@ -51,37 +40,30 @@ test.describe('D2b 空 DB 畫面契約：settings_only 影響預覽、Q11 升級
     // settings_only（尚未匯入學生）：顯示「尚未匯入學生」而非 0 人
     await expect(dialog).toContainText('尚未匯入學生');
 
+    const applied = page.waitForResponse((response) =>
+      response.url().endsWith('/api/v1/settings/apply') && response.request().method() === 'POST'
+    );
     await dialog.locator('button', { hasText: '儲存課表' }).click();
+    expect((await applied).ok()).toBe(true);
+    await expect(dialog).toBeHidden();
+    await expect(page.locator('.save-status-clean')).toBeVisible();
     await expect(page.locator('#toast')).toContainText('課表已成功儲存', { timeout: 15000 });
-
-    // D2c N-1：本案例把「國小數學-四A」的手動類別寫進 DB，若不還原，
-    // 同檔後續案例與 `--repeat` 的下一輪會讀到手動值（實測第 2 輪 4 failed）。
-    await restoreCategoryToAutoAndSave(page, '國小數學-四A');
   });
 
-  /**
-   * D2c N-1：同檔案例共用同一 DB（runner 只保證每檔新 DB），且 `--repeat` 會沿用同一 DB 跑多輪。
-   * 因此本檔每個案例結束後都必須把設定還原到 seed 狀態，否則下一個案例／下一輪會讀到殘留
-   * （實測：輪次 1 全綠、輪次 2 兩個案例因「確認變更」停用而失敗）。
-   *
-   * 做法：逐一恢復可能被手動設定的班級為自動，並在真的有變更時儲存。
-   * 找不到「恢復自動」按鈕＝該班本來就是自動（按鈕只在手動時出現），不需動作。
-   */
+  // 同檔與跨輪共用 DB：透過正式 CAS API 還原合成 seed，再從新頁面驗證清理已持久化。
+  // 「恢復自動」的 UI 持久化另由 d2c-restore-auto.spec.ts 獨立驗證，不由 cleanup 代替。
   test.afterEach(async ({ page }) => {
+    await resetSeedSettings(page);
     await page.goto('/settings');
-    await expect(page.locator('h1', { hasText: '課表設定' })).toBeVisible({ timeout: 15000 });
-    const clean = page.locator('[data-class-attributes-panel] button[data-restore-auto]');
-    const n = await clean.count();
-    if (n === 0) return;
-    for (let i = 0; i < n; i++) {
-      await clean.nth(i).click();
+    for (const name of ['國小數學-四A', '國小數學-四B']) {
+      await expect(page.locator(`[data-category-source="${name}"]`)).toHaveText('自動');
+      await expect(page.locator(`[data-category-select="${name}"]`)).toHaveValue('math');
     }
-    await expect(page.locator('.save-status-dirty')).toBeVisible();
-    await page.locator('button', { hasText: '確認變更' }).click();
-    const dialog = page.locator('dialog.impact-dialog');
-    await expect(dialog).toBeVisible({ timeout: 15000 });
-    await dialog.locator('button', { hasText: /儲存並更新結果|儲存課表/ }).click();
-    await expect(page.locator('#toast')).toContainText('課表已', { timeout: 15000 });
+    const current = await page.request.get('/api/v1/runs/current');
+    expect(current.ok()).toBe(true);
+    const state = await current.json();
+    expect(state.activeImportId).toBeNull();
+    expect(state.activeRunId).toBeNull();
   });
 
   test('D2b-4（Q11）: 空 DB 不顯示升級動作（該 run 建立時即為目標版本）', async ({ page }) => {
@@ -112,11 +94,7 @@ test.describe('D2b 空 DB 畫面契約：settings_only 影響預覽、Q11 升級
     // 合併衝突的判定基準是各來源班的「有效屬性」（已儲存的手動值優先，未手動者依 baseline 班名
     // 自動偵測，見 settings-editor.tsx:264-268 的註解）。因此只在草稿中設手動不足以產生衝突；
     // D2b r1 的 Q9 案例之所以通過，實際上是靠同一檔前一個案例留下的已儲存手動值。
-    await page.locator('button', { hasText: '確認變更' }).click();
-    const saveDialog = page.locator('dialog.impact-dialog');
-    await expect(saveDialog).toBeVisible({ timeout: 15000 });
-    await saveDialog.locator('button', { hasText: /儲存並更新結果|儲存課表/ }).click();
-    await expect(page.locator('#toast')).toContainText('課表已', { timeout: 15000 });
+    await saveSettings(page);
 
     // 兩班的所有時段列都改名成同一個新名 → 同名合併
     await renameWholeClass(page, '國小數學-四A', '國小數學-四');
