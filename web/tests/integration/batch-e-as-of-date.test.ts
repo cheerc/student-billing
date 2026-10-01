@@ -79,6 +79,27 @@ describe('批次 E：核對基準日來源（UX75／UX77）', () => {
     expect(run.asOfDate).toBe('2026-10-01');
   });
 
+  it('UX76 characterization：只換 asOfDate，業務欄位逐欄不變', async () => {
+    const importId = await readyImport();
+    const left = executeCalculationRun(db, importId, 'run_batch_e_date_left', { asOfDate: D });
+    const right = executeCalculationRun(db, importId, 'run_batch_e_date_right', { asOfDate: '2030-12-31' });
+    expect(left.run.asOfDate).toBe(D);
+    expect(right.run.asOfDate).toBe('2030-12-31');
+    // 03 asOfDate 只記錄來源：這是「相同」關係的 characterization，不產生／回填 golden。
+    // 獨立手算：小一、只報一般輔導、無數學／美語／優惠 → 一科、基本100%、安親5天。
+    for (const result of [left, right]) {
+      expect(result.results).toHaveLength(1);
+      expect(result.results[0]).toMatchObject({ subjectCount: 1, baseDiscountBps: 10000, anqinDays: 5, tutoringDays: null, tierMismatch: false });
+    }
+    const fields = [
+      'subjectCount', 'baseDiscountBps', 'anqinDays', 'anqinDisplay', 'tutoringDays', 'tutoringDisplay',
+      'englishDays', 'mathDays', 'chineseDays', 'homeworkDays', 'intensiveEnglishDays', 'saturdayTutoringDays',
+      'applicableAnqinBps', 'applicableTutoringBps', 'applicableEnglishBps', 'applicableMathBps', 'tierMismatch', 'tierComparisons',
+    ] as const;
+    for (const field of fields) expect(left.results[0][field], field).toEqual(right.results[0][field]);
+    expect(left.results[0].issues.map((issue: { code: string }) => issue.code).sort()).toEqual(right.results[0].issues.map((issue: { code: string }) => issue.code).sort());
+  });
+
   it('characterization：settings_only 儲存不建 run、不改 active import', () => {
     const preview = previewSettingsChange(db, undefined, { draft: buildSeedDraft(), expectedRevision: 0 });
     const applied = applySettingsPreview(db, { previewId: preview.previewId, expectedRevision: 0, idempotencyKey: 'batch-e-empty' });
