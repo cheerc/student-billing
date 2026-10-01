@@ -1,6 +1,7 @@
 import { calculateStudentBilling, classMapFor, resolveClassSessions, CalculationOptions } from '@/domain/billing/billing-calculator';
 import { calculateClassDeductionD24 } from '@/domain/schedules/overlap-calculator';
 import { StudentSnapshot } from '@/domain/students';
+import type { StudentBillingCalculation } from '@/domain/billing/types';
 
 /**
  * 名單異動判定（operator 裁決 d-20260929111803466480-4 / d-20260929111814541876-5）。
@@ -153,11 +154,21 @@ function classSide(token: Token | undefined, ctx: RosterChangeContext) {
 
 /**
  * 學生名單中實際參與扣天計算的 token（rawToken 集合）。
- * 鏡像 billing-calculator.ts 的取法：第一個 baseName 含「國小數學」者、第一個含「兒童美語」者。
- * （不改 domain；一致性由 roster-changes.test.ts 的「第二門數學不計入」與逐班加總對照測試釘住。）
+ *
+ * D2d B（04 §8 UX71；D40 Q10-A）：**鏡像 calculator 的選班結果，不再各自取首班**。
+ *  - v3：讀 `calc.selection` 的選中班（取正量最多、平手取報名順序在前者）——
+ *    否則明細會顯示 Gino 的扣天、而學生天數其實是按 Chevady 算出來的，屬鏡像不一致。
+ *  - v1／v2／compat：無 `selection`，維持首班語意。
+ * `selection` 沒有對應類別（學生沒報該類）時不列入，與 calculator 的候選集合一致。
  */
-function countedRawTokens(student: StudentSnapshot): Set<string> {
+function countedRawTokens(student: StudentSnapshot, calc: StudentBillingCalculation): Set<string> {
   const out = new Set<string>();
+  const sel = calc.selection;
+  if (sel) {
+    if (sel.math) out.add(sel.math.selectedRawToken);
+    if (sel.english) out.add(sel.english.selectedRawToken);
+    return out;
+  }
   const math = student.enrollments.find((e) => e.baseName.includes('國小數學'));
   const english = student.enrollments.find((e) => e.baseName.includes('兒童美語'));
   if (math) out.add(math.rawToken);
@@ -173,7 +184,9 @@ function buildClassBreakdown(
   before: StudentSnapshot,
   after: StudentSnapshot,
   beforeCtx: RosterChangeContext,
-  afterCtx: RosterChangeContext
+  afterCtx: RosterChangeContext,
+  beforeCalc: StudentBillingCalculation,
+  afterCalc: StudentBillingCalculation
 ): ClassBreakdown[] {
   const tokenOf = (s: StudentSnapshot) => {
     const m = new Map<string, Token>();
@@ -182,8 +195,8 @@ function buildClassBreakdown(
   };
   const beforeTokens = tokenOf(before);
   const afterTokens = tokenOf(after);
-  const beforeCounted = countedRawTokens(before);
-  const afterCounted = countedRawTokens(after);
+  const beforeCounted = countedRawTokens(before, beforeCalc);
+  const afterCounted = countedRawTokens(after, afterCalc);
 
   const side = (tok: Token | undefined, counted: boolean, ctx: RosterChangeContext) =>
     counted ? classSide(tok, ctx) : { status: tok ? 'not_counted' : 'no_enrollment', anqin: null, tutoring: null };
@@ -262,8 +275,10 @@ export function computeRosterChanges(
       continue;
     }
 
-    const bSide = sideOf(calcBefore(before));
-    const aSide = sideOf(calcAfter(after));
+    const bCalc = calcBefore(before);
+            const aCalc = calcAfter(after);
+            const bSide = sideOf(bCalc);
+            const aSide = sideOf(aCalc);
 
     const discountChanged = bSide.baseDiscountBps !== aSide.baseDiscountBps;
     const anqinChanged = bSide.anqinDays !== aSide.anqinDays;
@@ -308,7 +323,7 @@ export function computeRosterChanges(
             afterAnqinDays: aSide.anqinDays,
             beforeTutoringDays: bSide.tutoringDays,
             afterTutoringDays: aSide.tutoringDays,
-            classBreakdown: buildClassBreakdown(before, after, beforeCtx, afterCtx),
+            classBreakdown: buildClassBreakdown(before, after, beforeCtx, afterCtx, bCalc, aCalc),
           }
         : null,
       reasons,

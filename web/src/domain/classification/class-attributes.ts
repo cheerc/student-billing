@@ -207,12 +207,27 @@ export function detectClassLifecycle(
 export function carryAttributesOnRename(
   renames: ClassRename[],
   currentAttrs: Map<string, ClassAttributesView>,
-  baselineAttrs: Map<string, ClassAttributesView>
+  baselineAttrs: Map<string, ClassAttributesView>,
+  /** baseline 中已存在的班名集合（自動偵測的班也算），用來辨認「併入既有班」。 */
+  baselineNames?: ReadonlySet<string>
 ): Map<string, ClassAttributesView> {
   const out = new Map<string, ClassAttributesView>(currentAttrs);
   for (const { from, to } of renames) {
     const before = currentAttrs.get(from) ?? baselineAttrs.get(from);
     if (!before) continue;
+
+    // D2d C（04 §8 UX72；decision `d-20261001043317183960-21`）：併入既有班 Z 時**以 Z 為準**。
+    // X 的手動值不帶入、不覆寫 Z——即使 Z 當下是 auto（未手動），X 的 manual 也不覆蓋。
+    // 理由是 operator 的產品原則：課程設定＝核對者認知的「現在」班級狀態，系統不記錄、
+    // 不管理狀態轉換，有差異由使用者看比對結果自行修正。併入既有班本來就不算合併、
+    // 本來就不阻擋（`detectClassLifecycle` 已如此），本函式只決定「誰的設定留下來」。
+    if (baselineNames?.has(to) === true) {
+      const existing = currentAttrs.get(to) ?? baselineAttrs.get(to);
+      // Z 有已儲存的手動值就用它；Z 未手動者依 Z 班名重新偵測（＝ Z「現在」的值）。
+      out.set(to, existing ?? resolveClassAttributes(to));
+      continue;
+    }
+
     // 兩組皆 auto → 依新名重新偵測（不帶覆蓋）
     if (before.categorySource === 'auto' && before.fixedSource === 'auto') {
       out.set(to, resolveClassAttributes(to));
