@@ -15,7 +15,7 @@ import {
 } from '@/adapters/sqlite/settings-repository';
 import { calculateStudentBilling } from '@/domain/billing/billing-calculator';
 import { careWindowsMatchRuleSet, CARE_WINDOWS_MISMATCH_MESSAGE } from './schedule-preview';
-import { resolveTargetRuleSetVersion } from './rule-set-resolver';
+import { resolveTargetRuleSetVersion, resolveFormalRuleSetVersion } from './rule-set-resolver';
 import { buildClassSettingMap } from './calculate-run';
 import { loadStudentsForImport } from '@/adapters/sqlite/import-repository';
 import { detectAliasCategoryChanges, type AliasCategoryNotice } from '@/domain/classification/class-attributes';
@@ -180,6 +180,12 @@ export function previewSettingsChange(
   // 使用者在預覽看到的影響與實際套用的規則版本一致。
   const formalRuleSetVersion = resolveTargetRuleSetVersion(db, requestedVersion);
 
+  // D2d A（S manifest §2.3 第 2 點、04 §8 UX61）：before ＝**active 版本**＋最新已存設定，
+  // after ＝**target 版本**＋草稿。兩側原本都傳 target，導致「同一份草稿只切規則版本」的純升級
+  // 預覽看不到任何差異（畫面顯示 0 人受影響，使用者會誤以為升級沒有影響）。
+  // 未升級（target === active）時兩側同版本，settings_only／import diff 語意不變。
+  const activeRuleSetVersion = resolveFormalRuleSetVersion(db);
+
   if (importId === null) {
     return saveSettingsOnlyPreview(db, draft, expectedRevision, latest?.id ?? 'seed-v250922', formalRuleSetVersion);
   }
@@ -208,7 +214,7 @@ export function previewSettingsChange(
       aliasMap: baseAliasMap,
       scheduleOverride: baseScheduleOverride,
       classSettings: baseClassSettings,
-      ruleSetVersion: formalRuleSetVersion,
+      ruleSetVersion: activeRuleSetVersion,
     });
     const after = calculateStudentBilling(stu, {
       aliasMap,
