@@ -68,24 +68,25 @@ describe('T1：獨立 production build 的隔離驗收環境', () => {
     fs.writeFileSync(path.join(repo, 'bait.txt'), '合成 untracked 誘餌，不得複製到 build workspace', { flag: 'wx' });
     files.push(path.join(repo, 'bait.txt'));
     const git = (...args: string[]) => execFileSync('git', args, { cwd: repo, encoding: 'utf8' });
+    // 來源 repo 根：以「往上找 .git」判定，不用 git rev-parse（本機的 git wrapper 會改寫它）。
+    let sourceRoot = web;
+    while (!fs.existsSync(path.join(sourceRoot, '.git'))) {
+      const parent = path.dirname(sourceRoot);
+      if (parent === sourceRoot) throw new Error(`測試來源 ${web} 不在任何 git repo 內`);
+      sourceRoot = parent;
+    }
+    // 先把**來源 checkout**（受測 worktree）的追蹤檔解出來——archive 必須在來源 repo 執行，
+    // 且來源 repo 本來就有 commit；解到暫存 repo 後才 git init／commit。
+    // 走檔案而非 execFileSync 的 buffer：repo 的 tar 會超過 sync 的輸出上限（ENOBUFS）。
+    fs.writeFileSync(path.join(repo, 'source.tar'), execFileSync('git', ['archive', 'HEAD', 'web'], { cwd: sourceRoot, maxBuffer: 1 << 28 }));
+    expect(spawnSync('tar', ['-xf', 'source.tar', '-C', repo], { cwd: repo }).status, '解開 git archive').toBe(0);
+    fs.rmSync(path.join(repo, 'source.tar'));
     git('init', '--quiet');
     git('config', 'user.email', 'acceptance@test.invalid');
     git('config', 'user.name', 'acceptance test');
-    // 只取追蹤檔；不複製來源目錄，untracked 的 bait 不會進來。
-    // pathspec 與 archive 的 cwd 都用 repo 根：`git archive` 的 pathspec 在 CI 的 git 2.55
-    // （ubuntu-24.04）自 repo 根解析，在本機 git 2.50 自 cwd 解析——所以 `cwd: web` + pathspec
-    // `web` 在本機通過、在 CI 卻 `pathspec 'web' did not match`（CI run 36904969343，HEAD 207f6b7）。
-    // 以 `/usr/bin/git` 在普通 clone 實測：`cwd=web` + pathspec `web` FAIL、`cwd=root` OK；
-    // `cwd=web` + pathspec `package.json` OK。cwd=repo 根 ＋ 根相對路徑在兩版皆成立。
-    // 這裡模擬「測試自建的暫存 repo 被 T1 當成來源」，repo 根就是剛 git init 的暫存目錄
-    // （不經 git rev-parse：sandbox 的 git wrapper 會把它改寫到別的 worktree）。
-    const repoRoot = repo;
-    // 走檔案而非 execFileSync 的 buffer：repo 的 tar 會超過 sync 的輸出上限（ENOBUFS）。
-    fs.writeFileSync(path.join(repo, 'source.tar'), execFileSync('git', ['archive', 'HEAD', 'web'], { cwd: repoRoot, maxBuffer: 1 << 28 }));
-    expect(spawnSync('tar', ['-xf', 'source.tar', '-C', repo], { cwd: repo }).status, '解開 git archive').toBe(0);
-    fs.rmSync(path.join(repo, 'source.tar'));
-    git('add', '-A');
+    git('add', '-A', '--', 'web');
     git('commit', '--quiet', '-m', 'acceptance source');
+    expect(git('rev-parse', 'HEAD').trim(), '暫存 repo 必須已有 commit 才能被 git archive 讀取').toMatch(/^[0-9a-f]{40,64}$/);
     const sentinelDir = path.join(repo, 'web/.next');
     const sentinel = path.join(sentinelDir, 'BUILD_ID');
     fs.mkdirSync(sentinelDir, { recursive: true });
