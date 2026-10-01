@@ -208,7 +208,30 @@ export default function SettingsEditor({
 
   // D2b 4（Q11）：是否已明確確認要改用新規則（v3）。未確認時一切照現行版本走，既有 v2 DB 不動。
   const [upgradeConfirmed, setUpgradeConfirmed] = useState(false);
-  const canUpgrade = currentRuleSetVersion === 'erp-tag-v2';
+
+  // D2d r1（F-2，primary blocking）：本次 session 已套用的規則版本。
+  //
+  // `currentRuleSetVersion` 是 server-render 傳入的 prop（`settings/page.tsx:93`
+  // 由 `active.run?.ruleSetVersion` 決定），**session 內不會更新**。因此升級成功
+  // 套用後，`canUpgrade` 仍為 true、banner 仍存在且勾選框仍 checked、`isDirty`
+  // 仍為 true——使用者剛完成 v2→v3 升級，畫面卻主動引導他再升級一次，且每次
+  // 離頁都被守衛攔截。
+  //
+  // 這裡以**本地 state** 追蹤「目前生效的版本」：初始取 server prop，
+  // apply 成功後更新為該次套用的 target 版本，`canUpgrade` 依它判斷。
+  // 刻意**不**加 `router.refresh()`／`revalidatePath()`——那會連帶重新取得
+  // rows／baseline／manualAttrs，把「就地更新 baseline」這條既有路徑
+  // （`:610-624`）整段作廢並擴大回歸面；版本判斷只需要這一項。
+  const [appliedRuleSetVersion, setAppliedRuleSetVersion] = useState<string | null>(
+    currentRuleSetVersion
+  );
+  // baseline 對應的版本（用於 resetDraft 回到套用前的狀態）
+  const [baselineRuleSetVersion, setBaselineRuleSetVersion] = useState<string | null>(
+    currentRuleSetVersion
+  );
+
+  // 只有「仍是 v2 且本次勾選」才算升級中的變更；v3（或升級已套用）後不再提示。
+  const canUpgrade = appliedRuleSetVersion === 'erp-tag-v2';
   const isUpgrading = canUpgrade && upgradeConfirmed;
 
   // 儲存確認視窗狀態
@@ -517,11 +540,19 @@ export default function SettingsEditor({
   };
 
   // 還原到 baseline（取消修改與離頁時「捨棄修改」共用）
+  // D2d r1（F-1，primary blocking）：一併還原升級勾選。
+  // 原本只還原 rows／aliases／manualAttrs／restoredAutoNames，`upgradeConfirmed` 留著 true
+  // → `upgradeChanged` 仍 true → isDirty 恆 true → 使用者按了「取消修改」畫面卻仍標示
+  // 「有未儲存的變更」，離頁守衛也持續攔截，且此 state 無法從畫面上清除。
   const resetDraft = () => {
     setRows(baseline.rows);
     setDraft((prev) => ({ ...prev, aliases: baseline.aliases }));
     setManualAttrs(new Map(baselineManualAttrs));
     setRestoredAutoNames(new Set());
+    // 已套用的版本也回到 baseline 對應的值（apply 成功後 upgradeConfirmed 已被清除，
+    // 此處再設一次是為 F-2 的 session 版本追蹤在「取消修改」路徑上同樣乾淨）
+    setAppliedRuleSetVersion(baselineRuleSetVersion);
+    setUpgradeConfirmed(false);
     setPreview(null);
   };
 
@@ -624,6 +655,19 @@ export default function SettingsEditor({
       if (typeof json?.appliedAt === 'string') setSavedAt(json.appliedAt);
       setIsImpactDialogOpen(false);
       setPreview(null);
+
+      // D2d r1（F-2）：套用成功後清除升級勾選，並把「目前生效的版本」更新為
+      // 本次實際採用的版本（apply 只讀 preview 記錄的 target 版建立新 run，
+      // 見 `apply-settings.ts` `resolveRuleSetForApply`）。兩者合起來讓畫面
+      // 回到乾淨：banner 消失、isDirty 歸零、離頁守衛與 beforeunload 不再攔截。
+      // 版本取自 preview 記錄而非主動猜 v3——apply 的結果才是權威。
+      // 缺值時保守不變（`?? prev`），避免誤把 canUpgrade 轉成未知狀態。
+      const appliedVersion = preview?.targetRuleSetVersion ?? null;
+      if (appliedVersion) {
+        setAppliedRuleSetVersion(appliedVersion);
+        setBaselineRuleSetVersion(appliedVersion);
+      }
+      setUpgradeConfirmed(false);
       showToast(preview.mode === 'settings_only' ? '課表已成功儲存' : '課表已套用並完成重算');
 
       // F3：儲存成功後，就地刷新班名比對報告（維持同頁即時更新，不需整頁 reload）。
