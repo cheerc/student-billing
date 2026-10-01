@@ -62,15 +62,22 @@ describe('T1：獨立 production build 的隔離驗收環境', () => {
     fs.writeFileSync(bait, '合成 untracked 誘餌，不得複製到 build workspace', { flag: 'wx' });
     files.push(bait);
     const buildId = path.join(web, '.next/BUILD_ID');
-    const before = fs.existsSync(buildId) ? fs.readFileSync(buildId, 'utf8') : null;
+    const before = fs.existsSync(buildId) ? fs.readFileSync(buildId, 'utf8').trim() : null;
     const session = await start();
     expect(session.database.startsWith(fs.realpathSync(os.tmpdir()) + path.sep)).toBe(true);
-    expect(fs.existsSync(path.join(session.workspace, path.basename(bait)))).toBe(false);
-    expect(fs.existsSync(buildId) ? fs.readFileSync(buildId, 'utf8') : null).toBe(before);
+    expect(fs.existsSync(path.join(session.workspace, path.basename(bait))), 'build workspace 只取追蹤檔，untracked 誘餌不得出現').toBe(false);
+    // T1 的 build 在 tmpdir 的 workspace，不在 source checkout。因此 workspace 的 BUILD_ID
+    // 必須與 source 的不同——相同代表 T1 用了 source 的 .next；不同才證明它沒有動到 source。
+    // 註：若本機同時有另一個 `npm run build` 在跑，source 的 BUILD_ID 會被換掉，這裡比對的是
+    // 「兩者是否相同」，並行 build 只會讓 before 改變，不影響這個判斷。
+    const workspaceBuildId = path.join(session.workspace, '.next/BUILD_ID');
+    expect(fs.existsSync(workspaceBuildId), 'T1 必須在自己的 workspace 產出 BUILD_ID').toBe(true);
+    expect(before, 'T1 的 build 必須發生在 workspace，不能覆寫 source checkout 的 .next/BUILD_ID').not.toBe(fs.readFileSync(workspaceBuildId, 'utf8').trim());
     const draft = buildSeedDraft();
     draft.classes[0].teacher = '合成T1持久化老師';
     const request = async (endpoint: string, body?: unknown) => {
-      const response = await fetch(session.url + endpoint, body ? { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) } : undefined);
+      // connection: close —— restart 會關閉舊 socket；Node fetch 的 keep-alive 池若重用它會 ECONNRESET。
+      const response = await fetch(session.url + endpoint, { ...(body ? { method: 'POST', headers: { 'content-type': 'application/json', connection: 'close' }, body: JSON.stringify(body) } : { headers: { connection: 'close' } }) });
       expect(response.status).toBe(200);
       return response.json();
     };
