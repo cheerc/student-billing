@@ -65,7 +65,12 @@ describe('D2d C: 併入既有班 Z 時以 Z 的現行設定為準（最小修）
       ],
     ]);
 
-    const out = carryAttributesOnRename([{ from: '國小數學-四A', to: '國小數學-四C' }], new Map(), attrs);
+    const out = carryAttributesOnRename(
+      [{ from: '國小數學-四A', to: '國小數學-四C' }],
+      new Map(),
+      attrs,
+      new Set(['國小數學-四C']) // Z 在 baseline 已存在 → 併入既有班
+    );
 
     // 以 Z 為準：X 的 manual 值不帶入、不覆寫
     expect(out.get('國小數學-四C')?.category).toBe('care');
@@ -81,7 +86,12 @@ describe('D2d C: 併入既有班 Z 時以 Z 的現行設定為準（最小修）
       ],
     ]);
 
-    const out = carryAttributesOnRename([{ from: '國小數學-四A', to: '國小數學-四C' }], new Map(), attrs);
+    const out = carryAttributesOnRename(
+      [{ from: '國小數學-四A', to: '國小數學-四C' }],
+      new Map(),
+      attrs,
+      new Set(['國小數學-四C']) // Z 在 baseline 已存在 → 併入既有班
+    );
 
     // Z 未出現在 baselineManualAttrs → Z 為自動偵測（數學班 → math），X 的 manual 不得覆蓋
     expect(out.get('國小數學-四C')?.category).toBe('math');

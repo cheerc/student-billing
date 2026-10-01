@@ -165,13 +165,16 @@ describe('D2d H: UX60 舊 v3 run 的類別快照不被重新分類（專項旅�
       idempotencyKey: 'd2d-h-ux60',
     });
     expect(applied.runId).not.toBe('run_A');
+    expect(applied.mode).toBe('with_students');
+    expect(applied.runId).toBeTruthy();
 
     // 4. 舊 run A 的快照逐列不變（核心斷言）
     const snapA_after = snapshotOf(db, 'run_A');
     expect(snapA_after).toEqual(snapA_before);
 
     // 5. 負向保證：新 run B 必須真的反映新類別（否則「舊的不變」只是因為都沒寫）
-    const snapB = snapshotOf(db, applied.runId);
+    const runB = applied.runId!;
+    const snapB = snapshotOf(db, runB);
     expect(snapB.find((r) => r.base_name === Z)).toMatchObject({
       category: 'none',
       source: 'manual',

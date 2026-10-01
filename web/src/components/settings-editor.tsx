@@ -290,8 +290,12 @@ export default function SettingsEditor({
     if (renames.length === 0) return manualAttrs;
     const inheritableBaseline = new Map(baselineManualAttrs);
     for (const name of restoredAutoNames) inheritableBaseline.delete(name);
-    return carryAttributesOnRename(renames, manualAttrs, inheritableBaseline);
-  }, [classLifecycle, manualAttrs, baselineManualAttrs, restoredAutoNames]);
+    // D2d C（04 §8 UX72）：baseline 的**班名集合**（含未手動、靠自動偵測的班），
+    // 讓 carryAttributesOnRename 能分辨「改名成不存在的新名」（手動值跟著走）與
+    // 「併入 baseline 已存在的班 Z」（以 Z 為準，不帶入 X 的手動值）。
+    const baselineNames = new Set(baseline.rows.map((r) => r.className.trim()).filter(Boolean));
+    return carryAttributesOnRename(renames, manualAttrs, inheritableBaseline, baselineNames);
+  }, [classLifecycle, manualAttrs, baselineManualAttrs, restoredAutoNames, baseline.rows]);
 
   // 顯示與寫入都用「改名後」的手動值。
   const effectiveManualAttrs = manualAttrsAfterRename;
