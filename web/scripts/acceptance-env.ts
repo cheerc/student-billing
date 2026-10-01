@@ -8,11 +8,12 @@ import { randomUUID } from 'crypto';
 import { assertIsolatedE2eTarget } from './e2e-isolation';
 
 /**
- * 來源 checkout。正常驗收用本檔所在的 repo；`ACCEPTANCE_SOURCE_DIR` 只供測試指向自建的
- * 暫存 repo，讓「T1 不寫入 source .next」能在不受並行 build 影響下驗證（見
- * tests/integration/acceptance-env.test.ts 的哨兵斷言）。安全檢查不因此放寬。
+ * 來源套件目錄（`web/`）。預設就是本檔所在的 repo 的 web/ —— 與 specs/12 §4 記載的
+ * 使用者指令 `cd web && npx tsx scripts/acceptance-env.ts` 一致。
+ * `ACCEPTANCE_SOURCE_DIR` 只供測試指向另一份 checkout（例如讓「不動 source .next」
+ * 在暫存 repo 上被驗證），語意與預設相同，都必須是含 package.json 的套件目錄。
  */
-const SOURCE = fs.realpathSync(path.resolve(process.env.ACCEPTANCE_SOURCE_DIR ?? path.join(__dirname, '../..')));
+const SOURCE = fs.realpathSync(path.resolve(process.env.ACCEPTANCE_SOURCE_DIR ?? path.join(__dirname, '..')));
 const MARKER = 'acceptance-session.json';
 type Action = 'restart' | 'reset' | 'stop';
 interface Session {
@@ -199,14 +200,14 @@ async function start(port: number) {
     let repoRoot = SOURCE;
     while (!fs.existsSync(path.join(repoRoot, '.git'))) {
       const parent = path.dirname(repoRoot);
-      if (parent === repoRoot) throw new Error(`來源 checkout ${SOURCE} 不在任何 git repo 內`);
+      if (parent === repoRoot) throw new Error(`來源 ${SOURCE} 不在任何 git repo 內`);
       repoRoot = parent;
     }
     if (!fs.existsSync(path.join(SOURCE, 'package.json'))) {
-      throw new Error('來源 checkout 必須含有 package.json（請由 web/ 目錄啟動本工具，或讓 ACCEPTANCE_SOURCE_DIR 指向含 package.json 的目錄）');
+      throw new Error('來源必須是套件目錄（含 package.json 的 web/）；請在 web/ 內執行本工具，或讓 ACCEPTANCE_SOURCE_DIR 指向含 package.json 的目錄');
     }
     const packageDir = path.relative(repoRoot, SOURCE).split(path.sep).join('/');
-    if (!packageDir || packageDir.startsWith('..')) throw new Error('來源 checkout 必須在 repo 內');
+    if (!packageDir || packageDir.startsWith('..')) throw new Error('來源套件目錄必須在 git repo 內');
     const archive = track(spawn('git', ['archive', session.head, packageDir], { cwd: repoRoot, stdio: ['ignore', 'pipe', 'inherit'], detached: process.platform !== 'win32' }));
     const tar = track(spawn('tar', ['-x', '--strip-components=1', '-C', session.workspace], { stdio: ['pipe', 'inherit', 'inherit'], detached: process.platform !== 'win32' }));
     tar.stdin!.on('error', () => {});
