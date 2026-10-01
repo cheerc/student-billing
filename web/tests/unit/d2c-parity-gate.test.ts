@@ -272,24 +272,7 @@ describe('D2c parity gate：v3 相對 v2 的差異只允許出現在 S manifest 
 
   describe('invariant：逐版分別驗證（D24 取整、D30 同星期、標籤來源、既有 run）', () => {
     it('D24 取整：f<0.3→0、0.3≤f<0.8→0.5、f≥0.8→1，v2 與 v3 各自成立', () => {
-      // 每日 180 分、課輔窗口 990–1170（180 分）：重疊 54 分 → f=0.3 → 0.5；
-      // 重疊 36 分 → f=0.2 → 0
-      const mk = (start: number, end: number, personCode: string) =>
-        businessFieldsWith(
-          makeStudent({
-            personCode,
-            grade: 4,
-            enrollments: [{ rawToken: '國小數學-甲', baseName: '國小數學-甲' }],
-          }),
-          {
-            ...snapshot(),
-            scheduleOverride: new Map([['國小數學-甲', [{ weekday: '一', start, end }]]]),
-          }
-        );
-      // 重疊 54 分（990–1044）
-      const half = mk(990, 1044, 'INV-HALF');
-      // 重疊 36 分（990–1026）
-      const zero = mk(990, 1026, 'INV-ZERO');
+      // 每日 180 分、課輔窗口 990–1170（180 分）
       // D24 是 invariant（不在差異表）：v2 與 v3 對同一時段必須得到相同的取整結果，
       // 且不同重疊分鐘必須得到不同的扣天（證明取整真的生效，而非兩版都回 0）。
       const mkRaw = (start: number, end: number, personCode: string) => {
@@ -317,7 +300,17 @@ describe('D2c parity gate：v3 相對 v2 的差異只允許出現在 S manifest 
         .toEqual(z2.v3.tierComparisons.map((c) => c.computedTier));
       // 取整真的生效：兩種重疊的級距集合不同（否則 D24 退化成常數）
       expect(JSON.stringify(h2.v2.tierComparisons)).not.toBe(JSON.stringify(z2.v2.tierComparisons));
-      void half; void zero;
+      // D2d F：原本只驗「兩級距不同」，未驗各級距真的等於手算值。
+      // D24 手算：重疊 54 分 → f=0.3 → 0.5 天 → 課輔 max(3, 5−0.5) = 4.5；
+      //           重疊 36 分 → f=0.2 → 0 天   → 課輔 max(3, 5−0)   = 5。
+      // 這兩條現在實際斷言，不再以 void 丟棄。
+      expect(h2.v2.careDays.tutoring.days).toBe(4.5);
+      expect(z2.v2.careDays.tutoring.days).toBe(5);
+      expect(h2.v3.careDays.tutoring.days).toBe(4.5);
+      expect(z2.v3.careDays.tutoring.days).toBe(5);
+      // 逐列 computedTier 亦須等於對應天數（不靠 JSON 字串比較）
+      expect(h2.v2.tierComparisons.every((c) => c.computedTier === 4.5)).toBe(true);
+      expect(z2.v2.tierComparisons.every((c) => c.computedTier === 5)).toBe(true);
     });
 
     it('D30 同星期：同一班名同一星期的兩列時段，v2 與 v3 的天數各自一致（不因 v3 而改）', () => {
@@ -365,21 +358,43 @@ describe('D2c parity gate：v3 相對 v2 的差異只允許出現在 S manifest 
   });
 
   describe('表外差異偵測（gate 的核心斷言）', () => {
-    it('合成案例：v3 新增的 issue code 必須全部在 S §6.1 差異表白名單內（D-05／D-07）', () => {
-      // 未對應的米豆奶班名 → v3 新增 CLASS_NOT_MAPPED（D-05）
+    /**
+     * D2d F（PR #45 reviewer N-1 的修正）：
+     * 本段原本以「不列入類班（交通車）」驗白名單，但 v3 依 D-04-b 對 none 類班
+     * 不新增 issue → `added` 恆空 → `expect(added.filter(...)).toEqual([])` 恆過，
+     * 這條 gate **永遠不可能失敗**（無鑑別力）。
+     *
+     * 現改為引用 `d2d-parity-gate.test.ts` 提供的正式閘門，並以「確實會新增
+     * CLASS_NOT_MAPPED 的 care/math/english 未對應班」作為載體（D-05 允許），
+     * 另以「注入白名單外 code」證明閘門會失敗。
+     */
+    it('未對應的 care/math/english 班 → v3 新增 CLASS_NOT_MAPPED（D-05 允許，非表外）', () => {
       const student = makeStudent({
         personCode: 'GATE-UNMAPPED',
         grade: 4,
-        enrollments: [{ rawToken: '交通車', baseName: '交通車' }],
+        enrollments: [{ rawToken: '國小數學-不存在班', baseName: '國小數學-不存在班' }],
       });
       const opts = {
         ...snapshot(),
-        scheduleOverride: new Map([['交通車', [{ weekday: '一', start: 990, end: 1080 }]]]),
+        scheduleOverride: new Map([['國小數學-不存在班', [{ weekday: '一', start: 990, end: 1080 }]]]),
       };
       const f = businessFieldsWith(student, opts);
       const added = f.v3.issueCodes.filter((c) => !f.v2.issueCodes.includes(c));
-      // 白名單以內
+      // 先證明載體有效：added 確實非空（否則這條 gate 又會變成恆過）
+      expect(added).toContain('CLASS_NOT_MAPPED');
+      // D-05 允許 → 非表外
       expect(added.filter((c) => !DIFF_TABLE_ALLOWED_NEW_ISSUE_CODES.includes(c))).toEqual([]);
+    });
+
+    it('閘門的鑑別力：白名單外的新增 code 必須被判定為表外', () => {
+      const base: Record<string, unknown> = { issueCodes: [] as string[] };
+      const injected: Record<string, unknown> = {
+        issueCodes: ['CLASS_NOT_MAPPED', 'OFF_TABLE_CODE'],
+      };
+      const offTable = (injected.issueCodes as string[]).filter(
+        (c) => !(base.issueCodes as string[]).includes(c) && !DIFF_TABLE_ALLOWED_NEW_ISSUE_CODES.includes(c)
+      );
+      expect(offTable).toEqual(['OFF_TABLE_CODE']);
     });
 
     it('只報「不列入折扣」類班（交通車／正音／加強班）→ v2 與 v3 逐欄相同（D-06 允許無差異）', () => {
