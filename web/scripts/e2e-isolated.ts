@@ -75,8 +75,7 @@ function runGroup(files: string[], port: number, repeat: number, seedV2Active: b
   try {
     assertIsolatedE2eTarget({ databasePath, port });
     if (seedV2Active) {
-      const fixture = path.resolve('tests/fixtures/conforming-erp-fixture.xlsx');
-      const seeded = spawnSync('npx', ['tsx', 'scripts/e2e-seed-v2-active.ts', seedPath, fixture], {
+      const seeded = spawnSync('npx', ['tsx', 'scripts/e2e-seed-v2-active.ts', seedPath], {
         stdio: 'inherit',
       });
       if (seeded.status !== 0) throw new Error('建立 v2 前置狀態失敗（e2e-seed-v2-active.ts）');

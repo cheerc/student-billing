@@ -1,7 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { calculateStudentBilling } from '@/domain/billing/billing-calculator';
 import type { StudentSnapshot } from '@/domain/students/types';
-import type { CalculationRunRecord, StudentCalculationRecord } from '@/adapters/sqlite/runs-repository';
 import Database from 'better-sqlite3';
 import { runMigrations } from '@/adapters/sqlite/migrator';
 import { saveImportBatch } from '@/adapters/sqlite/import-repository';
@@ -134,12 +133,9 @@ describe('D2d B: 八項總表重複同類取選中班（Q10-A）', () => {
         ] as never
       );
 
-      const res: { run: CalculationRunRecord; results: StudentCalculationRecord[] } = executeCalculationRun(
-        db,
-        'imp_en',
-        'run_d2d_b',
-        { ruleSetVersion: 'erp-tag-v3' }
-      );
+      const res = executeCalculationRun(db, 'imp_en', 'run_d2d_b', {
+        ruleSetVersion: 'erp-tag-v3',
+      });
       saveCalculationRun(db, res.run, res.results, res.classCategories);
 
       const rec = res.results.find((r) => r.personCode === 'S-EN-DUP')!;
