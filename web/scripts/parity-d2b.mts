@@ -20,7 +20,7 @@ async function loadStudents(): Promise<StudentSnapshot[]> {
   return preview.students;
 }
 
-function summarize(s: StudentSnapshot) {
+export function summarize(s: StudentSnapshot) {
   const common = { aliasMap, scheduleOverride, classSettings };
   const r = calculateStudentBilling(s, { ...common, ruleSetVersion: 'erp-tag-v2' });
   const v3 = calculateStudentBilling(s, { ...common, ruleSetVersion: 'erp-tag-v3' as any });
@@ -31,10 +31,10 @@ function summarize(s: StudentSnapshot) {
       tutoringDays: r.careDays.tutoring.days,
       subjectCount: r.subjectCount,
       baseDiscountBps: r.baseDiscountBps,
-      applicableAnqinBps: r.applicableAnqinBps,
-      applicableTutoringBps: r.applicableTutoringBps,
-      applicableMathBps: r.applicableMathBps,
-      applicableEnglishBps: r.applicableEnglishBps,
+      applicableAnqinBps: r.applicableRates.anqin,
+      applicableTutoringBps: r.applicableRates.tutoring,
+      applicableMathBps: r.applicableRates.math,
+      applicableEnglishBps: r.applicableRates.english,
       tierMismatch: r.tierComparisons.some((c) => c.status === 'mismatch'),
       tierStatuses: r.tierComparisons.map((c) => c.status).sort().join(','),
       issueCodes: [...new Set((r.issues as Array<{ code: string }>).map((i) => i.code))].sort().join(','),
@@ -44,10 +44,10 @@ function summarize(s: StudentSnapshot) {
       tutoringDays: v3.careDays.tutoring.days,
       subjectCount: v3.subjectCount,
       baseDiscountBps: v3.baseDiscountBps,
-      applicableAnqinBps: v3.applicableAnqinBps,
-      applicableTutoringBps: v3.applicableTutoringBps,
-      applicableMathBps: v3.applicableMathBps,
-      applicableEnglishBps: v3.applicableEnglishBps,
+      applicableAnqinBps: v3.applicableRates.anqin,
+      applicableTutoringBps: v3.applicableRates.tutoring,
+      applicableMathBps: v3.applicableRates.math,
+      applicableEnglishBps: v3.applicableRates.english,
       tierMismatch: v3.tierComparisons.some((c) => c.status === 'mismatch'),
       tierStatuses: v3.tierComparisons.map((c) => c.status).sort().join(','),
       issueCodes: [...new Set((v3.issues as Array<{ code: string }>).map((i) => i.code))].sort().join(','),

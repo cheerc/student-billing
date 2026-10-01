@@ -271,7 +271,7 @@ run 的設定快照＝`run.scheduleVersionId`：`seed-v250922`（該 run 沒有�
 
 1. v1／v2 的計算與讀取永遠不讀新欄位；
 2. 欄位缺失＝自動偵測，只在新規則版本讀取當下解析，不回寫舊快照；
-3. 新快照一律寫出完整欄位；
+3. 新設定快照只寫手動覆寫的值與來源，自動項省略欄位（見 §5.4.1）；新 run 的類別快照則寫出當次實際採用的有效值與來源（見 §5.3.4）。兩者不可混稱為「新快照一律完整」；
 4. 新規則版本的 run 建立時，把「實際採用的類別」寫入 `run_class_categories`，之後不再重新偵測（舊 run 不重新分類）。
 
 #### 5.2.4 migration 0007（純增量）與班名比對報告
@@ -319,7 +319,7 @@ run 的設定快照＝`run.scheduleVersionId`：`seed-v250922`（該 run 沒有�
 - **美語缺課表警告（F-8）**：v3 下美語班找不到排課時發出 `SCHEDULE_NOT_FOUND` 需確認警告（對齊數學班）。
 
 #### 5.3.4 run 類別快照與讀模型
-- `executeCalculationRun` 於執行 v3 run 時，將該 run 採用的班級類別快照持久化至 `run_class_categories`（欄位：`run_id`, `base_name`, `category`, `fixed_five_days`, `mapped`, `source`）。v1／v2 run 保持空表。
+- `executeCalculationRun` 於執行 v3 run 時**產出** `classCategories`，不持久化。`saveCalculationRun` 在新 run 列建立後，於呼叫端的同一交易內**唯一寫入**該 run 採用的有效類別快照至 `run_class_categories`（欄位：`run_id`, `base_name`, `category`, `fixed_five_days`, `mapped`, `source`）；不提供已存在 run 的就地補寫路徑。v1／v2 run 不寫類別快照。
 - 讀模型 `applicableRateForClass` 於查詢 v3 run 時讀取該 run 之快照：
   - 固定 5 天之班級（即使類別為 none，如寫功課）之本班適用折扣顯示 100%（10000 bps）而非「未設定」（Q7-A）。
   - 若 v3 run 缺失快照，回傳 `not_configured`（無法判定），嚴禁以當前班名猜測。

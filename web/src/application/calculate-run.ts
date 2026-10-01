@@ -341,27 +341,12 @@ export function executeCalculationRun(
 
     classCategories = Array.from(classCategoryMap.values());
 
-    // 若 calculation_runs 在呼叫前已存在（例如測試中先建好 run），補寫快照；
-    // 生產呼叫鏈（activate-import / apply-settings）會在 saveCalculationRun 執行時統一寫入，避免級聯刪除。
-    const runRow = db.prepare('SELECT 1 FROM calculation_runs WHERE id = ?').get(runId);
-    if (runRow) {
-      const insertCategory = db.prepare(`
-        INSERT OR REPLACE INTO run_class_categories (
-          run_id, base_name, category, fixed_five_days, mapped, source
-        ) VALUES (?, ?, ?, ?, ?, ?)
-      `);
-
-      for (const item of classCategories) {
-        insertCategory.run(
-          runId,
-          item.baseName,
-          item.category,
-          item.fixedFiveDays,
-          item.mapped,
-          item.source
-        );
-      }
-    }
+    // D2c N-1：快照寫入點唯一。
+    // 原本此處另有「若 calculation_runs 在呼叫前已存在（例如測試中先建好 run）就補寫快照」
+    // 的分支，該分支只為測試而存在、且讓寫入點不唯一（與 saveCalculationRun 的正式寫入並行）。
+    // 已移除：快照一律由 saveCalculationRun 在 calculation_runs 確定存在之後寫入，
+    // 既避免 run_class_categories 的 ON DELETE CASCADE 級聯刪除，也讓寫入點只有一處。
+    // 呼叫端契約不變：executeCalculationRun 仍在回傳物件中帶 classCategories。
   }
 
   return { run, results, classCategories };

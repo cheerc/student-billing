@@ -96,14 +96,20 @@ function applyManualAttrsToClasses<T extends { baseName: string }>(
   manualAttrs: Map<string, ClassAttributesView>
 ): Array<T & Record<string, unknown>> {
   return classes.map((c) => {
+    const clean = { ...c };
+    delete clean.category;
+    delete clean.categorySource;
+    delete clean.fixedFiveDays;
+    delete clean.fixedSource;
     const m = manualAttrs.get(c.baseName);
-    if (!m) return c;
     return {
-      ...c,
-      category: m.category,
-      categorySource: m.categorySource,
-      fixedFiveDays: m.fixedFiveDays,
-      fixedSource: m.fixedSource,
+      ...clean,
+      ...(m?.categorySource === 'manual'
+        ? { category: m.category, categorySource: m.categorySource }
+        : {}),
+      ...(m?.fixedSource === 'manual'
+        ? { fixedFiveDays: m.fixedFiveDays, fixedSource: m.fixedSource }
+        : {}),
     };
   });
 }
@@ -171,6 +177,9 @@ export default function SettingsEditor({
     }
     return map;
   });
+
+  // 明確恢復自動的班不再繼承 rename baseline；後續手動編輯仍以當前班的設定為準。
+  const [restoredAutoNames, setRestoredAutoNames] = useState<Set<string>>(() => new Set());
 
   // D31: 基準狀態與未儲存 (dirty) 追蹤
   const [baseline, setBaseline] = useState<SettingsBaseline>(() => ({
@@ -279,10 +288,12 @@ export default function SettingsEditor({
   const manualAttrsAfterRename = useMemo(() => {
     const renames = classLifecycle.renames;
     if (renames.length === 0) return manualAttrs;
-    return carryAttributesOnRename(renames, manualAttrs, baselineManualAttrs);
-  }, [classLifecycle, manualAttrs, baselineManualAttrs]);
+    const inheritableBaseline = new Map(baselineManualAttrs);
+    for (const name of restoredAutoNames) inheritableBaseline.delete(name);
+    return carryAttributesOnRename(renames, manualAttrs, inheritableBaseline);
+  }, [classLifecycle, manualAttrs, baselineManualAttrs, restoredAutoNames]);
 
-  // 顯示與寫入都用「改名後」的手動值
+  // 顯示與寫入都用「改名後」的手動值。
   const effectiveManualAttrs = manualAttrsAfterRename;
 
   /**
@@ -330,7 +341,7 @@ export default function SettingsEditor({
   const handleSelectCategory = (className: string, category: ClassCategory) => {
     setManualAttrs((prev) => {
       const next = new Map(prev);
-      const base = next.get(className) ?? resolveClassAttributes(className);
+      const base = currentAttrs.get(className) ?? resolveClassAttributes(className);
       next.set(className, { ...base, category, categorySource: 'manual' });
       return next;
     });
@@ -340,7 +351,7 @@ export default function SettingsEditor({
   const handleToggleFixedFiveDays = (className: string, fixed: boolean) => {
     setManualAttrs((prev) => {
       const next = new Map(prev);
-      const base = next.get(className) ?? resolveClassAttributes(className);
+      const base = currentAttrs.get(className) ?? resolveClassAttributes(className);
       next.set(className, { ...base, fixedFiveDays: fixed, fixedSource: 'manual' });
       return next;
     });
@@ -348,9 +359,13 @@ export default function SettingsEditor({
   };
 
   const handleRestoreAuto = (className: string) => {
+    const names = [className, ...classLifecycle.renames
+      .filter((rename) => rename.to === className)
+      .map((rename) => rename.from)];
+    setRestoredAutoNames((prev) => new Set([...prev, ...names]));
     setManualAttrs((prev) => {
       const next = new Map(prev);
-      next.delete(className);
+      for (const name of names) next.delete(name);
       return next;
     });
     setPreview(null);
@@ -493,6 +508,7 @@ export default function SettingsEditor({
     setRows(baseline.rows);
     setDraft((prev) => ({ ...prev, aliases: baseline.aliases }));
     setManualAttrs(new Map(baselineManualAttrs));
+    setRestoredAutoNames(new Set());
     setPreview(null);
   };
 
@@ -583,8 +599,14 @@ export default function SettingsEditor({
         aliases: [...draft.aliases],
       });
       // 儲存成功後，已套用的手動值成為新的 baseline（此後離開與取消修改都回到這組值）
-      setManualAttrs(new Map(manualAttrs));
-      setBaselineManualAttrs(new Map(manualAttrs));
+      const savedManualAttrs = new Map(
+        [...effectiveManualAttrs].filter(([, a]) =>
+          a.categorySource === 'manual' || a.fixedSource === 'manual'
+        )
+      );
+      setManualAttrs(savedManualAttrs);
+      setBaselineManualAttrs(savedManualAttrs);
+      setRestoredAutoNames(new Set());
       if (typeof json?.revision === 'number') setRevision(json.revision);
       if (typeof json?.appliedAt === 'string') setSavedAt(json.appliedAt);
       setIsImpactDialogOpen(false);

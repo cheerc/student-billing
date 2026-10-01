@@ -63,6 +63,60 @@ async function setFirstStartTimeOfClass(page: Page, className: string, value: st
   expect(changed, `課表上找不到班「${className}」的起始時間欄位`).toBe(true);
 }
 
+/**
+ * 把手動覆寫恢復為自動並儲存，使同檔後續案例與 `--repeat` 的下一輪都從乾淨狀態開始。
+ * D2c N-1：隔離執行器只保證「每 spec 檔全新 DB」，同檔內案例共用同一 DB 且跨輪沿用。
+ */
+async function restoreCategoryToAutoAndSave(page: Page, className: string) {
+  const row = page.locator(`[data-class-attribute-row="${className}"]`);
+  await expect(row).toBeVisible();
+  await row.locator(`[data-restore-auto="${className}"]`).click();
+  await expect(row.locator(`[data-category-source="${className}"]`)).toHaveText('自動');
+  await page.locator('button', { hasText: '確認變更' }).click();
+  const dialog = page.locator('dialog.impact-dialog');
+  await expect(dialog).toBeVisible({ timeout: 15000 });
+  await dialog.locator('button', { hasText: /儲存並更新結果|儲存課表/ }).click();
+  await expect(page.locator('#toast')).toContainText('課表已', { timeout: 15000 });
+}
+
+/**
+ * D2c N-1（D2b r2 secondary finding）：E2E 案例間狀態隔離性。
+ *
+ * 隔離執行器（`npm run test:e2e:isolated`）保證的是「每個 spec 檔各用全新 DB」，
+ * **同一檔內的案例共用同一個 DB**，資料由前一個案例累積。D2b r2 曾因此踩到：
+ * 跨類別別名案例儲存的 alias 留在草稿裡，使「非跨類別不產生提示」的案例誤判
+ * （當時靠調換執行順序解開，但那只是把相依性藏起來，不是真的隔離）。
+ *
+ * 本 helper 讓會寫入設定的案例**自我清理**：把該案例建立的 alias 取消勾選後再儲存，
+ * 使下一個案例從乾淨狀態開始。斷言寫在 helper 內，任何案例忘記清理都會失敗。
+ */
+async function removeAlias(page: Page, rawBaseName: string) {
+  await page.locator('button', { hasText: '班名對應' }).click();
+  await expect(page.locator('.mapping-table')).toBeVisible({ timeout: 10000 });
+  const row = page.locator('tr', { hasText: rawBaseName });
+  await expect(row).toBeVisible();
+  const checkbox = row.locator('input[type="checkbox"]');
+  await expect(checkbox).toBeChecked();
+  await checkbox.uncheck();
+  await expect(page.locator('.save-status-dirty')).toBeVisible();
+  await page.locator('button', { hasText: '確認變更' }).click();
+  const dialog = page.locator('dialog.impact-dialog');
+  await expect(dialog).toBeVisible({ timeout: 15000 });
+  await dialog.locator('button', { hasText: /儲存並更新結果|儲存課表/ }).click();
+  await expect(page.locator('#toast')).toContainText('課表已', { timeout: 15000 });
+  // 清理完成：回到「待確認」
+  await page.locator('button', { hasText: '班名對應' }).click();
+  await expect(page.locator('.mapping-table')).toBeVisible({ timeout: 10000 });
+  await expect(row.locator('.pill', { hasText: '已對應' })).toHaveCount(0);
+}
+
+/**
+ * D2b：課表設定 UI（不要求空 DB 的案例）。
+ *
+ * D2c N-1：要求空 DB 的三個案例（settings_only 影響預覽、Q11 升級動作、Q9 合併阻擋）
+ * 已移至 `d2b-class-category-empty-db.spec.ts`——隔離執行器只保證「每 spec 檔全新 DB」，
+ * 與已啟用名單的案例同檔會使 settings_only 永遠觀察不到空 DB 狀態。
+ */
 test.describe('D2b：班級類別與固定 5 天設定 UI、升級確認', () => {
   test.beforeEach(async ({ page }) => {
     await page.goto('/settings');
@@ -147,49 +201,20 @@ test.describe('D2b：班級類別與固定 5 天設定 UI、升級確認', () =>
     await expect(page.locator('[data-category-source="國小數學-四A"]')).toHaveText('自動');
   });
 
-  test('D2b-6: 類別變更進影響預覽（科數／折扣差異）並可儲存', async ({ page }) => {
-    const row = page.locator('[data-class-attribute-row="國小數學-四A"]');
-    await row.locator('[data-category-select="國小數學-四A"]').selectOption('none');
-    await page.locator('button', { hasText: '確認變更' }).click();
-
-    const dialog = page.locator('dialog.impact-dialog');
-    await expect(dialog).toBeVisible({ timeout: 15000 });
-    // settings_only（尚未匯入學生）：顯示「尚未匯入學生」而非 0 人
-    await expect(dialog).toContainText('尚未匯入學生');
-
-    await dialog.locator('button', { hasText: '儲存課表' }).click();
-    await expect(page.locator('#toast')).toContainText('課表已成功儲存', { timeout: 15000 });
-  });
-
-  test('D2b-4（Q11）: 空 DB 不顯示升級動作（該 run 建立時即為目標版本）', async ({ page }) => {
-    // 尚未啟用任何 run → 無升級動作
-    await expect(page.locator('[data-upgrade-banner]')).toHaveCount(0);
-  });
-
-  test('D2b-5（Q9）: 同名合併且設定不同時阻擋儲存並說明', async ({ page }) => {
-    // 把「國小數學-四A」手動設為不列入折扣，再把兩班所有列都改名成同一個新名 → 合併衝突
-    await page.locator('[data-category-select="國小數學-四A"]').selectOption('none');
-    await expect(page.locator('[data-category-source="國小數學-四A"]')).toHaveText('手動');
-
-    // 兩班的所有時段列都改名成同一個新名 → 同名合併
-    await renameWholeClass(page, '國小數學-四A', '國小數學-四');
-    await renameWholeClass(page, '國小數學-四B', '國小數學-四');
-
-    const alert = page.locator('[data-merge-conflict]');
-    await expect(alert).toBeVisible();
-    await expect(alert).toContainText('無法儲存');
-    await expect(alert).toContainText('國小數學-四');
-
-    // 「確認變更」被阻擋
-    await expect(page.locator('button', { hasText: '確認變更' })).toBeDisabled();
-  });
-
   test.describe('D2b r2：影響預覽的受影響人數（去重）與 Q13 跨類別別名提示', () => {
     // 這三個案例需要已啟用的名單（候選班名與受影響人數都來自名冊），故不共用外層 beforeEach 的空 DB。
     test.beforeEach(async ({ page }) => {
       await activateFixture(page);
       await page.goto('/settings');
       await expect(page.locator('h1', { hasText: '課表設定' })).toBeVisible({ timeout: 15000 });
+
+      // D2c N-1：同檔案例共用 DB，因此每個案例開始前都必須確認「班名對應」是乾淨的。
+      // 若前一案例留下了 alias，這裡就會失敗——這是刻意的：相依性必須被看見，不可被藏起來。
+      await page.locator('button', { hasText: '班名對應' }).click();
+      await expect(page.locator('.mapping-table')).toBeVisible({ timeout: 10000 });
+      await expect(page.locator('.pill', { hasText: '已對應' })).toHaveCount(0);
+      await page.locator('button', { hasText: '課表' }).click();
+      await expect(page.locator('[data-class-attributes-panel]')).toBeVisible();
     });
 
     test('R2-1: 只有科數／折扣變化、天數不變時，受影響學生數仍正確（不得為 0）', async ({ page }) => {
@@ -218,6 +243,7 @@ test.describe('D2b：班級類別與固定 5 天設定 UI、升級確認', () =>
       await page.locator('[data-category-select="國小數學-三A"]').selectOption('none');
       await setFirstStartTimeOfClass(page, '國小數學-三A', '09:45');
       await expect(page.locator('.save-status-dirty')).toBeVisible();
+
 
       await page.locator('button', { hasText: '確認變更' }).click();
       const dialog = page.locator('dialog.impact-dialog');
@@ -256,6 +282,8 @@ test.describe('D2b：班級類別與固定 5 天設定 UI、升級確認', () =>
       await row.locator('input.input-target-classname').fill('兒童美語-Gino');
       await row.locator('input[type="checkbox"]').check();
       await expect(row.locator('.pill', { hasText: '已對應' })).toBeVisible();
+      // 勾選別名本身就是一項草稿變更 → 必須變 dirty，否則「確認變更」會是停用的
+      await expect(page.locator('.save-status-dirty')).toBeVisible();
 
       await page.locator('button', { hasText: '確認變更' }).click();
       const dialog = page.locator('dialog.impact-dialog');
@@ -276,6 +304,10 @@ test.describe('D2b：班級類別與固定 5 天設定 UI、升級確認', () =>
       await expect(save).toBeEnabled();
       await save.click();
       await expect(page.locator('#toast')).toContainText('課表已套用並完成重算', { timeout: 15000 });
+
+      // D2c N-1：本案例是本檔最後一個會寫入設定的案例 → 清理它建立的 alias，
+      // 使同檔後續（若新增）案例從乾淨狀態開始。
+      await removeAlias(page, '交通車');
     });
 
   });
