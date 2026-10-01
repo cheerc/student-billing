@@ -74,13 +74,19 @@ describe('T3：純合成驗收 xlsx CLI → 真產品解析與計算', () => {
     expect(source).not.toMatch(/(?:from\s*|import\s*\(|require\s*\()\s*['"][^'"]*generate-conforming-fixture/);
   });
 
-  it('A 有數學0天學生；B 有非空解析失敗原文與可有效對應班名', async () => {
+  it('manifest 如實標示 F03 可達性；B 的解析失敗、有效對應與 ABC 前份名冊可驗', async () => {
     const dir = temp();
     const out = generate(dir);
     const db = createDatabase(path.join(dir, 'app.sqlite'));
     runMigrations(db);
     try {
       const manifest = JSON.parse(fs.readFileSync(path.join(out, 'manifest.json'), 'utf8'));
+      // Lead 裁定：xlsx 不承諾0天；0／false／null／課程率各子項如實分開。
+      expect(manifest.f03.zeroDays.status).toBe('unreachable');
+      expect(manifest.f03.zeroSubjects).toEqual({ batch: 'B', personCode: 'R3_003', expected: 0 });
+      expect(manifest.f03.nullRates).toEqual({ batch: 'C', personCode: 'R3_004', expected: null });
+      expect(manifest.f03.specialRate).toEqual({ batch: 'C', personCode: 'R3_003', expectedBps: 8500 });
+      expect(manifest).not.toHaveProperty('zeroDayPersonCode');
       const importIds: string[] = [];
       let revision = 0;
       for (const [index, batch] of manifest.batches.entries()) {
@@ -97,11 +103,12 @@ describe('T3：純合成驗收 xlsx CLI → 真產品解析與計算', () => {
         expect(activated.totalStudents).toBe(index + 2);
         const report = getClassNameMatchReport(db, { importId: preview.previewId, scope: { kind: 'latest' } });
         expect(report.previousRoster?.importId ?? null).toBe(index === 0 ? null : importIds[index - 1]);
-        if (index === 0) {
-          const calculation = db.prepare('SELECT math_days FROM student_calculations WHERE run_id = ? AND person_code = ?').get(activated.runId, manifest.zeroDayPersonCode);
-          expect(calculation).toEqual({ math_days: 0 });
+        if (index === 2) {
+          expect(db.prepare('SELECT base_discount_bps FROM student_calculations WHERE run_id = ? AND person_code = ?').get(activated.runId, 'R3_003')).toEqual({ base_discount_bps: 8500 });
+          expect(db.prepare('SELECT base_discount_bps, applicable_math_bps FROM student_calculations WHERE run_id = ? AND person_code = ?').get(activated.runId, 'R3_004')).toEqual({ base_discount_bps: null, applicable_math_bps: null });
         }
         if (index === 1) {
+          expect(db.prepare('SELECT subject_count, tier_mismatch FROM student_calculations WHERE run_id = ? AND person_code = ?').get(activated.runId, 'R3_003')).toEqual({ subject_count: 0, tier_mismatch: 0 });
           expect(db.prepare("SELECT COUNT(*) AS n FROM student_enrollments WHERE import_id = ? AND raw_token = '[團]' AND base_name = ''").get(preview.previewId)).toEqual({ n: 1 });
           const alias = manifest.alias;
           expect(db.prepare('SELECT COUNT(*) AS n FROM student_enrollments WHERE import_id = ? AND base_name = ?').get(preview.previewId, alias.rawBaseName)).toEqual({ n: 1 });
