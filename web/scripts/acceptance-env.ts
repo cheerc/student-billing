@@ -7,7 +7,12 @@ import { spawn, execFileSync, type ChildProcess } from 'child_process';
 import { randomUUID } from 'crypto';
 import { assertIsolatedE2eTarget } from './e2e-isolation';
 
-const SOURCE = fs.realpathSync(path.resolve(__dirname, '../..'));
+/**
+ * 來源 checkout。正常驗收用本檔所在的 repo；`ACCEPTANCE_SOURCE_DIR` 只供測試指向自建的
+ * 暫存 repo，讓「T1 不寫入 source .next」能在不受並行 build 影響下驗證（見
+ * tests/integration/acceptance-env.test.ts 的哨兵斷言）。安全檢查不因此放寬。
+ */
+const SOURCE = fs.realpathSync(path.resolve(process.env.ACCEPTANCE_SOURCE_DIR ?? path.join(__dirname, '../..')));
 const MARKER = 'acceptance-session.json';
 type Action = 'restart' | 'reset' | 'stop';
 interface Session {

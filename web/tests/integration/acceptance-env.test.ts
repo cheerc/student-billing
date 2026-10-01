@@ -1,9 +1,8 @@
 import { describe, it, expect, afterEach } from 'vitest';
-import { spawn, spawnSync, type ChildProcess } from 'child_process';
+import { spawn, spawnSync, execFileSync, type ChildProcess } from 'child_process';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
-import { randomUUID } from 'crypto';
 import { once } from 'events';
 import { buildSeedDraft } from '@/adapters/sqlite/settings-repository';
 
@@ -26,14 +25,14 @@ afterEach(async () => {
   for (const state of states.splice(0)) fs.rmSync(state, { recursive: true, force: true });
 });
 
-function cli(args: string[]) {
-  return spawnSync(process.execPath, ['--import', loader, script, ...args], { cwd: web, encoding: 'utf8', timeout: 20000 });
+function cli(args: string[], repo = web) {
+  return spawnSync(process.execPath, ['--import', loader, script, ...args], { cwd: repo, encoding: 'utf8', timeout: 20000, env: { ...process.env, ACCEPTANCE_SOURCE_DIR: repo } });
 }
 
-async function start() {
-  const child = spawn(process.execPath, ['--import', loader, script, '--port', '3840'], { cwd: web, stdio: ['ignore', 'pipe', 'pipe'] });
+async function start(repo = web) {
+  const child = spawn(process.execPath, ['--import', loader, script, '--port', '3840'], { cwd: repo, stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, ACCEPTANCE_SOURCE_DIR: repo } });
   children.push(child);
-  return new Promise<{ child: ChildProcess; state: string; database: string; workspace: string; url: string }>((resolve, reject) => {
+  return new Promise<{ child: ChildProcess; state: string; database: string; workspace: string; url: string; source: string }>((resolve, reject) => {
     let output = '';
     const deadline = setTimeout(() => reject(new Error('T1 未在120s內回報 ready；停止自有 child，不放寬門檻')), 120000);
     child.stderr!.on('data', (data) => { output += data.toString(); });
@@ -58,21 +57,44 @@ async function start() {
 
 describe('T1：獨立 production build 的隔離驗收環境', () => {
   it('新空 DB→儲存→restart 保留→reset 清空→stop；build 只取追蹤檔、不改 checkout .next', async () => {
-    const bait = path.join(web, `acceptance-untracked-${randomUUID()}.txt`);
-    fs.writeFileSync(bait, '合成 untracked 誘餌，不得複製到 build workspace', { flag: 'wx' });
-    files.push(bait);
-    const buildId = path.join(web, '.next/BUILD_ID');
-    const before = fs.existsSync(buildId) ? fs.readFileSync(buildId, 'utf8').trim() : null;
-    const session = await start();
+    // 被測 checkout 由測試自建（git clone --local 到 tmpdir），不共用受測 worktree：
+    // 另一個行程（例如並行 npm run build）若改到受測 worktree 的 source .next，這個斷言
+    // 就不受影響。哨兵 .next/BUILD_ID 預先放好，用來證明 T1 完全不寫入它——
+    // 內容、mtime 皆須不變，且 T1 workspace 的 BUILD_ID 必須與哨兵不同。
+    const repo = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'sb-acceptance-repo-')));
+    states.push(repo);
+    fs.writeFileSync(path.join(repo, 'bait.txt'), '合成 untracked 誘餌，不得複製到 build workspace', { flag: 'wx' });
+    files.push(path.join(repo, 'bait.txt'));
+    const git = (...args: string[]) => execFileSync('git', args, { cwd: repo, encoding: 'utf8' });
+    git('init', '--quiet');
+    git('config', 'user.email', 'acceptance@test.invalid');
+    git('config', 'user.name', 'acceptance test');
+    // 只取追蹤檔（HEAD 的 web/）；不複製來源目錄，untracked 的 bait 不會進來。
+    // 走檔案而非 execFileSync 的 buffer：repo 的 tar 會超過 sync 的輸出上限（ENOBUFS）。
+    fs.writeFileSync(path.join(repo, 'source.tar'), execFileSync('git', ['archive', 'HEAD', 'web'], { cwd: web, maxBuffer: 1 << 28 }));
+    expect(spawnSync('tar', ['-xf', 'source.tar', '-C', repo], { cwd: repo }).status, '解開 git archive').toBe(0);
+    fs.rmSync(path.join(repo, 'source.tar'));
+    git('add', '-A');
+    git('commit', '--quiet', '-m', 'acceptance source');
+    const sentinelDir = path.join(repo, 'web/.next');
+    const sentinel = path.join(sentinelDir, 'BUILD_ID');
+    fs.mkdirSync(sentinelDir, { recursive: true });
+    fs.writeFileSync(sentinel, 'SENTINEL-SOURCE-BUILD-ID\n');
+    const sentinelStat = fs.statSync(sentinel);
+
+    const buildId = path.join(repo, 'web/.next/BUILD_ID');
+    const before = fs.readFileSync(buildId, 'utf8');
+    const session = await start(repo);
     expect(session.database.startsWith(fs.realpathSync(os.tmpdir()) + path.sep)).toBe(true);
-    expect(fs.existsSync(path.join(session.workspace, path.basename(bait))), 'build workspace 只取追蹤檔，untracked 誘餌不得出現').toBe(false);
-    // T1 的 build 在 tmpdir 的 workspace，不在 source checkout。因此 workspace 的 BUILD_ID
-    // 必須與 source 的不同——相同代表 T1 用了 source 的 .next；不同才證明它沒有動到 source。
-    // 註：若本機同時有另一個 `npm run build` 在跑，source 的 BUILD_ID 會被換掉，這裡比對的是
-    // 「兩者是否相同」，並行 build 只會讓 before 改變，不影響這個判斷。
+    expect(session.source).toBe(repo);
+    expect(fs.existsSync(path.join(session.workspace, 'bait.txt')), 'build workspace 只取追蹤檔，untracked 誘餌不得出現').toBe(false);
+    const after = fs.statSync(buildId);
+    expect(fs.readFileSync(buildId, 'utf8'), 'T1 不得改寫 source checkout 的 .next/BUILD_ID 內容').toBe(before);
+    expect(after.mtimeMs, 'T1 不得重建 source checkout 的 .next（mtime 會變）').toBe(sentinelStat.mtimeMs);
+    expect(fs.readdirSync(sentinelDir), 'T1 不得在 source 的 .next 增刪任何檔案').toEqual(['BUILD_ID']);
     const workspaceBuildId = path.join(session.workspace, '.next/BUILD_ID');
     expect(fs.existsSync(workspaceBuildId), 'T1 必須在自己的 workspace 產出 BUILD_ID').toBe(true);
-    expect(before, 'T1 的 build 必須發生在 workspace，不能覆寫 source checkout 的 .next/BUILD_ID').not.toBe(fs.readFileSync(workspaceBuildId, 'utf8').trim());
+    expect(fs.readFileSync(workspaceBuildId, 'utf8').trim(), 'T1 的 build 必須發生在 workspace').not.toBe(before.trim());
     const draft = buildSeedDraft();
     draft.classes[0].teacher = '合成T1持久化老師';
     const request = async (endpoint: string, body?: unknown) => {
@@ -86,16 +108,18 @@ describe('T1：獨立 production build 的隔離驗收環境', () => {
     const preview = await request('/api/v1/settings/preview', { draft, expectedRevision: 0 });
     const applied = await request('/api/v1/settings/apply', { previewId: preview.previewId, expectedRevision: 0, idempotencyKey: 't1-persist' });
     expect(applied.mode).toBe('settings_only');
-    expect(cli(['--restart', '--state', session.state]).status).toBe(0);
+    expect(cli(['--restart', '--state', session.state], repo).status, 'restart').toBe(0);
     const persisted = await request('/api/v1/settings/deductions');
     expect(persisted.classes.some((item: { teacher: string }) => item.teacher === '合成T1持久化老師')).toBe(true);
-    expect(cli(['--reset', '--state', session.state]).status).toBe(0);
+    expect(cli(['--reset', '--state', session.state], repo).status, 'reset').toBe(0);
     const reset = await request('/api/v1/settings/deductions');
     expect(reset.classes.some((item: { teacher: string }) => item.teacher === '合成T1持久化老師')).toBe(false);
+    // 刪除臨時 repo（含哨兵）也要在測試結束後清理，已由 afterEach 的 states 處理。
     const exited = once(session.child, 'exit');
-    expect(cli(['--stop', '--state', session.state]).status).toBe(0);
+    expect(cli(['--stop', '--state', session.state], repo).status, 'stop').toBe(0);
     await exited;
     expect(session.child.exitCode).toBe(0);
+    expect(fs.readFileSync(buildId, 'utf8'), '整輪結束後 source 哨兵仍不變').toBe(before);
   }, 150000);
 
   it('拒絕 operator 3000 與沒有 marker 的 state，不啟動或終止未知服務', () => {
