@@ -5,8 +5,16 @@ import { applyFilter, chip } from './helpers/header-filter';
 /** UX74：從無 query 的入口以 UI 建立條件，不以直接開帶參數網址取代 operator 路徑。 */
 const tab = (page: Page, name: string) => page.getByRole('tab', { name, exact: true });
 
-for (const mode of ['current', 'history'] as const) {
-  test(`UX74 ${mode}：UI 篩選 → 編輯 → Back 保留兩頁籤條件與網址`, async ({ page }) => {
+for (const { mode, blankTeacher } of [
+  { mode: 'current', blankTeacher: false },
+  { mode: 'history', blankTeacher: false },
+  { mode: 'current', blankTeacher: true },
+] as const) {
+  test(`UX74 ${mode}${blankTeacher ? ' 空白老師' : ''}：UI 篩選 → 編輯 → Back 保留兩頁籤條件與網址`, async ({ page }) => {
+    const requests: Array<{ url: string; rsc: boolean }> = [];
+    page.on('request', (request) => {
+      requests.push({ url: request.url(), rsc: request.headers().rsc === '1' });
+    });
     const hydrationErrors: string[] = [];
     page.on('console', (msg) => {
       if (msg.type() === 'error' && /hydration|hydrating|did not match/i.test(msg.text())) hydrationErrors.push(msg.text());
@@ -27,15 +35,19 @@ for (const mode of ['current', 'history'] as const) {
     const entry = mode === 'history' ? `/history/${runId}` : '/';
     await page.goto(entry);
     await expect(tab(page, '學生總表')).toHaveAttribute('aria-selected', 'true');
+    requests.length = 0;
     await applyFilter(page, '所屬班級', { pick: [B2.MATH] });
     await page.getByRole('textbox', { name: '搜尋姓名或人員代碼' }).fill('合成學生011');
     await expect(chip(page, '姓名或代碼', '合成學生011')).toBeVisible();
     await tab(page, '班級扣天').click();
-    const teachers = await applyTeacher(page);
+    const teachers = await applyTeacher(page, blankTeacher);
+    const teacherWire = blankTeacher ? '~blank' : teachers;
+    console.log('UX74 UI 條件期間請求', JSON.stringify(requests));
+    expect(requests.filter((request) => request.rsc), 'UI 條件同步不得新增 RSC round-trip').toEqual([]);
     const before = new URL(page.url());
     expect(before.searchParams.get('view')).toBe('deductions');
     expect(before.searchParams.getAll('enrollmentKey')).toEqual([B2.MATH]);
-    expect(before.searchParams.getAll('dTeacher')).toEqual([teachers]);
+    expect(before.searchParams.getAll('dTeacher')).toEqual([teacherWire]);
     expect(before.searchParams.has('q')).toBe(false);
 
     await page.locator('.deductions-table tbody > tr:not(.ded-expanded) button').first().click();
@@ -51,7 +63,7 @@ for (const mode of ['current', 'history'] as const) {
     const after = new URL(page.url());
     expect.soft(after.searchParams.get('view'), 'Back 後 view').toBe('deductions');
     expect.soft(after.searchParams.getAll('enrollmentKey'), 'Back 後學生班級').toEqual([B2.MATH]);
-    expect.soft(after.searchParams.getAll('dTeacher'), 'Back 後老師').toEqual([teachers]);
+    expect.soft(after.searchParams.getAll('dTeacher'), 'Back 後老師').toEqual([teacherWire]);
     expect.soft(hydrationErrors, '不得有 hydration error').toEqual([]);
     // RED 若已發生，保留上述完整 failure list，不在錯誤頁籤上繼續操作造成 setup timeout。
     if (after.searchParams.get('view') !== 'deductions') return;
@@ -77,16 +89,18 @@ for (const mode of ['current', 'history'] as const) {
     await expect(tab(page, '班級扣天')).toHaveAttribute('aria-selected', 'true');
     expect(new URL(page.url()).searchParams.has('q')).toBe(false);
     console.log('UX74 hydration errors', JSON.stringify(hydrationErrors));
+    const finalTrace = await page.evaluate(() => (window as unknown as { __batchENavigation: Array<{ event: string }> }).__batchENavigation);
+    console.log('UX74 final metrics', JSON.stringify({ replaceStateCount: finalTrace.filter((event) => event.event === 'replaceState').length, requests }));
     expect(hydrationErrors).toEqual([]);
   });
 }
 
-async function applyTeacher(page: Page): Promise<string> {
+async function applyTeacher(page: Page, blank: boolean): Promise<string> {
   await page.getByRole('button', { name: '老師篩選', exact: true }).click();
   const panel = page.getByRole('dialog', { name: '老師篩選面板' });
-  const teacherOption = panel.locator('[data-filter-option]').filter({ hasNotText: '(空白)' }).first();
+  const teacherOption = blank ? panel.locator('[data-filter-option="(空白)"]') : panel.locator('[data-filter-option]').filter({ hasNotText: '(空白)' }).first();
   const teacher = await teacherOption.getAttribute('data-filter-option');
-  expect(teacher, 'seed 課表必須有非空老師選項').toBeTruthy();
+  expect(teacher, 'seed 課表必須有指定的老師選項').toBeTruthy();
   await teacherOption.locator('input[type="checkbox"]').check();
   await panel.getByRole('button', { name: '確定', exact: true }).click();
   await expect(panel).toHaveCount(0);
