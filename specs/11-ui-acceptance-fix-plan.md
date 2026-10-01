@@ -145,6 +145,12 @@
   - fixture baseline parity 與新政策 case suite（獨立手算 expected）分開；不調整 v3 規則硬湊 v2，也不以 v2 行為否決 D37 已批准的替代行為。
 - 驗收：S manifest 定稿的 UX48 起（UX34–UX47 屬 D1），至少含：max 負值、平手、未知候選、拆班／合班、改名保留手動值、恢復自動、手動分類與名稱關鍵字不符、舊 run 不重新分類；v2 active 升級後完整預覽→儲存→新 run；settings_only→新匯入；重傳同檔；兩頁同源；只改類別不改時段也產生正確影響；CAS／冪等與失敗不切換 active。
 
+### D2c 交付與 D2d 待收斂項
+
+- D2c 的 fixture parity、19／11 人數口徑、手算／實測對照及全面稽核見 [D2c parity 與規格稽核](reviews/d2c-parity-audit.md)；D2 人工驗收底稿見 [D2 現況摘要](reviews/d2-current-acceptance-notes.md)。
+- 依 decision `d-20261001030238623979-12`，升級預覽 before 版本、選中班下游共用、併入既有班及稽核確認的產品／覆蓋缺口由 D2d `t-20261001030245156576-75458-17` 收斂。原 D2 驗收要求不降低；04 如實標記部分覆蓋與待補，不把 D2c suite 通過視為整個 D2 已完成。
+- D2 parent 在 D2d 合併前不結案。第三次人工驗收正式清單由 Lead 在 D2d 與後續批次合併後產出；D2c 不代 operator 執行。
+
 ## 4. 04 §8 新增／修訂驗收列（PR-0 定稿）
 
 本節為 PR-0 定稿的 UX07、UX13、UX25–UX33；D1 的 UX34–UX47 見 [04 §8](04-tdd-acceptance.md)。
