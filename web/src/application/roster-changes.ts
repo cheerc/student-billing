@@ -275,13 +275,10 @@ export function computeRosterChanges(
       continue;
     }
 
-    // D2d B：保留兩側的完整計算結果，`buildClassBreakdown` 要用其中的 `selection`
-    // 判定哪些課實際參與扣天（見 `countedRawTokens`）。只算一次、兩處共用，不在
-    // breakdown 內重算。
     const bCalc = calcBefore(before);
-    const aCalc = calcAfter(after);
-    const bSide = sideOf(bCalc);
-    const aSide = sideOf(aCalc);
+            const aCalc = calcAfter(after);
+            const bSide = sideOf(bCalc);
+            const aSide = sideOf(aCalc);
 
     const discountChanged = bSide.baseDiscountBps !== aSide.baseDiscountBps;
     const anqinChanged = bSide.anqinDays !== aSide.anqinDays;

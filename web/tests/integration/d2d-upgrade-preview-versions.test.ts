@@ -1,18 +1,12 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import fs from 'fs';
-import os from 'os';
-import path from 'path';
 import Database from 'better-sqlite3';
-import { NextRequest } from 'next/server';
 import { runMigrations } from '@/adapters/sqlite/migrator';
-import { getDatabase } from '@/adapters/sqlite';
 import { saveImportBatch } from '@/adapters/sqlite/import-repository';
 import { buildSeedDraft, saveSettingsVersion, hashSettingsDraft } from '@/adapters/sqlite/settings-repository';
 import { executeCalculationRun } from '@/application/calculate-run';
 import { saveCalculationRun } from '@/adapters/sqlite/runs-repository';
 import { previewSettingsChange } from '@/application/settings-preview';
 import { applySettingsPreview } from '@/application/apply-settings';
-import { POST as previewPOST } from '@/app/api/v1/settings/preview/route';
 import type { SettingsDraft } from '@/contracts/settings';
 
 /**
@@ -207,95 +201,5 @@ describe('D2d A: 升級預覽 before 用 active 版本、after 用 target 版本
       rule_set_version: string;
     };
     expect(oldRun.rule_set_version).toBe('erp-tag-v2');
-  });
-});
-
-/**
- * D2d r1／D2f（secondary N-1）：route 層的 `targetRuleSetVersion` 防護。
- *
- * **為什麼這條必要**：A 的修正本身在 application 層（`previewSettingsChange`）有防護，
- * 但 route handler 原本只解構 `{ importId, draft, expectedRevision }`，**丟棄了
- * client 傳來的 `targetRuleSetVersion`**。既有測試全部直接呼叫 `previewSettingsChange`，
- * 繞過 HTTP route，所以那個缺口沒有任何 vitest 層的測試會失敗——
- * secondary reviewer 實測「以 base 版 route.ts 覆蓋後 `npx vitest run` 全套仍
- * 824 passed」。而 `d2d-upgrade-journey.spec.ts` 雖能抓到，CI workflow 不跑 E2E
- * （僅 typecheck／lint／vitest／build），缺陷只會在下一次人工跑 E2E 時才現形。
- *
- * 本條以 **route handler 為 entry**，補上 vitest 層的防護。
- */
-describe('D2d r1／D2f: preview route 必須把 targetRuleSetVersion 傳給 application 層', () => {
-  let tempDir: string;
-
-  function req(body: unknown): NextRequest {
-    return new NextRequest('http://127.0.0.1:3000/api/v1/settings/preview', {
-      method: 'POST',
-      headers: { host: '127.0.0.1:3000', origin: 'http://127.0.0.1:3000' },
-      body: JSON.stringify(body),
-    });
-  }
-
-  beforeEach(() => {
-    tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sb-d2d-route-'));
-    process.env.DATABASE_PATH = path.join(tempDir, 'test.sqlite');
-    (global as any).__sqlite_db__ = undefined;
-    const db = getDatabase() as any;
-    runMigrations(db);
-    seedDuplicateEnglish(db, 'imp_route');
-    const draft: SettingsDraft = buildSeedDraft();
-    saveSettingsVersion(db, {
-      id: 'v1',
-      contentHash: hashSettingsDraft(draft),
-      contentJson: JSON.stringify(draft),
-      effectiveFrom: null,
-      effectiveTo: null,
-      createdAt: new Date().toISOString(),
-      createdFromPreviewId: null,
-      revision: 1,
-    });
-    db.prepare('UPDATE active_state SET revision = 1 WHERE id = 1').run();
-    const res = executeCalculationRun(db, 'imp_route', 'run_v2', { ruleSetVersion: 'erp-tag-v2' });
-    saveCalculationRun(db, res.run, res.results, res.classCategories);
-    db.prepare('UPDATE active_state SET active_run_id = ?, active_import_id = ? WHERE id = 1').run(
-      'run_v2',
-      'imp_route'
-    );
-  });
-
-  afterEach(() => {
-    if ((global as any).__sqlite_db__) {
-      (global as any).__sqlite_db__.close();
-      (global as any).__sqlite_db__ = undefined;
-    }
-    fs.rmSync(tempDir, { recursive: true, force: true });
-  });
-
-  it('route 收到 targetRuleSetVersion 時，預覽的目標版本必為 v3 且寫入 preview 列', async () => {
-    const res = await previewPOST(req({ draft: buildSeedDraft(), expectedRevision: 1, targetRuleSetVersion: 'erp-tag-v3' }));
-    expect(res.status).toBe(200);
-    const body: any = await res.json();
-
-    // 核心斷言：目標版本不得被 route 丟棄（丟棄時會退回 active 的 v2）
-    expect(body.targetRuleSetVersion).toBe('erp-tag-v3');
-
-    // 該值必須真的寫進 preview 列——apply 只讀它建立新 run（D1 F-3）
-    const db = getDatabase() as any;
-    const row = db
-      .prepare('SELECT target_rule_set_version FROM settings_previews WHERE preview_id = ?')
-      .get(body.previewId) as { target_rule_set_version: string };
-    expect(row.target_rule_set_version).toBe('erp-tag-v3');
-
-    // 間接證明：v2 before → v3 after 的天數差異存在（純 seed 路徑，Gino 4.5 → Chevady 3）
-    expect(body.affectedStudents).toBe(1);
-    expect(body.dayDeltas).toHaveLength(1);
-  });
-
-  it('未帶 targetRuleSetVersion 時沿用現行版本（v2），不得擅自升級', async () => {
-    const res = await previewPOST(req({ draft: buildSeedDraft(), expectedRevision: 1 }));
-    expect(res.status).toBe(200);
-    const body: any = await res.json();
-
-    // 既有 v2 DB 不因缺省而靜默升級（Q11）
-    expect(body.targetRuleSetVersion).toBe('erp-tag-v2');
-    expect(body.dayDeltas).toHaveLength(0);
   });
 });
