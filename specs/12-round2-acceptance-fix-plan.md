@@ -62,6 +62,25 @@ READY  {"…同上…"}
 
 首次啟動需數十秒（production build）；之後 `--restart` 不重建，只重啟服務。
 
+以下為乾淨 clone（`git clone` 後無 `node_modules`）、系統 git（`/usr/bin/git` 2.50.1）、**不帶任何環境變數**照上面指令實跑的實際輸出（raw：`evidence-batch-e/clean-clone-t1.log`）：
+
+```
+- Local:         http://127.0.0.1:3300
+✓ Ready in 82ms
+✓ Running next.config.ts took 22ms
+READY {"kind":"student-billing-acceptance","token":"d645…","source":"/private/tmp/clean-clone-e/web","head":"416ce4a…","port":3300,
+       "state":"/…/T/sb-acceptance-4y3lo5","database":"/…/app.sqlite","workspace":"/…/web","url":"http://127.0.0.1:3300","stopped":false}
+控制：npx tsx scripts/acceptance-env.ts --restart|--reset|--stop --state /…/T/sb-acceptance-4y3lo5
+```
+
+`--stop` 的實際回應與清理結果：
+
+```
+{"ok":true,"action":"stop","database":"/…/sb-acceptance-4y3lo5/app.sqlite","port":3300}
+# stop 後：3300 無監聽、無殘留 acceptance-env／next 行程
+# state 目錄剩下 acceptance-session.json 與 app.sqlite{,-wal,-shm}（build workspace 已刪）
+```
+
 ```bash
 npx tsx scripts/acceptance-env.ts --restart --state <state>   # 停止後用同一份 DB 再啟動
 npx tsx scripts/acceptance-env.ts --reset  --state <state>   # 清空 DB 重來
@@ -104,6 +123,19 @@ curl -s -H "x-proxy-token: $TOKEN" -H 'content-type: application/json' \
 - 轉發不緩衝：RSC／streaming／上傳 body 逐片原樣串接；請求與回應標頭原樣轉發（hop-by-hop 標頭除外）。
 - upstream 只接受 `http://127.0.0.1` 且拒絕 3000；規則本身對 `/__control` 無效（控制請求不受注入影響）。
 
+以下為乾淨 clone、系統 git、不帶環境變數照上面指令實跑的實際輸出（raw：`evidence-batch-e/clean-clone-t2.log`）：
+
+```
+READY proxy=http://127.0.0.1:3200 upstream=http://127.0.0.1:3300 control=POST /__control (x-proxy-token)
+# 設一次 GET 500（times=1）
+{"ok":true,"rules":[{"method":"GET","path":"/api/v1/settings/class-name-report","action":"status","remaining":1}]}
+# 第 1 次：注入生效        第 2 次：次數用完、pass-through（上游此時已 stop → 502）
+HTTP 500                   HTTP 502
+# 命中紀錄
+HIT GET /api/v1/settings/class-name-report action=status at=2026-10-01T19:27:02.207Z
+# clear → {"ok":true,"rules":[]}；stop → {"ok":true,"action":"stop"}；stop 後 3200 無監聽
+```
+
 ### T3 純合成驗收測試檔產生器（解 F03、G02、L04、L05）
 
 一次產出整組**全合成、匿名**的 xlsx 到 repo 外。
@@ -127,6 +159,26 @@ round3-C.xlsx：4 人（全合成）；<dir>/round3-C.xlsx
 - 檔案格式與產品認得的米豆奶匯出一致（inlineStr、無 sharedStrings）；**不讀任何真實名冊**，不修改既有 golden。
 - 目標目錄已有檔案時不覆寫（改用新的 `--out`）。
 - manifest 的預期人數、alias 目標與 F03 各子項可達性由**產生器內明列的列資料**寫出，不以產品 parser 輸出回填。
+
+乾淨 clone、系統 git、不帶環境變數照上面指令實跑的實際輸出（raw：`evidence-batch-e/clean-clone-t3.log`）：
+
+```
+$ npx tsx scripts/round3-fixtures.ts --help
+用法：npx tsx scripts/round3-fixtures.ts [--out <repo 外的新目錄>]
+
+$ npx tsx scripts/round3-fixtures.ts --out /tmp/clean-clone-t3-86958
+round3-A.xlsx：2 人（全合成）；/private/tmp/clean-clone-t3-86958/round3-A.xlsx
+round3-B.xlsx：3 人（全合成）；/private/tmp/clean-clone-t3-86958/round3-B.xlsx
+round3-C.xlsx：4 人（全合成）；/private/tmp/clean-clone-t3-86958/round3-C.xlsx
+摘要：/private/tmp/clean-clone-t3-86958/manifest.json；A=2人、B=3人、C=4人；B 有1位非空解析失敗原文
+
+$ 產物：manifest.json  round3-A.xlsx  round3-B.xlsx  round3-C.xlsx
+$ manifest：batches [('A',2),('B',3),('C',4)]；f03.zeroDays.status=unreachable；
+            alias={'rawBaseName':'國小國語文-小三四','targetBaseName':'國小國語文-小三小四'}
+
+$ 對同一 --out 再跑一次（應拒絕覆寫）
+目標已有驗收檔，不覆寫；請用 --out 指定另一個新目錄     # exit=1
+```
 
 **F03「0 天學生」的處置（與 plan r1 的修正）**：plan r1 假設 T3 可製造天數 0 的學生；實測不成立——`executeCalculationRun` 的八項總表天數來自靜態 seed 的場次數（seed 49 班的 sessions 皆 ≥1，未命中數學／美語時退回 2），安親／課輔另有 3.5／3 天下限；儲存空課表（`sessions: []`）只影響扣天與 `SCHEDULE_EMPTY`，不改這個場次來源。因此 T3 **不宣稱**提供 0 天案例，manifest 以 `f03.zeroDays.status = "unreachable"` 如實標示，並改提第三項子項（零科數、`false`、null 適用率、特殊率）。F03 驗的是**顯示語意**，不是要求天數欄一定是 0。
 
