@@ -4,6 +4,7 @@ import { calculateStudentBilling, RuleSetVersion } from '@/domain/billing/billin
 import { CalculationRunRecord, StudentCalculationRecord, RunClassCategoryRecord } from '@/adapters/sqlite/runs-repository';
 import seedData from '@/domain/schedules/schedule-seed.json';
 import { SettingsDraft } from '@/contracts/settings';
+import { todayInTaipei } from '@/lib/datetime';
 import { resolveClassEnrollment, ClassSettingLookup } from '@/domain/classification/class-category';
 import {
   getLatestSettingsVersion,
@@ -82,7 +83,7 @@ export function executeCalculationRun(
   const scheduleVersionId = options.scheduleVersionId || SEED_SCHEDULE_VERSION_ID;
   const ruleSetVersion = options.ruleSetVersion || 'erp-tag-v2';
   const numericPolicy = options.numericPolicy || 'integer-minute-rational-v1';
-  const asOfDate = options.asOfDate || new Date().toISOString().split('T')[0];
+  const asOfDate = options.asOfDate || todayInTaipei();
   const now = new Date().toISOString();
 
   // R2-2: 由 executeCalculationRun 從已儲存設定或 seed 建立 classSettings，統一供給計算與快照 (同源)
