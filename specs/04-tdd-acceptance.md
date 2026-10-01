@@ -226,9 +226,9 @@ Playwright 最小完整旅程：
 
 覆蓋率不是唯一gate；R01–R18與班名／級距／來源政策各分支都有案例。U01–U49、I01–I20為規劃清單，不是已執行的產品測試。P1只需簡單red-green-refactor記錄。
 
-## 8. UI 重設驗收矩陣（UX01–UX53）
+## 8. UI 重設驗收矩陣（UX01–UX70）
 
-依 [06 D33](06-handoff-decisions.md) 與 [09](09-ui-workflow-redesign-spec.md)；本節是 UI 重設的正式驗收，實作拆分與各 PR 對應項目見 [10](10-ui-workflow-redesign-plan.md) §1。UX 為新增驗收，保留原 U/I 及 08 測試。每個可觀察行為先 red 再 green；expected 來自既有 domain 固定案例／已確認案例（獨立手算），不用新 UI 自己生成。UX22、UX23 的 RED 對應 09 §8.2.1、§8.2.4 記載的現況缺陷。UX07、UX13 於 2026-09-30 修訂，UX25–UX33 為第一次人工驗收後新增（依 [06 D34–D39](06-handoff-decisions.md)、[09](09-ui-workflow-redesign-spec.md) 目標契約與 [03 §5.1](03-architecture-api.md)，實作批次見 [11 §3](11-ui-acceptance-fix-plan.md)）；UX34–UX47 為 D1（規則版本入口收斂、班名比對報告、類別偵測純函式，[11 §3 D1](11-ui-acceptance-fix-plan.md)、[06 D40](06-handoff-decisions.md)）；UX48–UX53 為 D2b（班級類別與固定 5 天設定 UI、升級確認、讀模型接線；[11 §3 D2](11-ui-acceptance-fix-plan.md)）。
+依 [06 D33](06-handoff-decisions.md) 與 [09](09-ui-workflow-redesign-spec.md)；本節是 UI 重設的正式驗收，實作拆分與各 PR 對應項目見 [10](10-ui-workflow-redesign-plan.md) §1。UX 為新增驗收，保留原 U/I 及 08 測試。每個可觀察行為先 red 再 green；expected 來自既有 domain 固定案例／已確認案例（獨立手算），不用新 UI 自己生成。UX22、UX23 的 RED 對應 09 §8.2.1、§8.2.4 記載的現況缺陷。UX07、UX13 於 2026-09-30 修訂，UX25–UX33 為第一次人工驗收後新增（依 [06 D34–D39](06-handoff-decisions.md)、[09](09-ui-workflow-redesign-spec.md) 目標契約與 [03 §5.1](03-architecture-api.md)，實作批次見 [11 §3](11-ui-acceptance-fix-plan.md)）；UX34–UX47 為 D1（規則版本入口收斂、班名比對報告、類別偵測純函式，[11 §3 D1](11-ui-acceptance-fix-plan.md)、[06 D40](06-handoff-decisions.md)）；UX48–UX53 為 D2b（班級類別與固定 5 天設定 UI、升級確認、讀模型接線；[11 §3 D2](11-ui-acceptance-fix-plan.md)）；UX54–UX70 為 D2c（parity gate 收斂與 S manifest 餘下驗收列定稿，依 S manifest §6／§7／§9／§11 的行為逐列對應既有測試；parity gate 見 `web/tests/unit/d2c-parity-gate.test.ts`）。
 
 |ID|輸入／操作|expected|層|
 |---|---|---|---|
@@ -285,3 +285,20 @@ Playwright 最小完整旅程：
 |UX51|升級確認（Q11）：現行 run 為 v2 時開課表頁；另測空 DB|現行 v2 時顯示「改用新規則（v3）」勾選，說明會重算全部學生且舊結果不被改寫；未勾選時一切照現行規則（既有 v2 DB 不因目標版本改為 v3 而被靜默升級）；空 DB 不顯示此勾選（該次啟用即建立於目標版本）|integration/E2E|
 |UX52|本班適用折扣讀 run 類別快照（N-8）：v3 run 恰選一班；同樣以名冊班名查；v1／v2 run；v3 run 缺該班快照|v3 run 依該 run 的類別快照判斷（不因 v3 給相同類別的班比 v2 給不同值的班更接近）；固定 5 天的「不列入折扣」班顯示 100% 而非「未設定」；查詢 key 為名冊班名（與快照 base_name 同源）；v1／v2 維持名稱映射；v3 缺快照顯示「未設定」|integration/E2E|
 |UX53|UI 不再顯示舊 `subject`（科別）欄位（Q14）|學生總表、明細、課表設定與班名比對報告皆無 `subject` 欄位；相容欄位仍在 API／資料中保留且不作計算依據|unit/E2E|
+|UX54|拆班：把某班的部分時段列改名為新班名（原班仍存在）|判為 split 而非 rename：原班保留原本的時段數，新班只含被改名的列；畫面顯示拆班警告且**不阻擋**儲存（使用者可以只改一列）；未改名的列不受影響|integration/E2E|
+|UX55|合班：把兩班的所有時段列改成同一個新班名，兩者設定**相同**|沿用該設定、不阻擋儲存；合併後只有一班|integration/E2E|
+|UX56|合班且設定**不同**（類別或固定 5 天）|畫面顯示「無法儲存：班級合併設定衝突」並列出衝突內容、「確認變更」停用；判定基準是各來源班的**有效屬性**（已儲存手動值優先，未手動者依 baseline 班名自動偵測），不是只比手動值|E2E/integration|
+|UX57|整班改名後手動值的去留|手動覆寫（類別／固定 5 天）**隨班帶到新名**且來源仍 manual；未手動者依**新名**重新偵測|unit/E2E|
+|UX58|「恢復自動」|點擊後移除該班的手動覆寫，依**目前**班名重新偵測；「恢復自動」按鈕只在該項為手動時出現（自動時顯示「—」）|E2E|
+|UX59|手動設定的類別與班名關鍵字不符|手動值優先且來源標「手動」；畫面不因班名不含關鍵字而改回自動，也不得靜默改寫手動值|unit/E2E|
+|UX60|舊 run 的類別快照不被重新分類|已產生的舊 run 讀**當時**的 `run_class_categories` 快照；改課表或改類別都不回溯改寫舊 run 的分類；v1／v2 run 無快照時維持名稱映射|integration|
+|UX61|v2 active run 的升級流程：完整預覽 → 儲存 → 產生新 run|勾選「改用新規則（v3）」後的「確認變更」以 v3 目標版本預覽並儲存，產生新的核對結果並成為 active；**舊 v2 run 的值與分類逐欄不變**；未勾選時維持 v2（既有 v2 DB 不靜默升級）|integration/E2E|
+|UX62|settings_only → 之後匯入新名單|空 DB 儲存課表只保存設定（影響人數為 null，不寫 0 當作驗過）；之後匯入並啟用的名單**直接採用**該設定計算，不需重做任何事|integration|
+|UX63|重傳同一份檔案|以檔案雜湊／內容雜湊判定為同一份，不重複匯入成第二份名單；既有啟用中的名單不受影響|integration|
+|UX64|課表設定頁與學生總表的類別來源同源|兩處讀同一份資料（run 快照或有效設定），不得出現「課表顯示數學班、學生總表顯示未設定」|integration/E2E|
+|UX65|只改類別（不動任何時段）也產生影響預覽|天數差異為 0，但科數／合計折扣差異仍列出；受影響學生數是三類差異的 personCode **聯集去重計數**（不得相加；同一人只計一次）|integration/E2E|
+|UX66|CAS／冪等與失敗不切換 active|兩個 preview／apply 競爭時一個成功、一個 409（revision CAS）；同一冪等鍵重送不產生第二個 run；套用失敗時 active 維持原狀（整段交易回滾）|integration|
+|UX67|max 選班的邊界：兩班扣天皆為 0 或負|取**正量最多**；若所有候選的正量都不為正，不得因此任選一班當作「有扣天」，須維持 D-24 的下限與「無扣天」語意|integration|
+|UX68|平手|兩班扣天相同時取**報名順序在前者**（token_index 較小），結果與 v2 的首班語意一致；不因排序不穩定而每次不同|integration|
+|UX69|未知星期候選|星期為非空非法值或空白時，該候選以 fail-closed 值參與比較並保留 `UNKNOWN_WEEKDAY` 需確認警告；不得顯示成 0 或「已驗證無衝堂」|integration/E2E|
+|UX70|動態候選的隱藏與浮現|已在有效班級中的米豆奶班名不進候選；對應一旦消失（班名被改）候選自動重新出現；引擎為純函式，不建立 alias、不改 active 設定|integration|
