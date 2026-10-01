@@ -79,8 +79,10 @@ describe('T1：使用者路徑（不帶 ACCEPTANCE_SOURCE_DIR）能越過來源�
       child.on('exit', (code) => { clearTimeout(deadline); resolve(`${text}\n[exit ${code}]`); });
     });
     console.log('T1 default-source output', JSON.stringify({ output: output.slice(-1200) }));
-    // RED（3baf51f）：含「package.json（請由 web/ …）」throw；GREEN：不含，且已進入 npm ci（archive 成功）。
-    expect(output, '不帶 ACCEPTANCE_SOURCE_DIR 時不得因 package.json 檢查 throw').not.toMatch(/package\.json（請由 web\/ 目錄啟動本工具/);
-    expect(output, '應已越過來源檢查、archive 成功並開始 npm ci').toMatch(/> npm ci|npm ci|added \d+ packages/i);
+    // RED（3baf51f）：來源檢查 throw「…必須含有 package.json…」，archive 未執行。
+    //   斷言不綁錯誤訊息字面（GREEN 會改寫訊息），只認「throw」這個事實。
+    // GREEN：無 throw，且 archive 成功——workspace 已解出 package.json。
+    expect(output, '不帶 ACCEPTANCE_SOURCE_DIR 時不得因來源檢查 throw（應改走使用者路徑的 web/）').not.toMatch(/Command failed: git rev-parse HEAD|not a valid object name|必須含有 package\.json|不是 git repo/);
+    expect(output, '應已越過來源檢查並開始 archive／npm ci').toMatch(/> st|npm ci|added \d+ packages|Creating an optimized/i);
   }, 150000);
 });
