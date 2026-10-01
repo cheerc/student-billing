@@ -20,14 +20,14 @@ afterEach(async () => {
   for (const state of states.splice(0)) fs.rmSync(state, { recursive: true, force: true });
 });
 
-/** 從目前 HEAD 的追蹤檔解出 web/（不帶 node_modules／.next／data）——與 T1 對來源做的事一致。 */
-function trackedWeb(repo: string): string {
+/** 從指定 commit 解出 web/（不帶 node_modules／.next／data）——與 T1 對來源做的事一致。 */
+function trackedWeb(repo: string, commit = 'HEAD'): string {
   const sourceRoot = (() => {
     let root = web;
     while (!fs.existsSync(path.join(root, '.git'))) root = path.dirname(root);
     return root;
   })();
-  spawnSync('tar', ['-x', '-C', repo], { input: execFileSync('git', ['archive', 'HEAD', 'web'], { cwd: sourceRoot, maxBuffer: 1 << 28 }) });
+  spawnSync('tar', ['-x', '-C', repo], { input: execFileSync('git', ['archive', commit, 'web'], { cwd: sourceRoot, maxBuffer: 1 << 28 }) });
   const git = (...args: string[]) => execFileSync('git', args, { cwd: repo, encoding: 'utf8' });
   git('init', '--quiet');
   git('config', 'user.email', 'acceptance@test.invalid');
@@ -52,12 +52,16 @@ function trackedWeb(repo: string): string {
  *
  * 只斷言「越過來源檢查、archive 成功並開始 npm ci」——build 與 READY 由
  * acceptance-env.test.ts 的哨兵測試覆蓋（它用 ACCEPTANCE_SOURCE_DIR 指向完整暫存 repo）。
+ *
+ * `T1_DEFAULT_SOURCE_COMMIT` 讓重驗 RED 時能把**工具碼**取自指定 commit（該 commit 的
+ * scripts/ 會隨 web/ 一起 archive，__dirname 於是指向該版本），測試本身仍是目前 HEAD。
+ * 不設時＝正常使用者的目前 HEAD。
  */
 describe('T1：使用者路徑（不帶 ACCEPTANCE_SOURCE_DIR）能越過來源檢查', () => {
   it('以預設 SOURCE 啟動：不因 package.json 檢查 throw，並完成 archive、開始 npm ci', async () => {
     const repo = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'sb-t1-default-source-')));
     states.push(repo);
-    const pkg = trackedWeb(repo);
+    const pkg = trackedWeb(repo, process.env.T1_DEFAULT_SOURCE_COMMIT);
     const loader = path.join(pkg, 'node_modules/tsx/dist/loader.mjs');
     fs.symlinkSync(path.join(web, 'node_modules'), path.join(pkg, 'node_modules'), 'dir');   // 只為啟動 tsx；T1 自己在 workspace 跑 npm ci
 
