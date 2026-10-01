@@ -11,7 +11,7 @@ import {
 } from '@/adapters/sqlite/settings-repository';
 import { executeCalculationRun } from './calculate-run';
 import { resolveRuleSetForApply, RuleSetResolutionError } from './rule-set-resolver';
-import { saveCalculationRun } from '@/adapters/sqlite/runs-repository';
+import { getCurrentActiveRun, saveCalculationRun } from '@/adapters/sqlite/runs-repository';
 
 export class SettingsApplyError extends Error {
   statusCode: number;
@@ -183,6 +183,8 @@ export function applySettingsPreview(
     const { run, results, classCategories } = executeCalculationRun(db, preview.importId, runId, {
       scheduleVersionId: settingsVersionId,
       ruleSetVersion: targetRuleSetVersion,
+      // 儲存課表不是重新啟用名單；核對基準日沿用交易內的現行 run（UX75）。
+      asOfDate: getCurrentActiveRun(db).run?.asOfDate,
       aliasMap,
       scheduleOverride,
     });

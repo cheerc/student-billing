@@ -213,6 +213,7 @@
 - 依 no-CI 決策 `d-20260923084544894113-3`（已由 PR-0 轉錄入 [06 §8](06-handoff-decisions.md)），以本機全套結果＋exact-head VERIFIED 為合併依據。
 - 人工驗收：A、B1、B2、C 合併後請 operator 第二次人工驗收；D 合併後第三次。
 - 本 plan 經 operator 確認後，每批合併自動派下一批；遇 §7 停止條件或範圍變更才回報 operator。
+- **第二次人工驗收之後**：第二輪的兩項 FAIL（R2-F01、R2-F02）與三項驗收工具（T1／T2／T3）由[12 第二次人工驗收修正 Plan](12-round2-acceptance-fix-plan.md)（批次 E，review_class=single）收斂；第三次人工驗收在 D2d 與批次 E 合併後由 Lead 依 12 §4 產出清單。
 
 ## 9. Plan review r0 回應對照
 

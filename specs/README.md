@@ -7,6 +7,7 @@ UI 重設（先課表 → 匯入 → 核對）R0–R5 已交付並合併，驗�
 - [09 UI／UX 重設規格](09-ui-workflow-redesign-spec.md)（含 2026-09-30 修訂的目標契約）
 - [10 UI 重設實作 Plan](10-ui-workflow-redesign-plan.md)（R0–R5，已交付）
 - [11 第一次人工驗收修正 Plan](11-ui-acceptance-fix-plan.md)（PR-0、A、S、B1、B2、C、D 分批；決策見[06 D34–D39](./06-handoff-decisions.md)）
+- [12 第二次人工驗收修正 Plan](12-round2-acceptance-fix-plan.md)（R2-F01／R2-F02 與驗收工具 T1／T2／T3；第三次人工驗收清單由 Lead 依其 §4 產出）
 - [可點選介面示意（合成資料）](design/ui-workflow-prototype.html)
 
 先課表 → 匯入 → 核對的方向記於[06 D33](./06-handoff-decisions.md)；操作介面契約見09，實作分批見10與11（執行計畫），驗收矩陣見[04 §8](./04-tdd-acceptance.md)。窗口固定、不可編輯，有效日期不在範圍（D33）；D24–D32計算決策不變，計算規則變更（D37）只走 11 的 D2 與新 ruleSet 版本（D 批依 [06 D40](./06-handoff-decisions.md) 拆為 D1 入口收斂與 D2 v3）。
@@ -25,7 +26,8 @@ UI 重設（先課表 → 匯入 → 核對）R0–R5 已交付並合併，驗�
 9. [UI／UX 重設規格](./09-ui-workflow-redesign-spec.md)：先課表→匯入→核對的畫面與操作契約（含 2026-09-30 修訂的目標契約）。
 10. [UI 重設實作 Plan](./10-ui-workflow-redesign-plan.md)：R0–R5 分批（已交付）。
 11. [第一次人工驗收修正 Plan](./11-ui-acceptance-fix-plan.md)：驗收修正的分批、順序、停止條件；決策全文在 [06 D34–D39](./06-handoff-decisions.md)。
-12. [P1 最終複核與修正](./reviews/p1-final-verification-20260923.md)：最新契約修正、驗證範圍與啟動條件；較早review保留歷史原文。
+12. [第二次人工驗收修正 Plan](./12-round2-acceptance-fix-plan.md)：第二輪兩項 FAIL 的修正來源、驗收列 UX74–UX77，以及隔離驗收環境／故障注入代理／合成測試檔三項工具的指令與限制。
+13. [P1 最終複核與修正](./reviews/p1-final-verification-20260923.md)：最新契約修正、驗證範圍與啟動條件；較早review保留歷史原文。
 
 ## 已確認的方向
 
