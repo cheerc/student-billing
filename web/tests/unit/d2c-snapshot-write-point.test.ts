@@ -87,14 +87,14 @@ describe('D2c N-1：快照寫入點唯一（executeCalculationRun 不寫 run_cla
     const res = executeCalculationRun(db, 'imp_n1', 'run_pre', { ruleSetVersion: 'erp-tag-v3' as never });
 
     // 計算結果仍帶著快照（呼叫端契約未變）
-    expect(res.classCategories.length).toBeGreaterThan(0);
+    expect((res.classCategories ?? []).length).toBeGreaterThan(0);
     // 但**不寫入** DB：寫入點唯一
     expect(categoryRows('run_pre')).toHaveLength(0);
   });
 
   it('run 列不存在時，executeCalculationRun 也不寫入（該分支一律不生效）', () => {
     const res = executeCalculationRun(db, 'imp_n1', 'run_absent', { ruleSetVersion: 'erp-tag-v3' as never });
-    expect(res.classCategories.length).toBeGreaterThan(0);
+    expect((res.classCategories ?? []).length).toBeGreaterThan(0);
     expect(categoryRows('run_absent')).toHaveLength(0);
   });
 

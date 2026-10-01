@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { calculateStudentBilling } from '@/domain/billing/billing-calculator';
 import { StudentSnapshot } from '@/domain/students/types';
+import type { ClassSettingLookup } from '@/domain/classification/class-category';
 
 /**
  * D2c Parity gate（S manifest §6.0／§6.1／§6.3；specs/11 §3 D2 parity gate 條）。
@@ -25,7 +26,7 @@ function snapshot() {
   return {
     aliasMap: new Map<string, string>(),
     scheduleOverride: new Map<string, Array<{ start: number; end: number; weekday?: string | null }>>(),
-    classSettings: new Map<string, { category?: string; categorySource?: string; fixedFiveDays?: boolean; fixedSource?: string }>(),
+    classSettings: new Map<string, ClassSettingLookup>(),
   };
 }
 
@@ -61,39 +62,6 @@ function makeStudent(params: {
       tierParseStatus: 'not_applicable' as const,
       parseStatus: 'ok' as const,
     })),
-  };
-}
-
-/** 逐欄抽取 S §6.0 定義的「比較的業務欄位」。 */
-function businessFields(student: StudentSnapshot) {
-  const opts = snapshot();
-  const v2 = calculateStudentBilling(student, { ...opts, ruleSetVersion: 'erp-tag-v2' });
-  const v3 = calculateStudentBilling(student, { ...opts, ruleSetVersion: 'erp-tag-v3' as never });
-  return {
-    v2: {
-      anqinDays: v2.careDays.anqin.days,
-      tutoringDays: v2.careDays.tutoring.days,
-      subjectCount: v2.subjectCount,
-      baseDiscountBps: v2.baseDiscountBps,
-      applicableAnqinBps: v2.applicableAnqinBps,
-      applicableTutoringBps: v2.applicableTutoringBps,
-      applicableMathBps: v2.applicableMathBps,
-      applicableEnglishBps: v2.applicableEnglishBps,
-      tierMismatch: v2.tierComparisons.some((c) => c.status === 'mismatch'),
-      issueCodes: [...new Set(v2.issues.map((i) => i.code))].sort(),
-    },
-    v3: {
-      anqinDays: v3.careDays.anqin.days,
-      tutoringDays: v3.careDays.tutoring.days,
-      subjectCount: v3.subjectCount,
-      baseDiscountBps: v3.baseDiscountBps,
-      applicableAnqinBps: v3.applicableAnqinBps,
-      applicableTutoringBps: v3.applicableTutoringBps,
-      applicableMathBps: v3.applicableMathBps,
-      applicableEnglishBps: v3.applicableEnglishBps,
-      tierMismatch: v3.tierComparisons.some((c) => c.status === 'mismatch'),
-      issueCodes: [...new Set(v3.issues.map((i) => i.code))].sort(),
-    },
   };
 }
 
@@ -368,8 +336,13 @@ describe('D2c parity gate：v3 相對 v2 的差異只允許出現在 S manifest 
           ]],
         ]),
       };
-      const f = businessFieldsWith(student, opts);
-      expect(f.v2.mathTutoringDays).toBe(f.v3.mathTutoringDays);
+      // D30 是 invariant：同一班同一星期的多列時段，兩版都視為同日處理，
+      // 因此以級距結果（由天數推導）觀察，v2 與 v3 必須一致。
+      const o = { ...opts, ruleSetVersion: 'erp-tag-v2' as const };
+      const r2 = calculateStudentBilling(student, o);
+      const r3 = calculateStudentBilling(student, { ...opts, ruleSetVersion: 'erp-tag-v3' as never });
+      expect(r2.tierComparisons.map((c) => c.computedTier))
+        .toEqual(r3.tierComparisons.map((c) => c.computedTier));
     });
 
     it('標籤來源（02 §5：正式軌讀標籤、compat 讀備註）：v2 與 v3 都讀標籤', () => {
@@ -434,7 +407,7 @@ function businessFieldsWith(
   opts: {
     aliasMap: Map<string, string>;
     scheduleOverride: Map<string, Array<{ start: number; end: number; weekday?: string | null }>>;
-    classSettings: Map<string, unknown>;
+    classSettings: Map<string, ClassSettingLookup>;
   }
 ) {
   const v2 = calculateStudentBilling(student, { ...opts, ruleSetVersion: 'erp-tag-v2' });
@@ -445,26 +418,24 @@ function businessFieldsWith(
       tutoringDays: v2.careDays.tutoring.days,
       subjectCount: v2.subjectCount,
       baseDiscountBps: v2.baseDiscountBps,
-      applicableAnqinBps: v2.applicableAnqinBps,
-      applicableTutoringBps: v2.applicableTutoringBps,
-      applicableMathBps: v2.applicableMathBps,
-      applicableEnglishBps: v2.applicableEnglishBps,
+      applicableAnqinBps: v2.applicableRates.anqin,
+      applicableTutoringBps: v2.applicableRates.tutoring,
+      applicableMathBps: v2.applicableRates.math,
+      applicableEnglishBps: v2.applicableRates.english,
       tierMismatch: v2.tierComparisons.some((c) => c.status === 'mismatch'),
       issueCodes: [...new Set(v2.issues.map((i) => i.code))].sort(),
-      mathTutoringDays: (v2 as unknown as { mathDays?: { tutoringDays: number } }).mathDays?.tutoringDays,
     },
     v3: {
       anqinDays: v3.careDays.anqin.days,
       tutoringDays: v3.careDays.tutoring.days,
       subjectCount: v3.subjectCount,
       baseDiscountBps: v3.baseDiscountBps,
-      applicableAnqinBps: v3.applicableAnqinBps,
-      applicableTutoringBps: v3.applicableTutoringBps,
-      applicableMathBps: v3.applicableMathBps,
-      applicableEnglishBps: v3.applicableEnglishBps,
+      applicableAnqinBps: v3.applicableRates.anqin,
+      applicableTutoringBps: v3.applicableRates.tutoring,
+      applicableMathBps: v3.applicableRates.math,
+      applicableEnglishBps: v3.applicableRates.english,
       tierMismatch: v3.tierComparisons.some((c) => c.status === 'mismatch'),
       issueCodes: [...new Set(v3.issues.map((i) => i.code))].sort(),
-      mathTutoringDays: (v3 as unknown as { mathDays?: { tutoringDays: number } }).mathDays?.tutoringDays,
     },
   };
 }
