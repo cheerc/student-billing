@@ -6,6 +6,9 @@ import { executeCalculationRun } from '@/application/calculate-run';
 import { saveCalculationRun } from '@/adapters/sqlite/runs-repository';
 import { buildSeedDraft, saveSettingsVersion, hashSettingsDraft } from '@/adapters/sqlite/settings-repository';
 import { previewSettingsChange } from '@/application/settings-preview';
+import { applySettingsPreview } from '@/application/apply-settings';
+import { executeCalculationRun } from '@/application/calculate-run';
+import { saveCalculationRun } from '@/adapters/sqlite/runs-repository';
 import type { SettingsDraft } from '@/contracts/settings';
 
 /**
@@ -150,5 +153,50 @@ describe('D2d A: 升級預覽 before 用 active 版本、after 用 target 版本
     const draft: SettingsDraft = buildSeedDraft();
     const preview: any = previewSettingsChange(db, null, { draft, expectedRevision: 0 });
     expect(preview.mode).toBe('settings_only');
+  });
+
+  it('整條升級旅程（真實呼叫鏈）：preview 有差異 → apply 產生 v3 run、舊 v2 run 不變', () => {
+    activate(db, 'imp_dup', 'run_v2', 'erp-tag-v2');
+    const draft = saveSeedAsStored(db, 'v1', 1);
+    db.prepare('UPDATE active_state SET revision = 1 WHERE id = 1').run();
+
+    const preview: any = previewSettingsChange(db, 'imp_dup', {
+      draft,
+      expectedRevision: 1,
+      targetRuleSetVersion: 'erp-tag-v3',
+    });
+    expect(preview.dayDeltas).toHaveLength(1);
+    // preview 列記錄的目標版本＝apply 唯一採用的版本（D1 F-3）
+    const row = db
+      .prepare('SELECT target_rule_set_version FROM settings_previews WHERE preview_id = ?')
+      .get(preview.previewId) as { target_rule_set_version: string };
+    expect(row.target_rule_set_version).toBe('erp-tag-v3');
+
+    const applied = applySettingsPreview(db, {
+      previewId: preview.previewId,
+      expectedRevision: 1,
+      idempotencyKey: 'd2d-upgrade-journey',
+    });
+
+    const newRun = db.prepare('SELECT rule_set_version FROM calculation_runs WHERE id = ?').get(applied.runId) as {
+      rule_set_version: string;
+    };
+    expect(newRun.rule_set_version).toBe('erp-tag-v3');
+    expect(applied.runId).not.toBe('run_v2');
+    // 舊 v2 run 的計算結果逐欄不變（不可回溯改寫）
+    const oldRows = db.prepare('SELECT care_days FROM student_calculations WHERE run_id = ?').all('run_v2') as any[];
+    const stillThere = db
+      .prepare('SELECT COUNT(*) AS n FROM student_calculations WHERE run_id = ?')
+      .get('run_v2') as { n: number };
+    expect(stillThere.n).toBe(oldRows.length);
+    const active = db.prepare('SELECT active_run_id FROM active_state WHERE id = 1').get() as {
+      active_run_id: string;
+    };
+    expect(active.active_run_id).toBe(applied.runId);
+    // 舊 v2 run 本身仍標 v2
+    const oldRun = db.prepare('SELECT rule_set_version FROM calculation_runs WHERE id = ?').get('run_v2') as {
+      rule_set_version: string;
+    };
+    expect(oldRun.rule_set_version).toBe('erp-tag-v2');
   });
 });
