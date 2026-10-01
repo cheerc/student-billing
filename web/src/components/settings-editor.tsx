@@ -208,7 +208,13 @@ export default function SettingsEditor({
 
   // D2b 4（Q11）：是否已明確確認要改用新規則（v3）。未確認時一切照現行版本走，既有 v2 DB 不動。
   const [upgradeConfirmed, setUpgradeConfirmed] = useState(false);
-  const canUpgrade = currentRuleSetVersion === 'erp-tag-v2';
+  // D2d r3／F-2：`currentRuleSetVersion` 是 server-render prop，session 內不更新，
+  // 套用成功後 `canUpgrade` 仍為 true → banner 仍在、isDirty 仍 true、離頁仍被攔截。
+  // 改用**本地 state 追蹤「目前生效的版本」**（初始取 server prop）；套用成功後設為
+  // **apply 記錄的** `targetRuleSetVersion`——apply 的結果才是權威，不主動猜 v3。
+  // 缺值時保守不變（`?? prev`），不製造未知狀態。
+  const [appliedRuleSetVersion, setAppliedRuleSetVersion] = useState<string | null>(currentRuleSetVersion);
+  const canUpgrade = appliedRuleSetVersion === 'erp-tag-v2';
   const isUpgrading = canUpgrade && upgradeConfirmed;
 
   // 儲存確認視窗狀態
@@ -523,6 +529,11 @@ export default function SettingsEditor({
     setManualAttrs(new Map(baselineManualAttrs));
     setRestoredAutoNames(new Set());
     setPreview(null);
+    // D2d r3／F-1：升級勾選也必須一起清除。漏了它 → `upgradeChanged` 恆 true →
+    // `isDirty` 恆 true，使用者按了取消修改畫面卻仍標示「有未儲存的變更」，
+    // 而且這個 state 無法再從畫面清除（「取消修改」是唯一會呼叫 resetDraft 的入口，
+    // 勾選框又已被 isDirty 綁著而按不下去）。
+    setUpgradeConfirmed(false);
   };
 
   // 取消修改
@@ -624,6 +635,16 @@ export default function SettingsEditor({
       if (typeof json?.appliedAt === 'string') setSavedAt(json.appliedAt);
       setIsImpactDialogOpen(false);
       setPreview(null);
+      // D2d r3／F-2：套用成功後把「目前生效的版本」更新為 **apply 記錄的** target 版
+      // （`previewSettingsChange` 回傳的 `targetRuleSetVersion` 就是寫進 preview 列、
+      //   apply 唯一採用的值，見 `apply-settings.ts` `resolveRuleSetForApply`）。
+      // 這讓 `canUpgrade` 轉 false → banner 消失、isDirty 歸零、離頁守衛不再攔截。
+      // 刻意**不**加 `router.refresh()`／`revalidatePath()`：那會連帶重新取得 rows／
+      // baseline／manualAttrs，把上面「就地更新 baseline」這條既有路徑整段作廢並擴大回歸面；
+      // 版本判斷只需要這一項。
+      const appliedVersion = preview?.targetRuleSetVersion ?? null;
+      if (appliedVersion) setAppliedRuleSetVersion(appliedVersion);
+      setUpgradeConfirmed(false);
       showToast(preview.mode === 'settings_only' ? '課表已成功儲存' : '課表已套用並完成重算');
 
       // F3：儲存成功後，就地刷新班名比對報告（維持同頁即時更新，不需整頁 reload）。
