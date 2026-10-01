@@ -2,6 +2,8 @@ import { StudentSnapshot, ParsedToken } from '../students/types';
 import {
   StudentBillingCalculation,
   TierComparison,
+  ClassSelection,
+  StudentSelection,
 } from './types';
 import {
   parseTagDiscounts,
@@ -38,8 +40,45 @@ for (const cls of seedData.classes) {
   seedClassMap.set(cls.baseName, cls);
 }
 
-/** 已儲存設定不含任何班級時，seed 不再參與（無此班 → schedule_not_found）。 */
+/**
+ * 已儲存設定不含任何班級時，seed 不再參與（無此班 → schedule_not_found）。
+ */
 const NO_SEED_CLASSES = new Map<string, any>();
+
+/** 選班評估的內部形狀（數學／美語兩區塊共用）。 */
+interface CandidateEval {
+  enr: ParsedToken;
+  idx: number;
+  status: string;
+  anqinDed: number;
+  tutoringDed: number;
+  positiveDeduction: number;
+  isCalculable: boolean;
+}
+
+/**
+ * D2d B（04 §8 UX71／UX68）：把選中的候選轉成對外輸出。
+ * 數學／美語共用此轉換，確保兩類別的輸出形狀一致、下游只需讀同一種東西。
+ */
+function toClassSelection(
+  best: CandidateEval,
+  candidateCount: number,
+  calculableCount: number,
+  tieBreak: ClassSelection['tieBreak']
+): ClassSelection {
+  return {
+    selectedBaseName: best.enr.baseName,
+    selectedRawToken: best.enr.rawToken,
+    status: best.status,
+    anqinDeduction: best.anqinDed,
+    tutoringDeduction: best.tutoringDed,
+    positiveDeduction: best.positiveDeduction,
+    isCalculable: best.isCalculable,
+    candidateCount,
+    calculableCount,
+    tieBreak,
+  };
+}
 
 /**
  * 班級與時段的來源（09 §8.2.4 方案 A）：帶入 scheduleOverride 代表已有儲存設定版本，
@@ -167,6 +206,12 @@ export function calculateStudentBilling(
   let unknownWeekdayCount = 0;
   const additionalIssues: Array<{ code: string; message: string }> = [];
 
+  /**
+   * D2d B（04 §8 UX71）：v3 選班的對外輸出。
+   * 兩處選班區塊（數學／美語）共用這份結果，避免各自維護一份「哪一班被選中」的推論。
+   */
+  const selection: StudentSelection = {};
+
   if (capabilities.maxDeductionSelection) {
     // v3 依類別選扣天最多 (正量最多)
     const isAnqinSide = student.grade === 1 || student.grade === 2;
@@ -179,16 +224,6 @@ export function calculateStudentBilling(
       .sort((a, b) => a.idx - b.idx);
 
     if (mathCandidates.length > 0) {
-      interface CandidateEval {
-        enr: ParsedToken;
-        idx: number;
-        status: string;
-        anqinDed: number;
-        tutoringDed: number;
-        positiveDeduction: number;
-        isCalculable: boolean;
-      }
-
       const evals: CandidateEval[] = [];
       for (const cand of mathCandidates) {
         const ses = resolveClassSessions(cand.enr, options.aliasMap, options.scheduleOverride, classMapFor(options));
@@ -227,21 +262,30 @@ export function calculateStudentBilling(
       }
 
       const calculables = evals.filter((e) => e.isCalculable);
+      let mathTieBreak: ClassSelection['tieBreak'];
       if (calculables.length > 0) {
+        // 取正量最多者；平手時保留報名順序較前者（只替換「嚴格大於」，不動等值者）。
         let best = calculables[0];
         for (let i = 1; i < calculables.length; i++) {
           if (calculables[i].positiveDeduction > best.positiveDeduction) {
             best = calculables[i];
           }
         }
+        mathTieBreak = best === calculables[0] && calculables.length > 1 && calculables[1].positiveDeduction === best.positiveDeduction
+          ? 'first_enrollment'
+          : 'max_positive_deduction';
         mathAnqinDed = best.anqinDed;
         mathTutoringDed = best.tutoringDed;
         mathScheduleStatus = best.status;
+        selection.math = toClassSelection(best, evals.length, calculables.length, mathTieBreak);
       } else {
         const first = evals[0];
         mathAnqinDed = 0;
         mathTutoringDed = 0;
         mathScheduleStatus = first.status;
+        // 全部不可計算：仍記錄 fallback 依據的那一班，但 isCalculable=false，
+        // 呼叫端不得把它當成「有扣天」（04 §8 UX67／UX73）。
+        selection.math = toClassSelection(first, evals.length, 0, 'no_calculable_candidate');
       }
     }
 
@@ -252,16 +296,6 @@ export function calculateStudentBilling(
       .sort((a, b) => a.idx - b.idx);
 
     if (englishCandidates.length > 0) {
-      interface CandidateEval {
-        enr: ParsedToken;
-        idx: number;
-        status: string;
-        anqinDed: number;
-        tutoringDed: number;
-        positiveDeduction: number;
-        isCalculable: boolean;
-      }
-
       const evals: CandidateEval[] = [];
       for (const cand of englishCandidates) {
         const ses = resolveClassSessions(cand.enr, options.aliasMap, options.scheduleOverride, classMapFor(options));
@@ -300,6 +334,7 @@ export function calculateStudentBilling(
       }
 
       const calculables = evals.filter((e) => e.isCalculable);
+      let englishTieBreak: ClassSelection['tieBreak'];
       if (calculables.length > 0) {
         let best = calculables[0];
         for (let i = 1; i < calculables.length; i++) {
@@ -307,14 +342,19 @@ export function calculateStudentBilling(
             best = calculables[i];
           }
         }
+        englishTieBreak = best === calculables[0] && calculables.length > 1 && calculables[1].positiveDeduction === best.positiveDeduction
+          ? 'first_enrollment'
+          : 'max_positive_deduction';
         englishAnqinDed = best.anqinDed;
         englishTutoringDed = best.tutoringDed;
         englishScheduleStatus = best.status;
+        selection.english = toClassSelection(best, evals.length, calculables.length, englishTieBreak);
       } else {
         const first = evals[0];
         englishAnqinDed = 0;
         englishTutoringDed = 0;
         englishScheduleStatus = first.status;
+        selection.english = toClassSelection(first, evals.length, 0, 'no_calculable_candidate');
       }
     }
   } else {
@@ -462,5 +502,7 @@ export function calculateStudentBilling(
     tierComparisons,
     issues,
     hasIssues: issues.length > 0,
+    // D2d B：只有 v3 有「選班」這件事，v1／v2／compat 維持首班語意、不輸出 selection。
+    ...(isV3 ? { selection } : {}),
   };
 }

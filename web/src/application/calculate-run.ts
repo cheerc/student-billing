@@ -214,20 +214,36 @@ export function executeCalculationRun(
     }
 
     // 計算八項天數
+    // D2d B（04 §8 UX71；D40 Q10-A）：v3 重複同類時取「選中班」的場次數，與天數計算同一份
+    // 選班結果（`formal.selection`），不得各自再取一次首班——否則同一學生會出現
+    // 「天數按 Chevady 算、englishDays 按 Gino 算」的鏡像不一致。
+    // v1／v2／compat 無 selection（仍是首班語意），名稱判斷與 seed 場次數來源皆不變。
     let englishDays: number | null = null;
     const hasEnglish = enrollments.some((e) => e.baseName.includes('兒童美語'));
     if (hasEnglish) {
-      const enToken = enrollments.find((e) => e.baseName.includes('兒童美語'));
-      const enSeed = enToken ? seedMap.get(enToken.baseName) : null;
-      englishDays = enSeed ? enSeed.sessions.length : 2;
+      if (ruleSetVersion === 'erp-tag-v3' && formal.selection?.english) {
+        const selected = formal.selection.english.selectedBaseName;
+        const enSeed = seedMap.get(selected);
+        englishDays = enSeed ? enSeed.sessions.length : 2;
+      } else {
+        const enToken = enrollments.find((e) => e.baseName.includes('兒童美語'));
+        const enSeed = enToken ? seedMap.get(enToken.baseName) : null;
+        englishDays = enSeed ? enSeed.sessions.length : 2;
+      }
     }
 
     let mathDays: number | null = null;
     const hasMath = enrollments.some((e) => e.baseName.includes('國小數學'));
     if (hasMath) {
-      const maToken = enrollments.find((e) => e.baseName.includes('國小數學'));
-      const maSeed = maToken ? seedMap.get(maToken.baseName) : null;
-      mathDays = maSeed ? maSeed.sessions.length : 2;
+      if (ruleSetVersion === 'erp-tag-v3' && formal.selection?.math) {
+        const selected = formal.selection.math.selectedBaseName;
+        const maSeed = seedMap.get(selected);
+        mathDays = maSeed ? maSeed.sessions.length : 2;
+      } else {
+        const maToken = enrollments.find((e) => e.baseName.includes('國小數學'));
+        const maSeed = maToken ? seedMap.get(maToken.baseName) : null;
+        mathDays = maSeed ? maSeed.sessions.length : 2;
+      }
     }
 
     let chineseDays: number | null = null;
