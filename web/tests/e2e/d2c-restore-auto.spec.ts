@@ -51,15 +51,12 @@ test('已儲存手動值的班改名後恢復自動：以目前班名重新偵�
   await reloadSettings(page);
   await expect(page.locator(`[data-category-source="${from}"]`)).toHaveText('手動');
   const inputs = page.locator('input.input-classname');
-  await inputs.evaluateAll((elements, names) => {
-    const [from, to] = names;
-    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!;
-    for (const element of elements) {
-      if ((element as HTMLInputElement).value !== from) continue;
-      setter.call(element, to);
-      element.dispatchEvent(new Event('input', { bubbles: true }));
-    }
-  }, [from, to]);
+  const indexes = await inputs.evaluateAll((elements, name) =>
+    elements.flatMap((element, index) => (element as HTMLInputElement).value === name ? [index] : []), from
+  );
+  expect(indexes.length).toBeGreaterThan(0);
+  // 未使用搜尋／星期篩選，列索引固定；逐列真實 fill 讓 React 完整處理每次改名。
+  for (const index of indexes) await inputs.nth(index).fill(to);
   await expect(page.locator(`[data-category-select="${to}"]`)).toHaveValue('care');
   await page.locator(`[data-restore-auto="${to}"]`).click();
   await expect(page.locator(`[data-category-source="${to}"]`)).toHaveText('自動');
