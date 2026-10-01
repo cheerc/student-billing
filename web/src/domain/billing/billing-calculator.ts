@@ -212,6 +212,17 @@ export function calculateStudentBilling(
    */
   const selection: StudentSelection = {};
 
+  /**
+   * D2d D（04 §8 UX73）：逐報名課的**自身**課表解析狀態。
+   *
+   * `tierComparisons` 是逐 enrollment 產生的，但原本每個 enrollment 都共用同一個
+   * `schStatus`（只取選中班的狀態），於是「空課表的未入選候選」不會被標為需確認——
+   * 使用者看到該生天數正常，就以為每一班都算過了。這裡保留每個候選自己的 status，
+   * 讓 tierComparisons 能逐列反映（原本的 math/english 全班共用值仍保留，
+   * 作為非 v3 與無逐列資訊時的退路）。
+   */
+  const statusByRawToken = new Map<string, string>();
+
   if (capabilities.maxDeductionSelection) {
     // v3 依類別選扣天最多 (正量最多)
     const isAnqinSide = student.grade === 1 || student.grade === 2;
@@ -227,6 +238,7 @@ export function calculateStudentBilling(
       const evals: CandidateEval[] = [];
       for (const cand of mathCandidates) {
         const ses = resolveClassSessions(cand.enr, options.aliasMap, options.scheduleOverride, classMapFor(options));
+        statusByRawToken.set(cand.enr.rawToken, ses.status);
         if (ses.status === 'calculated') {
           const ded = deductSessions(ses.sessions, ruleSetVersion);
           const pos = isAnqinSide ? -ded.anqin : isTutoringSide ? -ded.tutoring : 0;
@@ -250,13 +262,27 @@ export function calculateStudentBilling(
             positiveDeduction: 0,
             isCalculable: false,
           });
-          if (ses.status === 'schedule_not_found') {
-            additionalIssues.push({
-              code: 'SCHEDULE_NOT_FOUND',
-              message: `學生報名之數學班級「${cand.enr.rawToken}」未於${
-                options.scheduleOverride ? '現行已儲存排課設定' : '排課種子'
-              }中找到，天數採 0 扣天 fallback，待確認排課或 alias 對應。`,
-            });
+          // D2d D（04 §8 UX73；S manifest §7.5 第 5 點、02 §9 可計算性）：
+          // 不可計算的候選**保留其需確認警告**，不因未被選中就靜默。
+          // `schedule_not_found`（查無課表）與 `schedule_empty`（已對應但時段為空）
+          // 兩種不可計算都要出警告——使用者看到的都是「這一班算不出扣天，請確認」。
+          // v2 凍結（F-8）：本段只在 `maxDeductionSelection`（v3）區塊內，v2 不經過。
+          if (ses.status === 'schedule_not_found' || ses.status === 'schedule_empty') {
+            additionalIssues.push(
+              ses.status === 'schedule_not_found'
+                ? {
+                    code: 'SCHEDULE_NOT_FOUND',
+                    message: `學生報名之數學班級「${cand.enr.rawToken}」未於${
+                      options.scheduleOverride ? '現行已儲存排課設定' : '排課種子'
+                    }中找到，天數採 0 扣天 fallback，待確認排課或 alias 對應。`,
+                  }
+                : {
+                    code: 'SCHEDULE_EMPTY',
+                    message: `學生報名之數學班級「${cand.enr.rawToken}」已對應到${
+                      options.scheduleOverride ? '現行已儲存排課設定' : '排課種子'
+                    }但時段為空，無法計算衝堂扣天；扣天採 0 fallback，待確認該班時段。`,
+                  }
+            );
           }
         }
       }
@@ -299,6 +325,7 @@ export function calculateStudentBilling(
       const evals: CandidateEval[] = [];
       for (const cand of englishCandidates) {
         const ses = resolveClassSessions(cand.enr, options.aliasMap, options.scheduleOverride, classMapFor(options));
+        statusByRawToken.set(cand.enr.rawToken, ses.status);
         if (ses.status === 'calculated') {
           const ded = deductSessions(ses.sessions, ruleSetVersion);
           const pos = isAnqinSide ? -ded.anqin : isTutoringSide ? -ded.tutoring : 0;
@@ -322,12 +349,23 @@ export function calculateStudentBilling(
             positiveDeduction: 0,
             isCalculable: false,
           });
+          // D2d D（04 §8 UX73）：美語候選的不可計算警告。`missingEnglishScheduleWarning`
+          // 仍只守 `schedule_not_found`（F-8：v3 才補美語缺課表警告），但 `schedule_empty`
+          // 是本班自己時段為空、與 F-8 無關，故不受該旗標限制——只要走到 v3 選班區塊
+          // 就必須保留這則需確認警告。
           if (ses.status === 'schedule_not_found' && capabilities.missingEnglishScheduleWarning) {
             additionalIssues.push({
               code: 'SCHEDULE_NOT_FOUND',
               message: `學生報名之美語班級「${cand.enr.rawToken}」未於${
                 options.scheduleOverride ? '現行已儲存排課設定' : '排課種子'
               }中找到，天數採 0 扣天 fallback，待確認排課或 alias 對應。`,
+            });
+          } else if (ses.status === 'schedule_empty') {
+            additionalIssues.push({
+              code: 'SCHEDULE_EMPTY',
+              message: `學生報名之美語班級「${cand.enr.rawToken}」已對應到${
+                options.scheduleOverride ? '現行已儲存排課設定' : '排課種子'
+              }但時段為空，無法計算衝堂扣天；扣天採 0 fallback，待確認該班時段。`,
             });
           }
         }
@@ -436,8 +474,13 @@ export function calculateStudentBilling(
       computedTierForEnr = careDays.tutoring.days;
     }
 
+    // D2d D（04 §8 UX73）：優先用**這一列自己**的課表狀態；沒有逐列資訊
+    // （v1／v2／compat，或非數學／美語候選）時才退回原本的全班共用值。
     let schStatus = 'calculated';
-    if (mathScheduleStatus !== 'calculated' && mathScheduleStatus !== 'no_enrollment') {
+    const ownStatus = statusByRawToken.get(enr.rawToken);
+    if (ownStatus && ownStatus !== 'calculated' && ownStatus !== 'no_enrollment') {
+      schStatus = ownStatus;
+    } else if (mathScheduleStatus !== 'calculated' && mathScheduleStatus !== 'no_enrollment') {
       schStatus = mathScheduleStatus;
     } else if (capabilities.scheduleIncompleteOnUnknownWeekday && unknownWeekdayCount > 0) {
       schStatus = 'schedule_incomplete';

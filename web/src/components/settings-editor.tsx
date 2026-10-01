@@ -311,16 +311,25 @@ export default function SettingsEditor({
     [effectiveManualAttrs]
   );
 
+  // D2d E（04 §8 UX61；Q11）：只勾「改用新規則」、不改任何課表設定，也算有未儲存的變更。
+  // 否則「確認變更」按鈕（disabled={!isDirty || …}）永遠停用，使用者為了開預覽
+  // 不得不先做一次無關的課表修改——升級功能等於不可用。
+  // 只在「本次 session 從未升級的 v2 現況」算升級：勾選後取消勾選會回到 false，
+  // 不會留下殘留的 dirty（否則離開頁面會出現假的未儲存提示）。
+  const upgradeChanged = canUpgrade && upgradeConfirmed;
+
   const isDirty = useMemo(() => {
     return (
+      upgradeChanged ||
       isSettingsDirty(
         { ...baseline, classAttrs: [...baselineManualAttrs.entries()].map(([className, a]) => toClassAttributeSetting({ ...a, className })) },
         rows,
         draft.aliases,
         manualAttrSettings
-      ) || mapsDiffer(baselineManualAttrs, effectiveManualAttrs)
+      ) ||
+      mapsDiffer(baselineManualAttrs, effectiveManualAttrs)
     );
-  }, [baseline, baselineManualAttrs, rows, draft.aliases, manualAttrSettings, effectiveManualAttrs]);
+  }, [upgradeChanged, baseline, baselineManualAttrs, rows, draft.aliases, manualAttrSettings, effectiveManualAttrs]);
 
   /**
    * 課表每個班級目前有效的類別／固定 5 天（手動值優先，未手動者依**目前**班名自動偵測）。
