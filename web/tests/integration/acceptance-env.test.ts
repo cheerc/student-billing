@@ -26,11 +26,13 @@ afterEach(async () => {
 });
 
 function cli(args: string[], repo = web) {
-  return spawnSync(process.execPath, ['--import', loader, script, ...args], { cwd: repo, encoding: 'utf8', timeout: 20000, env: { ...process.env, ACCEPTANCE_SOURCE_DIR: repo } });
+  return spawnSync(process.execPath, ['--import', loader, script, ...args], { cwd: web, encoding: 'utf8', timeout: 20000, env: { ...process.env, ACCEPTANCE_SOURCE_DIR: repo } });
 }
 
+// 注意 cwd 固定為 web（對應 CI 的 working-directory）：工具必須自行處理 pathspec，
+// 不能依賴呼叫者的 cwd。
 async function start(repo = web) {
-  const child = spawn(process.execPath, ['--import', loader, script, '--port', '3840'], { cwd: repo, stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, ACCEPTANCE_SOURCE_DIR: repo } });
+  const child = spawn(process.execPath, ['--import', loader, script, '--port', '3840'], { cwd: web, stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, ACCEPTANCE_SOURCE_DIR: repo } });
   children.push(child);
   return new Promise<{ child: ChildProcess; state: string; database: string; workspace: string; url: string; source: string }>((resolve, reject) => {
     let output = '';
@@ -69,9 +71,17 @@ describe('T1：獨立 production build 的隔離驗收環境', () => {
     git('init', '--quiet');
     git('config', 'user.email', 'acceptance@test.invalid');
     git('config', 'user.name', 'acceptance test');
-    // 只取追蹤檔（HEAD 的 web/）；不複製來源目錄，untracked 的 bait 不會進來。
+    // 只取追蹤檔；不複製來源目錄，untracked 的 bait 不會進來。
+    // pathspec 與 archive 的 cwd 都用 repo 根：`git archive` 的 pathspec 在 CI 的 git 2.55
+    // （ubuntu-24.04）自 repo 根解析，在本機 git 2.50 自 cwd 解析——所以 `cwd: web` + pathspec
+    // `web` 在本機通過、在 CI 卻 `pathspec 'web' did not match`（CI run 36904969343，HEAD 207f6b7）。
+    // 以 `/usr/bin/git` 在普通 clone 實測：`cwd=web` + pathspec `web` FAIL、`cwd=root` OK；
+    // `cwd=web` + pathspec `package.json` OK。cwd=repo 根 ＋ 根相對路徑在兩版皆成立。
+    // 這裡模擬「測試自建的暫存 repo 被 T1 當成來源」，repo 根就是剛 git init 的暫存目錄
+    // （不經 git rev-parse：sandbox 的 git wrapper 會把它改寫到別的 worktree）。
+    const repoRoot = repo;
     // 走檔案而非 execFileSync 的 buffer：repo 的 tar 會超過 sync 的輸出上限（ENOBUFS）。
-    fs.writeFileSync(path.join(repo, 'source.tar'), execFileSync('git', ['archive', 'HEAD', 'web'], { cwd: web, maxBuffer: 1 << 28 }));
+    fs.writeFileSync(path.join(repo, 'source.tar'), execFileSync('git', ['archive', 'HEAD', 'web'], { cwd: repoRoot, maxBuffer: 1 << 28 }));
     expect(spawnSync('tar', ['-xf', 'source.tar', '-C', repo], { cwd: repo }).status, '解開 git archive').toBe(0);
     fs.rmSync(path.join(repo, 'source.tar'));
     git('add', '-A');
@@ -84,9 +94,9 @@ describe('T1：獨立 production build 的隔離驗收環境', () => {
 
     const buildId = path.join(repo, 'web/.next/BUILD_ID');
     const before = fs.readFileSync(buildId, 'utf8');
-    const session = await start(repo);
+    const session = await start(path.join(repo, 'web'));
     expect(session.database.startsWith(fs.realpathSync(os.tmpdir()) + path.sep)).toBe(true);
-    expect(session.source).toBe(repo);
+    expect(session.source).toBe(path.join(repo, 'web'));
     expect(fs.existsSync(path.join(session.workspace, 'bait.txt')), 'build workspace 只取追蹤檔，untracked 誘餌不得出現').toBe(false);
     const after = fs.statSync(buildId);
     expect(fs.readFileSync(buildId, 'utf8'), 'T1 不得改寫 source checkout 的 .next/BUILD_ID 內容').toBe(before);
@@ -108,15 +118,15 @@ describe('T1：獨立 production build 的隔離驗收環境', () => {
     const preview = await request('/api/v1/settings/preview', { draft, expectedRevision: 0 });
     const applied = await request('/api/v1/settings/apply', { previewId: preview.previewId, expectedRevision: 0, idempotencyKey: 't1-persist' });
     expect(applied.mode).toBe('settings_only');
-    expect(cli(['--restart', '--state', session.state], repo).status, 'restart').toBe(0);
+    expect(cli(['--restart', '--state', session.state], path.join(repo, 'web')).status, 'restart').toBe(0);
     const persisted = await request('/api/v1/settings/deductions');
     expect(persisted.classes.some((item: { teacher: string }) => item.teacher === '合成T1持久化老師')).toBe(true);
-    expect(cli(['--reset', '--state', session.state], repo).status, 'reset').toBe(0);
+    expect(cli(['--reset', '--state', session.state], path.join(repo, 'web')).status, 'reset').toBe(0);
     const reset = await request('/api/v1/settings/deductions');
     expect(reset.classes.some((item: { teacher: string }) => item.teacher === '合成T1持久化老師')).toBe(false);
     // 刪除臨時 repo（含哨兵）也要在測試結束後清理，已由 afterEach 的 states 處理。
     const exited = once(session.child, 'exit');
-    expect(cli(['--stop', '--state', session.state], repo).status, 'stop').toBe(0);
+    expect(cli(['--stop', '--state', session.state], path.join(repo, 'web')).status, 'stop').toBe(0);
     await exited;
     expect(session.child.exitCode).toBe(0);
     expect(fs.readFileSync(buildId, 'utf8'), '整輪結束後 source 哨兵仍不變').toBe(before);

@@ -190,7 +190,24 @@ async function start(port: number) {
 
   try {
     // 只取 immutable HEAD 的 git 追蹤檔；不複製來源目錄、node_modules、data 或 untracked 資料。
-    const archive = track(spawn('git', ['archive', session.head, 'web'], { cwd: SOURCE, stdio: ['ignore', 'pipe', 'inherit'], detached: process.platform !== 'win32' }));
+    // `git archive` 的 pathspec 在 CI 的 git 2.55（ubuntu-24.04）自 repo 根解析、在本機 2.50 自 cwd 解析，
+    // 所以 `cwd=web` + pathspec `web` 在本機通過、在 CI 卻 `pathspec 'web' did not match`
+    // （CI run 36904969343，HEAD 207f6b7）。以 `/usr/bin/git` 在普通 clone 實測：cwd=web+`web` FAIL、
+    // cwd=root+`web` OK、cwd=web+`package.json` OK。cwd=repo 根＋根相對路徑在兩版皆成立。
+    // repo 根以「往上找 .git」判定，不用 `git rev-parse`：sandbox 的 git wrapper 會把它改寫到
+    // 別的 worktree，拿到的根不是這個來源。
+    let repoRoot = SOURCE;
+    while (!fs.existsSync(path.join(repoRoot, '.git'))) {
+      const parent = path.dirname(repoRoot);
+      if (parent === repoRoot) throw new Error(`來源 checkout ${SOURCE} 不在任何 git repo 內`);
+      repoRoot = parent;
+    }
+    if (!fs.existsSync(path.join(SOURCE, 'package.json'))) {
+      throw new Error('來源 checkout 必須含有 package.json（請由 web/ 目錄啟動本工具，或讓 ACCEPTANCE_SOURCE_DIR 指向含 package.json 的目錄）');
+    }
+    const packageDir = path.relative(repoRoot, SOURCE).split(path.sep).join('/');
+    if (!packageDir || packageDir.startsWith('..')) throw new Error('來源 checkout 必須在 repo 內');
+    const archive = track(spawn('git', ['archive', session.head, packageDir], { cwd: repoRoot, stdio: ['ignore', 'pipe', 'inherit'], detached: process.platform !== 'win32' }));
     const tar = track(spawn('tar', ['-x', '--strip-components=1', '-C', session.workspace], { stdio: ['pipe', 'inherit', 'inherit'], detached: process.platform !== 'win32' }));
     tar.stdin!.on('error', () => {});
     archive.stdout!.pipe(tar.stdin!);
