@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { summarize } from '../../scripts/parity-d2b.mts';
+import { summarize } from '../../scripts/parity-d2b.mjs';
 import type { StudentSnapshot } from '@/domain/students';
 
 /** 真實 calculator→baseline 腳本的欄位映射；expected 由 R09/R10/R14 手算。 */
