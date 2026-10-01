@@ -20,7 +20,7 @@ async function loadStudents(): Promise<StudentSnapshot[]> {
   return preview.students;
 }
 
-function summarize(s: StudentSnapshot) {
+export function summarize(s: StudentSnapshot) {
   const common = { aliasMap, scheduleOverride, classSettings };
   const r = calculateStudentBilling(s, { ...common, ruleSetVersion: 'erp-tag-v2' });
   const v3 = calculateStudentBilling(s, { ...common, ruleSetVersion: 'erp-tag-v3' as any });
