@@ -62,7 +62,7 @@ READY  {"…同上…"}
 
 首次啟動需數十秒（production build）；之後 `--restart` 不重建，只重啟服務。
 
-以下為乾淨 clone（`git clone` 後無 `node_modules`）、系統 git（`/usr/bin/git` 2.50.1）、**不帶任何環境變數**照上面指令實跑的實際輸出（raw：`evidence-batch-e/clean-clone-t1.log`）：
+以下為乾淨 clone（`git clone` 後無 `node_modules`）、系統 git（`/usr/bin/git` 2.50.1）、**不帶任何環境變數**照上面指令實跑的實際輸出（raw：`evidence-batch-e/clean-clone-t1-transcript.log`、`clean-clone-t1.log`）：
 
 ```
 - Local:         http://127.0.0.1:3300
@@ -160,7 +160,7 @@ round3-C.xlsx：4 人（全合成）；<dir>/round3-C.xlsx
 - 目標目錄已有檔案時不覆寫（改用新的 `--out`）。
 - manifest 的預期人數、alias 目標與 F03 各子項可達性由**產生器內明列的列資料**寫出，不以產品 parser 輸出回填。
 
-乾淨 clone、系統 git、不帶環境變數照上面指令實跑的實際輸出（raw：`evidence-batch-e/clean-clone-t3.log`）：
+乾淨 clone、系統 git、不帶環境變數照上面指令實跑的實際輸出（raw：`evidence-batch-e/clean-clone-t23-transcript.log`）：
 
 ```
 $ npx tsx scripts/round3-fixtures.ts --help
