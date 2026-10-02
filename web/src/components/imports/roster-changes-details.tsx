@@ -15,6 +15,8 @@ function daysCell(before: number | null, after: number | null): string {
   return before === after ? '不變' : `${fmtDays(before)} → ${fmtDays(after)}`;
 }
 
+const RATE_COURSE_LABEL: Record<'anqin' | 'tutoring', string> = { anqin: '安親', tutoring: '課輔' };
+
 const STATUS_LABEL: Record<string, string> = {
   not_counted: '不計入',
   no_enrollment: '—',
@@ -69,6 +71,7 @@ export function RosterChangesDetails({ changes }: { changes: RosterChange[] }) {
               <th>學生</th>
               <th>類別</th>
               <th>折扣</th>
+              <th>適用率</th>
               <th>安親天數</th>
               <th>課輔天數</th>
               <th>原因</th>
@@ -88,6 +91,15 @@ export function RosterChangesDetails({ changes }: { changes: RosterChange[] }) {
                     <td data-field="discount">
                       {c.discountChange ? `${c.discountChange.beforeLabel} → ${c.discountChange.afterLabel}` : '—'}
                     </td>
+                    <td data-field="rate">
+                      {c.rateChange
+                        ? c.rateChange.items.map((i) => (
+                            <div key={i.course} data-rate={i.course}>
+                              {`${RATE_COURSE_LABEL[i.course]} ${i.beforeLabel} → ${i.afterLabel}`}
+                            </div>
+                          ))
+                        : '—'}
+                    </td>
                     <td data-field="anqin-days">
                       {c.dayChange ? daysCell(c.dayChange.beforeAnqinDays, c.dayChange.afterAnqinDays) : '—'}
                     </td>
@@ -98,7 +110,7 @@ export function RosterChangesDetails({ changes }: { changes: RosterChange[] }) {
                   </tr>
                   {c.dayChange && c.dayChange.classBreakdown.length > 0 && (
                     <tr className="roster-change-breakdown">
-                      <td colSpan={6}>
+                      <td colSpan={7}>
                         <BreakdownList rows={c.dayChange.classBreakdown} />
                       </td>
                     </tr>
