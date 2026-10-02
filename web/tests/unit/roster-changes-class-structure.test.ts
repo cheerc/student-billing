@@ -309,14 +309,137 @@ describe('PR-1 §5 結構化原因（reasons：型別化資料，非文案）', 
     }
   });
 
-  it('寫功課這類不列折扣的班：不是折扣變動的原因（-68：未設定折扣類別的班不列）', () => {
+  /**
+   * Lead r1 裁定（rework：報名原因只列「真的會影響該班適用率輸入」者）：
+   * 寫功課讓 `hasHomeworkOrMeian` 改變 → **只影響 care（安親／課輔）**。
+   *
+   * 手算（before 三年級：輔導＋數學 → 科數 2 → basic 9500；after 輔導＋寫功課 → 科數 1 → basic 10000；
+   *       寫功課 → hasHomeworkOrMeian=true → 課輔適用率固定 10000）：
+   *   - 輔導班（care，kept）：9500 → 10000 ✔ 會變動；原因＝退數學（enrollment_removed）＋加寫功課（enrollment_added）
+   *   - 數學班：before only，不列
+   * → 若實作無過濾，輔導班的 reasons 會同時出現寫功課與數學退班；本案例要求兩者都在（寫功課**確實**影響 care），
+   *   另一案例（無維護交通車）才驗證 none 類別班不得出現。
+   */
+  it('寫功課是 care 班的原因（影響 hasHomeworkOrMeian），但只掛在 care 班上', () => {
     const { beforeCtx, afterCtx } = contexts();
-    const before = student('R3', ['國小數學-三A'], { grade: 3 });
-    const after = student('R3', ['國小數學-三A', '國小輔導-寫功課'], { grade: 3 });
+    const before = student('R3', ['國小輔導-一A', '國小數學-一A'], { grade: 3 });
+    const after = student('R3', ['國小輔導-一A', '國小輔導-寫功課'], { grade: 3 });
 
     const change = only(computeRosterChanges([before], [after], beforeCtx, afterCtx))[0];
 
-    expect(change.classDiscountChanges).toEqual([]);
+    expect(change.classDiscountChanges.map((c) => [c.baseName, c.sideOf, c.beforeBps, c.afterBps])).toEqual([
+      ['國小輔導-一A', 'care', 9500, 10000],
+    ]);
+    expect(change.classDiscountChanges[0].reasons).toEqual([
+      { kind: 'enrollment_removed', className: '國小數學-一A' },
+      { kind: 'enrollment_added', className: '國小輔導-寫功課' },
+    ]);
+  });
+
+  /**
+   * 同一個學生若同時有數學／美語班的變動，寫功課**不得**出現在那些班的原因
+   * （hasHomeworkOrMeian 在 math／english 分支不被消費，discount-rules calculateApplicableRate）。
+   */
+  it('寫功課不得掛到數學／美語班（同一生同時有兩類班變動）', () => {
+    const { beforeCtx, afterCtx } = contexts();
+    // before：數學＋英文（科數 2 → 9500）；after：數學＋英文＋寫功課（科數 2 → 9500，數值不變）→ 無變動項
+    // 改用會變動的組合：before 數學＋英文 → after 數學＋英文＋第三類輔導（科數 3 → 9000）
+    // 再疊加寫功課：hasHomeworkOrMeian=true → 輔導班課輔 10000；math／english 仍 9000
+    const b = student('R3b', ['國小數學-一A', '兒童美語-EA'], { grade: 3 });
+    const a = student('R3b', ['國小數學-一A', '兒童美語-EA', '國小輔導-一A', '國小輔導-寫功課'], { grade: 3 });
+
+    const change = only(computeRosterChanges([b], [a], beforeCtx, afterCtx))[0];
+
+    for (const item of change.classDiscountChanges) {
+      expect(
+        item.reasons,
+        `${item.baseName}（${item.sideOf}）不得出現寫功課`
+      ).not.toContainEqual({ kind: 'enrollment_added', className: '國小輔導-寫功課' });
+    }
+  });
+
+  /** 其他 none 類別班（交通車）永不列為原因（Lead r1 裁定：none 類別班永不列）。 */
+  it('其他 none 類別班（交通車）永不列為原因', () => {
+    const { beforeCtx, afterCtx } = contexts();
+    // before：輔導＋數學（科數 2 → 9500）；after：輔導＋數學＋交通車 → 科數仍 2 → 無變動
+    // 改用會變動者：before 輔導（科數 1 → 10000）＋數學 → after 加交通車並退數學 → 科數 1 → 10000（無變）
+    // 最簡可區分：退掉數學 + 加交通車，同時讓輔導班有真實變動
+    const b = student('R3c', ['國小輔導-一A', '國小數學-一A'], { grade: 3 });
+    const a = student('R3c', ['國小輔導-一A', '交通車'], { grade: 3 });
+
+    const change = only(computeRosterChanges([b], [a], beforeCtx, afterCtx))[0];
+
+    expect(change.classDiscountChanges.map((c) => c.baseName)).toEqual(['國小輔導-一A']);
+    expect(change.classDiscountChanges[0].reasons).toEqual([
+      { kind: 'enrollment_removed', className: '國小數學-一A' },
+    ]);
+  });
+
+  /**
+   * primary B-1：數學班因兄弟姊妹折扣移除而變動、**同時**移除園內生 → reasons 只有兄弟姊妹。
+   * 手算：科數 1（math）＋兄弟姊妹 → effective 2 → 9500；移除 → 10000。math 適用率 = basic。
+   */
+  it('數學班因兄弟姊妹變動、且同時移除園內生 → reasons 只有兄弟姊妹，不含園內生', () => {
+    const { beforeCtx, afterCtx } = contexts();
+    const b = student('R3d', ['國小數學-三A'], { grade: 3, tagsRaw: '園內生 有兄弟姊妹折扣' });
+    const a = student('R3d', ['國小數學-三A'], { grade: 3 });
+
+    const change = only(computeRosterChanges([b], [a], beforeCtx, afterCtx))[0];
+
+    expect(change.classDiscountChanges).toHaveLength(1);
+    expect(change.classDiscountChanges[0].sideOf).toBe('math');
+    expect(change.classDiscountChanges[0].beforeBps).toBe(9500);
+    expect(change.classDiscountChanges[0].afterBps).toBe(10000);
+    expect(change.classDiscountChanges[0].reasons).toEqual([
+      { kind: 'tag_removed', tag: '有兄弟姊妹折扣' },
+    ]);
+  });
+
+  /** 美語班同型（primary B-1 的 english 對照）。 */
+  it('美語班因兄弟姊妹變動、且同時移除園內生 → reasons 只有兄弟姊妹，不含園內生', () => {
+    const { beforeCtx, afterCtx } = contexts();
+    const b = student('R3e', ['兒童美語-EA'], { grade: 3, tagsRaw: '園內生 有兄弟姊妹折扣' });
+    const a = student('R3e', ['兒童美語-EA'], { grade: 3 });
+
+    const change = only(computeRosterChanges([b], [a], beforeCtx, afterCtx))[0];
+
+    expect(change.classDiscountChanges).toHaveLength(1);
+    expect(change.classDiscountChanges[0].sideOf).toBe('english');
+    expect(change.classDiscountChanges[0].reasons).toEqual([{ kind: 'tag_removed', tag: '有兄弟姊妹折扣' }]);
+  });
+
+  /**
+   * 同類換班不改變「計入科數的類別集合」→ 不是原因（Lead r1 裁定：只有改變類別集合才算）。
+   * before：數學三A（科數 1 → 10000）；after：數學三A 換成數學三B（科數仍 1 → 10000）。
+   * 同時加兄弟姊妹 → effective 2 → 9500，數學班變動；原因只有兄弟姊妹，換班不得出現。
+   */
+  it('同類換班不改變類別集合 → 不作為原因（即使同時間有真實原因）', () => {
+    const { beforeCtx, afterCtx } = contexts();
+    const b = student('R3f', ['國小數學-三A'], { grade: 3 });
+    const a = student('R3f', ['國小數學-三B'], { grade: 3, tagsRaw: '有兄弟姊妹折扣' });
+
+    const change = only(computeRosterChanges([b], [a], beforeCtx, afterCtx))[0];
+
+    expect(change.enrollmentChanges.map((e) => e.presence)).toEqual(['switched', 'switched']);
+    expect(change.classDiscountChanges).toHaveLength(1);
+    expect(change.classDiscountChanges[0].reasons).toEqual([{ kind: 'tag_added', tag: '有兄弟姊妹折扣' }]);
+  });
+
+  /** 加報第二個數學班：類別集合不變（math 已在）→ 加報該班不是原因。 */
+  it('加報同類別第二個數學班：類別集合未變 → 不列為原因', () => {
+    const { beforeCtx, afterCtx } = contexts();
+    // before：輔導（科數 1 → 10000）；after：輔導＋數學三A＋數學三B（科數 2 → 9500）
+    const b = student('R3g', ['國小輔導-一A'], { grade: 3 });
+    const a = student('R3g', ['國小輔導-一A', '國小數學-三A', '國小數學-三B'], { grade: 3 });
+
+    const change = only(computeRosterChanges([b], [a], beforeCtx, afterCtx))[0];
+
+    expect(change.classDiscountChanges).toHaveLength(1);
+    expect(change.classDiscountChanges[0].baseName).toBe('國小輔導-一A');
+    // 類別集合由 {care} → {care, math}：真正原因是「數學這個類別首次出現」，只列一個代表班名
+    expect(change.classDiscountChanges[0].reasons).toEqual([
+      { kind: 'enrollment_added', className: '國小數學-三A' },
+    ]);
   });
 
   it('加報兄弟姊妹折扣標籤 → tag_added（tag 為原字串）', () => {
