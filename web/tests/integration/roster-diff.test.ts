@@ -141,15 +141,24 @@ describe('computeImportRosterChanges：新舊名單差異（以 before/after 計
     expect(byCode.get('D')!.isNew).toBe(true);
   });
 
-  it('報名 token 改變但計費結果不變（二A→二B）→ 不算異動（指紋代理會誤判）', () => {
+  /**
+   * Round3 PR-1 語意更新（decisions d-20261002173610753099-75）：同類換班要獨立列為「報名異動」，
+   * 即使計費結果不變。舊契約（d-…-4：只看計算結果）會判為未異動，該判斷已被 -75 取代。
+   * 保留的保證：折扣／適用率／天數的 before→after 完全不變。
+   */
+  it('報名 token 改變但計費結果不變（二A→二B）→ 算報名異動，但折扣／天數不變（-75）', () => {
     const base = save('imp_base', '2026-09-28T10:00:00.000Z', [student('A', ['國小數學-二A'], { grade: 1 })]);
     const incoming = save('imp_next', '2026-09-29T10:00:00.000Z', [student('A', ['國小數學-二B'], { grade: 1 })]);
 
     const diff = computeImportRosterChanges(db, incoming, base);
 
-    expect(diff.changedStudents).toBe(0);
-    expect(diff.unchangedStudents).toBe(1);
-    expect(diff.changes).toEqual([]);
+    expect(diff.changedStudents).toBe(1);
+    expect(diff.unchangedStudents).toBe(0);
+    expect(diff.changes).toHaveLength(1);
+    expect(diff.changes[0].dayChange).toBeNull();
+    expect(diff.changes[0].discountChange).toBeNull();
+    expect(diff.changes[0].rateChange).toBeNull();
+    expect(diff.changes[0].classDiscountChanges).toEqual([]);
   });
 
   it('報名完全相同但年級 1→3 → 算異動（安親→課輔分支；指紋代理會漏判）', () => {
