@@ -260,4 +260,101 @@ test.describe('N09／R3-F02: 儲存後候選表、標題、頁籤與報告同步
     const targetInput = page.locator('.mapping-table tr', { hasText: '交通車' }).locator('input.input-target-classname');
     await expect(targetInput).toHaveValue('兒童美語-Gino');
   });
+
+  /**
+   * B-1（primary review blocking）：「1 次成功 → 第 2 次 GET 失敗 → 第 3 次成功」的完整轉場。
+   *
+   * 既有 test 3 讓**第一次** GET 就失敗，此時從未成功刷新過，last-successful 恰好等於 SSR 初值，
+   * 無法區分「回退到初始」與「保留最後已知」。本案例讓第一次**成功**（候選 12 → 11），
+   * 第二次 GET **失敗**，此時候選表／標題／頁籤必須維持 11（最後一次成功取得的報告），
+   * 已套用成功的別名不得重新浮現；第三次成功後恢復為 10。
+   *
+   * expected 由流程獨立推導（每成功套用一個有效別名就少一個未對應班名），
+   * 不使用新實作的輸出回填。
+   */
+  test('5. B-1：第 1 次套用成功後，第 2 次重新取得報告失敗 → 候選維持最後成功值（不回退初值、不重新浮現已對應別名），第 3 次成功後恢復', async ({
+    page,
+  }) => {
+    test.setTimeout(120_000);
+
+    await page.goto('/imports');
+    await page.locator('input[type="file"]').setInputFiles(FIXTURE);
+    await expect(page.locator('.stats-grid')).toBeVisible({ timeout: 15000 });
+    await page.locator('button', { hasText: '使用這份名單' }).click();
+    await expect(page.locator('.success-stage-card')).toBeVisible({ timeout: 15000 });
+
+    await page.goto('/settings');
+    const mappingTab = page.locator('button[role="tab"]', { hasText: '班名對應' });
+    await mappingTab.click();
+    await expect(page.locator('.mapping-table')).toBeVisible({ timeout: 10000 });
+    const toolbar = page.locator('.toolbar', { hasText: '待確認米豆奶班名' });
+    const staleNotice = page.getByRole('alert').filter({ hasText: '無法取得最新的班名比對報告' });
+
+    const initialText = (await mappingTab.textContent()) || '';
+    const m = initialText.match(/\d+/);
+    expect(m, '頁籤 badge 應帶待確認班數').not.toBeNull();
+    const base = parseInt(m![0], 10);
+
+    // 套用一個有效別名的 helper（真實 UI：填目標 → 勾選 → 確認變更 → 儲存）
+    async function applyAlias(raw: string, target: string) {
+      const row = page.locator('.mapping-table tr', { hasText: raw });
+      await expect(row).toBeVisible();
+      await row.locator('input.input-target-classname').fill(target);
+      await row.locator('input[type="checkbox"]').check();
+      await page.locator('button', { hasText: '確認變更' }).click();
+      const dialog = page.locator('dialog.impact-dialog');
+      await expect(dialog).toBeVisible({ timeout: 15000 });
+      await dialog.locator('button', { hasText: '儲存並更新結果' }).click();
+      await expect(page.locator('#toast')).toContainText('課表已套用並完成重算', { timeout: 15000 });
+      await expect(dialog).not.toBeVisible();
+    }
+
+    // ── 步驟 1：第一次 GET 成功 → 候選 base → base-1，已對應別名消失
+    // 別名選擇刻意避開同檔前案使用或改名過的班（案例 1 曾把「國小國語文-小三小四」整班改名），
+    // 確保目標班仍是有效系統班級，不受同檔案例間的 DB 殘留影響。
+    await applyAlias('小六國文加強班', '小六加強班-國文');
+    await expect(toolbar).toContainText(`(${base - 1})`);
+    await expect(mappingTab).toContainText(String(base - 1));
+    await expect(page.locator('.mapping-table tr', { hasText: '小六國文加強班' })).toHaveCount(0);
+    await expect(staleNotice).toHaveCount(0);
+
+    // ── 步驟 2：第二次儲存，但重新取得報告失敗（500）
+    //    攔截點設在第 1 次成功之後，故只讓第 2 次 refresh 的 GET 失敗。
+    let reportCalls = 0;
+    await page.route('**/api/v1/settings/class-name-report**', async (route: Route) => {
+      reportCalls += 1;
+      if (reportCalls === 1) {
+        return route.fulfill({ status: 500, contentType: 'application/json', body: '{"error":"server error"}' });
+      }
+      return route.continue();
+    });
+
+    // 別名選擇避開同檔案例 1／3 已使用的班（案例 1 改名過「國小國語文-小三小四」，
+    // 案例 3 已套用「小六數學加強班」「國小輔導-四年級A」），避免受 DB 殘留影響。
+    await applyAlias('交通車', '兒童美語-Ali');
+
+    // stale 提示必須出現（明示資料尚未更新）
+    await expect(staleNotice).toBeVisible({ timeout: 15000 });
+
+    // 【B-1 核心斷言】候選表／標題／頁籤必須維持「最後一次成功取得」的 base-1，
+    // 不得回退到頁面初始的 base；第一次已套用成功的別名不得重新浮現。
+    await expect(toolbar).toContainText(`(${base - 1})`);
+    await expect(mappingTab).toContainText(String(base - 1));
+    await expect(page.locator('.mapping-table tr', { hasText: '小六國文加強班' })).toHaveCount(0);
+    // stale 期間表格仍可操作：繼續填寫下一個候選
+    await expect(page.locator('.mapping-table tr', { hasText: '正音A班' })).toBeVisible();
+
+    // ── 步驟 3：第三次儲存成功 → stale 提示消失。
+    // 注意：第 2 步的 alias（交通車）**已成功套用**（apply 成功，只是報告 GET 失敗），
+    // 故此時伺服器端共有 3 個別名生效 → 候選為 base-3。
+    await page.unroute('**/api/v1/settings/class-name-report**');
+    await applyAlias('正音A班', '兒童美語-Archy');
+
+    await expect(staleNotice).toHaveCount(0, { timeout: 15000 });
+    await expect(toolbar).toContainText(`(${base - 3})`);
+    await expect(mappingTab).toContainText(String(base - 3));
+    await expect(page.locator('.mapping-table tr', { hasText: '小六國文加強班' })).toHaveCount(0);
+    await expect(page.locator('.mapping-table tr', { hasText: '交通車' })).toHaveCount(0);
+    await expect(page.locator('.mapping-table tr', { hasText: '正音A班' })).toHaveCount(0);
+  });
 });

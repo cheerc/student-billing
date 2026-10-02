@@ -2,6 +2,12 @@ import { describe, it, expect } from 'vitest';
 import { buildDynamicCandidates, type CandidateCounts } from '@/domain/schedules/seed-manifest';
 import type { ClassNameMatchReport } from '@/application/class-name-match-report';
 
+/**
+ * **characterization（非本功能的 RED）**：本檔只 import 並呼叫既有的 `buildDynamicCandidates`，
+ * 純函式在 base `020e6c5` 上本來就是綠的，無法區分本 PR 與 base 的行為差異。
+ * 它鎖住的是「rosterOnly → 候選清單」的形狀／計數／排序契約（單一權威來源不迴退），
+ * 本功能真正的行為覆蓋與 RED 證據在 `web/tests/e2e/round3-mapping-candidates-sync.spec.ts`。
+ */
 describe('N09: SettingsEditor 候選清單與班名比對報告同步（UX70／issue #55）', () => {
   it('1. 從報告之 rosterOnly 組裝之動態候選集合與 counts 一致，且嚴格按 rawBaseName 字典序升冪排序', () => {
     const reportRosterOnly = [
