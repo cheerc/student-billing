@@ -125,8 +125,39 @@ export function queryRunStudents(db: Database.Database, runId: string, params: R
   add(classes);
   for (const [key, column] of Object.entries({
     grade: 'sc.grade', baseDiscountBps: 'sc.base_discount_bps', anqinDays: 'sc.anqin_days', tutoringDays: 'sc.tutoring_days',
-    hasIssues: 'sc.has_issues', tierMismatch: 'sc.tier_mismatch',
+    hasIssues: 'sc.has_issues',
   })) add(selectionPredicate(selected[key], column));
+  if (selected.tierMismatch) {
+    if (selected.tierMismatch.none) {
+      add({ sql: '0', args: [] });
+    } else {
+      const classValues = selected.enrollmentKey && !selected.enrollmentKey.none
+        ? selected.enrollmentKey.values.filter((v): v is string => typeof v === 'string')
+        : [];
+      const classScopeSql = classValues.length > 0
+        ? `json_extract(j.value, '$.baseName') IN (${classValues.map(() => '?').join(',')}) AND `
+        : '';
+      const terms: string[] = [];
+      const args: Array<string | number> = [];
+      for (const val of selected.tierMismatch.values) {
+        if (val === true) {
+          terms.push(`EXISTS (SELECT 1 FROM json_each(sc.tier_comparisons) j WHERE ${classScopeSql}json_extract(j.value, '$.status') = 'mismatch')`);
+          args.push(...classValues);
+        } else if (val === false) {
+          terms.push(
+            `(EXISTS (SELECT 1 FROM json_each(sc.tier_comparisons) j WHERE ${classScopeSql}json_extract(j.value, '$.status') = 'match') ` +
+            `AND NOT EXISTS (SELECT 1 FROM json_each(sc.tier_comparisons) j WHERE ${classScopeSql}json_extract(j.value, '$.status') IN ('mismatch', 'unavailable')))`
+          );
+          args.push(...classValues, ...classValues);
+        } else {
+          terms.push('0');
+        }
+      }
+      if (terms.length > 0) {
+        add({ sql: `(${terms.join(' OR ')})`, args });
+      }
+    }
+  }
   add(branchPredicate('sc.branch', selected.branch));
   add(selectionPredicate(selected.hasClass, '(coalesce(sc.subject_count,0) > 0)', '0'));
   if (selected.billingTier) add(selectionPredicate(selected.billingTier, query.careType === 'anqin' ? 'sc.anqin_days' : 'sc.tutoring_days'));

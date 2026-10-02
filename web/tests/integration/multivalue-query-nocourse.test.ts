@@ -184,9 +184,10 @@ describe('B1 多值查詢／全 run 選項／無課程真實 API', () => {
     expect(codes(result.body)).toEqual([code(6), code(15)]);
     expect(result.body.stats.issuesCount).toBe(2);
     expect(codes((await query(runId, [['issueCode', 'STAFF_FAMILY_NO_DISCOUNT'], ['issueCode', 'DUPLICATE_SUBJECT_ENROLLMENT'], ['grade', '1']])).body)).toEqual([code(6)]);
-    for (const key of ['hasIssues', 'tierMismatch']) {
-      expect((await query(runId, [[key, 'true'], [key, 'false']])).body.totalStudents).toBe(205);
-    }
+    expect((await query(runId, [['hasIssues', 'true'], ['hasIssues', 'false']])).body.totalStudents).toBe(205);
+    // issue #59 / spec03 §127：tierMismatch true/false 僅收錄有 match 或 mismatch 者；
+    // 此名冊僅 row 8, 9, 10 為 match，其餘 202 人為 not_applicable／unavailable 不納入
+    expect((await query(runId, [['tierMismatch', 'true'], ['tierMismatch', 'false']])).body.totalStudents).toBe(3);
     const comparison = await query(runId, [['enrollmentKey', '交通車'], ['enrollmentKey', CARE], ['tierComparison', 'not_applicable'], ['tierComparison', 'unavailable']]);
     expect(comparison.status).toBe(200);
     expect(codes(comparison.body)).toContain(code(2));

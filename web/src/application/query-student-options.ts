@@ -62,9 +62,14 @@ export function queryStudentOptions(db: Database.Database, runId: string, params
     add('baseDiscountBps', [row.base_discount_bps]);
     add('hasClass', [(row.subject_count ?? 0) > 0]);
     add('hasIssues', [Boolean(row.has_issues)]);
-    add('tierMismatch', [Boolean(row.tier_mismatch)]);
-    const issues = JSON.parse(row.issues) as Array<{ code: string }>;
     const comparisons = JSON.parse(row.tier_comparisons) as Array<{ status: string }>;
+    const hasMismatch = comparisons.some((c) => c.status === 'mismatch');
+    const isMatchOnly = comparisons.some((c) => c.status === 'match') && !comparisons.some((c) => c.status === 'mismatch' || c.status === 'unavailable');
+    const tierMismatchValues: boolean[] = [];
+    if (hasMismatch) tierMismatchValues.push(true);
+    if (isMatchOnly) tierMismatchValues.push(false);
+    add('tierMismatch', tierMismatchValues);
+    const issues = JSON.parse(row.issues) as Array<{ code: string }>;
     add('issueCode', issues.length ? issues.map((i) => i.code) : [null]);
     add('tierComparison', comparisons.length ? comparisons.map((c) => c.status) : [null]);
     const trace = JSON.parse(row.trace);
