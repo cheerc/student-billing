@@ -90,7 +90,7 @@ describe('e2e-isolated --repeat：每輪 DB 起點', () => {
     expect(passes.length, '應跑 2 輪').toBe(2);
     expect(passes[0], '第 1 輪起點').toEqual({ exists: false, size: -1, sidecars: [] });
     expect(passes[1], '第 2 輪起點必須與第 1 輪相同＝全新 DB，不得帶著上一輪 spec 的殘留').toEqual({ exists: false, size: -1, sidecars: [] });
-    expect(fs.readdirSync(tmp), 'runner 結束後 sb-e2e-* 臨時目錄已刪除').toEqual([]);
+    expect(fs.readdirSync(tmp).filter((name) => name.startsWith('sb-e2e-')), 'runner 結束後 sb-e2e-* 臨時目錄已刪除（tsx 自己的快取目錄不算）').toEqual([]);
   }, 150000);
 
   it('--keep-db：明確 opt-in 才保留跨輪殘留（重現 issue #25 的診斷用途）', () => {
