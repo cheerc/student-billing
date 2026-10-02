@@ -678,7 +678,7 @@ describe('PR-2 補齊：v3（類別式 R03）路徑的 reasons（PR65 secondary 
     }
   });
 
-  it('v3：退出唯一的輔導班 → 掛在數學班（math 類別消失 → 科數 2 → 1 → 10000）', () => {
+  it('v3：退出唯一的輔導班 → 掛在數學班（care 類別消失 → 科數 2 → 1 → 10000）', () => {
     const { beforeCtx, afterCtx } = contexts(undefined, 'erp-tag-v3');
     // before：輔導一A＋數學三A（{care, math} = 2 → 9500）
     // after ：只剩數學三A（{math} = 1 → 10000）→ 數學班 9500 → 10000
@@ -697,9 +697,9 @@ describe('PR-2 補齊：v3（類別式 R03）路徑的 reasons（PR65 secondary 
 
   /**
    * operator decision d-20261002220111995309-79（寫功課不計多科、固定 5 天）：
-   * 同時報寫功課 ＋ 數學 ＋ 美語 → v3 計入 {care, math, english} = 3 → effectiveCount 3 → 9000（9折）。
+   * 同時報寫功課 ＋ 數學 ＋ 美語 → v3 計入 {math, english} = 2 → effectiveCount 2 → 9500（95折）。
    */
-  it('v3：寫功課＋數學＋美語 → 科數 3 → 9折（d-…-79）', () => {
+  it('v3：寫功課＋數學＋美語 → 科數 2 → 95折（d-…-79）', () => {
     const { beforeCtx, afterCtx } = contexts(undefined, 'erp-tag-v3');
     // before：數學 ＋ 美語（{math, english} = 2 → 9500）
     // after ：＋寫功課（v3 不計科數 → 仍 2 → 9500）

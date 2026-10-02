@@ -147,6 +147,21 @@ const mockChanges = [
       ],
     },
     reasons: ['已補科數變動', '安親／課輔扣除天數變動'],
+    // PR-2（-68／-75／-76）：報名異動與逐班折扣變動
+    enrollmentChanges: [
+      { baseName: '國小數學-一A', rawToken: '國小數學-一A[團]', presence: 'removed' },
+      { baseName: '國小數學-三A', rawToken: '國小數學-三A[團]', presence: 'added' },
+    ],
+    classDiscountChanges: [
+      {
+        baseName: '國小數學-三A',
+        rawToken: '國小數學-三A[團]',
+        sideOf: 'math',
+        beforeBps: 9500,
+        afterBps: 9000,
+        reasons: [{ kind: 'enrollment_added', className: '國小數學-一A' }],
+      },
+    ],
   },
   {
     personCode: 'NEW001',
@@ -158,6 +173,8 @@ const mockChanges = [
     discountChange: null,
     dayChange: null,
     reasons: ['新增學生'],
+    enrollmentChanges: [{ baseName: '國小數學-一A', rawToken: '國小數學-一A[團]', presence: 'added' }],
+    classDiscountChanges: [],
   },
   {
     personCode: 'GONE001',
@@ -169,6 +186,8 @@ const mockChanges = [
     discountChange: null,
     dayChange: null,
     reasons: ['本次名單未出現'],
+    enrollmentChanges: [{ baseName: '國小數學-三A', rawToken: '國小數學-三A[團]', presence: 'removed' }],
+    classDiscountChanges: [],
   },
 ];
 
@@ -403,36 +422,50 @@ describe('R3 匯入頁工作流程與 UI 元件（RED 測試）', () => {
 
       expect(html).not.toContain('核對結果頁');
       expect(html).not.toContain('逐位列出');
-      expect(html).not.toContain('報名異動');
+      // 「報名異動」自 PR-2 起是明細表的**欄位名**（-76 一），不再是未兌現的代理指標
+      expect(html).toContain('<th>報名異動</th>');
     });
 
-    it('逐人明細：異動者顯示折扣與天數 before → after，並標明退掉／新報的課', () => {
+    it('逐人明細：異動者顯示報名異動、逐班折扣變動與天數 before → after（PR-2 新欄位契約）', () => {
       const html = render(withDiff({}));
 
       // 明細容器與人員
       expect(html).toContain('roster-changes-details');
       expect(html).toContain('異動同學');
       expect(html).toContain('CHG001');
-      // 折扣 95折 → 9折（B1：使用者看得到 operator 裁決要的對照）
-      expect(html).toContain('95折');
-      expect(html).toContain('9折');
+      // 狀態欄：異動
+      expect(html).toMatch(/data-field="status"[^>]*>異動</);
+      // 報名異動欄：退出／新增（-76 一）
+      expect(html).toMatch(/data-field="enrollment"[^>]*>[\s\S]*?退出 國小數學-一A/);
+      expect(html).toMatch(/data-field="enrollment"[^>]*>[\s\S]*?新增 國小數學-三A/);
+      // 折扣變動欄：逐班「95折 → 9折」＋原因（-76 二）
+      expect(html).toMatch(/data-field="class-discount"[^>]*>[\s\S]*?95折 → 9折/);
+      expect(html).toContain('新增 國小數學-一A');
       // 課輔天數 5 → 4（以 data-field 標記欄位，避免以文字順序猜測）
       expect(html).toMatch(/data-field="tutoring-days"[^>]*>5 → 4</);
-      expect(html).toMatch(/data-field="discount"[^>]*>95折 → 9折</);
-      // 逐班明細（B2）：退掉的課與新報的課都要列出，並附各自的扣天數
+      // 逐班扣天展開列（B2）保留，詞彙與報名異動一致（退出／新增）
       expect(html).toContain('國小數學-一A');
-      expect(html).toContain('退掉');
+      expect(html).toContain('退出');
       expect(html).toContain('國小數學-三A');
-      expect(html).toContain('新報');
+      expect(html).toContain('新增');
     });
 
-    it('新增與未出現的學生也在明細中，可對照計數', () => {
+    it('新增與未出現的學生也在明細中，狀態為新學生／已不在名單且兩個欄位顯示「—」（PR-2）', () => {
       const html = render(withDiff({}));
 
       expect(html).toContain('新增同學');
-      expect(html).toContain('未出現同學');
       expect(html).toContain('NEW001');
+      expect(html).toContain('未出現同學');
       expect(html).toContain('GONE001');
+      // -76 一：新學生／已不在名單的列，報名異動與折扣變動都顯示「—」
+      const newRow = html.match(/<tr data-status="new">[\s\S]*?<\/tr>/)![0];
+      const goneRow = html.match(/<tr data-status="not-appeared">[\s\S]*?<\/tr>/)![0];
+      for (const row of [newRow, goneRow]) {
+        expect(row).toMatch(/data-field="enrollment"[^>]*>—</);
+        expect(row).toMatch(/data-field="class-discount"[^>]*>—</);
+      }
+      expect(newRow).toContain('新學生');
+      expect(goneRow).toContain('已不在名單');
     });
 
     it('沒有任何異動明細時不出現明細區塊（但三個數字仍顯示）', () => {

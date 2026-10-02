@@ -157,7 +157,6 @@ describe('computeImportRosterChanges：新舊名單差異（以 before/after 計
     expect(diff.changes).toHaveLength(1);
     expect(diff.changes[0].dayChange).toBeNull();
     expect(diff.changes[0].discountChange).toBeNull();
-    expect(diff.changes[0].rateChange).toBeNull();
     expect(diff.changes[0].classDiscountChanges).toEqual([]);
   });
 

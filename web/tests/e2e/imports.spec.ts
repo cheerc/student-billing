@@ -143,22 +143,25 @@ test.describe('Imports Page E2E Test (R3 匯入頁一次完成使用名單)', ()
     await expect(bar.locator('[data-diff="not-appeared"] strong')).toHaveText('1');
     // 不留未兌現的承諾
     await expect(page.locator('text=將於核對結果頁逐位列出')).toHaveCount(0);
-    await expect(page.locator('text=報名異動')).toHaveCount(0);
+    // PR-2：「報名異動」改為實際明細欄位，不再禁止欄位名稱。
+    await expect(page.locator('.roster-changes-table thead th', { hasText: '報名異動' })).toHaveCount(1);
 
     // 逐人明細（折疊區，展開後可見）：三位學生各自歸類，異動者顯示折扣 無折扣 → 95折
     const details = page.locator('.roster-changes-details');
     await expect(details).toBeVisible();
     await details.locator('summary').click();
     const table = details.locator('.roster-changes-table');
-    await expect(table.locator('tbody tr[data-category="changed"]')).toHaveCount(1);
-    await expect(table.locator('tbody tr[data-category="new"]')).toHaveCount(1);
-    await expect(table.locator('tbody tr[data-category="not-appeared"]')).toHaveCount(1);
+    await expect(table.locator('tbody tr[data-status="changed"]')).toHaveCount(1);
+    await expect(table.locator('tbody tr[data-status="new"]')).toHaveCount(1);
+    await expect(table.locator('tbody tr[data-status="not-appeared"]')).toHaveCount(1);
 
-    const changedRow = table.locator('tbody tr[data-category="changed"]');
+    const changedRow = table.locator('tbody tr[data-status="changed"]');
     await expect(changedRow).toContainText('STU0001');
-    await expect(changedRow.locator('[data-field="discount"]')).toHaveText('無折扣 → 95折');
-    await expect(table.locator('tbody tr[data-category="new"]')).toContainText('STU9999');
-    await expect(table.locator('tbody tr[data-category="not-appeared"]')).toContainText('STU0477');
+    await expect(changedRow.locator('[data-field="enrollment"]')).toHaveText('新增 國小數學-三A');
+    await expect(changedRow.locator('[data-field="class-discount"] .roster-change-discount-values')).toHaveText('無折扣 → 95折');
+    await expect(changedRow.locator('[data-field="class-discount"] [data-reason]')).toHaveText('新增 國小數學-三A');
+    await expect(table.locator('tbody tr[data-status="new"]')).toContainText('STU9999');
+    await expect(table.locator('tbody tr[data-status="not-appeared"]')).toContainText('STU0477');
   });
 
   test('跨頁一致：匯入預覽的「N 個班名待確認」＝課表設定「班名對應」頁籤的待確認數（同一份名單兩頁數字不得不同）', async ({ page }) => {

@@ -125,20 +125,6 @@ export interface DiscountChange {
   reason: string;
 }
 
-/** 單一課別（安親／課輔）適用率 before → after；null 側標籤為「—」（沒有值，不是 0 或 100%，也不是「未設定」）。 */
-export interface RateChangeItem {
-  course: 'anqin' | 'tutoring';
-  beforeBps: number | null;
-  afterBps: number | null;
-  beforeLabel: string;
-  afterLabel: string;
-}
-
-/** 異動者（兩側皆存在）的適用率變動；只列有變的課別（先安親、後課輔）。UI 只呈現，不自行比較。 */
-export interface RateChange {
-  items: RateChangeItem[];
-}
-
 export interface RosterChangeSide {
   subjectCount: number | null;
   baseDiscountBps: number | null;
@@ -163,11 +149,9 @@ export interface RosterChange {
   discountChange: DiscountChange | null;
   dayChange: DayChange | null;
   /**
-   * 安親／課輔適用率 before → after（UX78）。僅「異動」（兩側皆存在）且任一適用率有變時才有值，
-   * 與折扣是否同時變動無關；新增／未出現／適用率沒變一律 null。additive：不影響 reasons 與計數。
+   * 輔助原因短標（學生層；PR-2 畫面不再呈現，保留供 API consumer 與診斷使用）。
+   * 逐班的折扣變動原因在 `classDiscountChanges[].reasons`（-76 的呈現來源）。
    */
-  rateChange: RateChange | null;
-  /** 輔助原因短標（可查原因，不只列數值）。 */
   reasons: string[];
   /**
    * 實際報名班級集合的前後變化（Round3 PR-1，decisions -68／-75）。additive：不影響既有 reasons 與計數。
@@ -204,26 +188,6 @@ export function formatDiscountBps(bps: number | null): string {
   // 整十收取率用一位小數（9000 → 9折、8000 → 8折），非整十用百分比（9500 → 95折、8500 → 85折）。
   const tenths = bps / 1000; // 9500 → 9.5、9000 → 9、8500 → 8.5
   return Number.isInteger(tenths) ? `${tenths}折` : `${bps / 100}折`;
-}
-
-/** 適用率短標：null（沒有值）顯示「—」，其餘沿用折扣短標。 */
-const formatRateBps = (bps: number | null): string => (bps === null ? '—' : formatDiscountBps(bps));
-
-function rateChangeOf(before: RosterChangeSide, after: RosterChangeSide): RateChange | null {
-  const pairs: Array<[RateChangeItem['course'], number | null, number | null]> = [
-    ['anqin', before.applicableAnqinBps, after.applicableAnqinBps],
-    ['tutoring', before.applicableTutoringBps, after.applicableTutoringBps],
-  ];
-  const items = pairs
-    .filter(([, b, a]) => b !== a)
-    .map(([course, b, a]) => ({
-      course,
-      beforeBps: b,
-      afterBps: a,
-      beforeLabel: formatRateBps(b),
-      afterLabel: formatRateBps(a),
-    }));
-  return items.length > 0 ? { items } : null;
 }
 
 /** student 的年級（適用率取值需要：1–2 年級安親側、3–6 年級課輔側）。只讀不判定。 */
@@ -625,7 +589,6 @@ export function computeRosterChanges(
         after: sideOf(calcAfter(after)),
         discountChange: null,
         dayChange: null,
-        rateChange: null,
         reasons: ['新增學生'],
         enrollmentChanges: newEnrollmentChanges,
         // 新增學生沒有「前後折扣」可比：不產生假異動（-75）
@@ -690,7 +653,6 @@ export function computeRosterChanges(
             classBreakdown: buildClassBreakdown(before, after, beforeCtx, afterCtx, bCalc, aCalc),
           }
         : null,
-      rateChange: rateChangeOf(bSide, aSide),
       reasons,
       enrollmentChanges,
       classDiscountChanges: buildClassDiscountChanges(
@@ -718,7 +680,6 @@ export function computeRosterChanges(
       after: null,
       discountChange: null,
       dayChange: null,
-      rateChange: null,
       reasons: ['本次名單未出現'],
       enrollmentChanges: buildEnrollmentChanges(before, undefined, beforeCtx, afterCtx),
       // 本次未出現：沒有 after 側可比：不產生假異動（-75）

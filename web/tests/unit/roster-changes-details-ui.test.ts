@@ -25,7 +25,19 @@ type Change = RosterChange & {
   classDiscountChanges: ClassDiscountChange[];
 };
 
-const NO_BREAKDOWN: ClassBreakdown[] = [];
+const ONE_BREAKDOWN: ClassBreakdown[] = [
+  {
+    baseName: '國小數學-三A',
+    rawToken: 'a',
+    presence: 'kept',
+    beforeAnqinDeduction: 0,
+    beforeTutoringDeduction: 0,
+    afterAnqinDeduction: 0,
+    afterTutoringDeduction: 1,
+    statusBefore: 'calculated',
+    statusAfter: 'calculated',
+  },
+];
 
 function change(over: Partial<Change> = {}): Change {
   return {
@@ -65,7 +77,6 @@ function change(over: Partial<Change> = {}): Change {
       reason: '已補科數變動',
     },
     dayChange: null,
-    rateChange: null,
     reasons: ['已補科數變動'],
     enrollmentChanges: [],
     classDiscountChanges: [],
@@ -84,7 +95,9 @@ const rowOf = (html: string, code: string): string => {
 
 describe('PR-2 逐人明細：表頭與欄位契約', () => {
   it('表頭為 學生｜狀態｜報名異動｜折扣變動｜安親天數｜課輔天數（6 欄，展開列 colSpan=6）', () => {
-    const html = render([change({ dayChange: { beforeAnqinDays: 5, afterAnqinDays: 4, beforeTutoringDays: 5, afterTutoringDays: 5, classBreakdown: NO_BREAKDOWN } })]);
+    const html = render([
+      change({ dayChange: { beforeAnqinDays: 5, afterAnqinDays: 4, beforeTutoringDays: 5, afterTutoringDays: 5, classBreakdown: ONE_BREAKDOWN } }),
+    ]);
     const headers = [...html.matchAll(/<th>([^<]*)<\/th>/g)].map((m) => m[1]);
     expect(headers).toEqual(['學生', '狀態', '報名異動', '折扣變動', '安親天數', '課輔天數']);
     expect(html).toMatch(/<td colSpan="6">/);
@@ -184,12 +197,14 @@ describe('PR-2 報名異動欄（-76 一：每列一件事）', () => {
   });
 
   it('switched 成對只顯示一行「換班 舊 → 新」，不出現兩行', () => {
+    // switchedWith 存的是**另一端的 rawToken**（roster-changes.ts 建構時對稱設定），
+    // rawToken 形如「<baseName>[團]」，與其他測試的 student() helper 一致。
     const html = render([
       change({
         personCode: 'SW',
         enrollmentChanges: [
-          { baseName: '國小數學-三A', rawToken: 'a', presence: 'switched', switchedWith: '國小數學-三B[團]' },
-          { baseName: '國小數學-三B', rawToken: 'b', presence: 'switched', switchedWith: '國小數學-三A[團]' },
+          { baseName: '國小數學-三A', rawToken: '國小數學-三A[團]', presence: 'switched', switchedWith: '國小數學-三B[團]' },
+          { baseName: '國小數學-三B', rawToken: '國小數學-三B[團]', presence: 'switched', switchedWith: '國小數學-三A[團]' },
         ],
       }),
     ]);
@@ -294,7 +309,7 @@ describe('PR-2 折扣變動欄（-76 二：班級｜原本｜現在｜原因）'
       afterBps: 9500,
       reasons: [{ kind: 'enrollment_added', className: '兒童美語-EA' }],
     });
-    const reasonsCell = html.match(/data-reason="[\s\S]*?<\/div>/)![0];
+    const reasonsCell = html.match(/data-reason="[\s\S]*?<\/span>/)![0];
     expect(reasonsCell).not.toMatch(/因為/);
     expect(reasonsCell).not.toMatch(/\d{3,}/);
   });
