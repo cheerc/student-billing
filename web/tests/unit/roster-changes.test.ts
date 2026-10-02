@@ -283,15 +283,32 @@ describe('R4 operator 裁決：異動以 before/after 計算結果判定（非�
      * domain 只取每位學生「第一個國小數學」與「第一個兒童美語」計算扣天（billing-calculator.ts）。
      * 第二門數學不影響天數 → 退掉它不算異動；明細也不該把它當成造成變化的原因。
      */
-    it('第二門數學不計入扣天：小三 [一A,三A]→[一A] 計費結果相同 → 不算異動', () => {
+    /**
+     * Round3 PR-1 語意更新（decisions d-20261002173610753099-75）：**退出**一科要獨立列出，
+     * 即使計費結果相同。原先此處斷言「不算異動」，是 d-…-4 的舊契約（那時只看計算結果），
+     * 已被 -75 取代（spike §B1 RC04／§B3 CB 同源）。
+     * 保留的保證：折扣／適用率／天數仍不變（無 dayChange、無 discountChange）。
+     */
+    it('第二門數學不計入扣天：小三 [一A,三A]→[一A] 計費結果相同 → 仍是異動，但只有報名異動（-75）', () => {
       const { beforeCtx, afterCtx } = contexts();
       const before = student('S1', ['國小數學-一A', '國小數學-三A'], { grade: 3 });
       const after = student('S1', ['國小數學-一A'], { grade: 3 });
 
       const result = computeRosterChanges([before], [after], beforeCtx, afterCtx);
 
-      expect(result.changes).toHaveLength(0);
-      expect(result.stats.unchangedCount).toBe(1);
+      expect(result.changes).toHaveLength(1);
+      expect(result.stats.changedCount).toBe(1);
+      expect(result.stats.unchangedCount).toBe(0);
+      // 計費面完全不變：沒有天數、沒有折扣、沒有適用率變動
+      expect(result.changes[0].dayChange).toBeNull();
+      expect(result.changes[0].discountChange).toBeNull();
+      expect(result.changes[0].rateChange).toBeNull();
+      // 只有報名集合少了一班
+      expect(result.changes[0].enrollmentChanges.map((e) => [e.baseName, e.presence])).toEqual([
+        ['國小數學-一A', 'kept'],
+        ['國小數學-三A', 'removed'],
+      ]);
+      expect(result.changes[0].classDiscountChanges).toEqual([]);
     });
 
     it('第一門數學被換掉時，原本排第二的三A變成計入：明細標為 kept，但 before 側為 not_counted（不是扣 0 天）', () => {
@@ -367,7 +384,7 @@ describe('R4 operator 裁決：異動以 before/after 計算結果判定（非�
       expect(result.stats.totalStudents).toBe(4);
     });
 
-    it('報名 token 改變但計費結果不變（二A→二B，兩班時段相同、皆不與照顧窗顯著重疊）→ 不算異動', () => {
+    it('報名 token 改變但計費結果不變（二A→二B，兩班時段相同、皆不與照顧窗顯著重疊）→ 算報名異動、但計費面不變（-75）', () => {
       // 指紋代理會誤判為異動的案例（operator 裁決 d-…-4 明列的第一類誤判）。
       // 手算：二A、二B 皆為 週三 15:30–17:00、週六 09:00–10:30。
       //   安親窗（13:00–16:00）：週三重疊 15:30–16:00＝30 分；課輔窗（16:30–19:30）：週三重疊 16:30–17:00＝30 分
@@ -378,9 +395,18 @@ describe('R4 operator 裁決：異動以 before/after 計算結果判定（非�
 
       const result = computeRosterChanges([before], [after], beforeCtx, afterCtx);
 
-      expect(result.changes).toHaveLength(0);
-      expect(result.stats.unchangedCount).toBe(1);
-      expect(result.stats.changedCount).toBe(0);
+      // -75：換班即使折扣與天數皆未變也要出現（spike §B3 CB）
+      expect(result.changes).toHaveLength(1);
+      expect(result.stats.changedCount).toBe(1);
+      expect(result.stats.unchangedCount).toBe(0);
+      // 計費面不變：這仍不是「折扣異動」或「天數異動」
+      expect(result.changes[0].dayChange).toBeNull();
+      expect(result.changes[0].discountChange).toBeNull();
+      expect(result.changes[0].rateChange).toBeNull();
+      expect(result.changes[0].classDiscountChanges).toEqual([]);
+      expect(
+        result.changes[0].enrollmentChanges.filter((e) => e.presence !== 'kept').map((e) => e.presence)
+      ).toEqual(['switched', 'switched']);
     });
 
     it('同一位學生在 after 名單重複出現（同人員代碼）只算一人，取第一列', () => {

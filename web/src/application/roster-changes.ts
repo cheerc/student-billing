@@ -2,6 +2,8 @@ import { calculateStudentBilling, classMapFor, resolveClassSessions, Calculation
 import { calculateClassDeductionD24 } from '@/domain/schedules/overlap-calculator';
 import { StudentSnapshot } from '@/domain/students';
 import type { StudentBillingCalculation } from '@/domain/billing/types';
+import { applicableRateForClass } from '@/application/applicable-rate';
+import { resolveClassEnrollment, type ClassCategory, type ClassSettingLookup } from '@/domain/classification/class-category';
 
 /**
  * 名單異動判定（operator 裁決 d-20260929111803466480-4 / d-20260929111814541876-5）。
@@ -26,6 +28,58 @@ export interface RosterChangeContext {
   aliasMap?: Map<string, string>;
   scheduleOverride?: Map<string, Array<{ start: number; end: number; weekday?: string | null }>>;
   ruleSetVersion?: CalculationOptions['ruleSetVersion'];
+  /**
+   * D2a：班級設定（手動／自動類別與固定 5 天）。**與 run 端同源**（calculate-run 的
+   * `buildClassSettingMap(resolveLatestSavedSettings(db).draft)`，specs/11 §3 B1-D 同源要求）：
+   * 異動明細的 before 側必須與「按下之後系統實際會用的狀態」一致（D17），不可退回自動偵測。
+   */
+  classSettings?: Map<string, ClassSettingLookup>;
+}
+
+/** 有折扣語意的班級類別（'none'＝不列入折扣，例如寫功課／交通車）。 */
+export type DiscountClassCategory = Exclude<ClassCategory, 'none'>;
+
+/**
+ * 實際報名班級的集合變化（Round3 PR-1；decisions -68／-75；specs/06 D43）。
+ *
+ * 以 **rawToken** 為同一門課的身分，比對 before／after 兩側的**全部**報名班——
+ * 包含 care、數學、美語，也包含不列入折扣的班（寫功課、交通車）：-75 要求
+ * 「新增／退出／換班即使折扣未變也要獨立列出」，所以這裡不能用「計入扣天的班」當集合。
+ * 班名用**名冊原文** `baseName`（spike §A5），不是 alias 後的系統班名。
+ *
+ * `switched` 僅在能可靠配對（同類別、一對一）時給出；否則由 added ＋ removed 表達（-68）。
+ */
+export interface EnrollmentChange {
+  /** 名冊原文班名 */
+  baseName: string;
+  rawToken: string;
+  presence: 'added' | 'removed' | 'kept' | 'switched';
+  /** switched 時：配對到的另一個 rawToken（同類別一對一配對） */
+  switchedWith?: string;
+}
+
+/** 逐班折扣變動的結構化原因（資料，不是文案；文案由 PR-2 定稿渲染）。 */
+export type ClassDiscountReason =
+  | { kind: 'enrollment_added' | 'enrollment_removed'; className: string }
+  | { kind: 'tag_added' | 'tag_removed'; tag: string };
+
+/**
+ * 單一**實際報名班**的 before → after 適用折扣（spike §A2：不新增計算，搬既有值）。
+ *
+ * 取值規則（decisions -75）：
+ *  - 只在「該生實際報名此班」的一側取值；未報名一側為 null，且**不因此產生折扣變動項**
+ *    （不得顯示「無折扣 → X」的假異動）。
+ *  - `not_configured`（該班沒有折扣類別）不產生任何變動項（-68）。
+ *  - 同類多班各自一項，不合併（D17 照實呈現；Lead 裁定）。
+ */
+export interface ClassDiscountChange {
+  baseName: string;
+  rawToken: string;
+  /** 折扣語意類別（care／math／english） */
+  sideOf: DiscountClassCategory;
+  beforeBps: number | null;
+  afterBps: number | null;
+  reasons: ClassDiscountReason[];
 }
 
 /**
@@ -88,6 +142,9 @@ export interface RosterChangeSide {
   baseDiscountBps: number | null;
   applicableAnqinBps: number | null;
   applicableTutoringBps: number | null;
+  /** 數學／美語適用率（spike §A2a：既有計算值，純搬資料，不新增計算）。 */
+  applicableMathBps: number | null;
+  applicableEnglishBps: number | null;
   anqinDays: number | null;
   tutoringDays: number | null;
   isEnrolledAnqin: boolean;
@@ -110,6 +167,13 @@ export interface RosterChange {
   rateChange: RateChange | null;
   /** 輔助原因短標（可查原因，不只列數值）。 */
   reasons: string[];
+  /**
+   * 實際報名班級集合的前後變化（Round3 PR-1，decisions -68／-75）。additive：不影響既有 reasons 與計數。
+   * 新增／退出／換班即使折扣與天數皆未變，這裡仍會列出，且該生也算「異動」（-75）。
+   */
+  enrollmentChanges: EnrollmentChange[];
+  /** 逐班適��折扣的前後變化（decisions -68；未報名一側不取值、not_configured 不列）。additive。 */
+  classDiscountChanges: ClassDiscountChange[];
 }
 
 export interface RosterChangesResult {
@@ -160,11 +224,28 @@ function rateChangeOf(before: RosterChangeSide, after: RosterChangeSide): RateCh
   return items.length > 0 ? { items } : null;
 }
 
+/** student 的年級（適用率取值需要：1–2 年級安親側、3–6 年級課輔側）。只讀不判定。 */
+const gradeOf = (student: StudentSnapshot | undefined): number | null => student?.grade ?? null;
+
+/** 該側學生層的適用率欄位（applicableRateForClass 的輸入）。 */
+const rateFieldsOf = (
+  calc: ReturnType<typeof calculateStudentBilling>,
+  grade: number | null
+) => ({
+  grade,
+  applicableAnqinBps: calc.applicableRates.anqin,
+  applicableTutoringBps: calc.applicableRates.tutoring,
+  applicableMathBps: calc.applicableRates.math,
+  applicableEnglishBps: calc.applicableRates.english,
+});
+
 const sideOf = (calc: ReturnType<typeof calculateStudentBilling>): RosterChangeSide => ({
   subjectCount: calc.subjectCount,
   baseDiscountBps: calc.baseDiscountBps,
   applicableAnqinBps: calc.applicableRates.anqin,
   applicableTutoringBps: calc.applicableRates.tutoring,
+  applicableMathBps: calc.applicableRates.math,
+  applicableEnglishBps: calc.applicableRates.english,
   anqinDays: calc.careDays.anqin.days,
   tutoringDays: calc.careDays.tutoring.days,
   isEnrolledAnqin: calc.careDays.anqin.isEnrolled,
@@ -262,6 +343,168 @@ function buildClassBreakdown(
   return rows;
 }
 
+/**
+ * 折扣語意類別：以**課表設定**（手動優先）解析，與 run 端同一條路徑（resolveClassEnrollment）。
+ * 'none'（寫功課、交通車等不列入折扣的班）回 null——-68：未設定折扣類別的班不列。
+ */
+function discountCategoryOf(
+  token: Token,
+  ctx: RosterChangeContext
+): DiscountClassCategory | null {
+  const resolved = resolveClassEnrollment(token, ctx.aliasMap, ctx.classSettings);
+  return resolved.category === 'none' ? null : resolved.category;
+}
+
+/** 以 rawToken 為身分建立 token 索引（同一門課在 before／after 的身分）。 */
+function tokenIndex(student: StudentSnapshot | undefined): Map<string, Token> {
+  const map = new Map<string, Token>();
+  for (const t of student?.enrollments ?? []) if (!map.has(t.rawToken)) map.set(t.rawToken, t);
+  return map;
+}
+
+/**
+ * 實際報名班級集合的前後變化（decisions -68／-75）。
+ *
+ * 集合是「該生全部報名班」，不是「計入扣天的班」（spike §B3：care／寫功課班現行完全不出現）。
+ * 順序：先 before 側（依名冊順序），再接 after 側新出現的班。
+ *
+ * `switched` 只在**同類別、一對一**可靠配對時給出：removed 與 added 各只有一個且類別相同。
+ * 其他情形（例如三個數學班換成兩個）由 added ＋ removed 表達，不猜（-68）。
+ */
+function buildEnrollmentChanges(
+  before: StudentSnapshot | undefined,
+  after: StudentSnapshot | undefined,
+  beforeCtx: RosterChangeContext,
+  afterCtx: RosterChangeContext
+): EnrollmentChange[] {
+  const beforeTokens = tokenIndex(before);
+  const afterTokens = tokenIndex(after);
+  const keys = [...beforeTokens.keys(), ...[...afterTokens.keys()].filter((k) => !beforeTokens.has(k))];
+
+  const rows: EnrollmentChange[] = keys.map((key) => {
+    const b = beforeTokens.get(key);
+    const a = afterTokens.get(key);
+    return {
+      baseName: (b ?? a)!.baseName,
+      rawToken: key,
+      presence: b && a ? ('kept' as const) : b ? ('removed' as const) : ('added' as const),
+    };
+  });
+
+  // 同類別一對一配對 → switched（可靠才配對，否則維持 added／removed）
+  const removed = rows.filter((r) => r.presence === 'removed');
+  const added = rows.filter((r) => r.presence === 'added');
+  if (removed.length === 1 && added.length === 1) {
+    const removedCategory = discountCategoryOf(
+      beforeTokens.get(removed[0].rawToken)!,
+      beforeCtx
+    );
+    const addedCategory = discountCategoryOf(afterTokens.get(added[0].rawToken)!, afterCtx);
+    // 'both none' 代表兩班都不列入折扣（寫功課換班）——那也屬同類換班
+    const sameCategory =
+      removedCategory === addedCategory || (removedCategory === null && addedCategory === null);
+    if (sameCategory) {
+      removed[0].presence = 'switched';
+      removed[0].switchedWith = added[0].rawToken;
+      added[0].presence = 'switched';
+      added[0].switchedWith = removed[0].rawToken;
+    }
+  }
+  return rows;
+}
+
+/** 逐標籤字串集合（parseTagDiscounts 不回命中 tag，需自行以逐字串比對；specs/02:167 正式軌不從備註 fallback）。 */
+function tagListOf(student: StudentSnapshot | undefined): Set<string> {
+  return new Set((student?.tags ?? []).filter(Boolean));
+}
+
+/**
+ * 影響合計折扣的標籤變化（spike §A3(c)）：兄弟姊妹、特殊折扣、園內生。
+ * 兩側都有同一標籤 → 不是原因（值未因它改變）。
+ */
+function tagReasonsOf(
+  before: StudentSnapshot | undefined,
+  after: StudentSnapshot | undefined
+): ClassDiscountReason[] {
+  const beforeTags = tagListOf(before);
+  const afterTags = tagListOf(after);
+  const out: ClassDiscountReason[] = [];
+  for (const tag of afterTags) {
+    if (!beforeTags.has(tag)) out.push({ kind: 'tag_added', tag });
+  }
+  for (const tag of beforeTags) {
+    if (!afterTags.has(tag)) out.push({ kind: 'tag_removed', tag });
+  }
+  return out;
+}
+
+/**
+ * 逐班適用折扣的前後變化（decisions -68；spike §A2：不新增計算）。
+ *
+ * 對 before／after 皆有報名的班，以 `applicableRateForClass` 取兩側值：
+ *  - not_configured → 不列（-68）
+ *  - 只有實際報名的一側取值；未報名一側為 null 且**不產生變動項**（-75，不造「無折扣 → X」假異動）
+ *  - 只收 beforeBps !== afterBps 的班（沒變的不列）
+ */
+function buildClassDiscountChanges(
+  before: StudentSnapshot | undefined,
+  after: StudentSnapshot | undefined,
+  beforeCtx: RosterChangeContext,
+  afterCtx: RosterChangeContext,
+  beforeCalc: StudentBillingCalculation | null,
+  afterCalc: StudentBillingCalculation | null,
+  enrollmentChanges: EnrollmentChange[]
+): ClassDiscountChange[] {
+  if (!before || !after || !beforeCalc || !afterCalc) return [];
+  const beforeTokens = tokenIndex(before);
+  const afterTokens = tokenIndex(after);
+  const tagReasons = tagReasonsOf(before, after);
+
+  // 報名原因：歸因到**實際報名增減的那個班名**（decisions -68「逐班列班級名稱：前 → 後」）。
+  // 注意方向：真正變動的項目一定是「兩側都報名」的班，而增減的那個班本身因為未報名一側無值而不列。
+  //   - 加報 X → 科數增加，既有班（kept）適用率改變 → 原因掛在既有班的項目上，className＝X。
+  //   - 退出 X → 原因掛在剩下的既有班上，kind＝enrollment_removed、className＝X。
+  //   - 同類換班 → 新報的班名（switched 的 added 側）與 kind=enrollment_added 配對。
+  const addedNames = enrollmentChanges
+    .filter((e) => e.presence === 'added' || e.presence === 'switched')
+    .map((e) => e.baseName);
+  const removedNames = enrollmentChanges
+    .filter((e) => e.presence === 'removed' || e.presence === 'switched')
+    .map((e) => e.baseName);
+
+  const rows: ClassDiscountChange[] = [];
+  for (const key of beforeTokens.keys()) {
+    if (!afterTokens.has(key)) continue; // 只處理兩側皆有報名的班
+    const token = beforeTokens.get(key)!;
+    const category = discountCategoryOf(token, beforeCtx) ?? discountCategoryOf(token, afterCtx);
+    if (category === null) continue; // not_configured：-68 不列
+
+    const rateOf = (calc: StudentBillingCalculation, grade: number | null) =>
+      applicableRateForClass(token.baseName, rateFieldsOf(calc, grade));
+    const beforeRate = rateOf(beforeCalc, gradeOf(before));
+    const afterRate = rateOf(afterCalc, gradeOf(after));
+    if (beforeRate.status !== 'configured' || afterRate.status !== 'configured') continue;
+    if (beforeRate.bps === afterRate.bps) continue; // 沒變不列
+
+    const reasons: ClassDiscountReason[] = [];
+    for (const className of addedNames) reasons.push({ kind: 'enrollment_added', className });
+    for (const className of removedNames) reasons.push({ kind: 'enrollment_removed', className });
+    // 標籤原因：園內生只掛在 care 班（specs/02 R13：只改安親適用率），數學／美語不掛
+    if (category === 'care') reasons.push(...tagReasons);
+    else reasons.push(...tagReasons.filter((r) => !(r.kind === 'tag_added' && r.tag === '園內生')));
+
+    rows.push({
+      baseName: token.baseName,
+      rawToken: key,
+      sideOf: category,
+      beforeBps: beforeRate.bps,
+      afterBps: afterRate.bps,
+      reasons,
+    });
+  }
+  return rows;
+}
+
 /** 依人員代碼去重，同代碼取第一列（與匯入預覽「去重人數」一致）。 */
 function uniqueByPersonCode(list: StudentSnapshot[]): Map<string, StudentSnapshot> {
   const map = new Map<string, StudentSnapshot>();
@@ -300,6 +543,7 @@ export function computeRosterChanges(
 
     if (!before) {
       newCount += 1;
+      const newEnrollmentChanges = buildEnrollmentChanges(undefined, after, beforeCtx, afterCtx);
       changes.push({
         personCode: after.personCode,
         name: after.name,
@@ -311,6 +555,9 @@ export function computeRosterChanges(
         dayChange: null,
         rateChange: null,
         reasons: ['新增學生'],
+        enrollmentChanges: newEnrollmentChanges,
+        // 新增學生沒有「前後折扣」可比：不產生假異動（-75）
+        classDiscountChanges: [],
       });
       continue;
     }
@@ -326,7 +573,12 @@ export function computeRosterChanges(
     const rateChanged = bSide.applicableAnqinBps !== aSide.applicableAnqinBps || bSide.applicableTutoringBps !== aSide.applicableTutoringBps;
     const dayChanged = anqinChanged || tutoringChanged;
 
-    if (!discountChanged && !dayChanged && !rateChanged) {
+    // PR-1：報名班級集合有變也算異動（decisions -75：新增／退出／換班即使折扣未變也要出現）。
+    // 修 spike §B1 RC04（只有寫功課 → 加報數學，現行判為未異動）與 §B3 CB（同類換班）。
+    const enrollmentChanges = buildEnrollmentChanges(before, after, beforeCtx, afterCtx);
+    const enrollmentChanged = enrollmentChanges.some((e) => e.presence !== 'kept');
+
+    if (!discountChanged && !dayChanged && !rateChanged && !enrollmentChanged) {
       unchangedCount += 1;
       continue;
     }
@@ -368,6 +620,16 @@ export function computeRosterChanges(
         : null,
       rateChange: rateChangeOf(bSide, aSide),
       reasons,
+      enrollmentChanges,
+      classDiscountChanges: buildClassDiscountChanges(
+        before,
+        after,
+        beforeCtx,
+        afterCtx,
+        bCalc,
+        aCalc,
+        enrollmentChanges
+      ),
     });
   }
 
@@ -386,6 +648,9 @@ export function computeRosterChanges(
       dayChange: null,
       rateChange: null,
       reasons: ['本次名單未出現'],
+      enrollmentChanges: buildEnrollmentChanges(before, undefined, beforeCtx, afterCtx),
+      // 本次未出現：沒有 after 側可比：不產生假異動（-75）
+      classDiscountChanges: [],
     });
   }
 

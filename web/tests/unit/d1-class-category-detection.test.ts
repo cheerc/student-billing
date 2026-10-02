@@ -114,9 +114,12 @@ describe('class-category 純函式架構約束', () => {
       if (/classification\/class-category/.test(fs.readFileSync(file, 'utf-8'))) importers.push(path.relative(SRC, file));
     }
     // R2-4: 接線後的精確 importers 斷言，防止無授權依賴漫延；D2b 新增課表 UI 兩檔
-    // D2b：課表 UI 也讀取此模組（顯示自動偵測的類別與固定 5 天），故 importers 為下列五檔
+    // D2b：課表 UI 也讀取此模組（顯示自動偵測的類別與固定 5 天）。
+    // Round3 PR-1（spike §B4）：異動明細（roster-changes.ts）也讀取此模組，讓 before 側與 run 端**同源**解析類別
+    // （specs/11 §3 B1-D「共用同一套類別解析」；operator decisions d-20261002162050527935-68／-75）。
     expect(importers.sort()).toEqual([
       'application/calculate-run.ts',
+      'application/roster-changes.ts',
       'components/settings-editor.tsx',
       'components/settings/class-attributes-panel.tsx',
       'domain/billing/billing-calculator.ts',
