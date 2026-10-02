@@ -37,6 +37,26 @@ async function buildTwoStudentsWorkbook(): Promise<Buffer> {
   return Buffer.from(await wb.xlsx.writeBuffer());
 }
 
+async function buildFiftyFiveStudentsWorkbook(): Promise<Buffer> {
+  const wb = new ExcelJS.Workbook();
+  const ws = wb.addWorksheet('Sheet1');
+  ws.addRow(['人員代碼', '姓名', '所屬分校', '所屬班級', '年級', '標籤', '備註']);
+  for (let i = 1; i <= 55; i++) {
+    const code = `STU_55_${String(i).padStart(3, '0')}`;
+    const name = `學生${i}`;
+    ws.addRow([
+      code,
+      name,
+      '合成分校',
+      '國小輔導-五年級[團]\n兒童美語-Gino[團]\n國小國語文-小五[團]',
+      '五年級',
+      '',
+      '',
+    ]);
+  }
+  return Buffer.from(await wb.xlsx.writeBuffer());
+}
+
 test.describe('N02／R3-F01: 類別異動影響預覽科數與合計折扣明細', () => {
   test('只改類別（時段不動，天數差為 0）時，預覽呈現天數未變提示、聯集去重 2 人、科數明細（0→1, 2→3）與折扣明細（95折→9折）', async ({
     page,
@@ -105,5 +125,110 @@ test.describe('N02／R3-F01: 類別異動影響預覽科數與合計折扣明細
     await expect(stu2DiscountRow).toBeVisible();
     await expect(stu2DiscountRow.locator('td').nth(2)).toHaveText('95折');
     await expect(stu2DiscountRow.locator('td').nth(3)).toHaveText('9折');
+  });
+
+  test('PR56 N2 follow-up: 768×600 下大量列（55 學生）兩表各 cap 50 且標題明示、可內部捲動、主按鈕可見可點、Tab/Esc 焦點還原', async ({
+    page,
+  }) => {
+    // 0. 設定 768x600 視窗大小
+    await page.setViewportSize({ width: 768, height: 600 });
+
+    // 1. 匯入並啟用 55 人合成名單
+    await page.goto('/imports');
+    const buffer = await buildFiftyFiveStudentsWorkbook();
+    await page.locator('input[type="file"]').setInputFiles({
+      name: 'round3-55students-fixture.xlsx',
+      mimeType: XLSX_MIME,
+      buffer,
+    });
+    await expect(page.locator('.stats-grid')).toBeVisible({ timeout: 15000 });
+    const useBtn = page.locator('button', { hasText: '使用這份名單' });
+    await expect(useBtn).toBeVisible({ timeout: 15000 });
+    await useBtn.click();
+    await expect(page.locator('.success-stage-card')).toBeVisible({ timeout: 15000 });
+
+    // 2. 進入課表設定頁面
+    await page.goto('/settings');
+    await expect(page.locator('h1', { hasText: '課表設定' })).toBeVisible({ timeout: 15000 });
+    await expect(page.locator('.save-status-clean')).toBeVisible();
+
+    // 3. 修改「國小國語文-小五」為數學班
+    const row = page.locator('[data-class-attribute-row="國小國語文-小五"]');
+    await expect(row).toBeVisible();
+    await row.locator('[data-category-select="國小國語文-小五"]').selectOption('math');
+    await expect(page.locator('.save-status-dirty')).toBeVisible();
+
+    // 4. 開啟確認視窗
+    const openBtn = page.locator('button', { hasText: '確認變更' });
+    await openBtn.click();
+    const dialog = page.locator('dialog.impact-dialog');
+    await expect(dialog).toBeVisible({ timeout: 15000 });
+
+    // 5. 驗證天數未變與受影響人數（55 人）
+    await expect(dialog.getByText('本次課表變更未改變現行學生的收費天數。')).toBeVisible();
+    const metric = dialog.locator('.metric-card', { hasText: '受影響學生數' });
+    await expect(metric.locator('.metric-value')).toHaveText('55 人');
+
+    // 6. 驗證科數變動明細：標題明示（前 50 筆）、表格恰 50 列
+    const subjectContainer = dialog.locator('.deltas-table-container', { hasText: '科數變動明細' });
+    await expect(subjectContainer).toBeVisible();
+    await expect(subjectContainer.locator('h3')).toHaveText('科數變動明細（前 50 筆）');
+    const subjectRows = subjectContainer.locator('tbody tr');
+    await expect(subjectRows).toHaveCount(50);
+    await expect(subjectRows.first().locator('td').nth(2)).toHaveText('2');
+    await expect(subjectRows.first().locator('td').nth(3)).toHaveText('3');
+    await expect(subjectRows.last().locator('td').nth(2)).toHaveText('2');
+    await expect(subjectRows.last().locator('td').nth(3)).toHaveText('3');
+
+    // 7. 驗證合計折扣變動明細：標題明示（前 50 筆）、表格恰 50 列
+    const discountContainer = dialog.locator('.deltas-table-container', { hasText: '合計折扣變動明細' });
+    await expect(discountContainer).toBeVisible();
+    await expect(discountContainer.locator('h3')).toHaveText('合計折扣變動明細（前 50 筆）');
+    const discountRows = discountContainer.locator('tbody tr');
+    await expect(discountRows).toHaveCount(50);
+    await expect(discountRows.first().locator('td').nth(2)).toHaveText('95折');
+    await expect(discountRows.first().locator('td').nth(3)).toHaveText('9折');
+    await expect(discountRows.last().locator('td').nth(2)).toHaveText('95折');
+    await expect(discountRows.last().locator('td').nth(3)).toHaveText('9折');
+
+    // 8. 驗證 768x600 下 .dialogbody 可內部捲動
+    const dialogBody = dialog.locator('.dialogbody');
+    const scrollInfo = await dialogBody.evaluate((el) => ({
+      clientHeight: el.clientHeight,
+      scrollHeight: el.scrollHeight,
+    }));
+    expect(scrollInfo.scrollHeight).toBeGreaterThan(scrollInfo.clientHeight);
+    await dialogBody.evaluate((el) => {
+      el.scrollTop = 200;
+    });
+    const scrollTop = await dialogBody.evaluate((el) => el.scrollTop);
+    expect(scrollTop).toBeGreaterThan(0);
+
+    // 9. 驗證主按鈕可見、可點擊且完全在 768x600 視窗內
+    const applyBtn = dialog.locator('button.btn-primary', { hasText: '儲存並更新結果' });
+    const cancelBtn = dialog.locator('button.btn-secondary', { hasText: '繼續編輯' });
+    await expect(applyBtn).toBeVisible();
+    await expect(applyBtn).toBeEnabled();
+    await expect(cancelBtn).toBeVisible();
+    await expect(cancelBtn).toBeEnabled();
+
+    const box = await applyBtn.boundingBox();
+    expect(box).not.toBeNull();
+    if (box) {
+      expect(box.x).toBeGreaterThanOrEqual(0);
+      expect(box.y).toBeGreaterThanOrEqual(0);
+      expect(box.x + box.width).toBeLessThanOrEqual(768);
+      expect(box.y + box.height).toBeLessThanOrEqual(600);
+    }
+
+    // 10. 鍵盤 Tab 導航測試（焦點停留在對話框內部）
+    await page.keyboard.press('Tab');
+    const focusedInDialog = await dialog.evaluate((d) => d.contains(document.activeElement));
+    expect(focusedInDialog).toBe(true);
+
+    // 11. Esc 關閉與焦點還原至「確認變更」按鈕
+    await page.keyboard.press('Escape');
+    await expect(dialog).not.toBeVisible();
+    await expect(openBtn).toBeFocused();
   });
 });
