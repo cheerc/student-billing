@@ -240,21 +240,25 @@ export default function SettingsEditor({
   /**
    * N09／R3-F02（issue #55；UX70）：待確認候選清單與班名比對報告（report.rosterOnly）同步。
    *
-   * 1. 儲存別名或班級改名後，以同一檢視名單（reportImportId）最新成功之 report.rosterOnly
-   *    重用 buildDynamicCandidates 重建候選表、標題與頁籤計數，維持單一來源與字典序排序。
-   * 2. 重新取得報告失敗（reportStaleError 存在）時，保留最後已知候選，不重設為空或假裝已更新。
-   * 3. 無報告或無名單（settings_only）時，回退至 initialCandidates（空陣列）。
+   * `report` 本身即「**最後一次成功取得**的報告」：重新取得失敗時
+   * `setPersistedReportOverride` 不會被呼叫，故 `persistedReportOverride` 仍持有
+   * 前一次成功值，`report` 就是 last-known。因此候選一律由 `report.rosterOnly` 重建，
+   * 同時滿足兩種 stale 情境：
+   *   - 已成功刷新過（`report` 為 last-known）→ 候選維持最後已知，不回退頁面初始值；
+   *   - 從未成功刷新過（`report` 為 SSR `classNameReport`）→ 候選即該頁最後已知（SSR 初值）。
+   * 只有 `rosterOnly` 為 null（快照不可用）時才回退 `initialCandidates`（空陣列）。
+   *
+   * 排序、去重學生數、Token 筆數與 D32-C 理由字串由既有純函式 `buildDynamicCandidates`
+   * 單一產生：不在此重寫 reason 常數、不直接 typecast report。
    */
   const candidates = useMemo<DynamicCandidate[]>(() => {
-    if (reportStaleError || !report?.rosterOnly) {
-      return initialCandidates;
-    }
+    if (!report?.rosterOnly) return initialCandidates;
     const unmatched = report.rosterOnly.map((r) => r.baseName);
     const counts: CandidateCounts = new Map(
       report.rosterOnly.map((r) => [r.baseName, { studentCount: r.students, tokenCount: r.tokens }])
     );
     return buildDynamicCandidates(unmatched, counts);
-  }, [report, reportStaleError, initialCandidates]);
+  }, [report, initialCandidates]);
 
   // 儲存成功後就地更新版本與儲存時間（不必重新整理）：下一次確認變更要帶最新版本，狀態列顯示最新儲存時間
   const [revision, setRevision] = useState(currentRevision);
