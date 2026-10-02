@@ -330,9 +330,10 @@ describe('PR-1 §5 結構化原因（reasons：型別化資料，非文案）', 
     expect(change.classDiscountChanges.map((c) => [c.baseName, c.sideOf, c.beforeBps, c.afterBps])).toEqual([
       ['國小輔導-一A', 'care', 9500, 10000],
     ]);
+    // 兩個原因都在（退掉數學 ＋ 加寫功課）；順序＝先 added 再 removed
     expect(change.classDiscountChanges[0].reasons).toEqual([
-      { kind: 'enrollment_removed', className: '國小數學-一A' },
       { kind: 'enrollment_added', className: '國小輔導-寫功課' },
+      { kind: 'enrollment_removed', className: '國小數學-一A' },
     ]);
   });
 
@@ -372,6 +373,11 @@ describe('PR-1 §5 結構化原因（reasons：型別化資料，非文案）', 
     expect(change.classDiscountChanges.map((c) => c.baseName)).toEqual(['國小輔導-一A']);
     expect(change.classDiscountChanges[0].reasons).toEqual([
       { kind: 'enrollment_removed', className: '國小數學-一A' },
+    ]);
+    expect(change.enrollmentChanges.map((e) => [e.baseName, e.presence])).toEqual([
+      ['國小輔導-一A', 'kept'],
+      ['國小數學-一A', 'removed'],
+      ['交通車', 'added'],
     ]);
   });
 
@@ -415,14 +421,45 @@ describe('PR-1 §5 結構化原因（reasons：型別化資料，非文案）', 
    */
   it('同類換班不改變類別集合 → 不作為原因（即使同時間有真實原因）', () => {
     const { beforeCtx, afterCtx } = contexts();
-    const b = student('R3f', ['國小數學-三A'], { grade: 3 });
-    const a = student('R3f', ['國小數學-三B'], { grade: 3, tagsRaw: '有兄弟姊妹折扣' });
+    // 同類換班：math → math、english → english，兩側類別集合相同（Lead r1 裁定：不算原因）
+    // switched 只在「恰好一進一出且同類別」時給出；此例兩班同時換，故為 added ＋ removed。
+    const b = student('R3f', ['國小數學-三A', '兒童美語-EA'], { grade: 3 });
+    const a = student('R3f', ['國小數學-三B', '兒童美語-EB'], { grade: 3 });
 
     const change = only(computeRosterChanges([b], [a], beforeCtx, afterCtx))[0];
 
-    expect(change.enrollmentChanges.map((e) => e.presence)).toEqual(['switched', 'switched']);
-    expect(change.classDiscountChanges).toHaveLength(1);
-    expect(change.classDiscountChanges[0].reasons).toEqual([{ kind: 'tag_added', tag: '有兄弟姊妹折扣' }]);
+    expect(change.enrollmentChanges.map((e) => e.presence)).toEqual(['removed', 'removed', 'added', 'added']);
+    // 報名集合有變 → 出現在 changes（-75）；且兩側類別集合相同 → 無班級折扣變動
+    expect(change.classDiscountChanges).toEqual([]);
+  });
+
+  /** 同類換班 + 真實原因同時發生：換班的兩個班名不得作為原因。 */
+  it('同類換班＋真實原因（加報英文班）→ 換班班名不作為原因，只有真實原因', () => {
+    const { beforeCtx, afterCtx } = contexts();
+    // 手算（R09 名稱式科數 ＋ R10）：
+    //   before：輔導 ＋數學三A（k=2 → 9500）
+    //   after ：輔導 ＋數學三B ＋英文 EB ＋兄弟姊妹（k=3、effective 4 → 9000）
+    //   換班（數學三A → 三B）：拿掉任一個，另一個仍在 → 都不決定計入 → 不是原因
+    //   加報英文 EB：english 類別首次出現 → 決定計入 → 是原因
+    const b = student('R3f2', ['國小輔導-一A', '國小數學-三A'], { grade: 3 });
+    const a = student('R3f2', ['國小輔導-一A', '國小數學-三B', '兒童美語-EB'], { grade: 3 });
+
+    const change = only(computeRosterChanges([b], [a], beforeCtx, afterCtx))[0];
+
+    expect(change.enrollmentChanges.filter((e) => e.presence !== 'kept').map((e) => e.baseName)).toEqual([
+      '國小數學-三A',
+      '國小數學-三B',
+      '兒童美語-EB',
+    ]);
+    expect(change.classDiscountChanges.length).toBeGreaterThan(0);
+    for (const item of change.classDiscountChanges) {
+      const names = item.reasons.flatMap((r) => ('className' in r ? [r.className] : []));
+      // 換班的兩個班名都不是原因（Lead r1 裁定：計入是存在性，兩側都有 math → 都不決定計入）
+      expect(names, `${item.baseName} 的換班不得作為原因`).not.toContain('國小數學-三A');
+      expect(names).not.toContain('國小數學-三B');
+      // 真正原因只有「加報英文班」（english 類別首次出現）
+      expect(item.reasons).toEqual([{ kind: 'enrollment_added', className: '兒童美語-EB' }]);
+    }
   });
 
   /** 加報第二個數學班：類別集合不變（math 已在）→ 加報該班不是原因。 */
@@ -436,9 +473,14 @@ describe('PR-1 §5 結構化原因（reasons：型別化資料，非文案）', 
 
     expect(change.classDiscountChanges).toHaveLength(1);
     expect(change.classDiscountChanges[0].baseName).toBe('國小輔導-一A');
-    // 類別集合由 {care} → {care, math}：真正原因是「數學這個類別首次出現」，只列一個代表班名
-    expect(change.classDiscountChanges[0].reasons).toEqual([
-      { kind: 'enrollment_added', className: '國小數學-三A' },
+    // 手算（R09 名稱式，探針實測）：兩個數學班拿掉任一個，k 都是 2（另一個仍在）→ **兩個都不決定計入**
+    // → 沒有任何報名原因是真因，reasons 為空陣列（Lead r1 裁定：只有改變計入科數者才算；
+    //   PR-2 會顯示「名單資料變動」）。這不是缺陷：報名確實變了，只是無法歸因到某一門課。
+    expect(change.classDiscountChanges[0].reasons).toEqual([]);
+    expect(change.enrollmentChanges.map((e) => [e.baseName, e.presence])).toEqual([
+      ['國小輔導-一A', 'kept'],
+      ['國小數學-三A', 'added'],
+      ['國小數學-三B', 'added'],
     ]);
   });
 

@@ -4,6 +4,8 @@ import { StudentSnapshot } from '@/domain/students';
 import type { StudentBillingCalculation } from '@/domain/billing/types';
 import { applicableRateForClass } from '@/application/applicable-rate';
 import { resolveClassEnrollment, type ClassCategory, type ClassSettingLookup } from '@/domain/classification/class-category';
+import { calculateSubjectCount, calculateSubjectCountV3 } from '@/domain/billing/discount-rules';
+import { ruleSetCapabilities } from '@/domain/billing/rule-set';
 
 /**
  * 名單異動判定（operator 裁決 d-20260929111803466480-4 / d-20260929111814541876-5）。
@@ -355,6 +357,55 @@ function discountCategoryOf(
   return resolved.category === 'none' ? null : resolved.category;
 }
 
+/**
+ * 讓 `hasHomeworkOrMeian` 改變的班（寫功課／美安），與 billing-calculator 同源判定。
+ * v3：該生任一報名班 fixedFiveDays 為真（billing-calculator:433-435）；v1／v2：名稱含寫功課或美安。
+ * **不另寫一套字串規則**：此處只用來判斷「這個 none 類別班是否值得作為原因」，
+ * 實際數值仍由 calculator 的 hasHomeworkOrMeian 決定。
+ */
+function affectsHomeworkOrMeian(token: Token, ctx: RosterChangeContext): boolean {
+  const resolved = resolveClassEnrollment(token, ctx.aliasMap, ctx.classSettings);
+  return resolved.fixedFiveDays || token.baseName.includes('寫功課') || token.baseName.includes('美安');
+}
+
+/**
+ * 某人某側的「計入科數」值——**與 calculator 同一條規則**：
+ * v3 走類別式（R03 calculateSubjectCountV3），v1／v2／compat 走名稱式（R09 calculateSubjectCount）。
+ * 這裡不重寫規則，只挑對應的函式。
+ */
+function countedSubjectCount(
+  student: StudentSnapshot | undefined,
+  ctx: RosterChangeContext
+): number | null {
+  const tokens = student?.enrollments ?? [];
+  const version = ctx.ruleSetVersion ?? 'erp-tag-v2';
+  return ruleSetCapabilities(version).categoryBasedBilling
+    ? calculateSubjectCountV3(tokens.map((t) => resolveClassEnrollment(t, ctx.aliasMap, ctx.classSettings).category))
+    : calculateSubjectCount(tokens);
+}
+
+/**
+ * 某個報名班「是否決定了計入科數」：把它的**類別**從兩側合併的報名集合中拿掉後，計入科數是否下降。
+ *
+ * 計入是存在性（R09 名稱式／R03 類別式：同類只算 1 科），且要看**兩側合併**：
+ *  - 同類換班（三A → 三B）：拿掉三A，數學仍由三B 代表 → 計入不變 → 不是決定者（Lead r1 裁定）。
+ *  - 唯一一個數學班的新增／退出：拿掉後數學類別消失 → 計入下降 → 是決定者。
+ *  - 同時加入兩個數學班：拿掉任一個，另一個仍在 → 兩個都不是決定者（誠實呈現，reasons 可能為空）。
+ *
+ * 實作直接呼叫 calculator 用的同一組規則函式（v3 類別式／v1、v2 名稱式含寫功課減 1），不另推規則。
+ */
+function decidesSubjectCount(
+  allTokens: Token[],
+  ctx: RosterChangeContext,
+  token: Token
+): boolean {
+  const countOf = (list: Token[]) =>
+    countedSubjectCount({ enrollments: list } as unknown as StudentSnapshot, ctx);
+  const withToken = countOf(allTokens);
+  const withoutToken = countOf(allTokens.filter((t) => t.rawToken !== token.rawToken));
+  return withToken !== withoutToken;
+}
+
 /** 以 rawToken 為身分建立 token 索引（同一門課在 before／after 的身分）。 */
 function tokenIndex(student: StudentSnapshot | undefined): Map<string, Token> {
   const map = new Map<string, Token>();
@@ -462,15 +513,15 @@ function buildClassDiscountChanges(
 
   // 報名原因：歸因到**實際報名增減的那個班名**（decisions -68「逐班列班級名稱：前 → 後」）。
   // 注意方向：真正變動的項目一定是「兩側都報名」的班，而增減的那個班本身因為未報名一側無值而不列。
-  //   - 加報 X → 科數增加，既有班（kept）適用率改變 → 原因掛在既有班的項目上，className＝X。
-  //   - 退出 X → 原因掛在剩下的既有班上，kind＝enrollment_removed、className＝X。
-  //   - 同類換班 → 新報的班名（switched 的 added 側）與 kind=enrollment_added 配對。
-  const addedNames = enrollmentChanges
-    .filter((e) => e.presence === 'added' || e.presence === 'switched')
-    .map((e) => e.baseName);
-  const removedNames = enrollmentChanges
-    .filter((e) => e.presence === 'removed' || e.presence === 'switched')
-    .map((e) => e.baseName);
+  // Lead r1 裁定：報名原因只列「真的會影響該班適用率輸入」者。
+  //   - 計入科數的類別集合（R10）＋兄弟姊妹＋特殊折扣 → 影響所有類別；
+  //   - 園內生 → 只影響安親（care）；寫功課／美安（hasHomeworkOrMeian）→ 只影響安親／課輔（care）。
+  // 因此逐班決定它能接受哪些報名原因：
+  //   - 對 everyChange：在 before/after 任一側**新出現**的計入類別（集合因此改變）→ 可掛所有計入類別的增減。
+  //   - 對 this class：該生報名增減中，會改變 hasHomeworkOrMeian 且該班為 care → 可掛寫功課／美安的增減。
+  //   - 其餘 none 類別班（交通車、國語文、加強班…）永不列為原因。
+  const addedTokens = enrollmentChanges.filter((e) => e.presence === 'added' || e.presence === 'switched');
+  const removedTokens = enrollmentChanges.filter((e) => e.presence === 'removed' || e.presence === 'switched');
 
   const rows: ClassDiscountChange[] = [];
   for (const key of beforeTokens.keys()) {
@@ -487,11 +538,32 @@ function buildClassDiscountChanges(
     if (beforeRate.bps === afterRate.bps) continue; // 沒變不列
 
     const reasons: ClassDiscountReason[] = [];
-    for (const className of addedNames) reasons.push({ kind: 'enrollment_added', className });
-    for (const className of removedNames) reasons.push({ kind: 'enrollment_removed', className });
-    // 標籤原因：園內生只掛在 care 班（specs/02 R13：只改安親適用率），數學／美語不掛
-    if (category === 'care') reasons.push(...tagReasons);
-    else reasons.push(...tagReasons.filter((r) => !(r.kind === 'tag_added' && r.tag === '園內生')));
+    const isCare = category === 'care';
+    // 報名原因：只列「真的會影響該班適用率輸入」的增減。對計入科數的類別（care／math／english）而言，
+    // 該類別在 before／after 任一側**新出現或消失**才是原因（集合因此改變）；同類換班、同類多一班不列。
+    // 其餘 none 類別班只有「會改變 hasHomeworkOrMeian」且只掛 care（寫功課／美安）。
+    for (const change of addedTokens) {
+      const token = afterTokens.get(change.rawToken)!;
+      // 決定了計入科數 → 原因；或改變 hasHomeworkOrMeian 且本班是 care（安親／課輔會回到 10000）
+      if (
+        decidesSubjectCount([...before.enrollments, ...after.enrollments], beforeCtx, token) ||
+        (isCare && affectsHomeworkOrMeian(token, afterCtx))
+      ) {
+        reasons.push({ kind: 'enrollment_added', className: change.baseName });
+      }
+    }
+    for (const change of removedTokens) {
+      const token = beforeTokens.get(change.rawToken)!;
+      if (
+        decidesSubjectCount([...before.enrollments, ...after.enrollments], beforeCtx, token) ||
+        (isCare && affectsHomeworkOrMeian(token, beforeCtx))
+      ) {
+        reasons.push({ kind: 'enrollment_removed', className: change.baseName });
+      }
+    }
+    // 標籤原因：兄弟姊妹／特殊折扣 → 所有類別；園內生 → 只掛 care（增減皆然，R13 只改安親適用率）
+    if (isCare) reasons.push(...tagReasons);
+    else reasons.push(...tagReasons.filter((r) => !(r.kind === 'tag_added' || r.kind === 'tag_removed') || r.tag !== '園內生'));
 
     rows.push({
       baseName: token.baseName,
