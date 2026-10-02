@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { holdCalculate } from './helpers/hold-calculate';
 
 /**
  * D2d r3／F4（04 §8 UX61；09 §6「Esc 關閉後焦點回到觸發點」）：
@@ -104,5 +105,49 @@ test.describe('D2d r3／F4：確認變更視窗 late-disable 後焦點仍須還�
     await expect(opener, 'Esc 後焦點應維持在觸發點').toBeFocused();
     expect(await opener.isDisabled(), '未推進 debounce 時 opener 不應變 disabled').toBe(false);
     await expect(opener, '無 late-disable 時焦點應仍在觸發點').toBeFocused();
+  });
+
+  /**
+   * N5（PR #51 review NB1）：`restoreFocusToOpener` 的 `sawDisabled` 初值＝「還原當下 opener 是否已 disabled」。
+   *
+   * 上面第一案的順序是「Esc 還原**成功**→ debounce 才 fire → disabled」，opener 在還原當下是 enabled，
+   * `sawDisabled` 初值不論 true／false 都由後續的 disabled 事件設成 true，所以**鑑別不了**這個初值。
+   * 本案是另一種順序：**calculate 在途時 Esc 關閉**——debounce 在 dialog 開著期間到期，
+   * opener 在還原當下**已是 disabled**（`focus()` 落空、焦點掉到 body）；之後 response 回來、opener
+   * 重新 enabled，那是唯一的 `true→false` 轉移，必須補還原。若初值是 false，觀察到的第一個事件
+   * 就是「enabled」，會被當成「與本次無關」而 dispose，焦點永遠留在 body（變異 sawDisabled=false 轉紅）。
+   *
+   * 請求用 holdCalculate 扣住，使「calculate 在途」是穩定可觀察的狀態，不靠輪詢去接一個只有
+   * 約 60–80ms 的 disabled 窗口。
+   */
+  test('N5：calculate 在途時 Esc 關閉 → response 回來、opener 重新 enabled 後焦點必須回到「確認變更」', async ({ page }) => {
+    await page.clock.install({ time: T0 });
+    await page.clock.pauseAt(T0 + 1);
+    const calc = await holdCalculate(page);
+
+    const opener = page.locator('button', { hasText: '確認變更' });
+    const dialog = page.locator('dialog.impact-dialog');
+    await page.goto('/settings');
+    await expect(page.locator('h1', { hasText: '課表設定' })).toBeVisible({ timeout: 10000 });
+    await page.locator('input.input-time').first().fill('13:30');
+    await opener.click();
+    await expect(dialog).toBeVisible({ timeout: 15000 });
+    await expect(dialog.locator('button', { hasText: /^儲存/ })).toBeEnabled({ timeout: 15000 });
+
+    // dialog 開著期間 debounce 到期 → calculating=true → opener（在 modal 後面）disabled；請求被扣住
+    await page.clock.runFor(250);
+    await expect.poll(() => calc.held(), { message: 'debounce 到期後 calculate 請求已送出並被扣住' }).toBe(1);
+    await expect(opener, '計算在途：opener 應為 disabled').toBeDisabled();
+
+    // 此刻 Esc 關閉：還原當下 opener 已 disabled，focus() 落空
+    await page.keyboard.press('Escape');
+    await expect(dialog).toHaveCount(0);
+    await expect(opener, '還原當下 opener 是 disabled，焦點不可能在它身上').not.toBeFocused();
+
+    // 放行 → response 回來 → opener 重新 enabled（disabled true→false）
+    calc.release();
+    await page.clock.resume();
+    await expect(opener, 'response 回來後「確認變更」應恢復 enabled').toBeEnabled({ timeout: 15000 });
+    await expect(opener, 'sawDisabled 初值：還原當下已 disabled，重新 enabled 時焦點必須補回「確認變更」').toBeFocused();
   });
 });
