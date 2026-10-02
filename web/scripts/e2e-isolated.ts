@@ -9,14 +9,20 @@ import { assertIsolatedE2eTarget, DEFAULT_ISOLATED_E2E_PORT } from './e2e-isolat
  *
  *   npm run test:e2e:isolated                      # 每個 spec 檔各用全新 server＋全新臨時 DB（預設，結果與檔案順序無關）
  *   npm run test:e2e:isolated -- --shared          # 全部 spec 共用同一個 server＋DB，依檔名順序（重現跨檔污染）
- *   npm run test:e2e:isolated -- --repeat 2        # 同一組同一個臨時 DB 連跑 N 輪（每輪新 server），重現「DB 狀態跨輪殘留」
+ *   npm run test:e2e:isolated -- --repeat 2        # 同一組連跑 N 輪（每輪新 server＋**全新 DB**，每輪都從乾淨狀態開始；穩定性檢查用）
+ *   npm run test:e2e:isolated -- --repeat 2 --keep-db
+ *                                                  # 診斷用 opt-in：N 輪沿用**同一個** DB（不在輪間重設），重現「DB 狀態跨輪殘留」
+ *                                                  # （issue #25）。只在 --repeat N（N≥2）時有意義；與 --seed-v2-active 互斥
  *   npm run test:e2e:isolated -- --port 3101       # 指定埠（不可為 3000）
  *   npm run test:e2e:isolated -- tests/e2e/imports.spec.ts   # 只跑指定 spec
  *   npm run test:e2e:isolated -- --seed-v2-active tests/e2e/d2d-upgrade-journey.spec.ts
  *                                                  # 升級旅程專用：每輪 server 啟動前先把隔離 DB 還原為「既有 v2 DB」
- *                                                  # 前置狀態（scripts/e2e-seed-v2-active.ts），其餘隔離契約不變
+ *                                                  # 前置狀態（scripts/e2e-seed-v2-active.ts；seed 只產生一次，每輪複製），其餘隔離契約不變
  *
  * 每組執行都建立系統臨時目錄下的獨立 sqlite，結束後刪除；不會讀寫 data/app.sqlite，也不會連 3000 服務。
+ *
+ * --repeat 的 DB 語意（issue #47）：預設每輪開始前刪除 app.sqlite 與 -wal／-shm，由 server 首次開啟時建立並 migrate；
+ * 因此 `--repeat N` 是「N 輪皆從乾淨狀態通過」的穩定性檢查。要重現跨輪殘留必須明確加 --keep-db。
  */
 
 interface Args {
@@ -26,10 +32,12 @@ interface Args {
   files: string[];
   /** D2d E：每輪 server 啟動前還原「既有 v2 DB」前置狀態（僅升級旅程 spec 需要） */
   seedV2Active: boolean;
+  /** 診斷 opt-in：--repeat 各輪沿用同一個 DB，不在輪間重設（重現 issue #25 的跨輪殘留） */
+  keepDb: boolean;
 }
 
 function parseArgs(argv: string[]): Args {
-  const args: Args = { shared: false, port: DEFAULT_ISOLATED_E2E_PORT, repeat: 1, files: [], seedV2Active: false };
+  const args: Args = { shared: false, port: DEFAULT_ISOLATED_E2E_PORT, repeat: 1, files: [], seedV2Active: false, keepDb: false };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--shared') {
@@ -41,11 +49,19 @@ function parseArgs(argv: string[]): Args {
       if (!Number.isInteger(args.repeat) || args.repeat < 1) throw new Error('--repeat 必須是正整數');
     } else if (a === '--seed-v2-active') {
       args.seedV2Active = true;
+    } else if (a === '--keep-db') {
+      args.keepDb = true;
     } else if (a.startsWith('--')) {
       throw new Error(`未知選項 ${a}`);
     } else {
       args.files.push(a);
     }
+  }
+  if (args.keepDb && args.seedV2Active) {
+    throw new Error('--keep-db 與 --seed-v2-active 互斥：seed 的語意是每輪還原同一份前置狀態，--keep-db 是不重設；請擇一');
+  }
+  if (args.keepDb && args.repeat < 2) {
+    throw new Error('--keep-db 只在搭配 --repeat N（N≥2）時有意義；沒有第 2 輪就沒有可沿用的 DB');
   }
   return args;
 }
@@ -61,11 +77,11 @@ function listSpecFiles(): string[] {
 
 interface GroupResult {
   files: string[];
-  /** 每一輪的結束碼（--repeat N 時有 N 筆；輪與輪之間共用同一個臨時 DB） */
+  /** 每一輪的結束碼（--repeat N 時有 N 筆；預設每輪全新 DB，--keep-db 時輪與輪之間沿用同一個臨時 DB） */
   statuses: number[];
 }
 
-function runGroup(files: string[], port: number, repeat: number, seedV2Active: boolean): GroupResult {
+function runGroup(files: string[], port: number, repeat: number, seedV2Active: boolean, keepDb: boolean): GroupResult {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sb-e2e-'));
   const databasePath = path.join(tmpDir, 'app.sqlite');
   // D2d E：每輪 server 啟動前重建「既有 v2 DB」現況，因此保留一份未被 server 觸碰的樣板，
@@ -85,11 +101,13 @@ function runGroup(files: string[], port: number, repeat: number, seedV2Active: b
       console.log(
         `\n=== 隔離 E2E：${files.join(', ')}｜埠 ${port}｜第 ${pass}/${repeat} 輪｜DB ${databasePath} ===`
       );
-      if (seedV2Active) {
-        // 從樣板複製一份，確保每輪都從同一個 v2 現況開始（--repeat 跨輪不殘留）
+      if (!keepDb) {
+        // 每輪都從乾淨狀態開始（--repeat 跨輪不殘留）。輪間沒有開著的 DB handle：
+        // 每輪的 server 由 Playwright 啟動、輪結束即關閉（reuseExistingServer:false），所以在此刪檔是安全的。
         fs.rmSync(databasePath, { force: true });
-        fs.copyFileSync(seedPath, databasePath);
         for (const suffix of ['-wal', '-shm']) fs.rmSync(databasePath + suffix, { force: true });
+        // 無 seed：不預建 DB，server 首次開啟時建立並 migrate；有 seed：從樣板複製一份，從同一個 v2 現況開始。
+        if (seedV2Active) fs.copyFileSync(seedPath, databasePath);
       }
       const res = spawnSync(
         'npx',
@@ -115,7 +133,7 @@ function main(): void {
   const files = args.files.length > 0 ? args.files : listSpecFiles();
   const groups = args.shared ? [files] : files.map((f) => [f]);
 
-  const results = groups.map((g) => runGroup(g, args.port, args.repeat, args.seedV2Active));
+  const results = groups.map((g) => runGroup(g, args.port, args.repeat, args.seedV2Active, args.keepDb));
 
   console.log('\n=== 隔離 E2E 結果 ===');
   for (const r of results) {
