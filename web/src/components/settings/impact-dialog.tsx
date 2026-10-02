@@ -5,6 +5,7 @@ import { SplitClassWarning } from '@/contracts/settings';
 import { CATEGORY_LABELS } from '@/domain/classification/class-attributes';
 import { ErrorNotice } from '@/components/ui/error-notice';
 import { restoreFocusToOpener } from '@/components/ui/restore-focus-to-opener';
+import { formatDiscountBps } from '@/application/roster-changes';
 import type { UserFacingError } from '@/lib/user-messages';
 
 export interface SettingsPreviewData {
@@ -29,6 +30,24 @@ export interface SettingsPreviewData {
   mismatchBefore?: number | null;
   mismatchAfter?: number | null;
   dayDeltas: Array<{
+    personCode: string;
+    name: string;
+    before: number | null;
+    after: number | null;
+  }> | null;
+  /**
+   * N02／R3-F01（issue #54）：類別異動之科數變動明細
+   */
+  subjectCountDeltas?: Array<{
+    personCode: string;
+    name: string;
+    before: number | null;
+    after: number | null;
+  }> | null;
+  /**
+   * N02／R3-F01（issue #54）：類別異動之合計折扣變動明細
+   */
+  baseDiscountDeltas?: Array<{
     personCode: string;
     name: string;
     before: number | null;
@@ -113,6 +132,8 @@ export function ImpactDialog({
 
   const isSettingsOnly = mode === 'settings_only' || preview?.mode === 'settings_only';
   const hasDeltas = Array.isArray(preview?.dayDeltas) && preview!.dayDeltas!.length > 0;
+  const hasSubjectDeltas = Array.isArray(preview?.subjectCountDeltas) && preview!.subjectCountDeltas!.length > 0;
+  const hasDiscountDeltas = Array.isArray(preview?.baseDiscountDeltas) && preview!.baseDiscountDeltas!.length > 0;
   const aliasNotices = preview?.aliasCategoryNotices ?? [];
 
   return (
@@ -240,6 +261,62 @@ export function ImpactDialog({
               <p className="note" style={{ marginTop: '16px' }}>
                 本次課表變更未改變現行學生的收費天數。
               </p>
+            )}
+
+            {hasSubjectDeltas && (
+              <div className="deltas-table-container" style={{ marginTop: '16px' }}>
+                <h3 className="section-title">科數變動明細（前 50 筆）</h3>
+                <div className="scroll table-scroll-container">
+                  <table className="data-table">
+                    <thead>
+                      <tr>
+                        <th>人員代碼</th>
+                        <th>姓名</th>
+                        <th>變更前科數</th>
+                        <th>變更後科數</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {preview!.subjectCountDeltas!.slice(0, 50).map((d) => (
+                        <tr key={d.personCode}>
+                          <td className="code-text">{d.personCode}</td>
+                          <td>{d.name}</td>
+                          <td>{d.before ?? '-'}</td>
+                          <td className="after-bold">{d.after ?? '-'}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+
+            {hasDiscountDeltas && (
+              <div className="deltas-table-container" style={{ marginTop: '16px' }}>
+                <h3 className="section-title">合計折扣變動明細（前 50 筆）</h3>
+                <div className="scroll table-scroll-container">
+                  <table className="data-table">
+                    <thead>
+                      <tr>
+                        <th>人員代碼</th>
+                        <th>姓名</th>
+                        <th>變更前折扣</th>
+                        <th>變更後折扣</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {preview!.baseDiscountDeltas!.slice(0, 50).map((d) => (
+                        <tr key={d.personCode}>
+                          <td className="code-text">{d.personCode}</td>
+                          <td>{d.name}</td>
+                          <td>{formatDiscountBps(d.before)}</td>
+                          <td className="after-bold">{formatDiscountBps(d.after)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
             )}
           </div>
         )}
