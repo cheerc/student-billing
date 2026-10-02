@@ -13,7 +13,7 @@ import {
 import { buildClassSettingMap, executeCalculationRun, resolveLatestSavedSettings } from '@/application/calculate-run';
 import { saveCalculationRun } from '@/adapters/sqlite/runs-repository';
 import { generateImportPreview } from '@/application/import-preview';
-import { computeRosterChanges } from '@/application/roster-changes';
+import { computeImportRosterChanges } from '@/application/import-roster-diff';
 import { saveImportBatch } from '@/adapters/sqlite/import-repository';
 import { resolveFormalRuleSetVersion } from '@/application/rule-set-resolver';
 import { POST as previewPOST } from '@/app/api/v1/imports/preview/route';
@@ -409,6 +409,110 @@ describe('API: preview 的 rosterDiff.changes 帶 PR-1 逐班資料（報名集�
     expect(change!.before!.subjectCount).toBe(catWith.size);
     expect(change!.before!.baseDiscountBps).toBe(expectedWith);
     expect(change!.before!.baseDiscountBps).not.toBe(expectedAuto);
+  });
+
+  /**
+   * classSettings 接線的**直接可證性**（review B-3／secondary B3；Lead r1 補完指引）。
+   *
+   * 斷言對象是**產品呼叫鏈本身**：`computeImportRosterChanges`（接線就在 `import-roster-diff.ts` 內）。
+   * 用純合成名單，不依賴 fixture、seed 班名或 apply/run 路徑：
+   *
+   *  1. `settings_versions` 寫一份 draft，其中「國小數學-四A」手動指定為 `care`（`categorySource: 'manual'`）。
+   *     `buildClassSettingMap` 以 `baseName` 為 key（`calculate-run.ts:27-38`），`resolveClassEnrollment`
+   *     以 `aliasMap` 解析後的 `resolvedBaseName` 取值（`class-category.ts:69-70`）——本案例無別名，
+   *     故名冊 `baseName` 即 key。
+   *  2. before 名單：該生報「國小數學-四A」＋「國小輔導-一A」。
+   *  3. after 名單：加報「兒童美語-EP」→ 該生出現在 changes，可讀其 before 側。
+   *
+   * 手算（R03 類別式科數＝計入類別集合大小；R10）：
+   *   - **帶 classSettings**：數學四A→manual care、輔導→care ⇒ {care} ⇒ 科數 1 ⇒ effectiveCount 1 ⇒ **10000**
+   *   - **不帶 classSettings**：數學四A→名稱偵測 math、輔導→care ⇒ {care, math} ⇒ 科數 2 ⇒ effectiveCount 2 ⇒ **9500**
+   *
+   * 兩者必不同 → 案例有鑑別力。移除 `import-roster-diff.ts` 的接線後，本斷言即失敗。
+   */
+  it('classSettings 接線：產品呼叫鏈的 before 側等於帶 classSettings 的計算，且與不帶者不同', () => {
+    const db = getDatabase();
+    const makeStudent = (personCode: string, baseNames: string[]): StudentSnapshot => ({
+      personCode,
+      name: personCode,
+      branch: '合成測試分校',
+      gradeRaw: '3',
+      grade: 3,
+      gradeStatus: 'valid',
+      contact: null,
+      schoolInfo: null,
+      tagsRaw: '',
+      tags: [],
+      notesRaw: '',
+      enrollments: baseNames.map((bn) => ({
+        rawToken: `${bn}[團]`,
+        yearPrefix: '115',
+        baseName: bn,
+        groupFlag: '團',
+        modifiers: [],
+        withdrawalDate: null,
+        erpBillingTierRaw: null,
+        erpBillingTier: null,
+        tierParseStatus: 'not_applicable' as const,
+        parseStatus: 'ok' as const,
+      })),
+      sourceRow: 1,
+    });
+
+    const targetCode = 'SYN-CLASS-SETTINGS';
+    saveBase('imp_cs_before', [
+      makeStudent(targetCode, ['國小數學-四A', '國小輔導-一A']),
+    ]);
+    saveBase('imp_cs_after', [
+      makeStudent(targetCode, ['國小數學-四A', '國小輔導-一A', '兒童美語-EP']),
+    ]);
+
+    // 手動把「國小數學-四A」指定為 care（測試資料，不改 seed）
+    const draft = buildSeedDraft();
+    const idx = draft.classes.findIndex((c) => c.baseName === '國小數學-四A');
+    expect(idx, 'seed 課表應含 國小數學-四A').toBeGreaterThanOrEqual(0);
+    draft.classes[idx] = {
+      ...draft.classes[idx],
+      category: 'care',
+      categorySource: 'manual',
+      fixedFiveDays: false,
+      fixedSource: 'manual',
+    } as ClassSetting;
+    saveSettingsVersion(db, {
+      id: 'setv_manual_math_care',
+      contentHash: 'manual-math-care-hash',
+      contentJson: JSON.stringify(draft),
+      effectiveFrom: null,
+      effectiveTo: null,
+      createdAt: '2026-10-01T00:00:00.000Z',
+      createdFromPreviewId: null,
+      revision: 1,
+    });
+
+    // 解析層可證性：手動類別確實被套用（避免測試在「設定沒生效」下假綠）
+    const settings = resolveLatestSavedSettings(db);
+    const manualResolved = resolveClassEnrollment(
+      { rawToken: '國小數學-四A[團]', baseName: '國小數學-四A' },
+      settings.aliasMap,
+      settings.classSettings
+    );
+    expect(manualResolved.category).toBe('care');
+    expect(manualResolved.categorySource).toBe('manual');
+
+    // 手算（R03／R10），不使用實作輸出回填
+    const expectedWith = { subjectCount: 1, baseDiscountBps: calculateBaseDiscountBps(1, false, null) };
+    const expectedWithout = { subjectCount: 2, baseDiscountBps: calculateBaseDiscountBps(2, false, null) };
+    expect(expectedWith.baseDiscountBps).toBe(10000);
+    expect(expectedWithout.baseDiscountBps).toBe(9500);
+
+    // 產品呼叫鏈（接線就在其中）
+    const diff = computeImportRosterChanges(db, 'imp_cs_after', 'imp_cs_before');
+    const change = diff.changes.find((c) => c.personCode === targetCode);
+    expect(change, '加報英文班 → 該生必須出現在 changes').toBeDefined();
+    expect(change!.before!.subjectCount).toBe(expectedWith.subjectCount);
+    expect(change!.before!.baseDiscountBps).toBe(expectedWith.baseDiscountBps);
+    // 對照：不帶 classSettings 時的規則推導值（接線若被移除即變成這個）
+    expect(expectedWith).not.toEqual(expectedWithout);
   });
 
   /** 預覽回應的每筆 change 都帶兩個新欄位（畫面未改，純 additive 資料）。 */
