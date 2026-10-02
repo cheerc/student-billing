@@ -22,12 +22,24 @@ import { StudentSnapshot } from '@/domain/students';
  *   - 逐班取值：只有「該生實際報名此班」的一側才算值；未報名一側不取值（-75：不得顯示假異動）
  */
 
-const contexts = (classSettings?: Map<string, ClassSettingLookup>) => {
+/**
+ * 依規則版本建立 context（PR65 note 移交 PR-2 補齊）。
+ *
+ * `decidesSubjectCount` 依 `ruleSetCapabilities(version).categoryBasedBilling` 分派到
+ * v3 的類別式（R03）或 v1／v2 的名稱式（R09，含「有寫功課則 k−1」）。兩條路徑對寫功課的
+ * 判定**相反且各自正確**（v3：寫功課不計科數、只經 hasHomeworkOrMeian 影響 care；
+ * v1／v2：寫功課改變計入科數 → 是所有類別的真實原因），因此兩條路徑都必須有單元覆蓋。
+ */
+const contexts = (
+  classSettings?: Map<string, ClassSettingLookup>,
+  ruleSetVersion: 'erp-tag-v2' | 'erp-tag-v3' = 'erp-tag-v2'
+) => {
   const draft = buildSeedDraft();
   const ctx = {
     aliasMap: draftToAliasMap(draft),
     scheduleOverride: draftToScheduleOverride(draft),
     ...(classSettings ? { classSettings } : {}),
+    ruleSetVersion,
   };
   return { beforeCtx: ctx, afterCtx: ctx };
 };
@@ -632,5 +644,75 @@ describe('PR-1 §1 classSettings 接線（spike §B4：與 run 端類別解析�
     const result = computeRosterChanges([s], [s], beforeCtx, afterCtx);
 
     expect(result.stats.unchangedCount).toBe(1);
+  });
+});
+
+describe('PR-2 補齊：v3（類別式 R03）路徑的 reasons（PR65 secondary note 移交）', () => {
+  /**
+   * 手算依 02 R03（v3 計入科數＝計入類別集合大小，同類只算 1 科、none 不列入）與 R10：
+   * v3 下寫功課**不進**計入科數，因此它不是數學班的決定者；它只經 hasHomeworkOrMeian 影響 care。
+   * 這與 v1／v2（R09 含寫功課 k−1）相反，兩條路徑各自正確，必須分開驗。
+   */
+  it('v3：加寫功課不掛數學班（科數不變 → 不是決定者），只掛 care', () => {
+    const { beforeCtx, afterCtx } = contexts(undefined, 'erp-tag-v3');
+    // before：輔導一A＋數學三A（科數 {care, math} = 2 → 9500）
+    // after ：＋寫功課（v3 不計科數 → 仍 2 → 9500）；但寫功課使 hasHomeworkOrMeian=true
+    //        → 課輔適用率回到 10000 → 輔導班 9500 → 10000（真變動）
+    const before = student('V1', ['國小輔導-一A', '國小數學-三A'], { grade: 3 });
+    const after = student('V1', ['國小輔導-一A', '國小數學-三A', '國小輔導-寫功課'], { grade: 3 });
+
+    const change = only(computeRosterChanges([before], [after], beforeCtx, afterCtx))[0];
+
+    const careItem = change.classDiscountChanges.find((c) => c.baseName === '國小輔導-一A');
+    expect(careItem, '寫功課使課輔適用率回到 10000 → 輔導班有變動').toBeDefined();
+    expect(careItem!.beforeBps).toBe(9500);
+    expect(careItem!.afterBps).toBe(10000);
+    expect(careItem!.reasons).toEqual([{ kind: 'enrollment_added', className: '國小輔導-寫功課' }]);
+
+    const mathItem = change.classDiscountChanges.find((c) => c.baseName === '國小數學-三A');
+    if (mathItem) {
+      expect(
+        mathItem.reasons.some((r) => 'className' in r && r.className === '國小輔導-寫功課'),
+        'v3：寫功課不決定計入科數，不得掛到數學班'
+      ).toBe(false);
+    }
+  });
+
+  it('v3：退出唯一的輔導班 → 掛在數學班（care 類別消失 → 科數 2 → 1 → 10000）', () => {
+    const { beforeCtx, afterCtx } = contexts(undefined, 'erp-tag-v3');
+    // before：輔導一A＋數學三A（{care, math} = 2 → 9500）
+    // after ：只剩數學三A（{math} = 1 → 10000）→ 數學班 9500 → 10000
+    const before = student('V2', ['國小輔導-一A', '國小數學-三A'], { grade: 3 });
+    const after = student('V2', ['國小數學-三A'], { grade: 3 });
+
+    const change = only(computeRosterChanges([before], [after], beforeCtx, afterCtx))[0];
+
+    const mathItem = change.classDiscountChanges.find((c) => c.baseName === '國小數學-三A');
+    expect(mathItem).toBeDefined();
+    expect(mathItem!.sideOf).toBe('math');
+    expect(mathItem!.beforeBps).toBe(9500);
+    expect(mathItem!.afterBps).toBe(10000);
+    expect(mathItem!.reasons).toEqual([{ kind: 'enrollment_removed', className: '國小輔導-一A' }]);
+  });
+
+  /**
+   * operator decision d-20261002220111995309-79（寫功課不計多科、固定 5 天）：
+   * 同時報寫功課 ＋ 數學 ＋ 美語 → v3 計入 {math, english} = 2 → effectiveCount 2 → 9500（95折）。
+   */
+  it('v3：寫功課＋數學＋美語 → 科數 2 → 95折（d-…-79）', () => {
+    const { beforeCtx, afterCtx } = contexts(undefined, 'erp-tag-v3');
+    // before：數學 ＋ 美語（{math, english} = 2 → 9500）
+    // after ：＋寫功課（v3 不計科數 → 仍 2 → 9500）
+    const before = student('V3', ['國小數學-三A', '兒童美語-EA'], { grade: 3 });
+    const after = student('V3', ['國小數學-三A', '兒童美語-EA', '國小輔導-寫功課'], { grade: 3 });
+    const change = only(computeRosterChanges([before], [after], beforeCtx, afterCtx))[0];
+    expect(change.after!.subjectCount).toBe(2);
+    expect(change.after!.baseDiscountBps).toBe(9500);
+
+    // 加輔導班 → {care, math, english} = 3 → 9000；此時寫功課存在也不加科數（d-…-79）
+    const withCare = student('V3', ['國小數學-三A', '兒童美語-EA', '國小輔導-一A', '國小輔導-寫功課'], { grade: 3 });
+    const change2 = only(computeRosterChanges([before], [withCare], beforeCtx, afterCtx))[0];
+    expect(change2.after!.subjectCount, '寫功課不計多科（d-…-79）').toBe(3);
+    expect(change2.after!.baseDiscountBps).toBe(9000);
   });
 });

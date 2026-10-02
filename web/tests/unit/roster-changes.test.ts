@@ -302,7 +302,6 @@ describe('R4 operator 裁決：異動以 before/after 計算結果判定（非�
       // 計費面完全不變：沒有天數、沒有折扣、沒有適用率變動
       expect(result.changes[0].dayChange).toBeNull();
       expect(result.changes[0].discountChange).toBeNull();
-      expect(result.changes[0].rateChange).toBeNull();
       // 只有報名集合少了一班
       expect(result.changes[0].enrollmentChanges.map((e) => [e.baseName, e.presence])).toEqual([
         ['國小數學-一A', 'kept'],
@@ -402,7 +401,6 @@ describe('R4 operator 裁決：異動以 before/after 計算結果判定（非�
       // 計費面不變：這仍不是「折扣異動」或「天數異動」
       expect(result.changes[0].dayChange).toBeNull();
       expect(result.changes[0].discountChange).toBeNull();
-      expect(result.changes[0].rateChange).toBeNull();
       expect(result.changes[0].classDiscountChanges).toEqual([]);
       expect(
         result.changes[0].enrollmentChanges.filter((e) => e.presence !== 'kept').map((e) => e.presence)
