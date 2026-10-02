@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useEffect, useRef } from 'react';
+import { restoreFocusToOpener } from '@/components/ui/restore-focus-to-opener';
 
 interface LeaveConfirmDialogProps {
   open: boolean;
@@ -16,14 +17,13 @@ export function LeaveConfirmDialog({ open, onKeepEditing, onDiscard }: LeaveConf
   const dialogRef = useRef<HTMLDialogElement | null>(null);
   const openerRef = useRef<HTMLElement | null>(null);
 
-  // 關閉後把焦點還給觸發元素（被點的連結／頁面上原本的焦點）
+  // 關閉後把焦點還給觸發元素（被點的連結／頁面上原本的焦點）。與 impact-dialog 共用 restoreFocusToOpener：
+  // 觸發元素若在離頁確認開著期間變 disabled（debounce 觸發的計算），關閉當下 focus() 會落空，
+  // 需等它恢復可聚焦後補還原（issue #48）。
   useEffect(() => {
     if (!open) return;
     openerRef.current = document.activeElement as HTMLElement | null;
-    return () => {
-      const opener = openerRef.current;
-      if (opener && document.contains(opener)) opener.focus();
-    };
+    return () => restoreFocusToOpener(openerRef.current);
   }, [open]);
 
   useEffect(() => {

@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { scheduleHeading, sideLink, startInput } from './helpers/c-batch';
 
 /**
  * D2d r3／F4 cleanup 斷言：補還原的觀察窗**不得**在終止後留下任何 listener。
@@ -161,5 +162,53 @@ test.describe('D2d r3／F4 cleanup：所有終止路徑都不得殘留 listener'
     const after = delta(await readCounts(page), base);
     expect(after.pointerdown, 'watchdog 到期後不得殘留 pointerdown listener').toBe(0);
     expect(after.keydown, 'watchdog 到期後不得殘留 keydown listener').toBe(0);
+  });
+
+  // 第五條終止路徑：opener 從**同一個 document** 消失。
+  // 觀察窗只 observe opener 的 `disabled` 屬性，節點被移除不會改屬性 → observer 不觸發 →
+  // 原本 `!document.contains(opener)` 的檢查（只在 observer 回呼內）永遠跑不到。
+  // 既有負向第 6 條用 `page.goto('/imports')` 是整頁替換（document 一起沒了），沒有走到這條。
+  //
+  // 真實情境：儲存成功 → dialog 關閉（此時 isDirty=false、opener「確認變更」disabled，觀察窗建立）→
+  // 使用者按瀏覽器 Back。Back 是瀏覽器 UI 動作，document 上不會有 pointerdown／keydown，
+  // 所以兩個「使用者操作即 dispose」的 listener 都不會幫忙收；Next 以 client-side 導覽把課表頁卸載，
+  // opener 在同一個 document 內被移除。
+  // 不推進到 5s watchdog：移除後 2.5s 內（< WATCHDOG_MS）就必須已釋放。
+  test('opener 在同一 document 內被移除（儲存成功後瀏覽器 Back）→ 不待 watchdog 即移除 listener', async ({ page }) => {
+    await installListenerTracker(page);
+    // 先有上一頁：首頁 → 側欄進課表設定（站內導覽；Back 才是同一 document 內的 client-side 導覽）
+    await page.goto('/');
+    await expect(page.locator('main')).toBeVisible();
+    await sideLink(page, /課表設定/).click();
+    await expect(scheduleHeading(page)).toBeVisible({ timeout: 15000 });
+
+    const opener = page.locator('button', { hasText: '確認變更' });
+    const dialog = page.locator('dialog.impact-dialog');
+    await startInput(page).fill('14:25');
+    await opener.click();
+    await expect(dialog).toBeVisible({ timeout: 15000 });
+    const save = dialog.locator('button', { hasText: /^儲存/ });
+    await expect(save).toBeEnabled({ timeout: 15000 });
+    const base = await readCounts(page);   // 觀察窗建立前
+    await save.click();
+    await expect(dialog).toHaveCount(0, { timeout: 15000 });
+    await expect(opener, '儲存成功後已無未儲存變更，opener 為 disabled').toBeDisabled();
+    const closedAt = Date.now();
+
+    const during = delta(await readCounts(page), base);
+    expect(during, '觀察窗已建立：多出 1 個 pointerdown 與 1 個 keydown').toEqual({ pointerdown: 1, keydown: 1 });
+
+    // 瀏覽器 Back：同一 document 內 client-side 導覽，課表頁（含 opener）被卸載
+    await page.goBack();
+    await expect(page.locator('h1', { hasText: '課表設定' })).toHaveCount(0);
+    await expect(opener, 'opener 已從 DOM 移除').toHaveCount(0);
+
+    await expect
+      .poll(async () => delta(await readCounts(page), base), {
+        message: 'opener 被移除後（尚未到 5s watchdog）listener 必須已釋放，actual delta 見 Received',
+        timeout: 2500,
+      })
+      .toEqual({ pointerdown: 0, keydown: 0 });
+    expect(Date.now() - closedAt, '必須在 watchdog（5000ms）之前釋放，而不是靠 watchdog').toBeLessThan(5000);
   });
 });
