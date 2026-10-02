@@ -94,7 +94,34 @@ async function assertFreePort(port: number) {
   });
 }
 
+/**
+ * 來源 repo 根與套件目錄。必須在 start() 建立任何東西（mkdtemp、git rev-parse）之前呼叫：
+ * ACCEPTANCE_SOURCE_DIR 指向非 repo 時，使用者要看到下面的友善訊息，而不是 git 的
+ * `fatal: not a git repository`＋`Command failed: git rev-parse HEAD`，也不該留下 sb-acceptance-* 目錄。
+ */
+function resolveSourceLayout() {
+  // `git archive` 的 pathspec 在 CI 的 git 2.55（ubuntu-24.04）自 repo 根解析、在本機 2.50 自 cwd 解析，
+  // 所以 `cwd=web` + pathspec `web` 在本機通過、在 CI 卻 `pathspec 'web' did not match`
+  // （CI run 36904969343，HEAD 207f6b7）。以 `/usr/bin/git` 在普通 clone 實測：cwd=web+`web` FAIL、
+  // cwd=root+`web` OK、cwd=web+`package.json` OK。cwd=repo 根＋根相對路徑在兩版皆成立。
+  // repo 根以「往上找 .git」判定，不用 `git rev-parse`：sandbox 的 git wrapper 會把它改寫到
+  // 別的 worktree，拿到的根不是這個來源。
+  let repoRoot = SOURCE;
+  while (!fs.existsSync(path.join(repoRoot, '.git'))) {
+    const parent = path.dirname(repoRoot);
+    if (parent === repoRoot) throw new Error(`來源 ${SOURCE} 不在任何 git repo 內`);
+    repoRoot = parent;
+  }
+  if (!fs.existsSync(path.join(SOURCE, 'package.json'))) {
+    throw new Error('來源必須是套件目錄（含 package.json 的 web/）；請在 web/ 內執行本工具，或讓 ACCEPTANCE_SOURCE_DIR 指向含 package.json 的目錄');
+  }
+  const packageDir = path.relative(repoRoot, SOURCE).split(path.sep).join('/');
+  if (!packageDir || packageDir.startsWith('..')) throw new Error('來源套件目錄必須在 git repo 內');
+  return { repoRoot, packageDir };
+}
+
 async function start(port: number) {
+  const { repoRoot, packageDir } = resolveSourceLayout();
   assertIsolatedE2eTarget({ databasePath: path.join(os.tmpdir(), 'sb-acceptance-validation.sqlite'), port });
   await assertFreePort(port);
   const state = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'sb-acceptance-')));
@@ -191,23 +218,7 @@ async function start(port: number) {
 
   try {
     // 只取 immutable HEAD 的 git 追蹤檔；不複製來源目錄、node_modules、data 或 untracked 資料。
-    // `git archive` 的 pathspec 在 CI 的 git 2.55（ubuntu-24.04）自 repo 根解析、在本機 2.50 自 cwd 解析，
-    // 所以 `cwd=web` + pathspec `web` 在本機通過、在 CI 卻 `pathspec 'web' did not match`
-    // （CI run 36904969343，HEAD 207f6b7）。以 `/usr/bin/git` 在普通 clone 實測：cwd=web+`web` FAIL、
-    // cwd=root+`web` OK、cwd=web+`package.json` OK。cwd=repo 根＋根相對路徑在兩版皆成立。
-    // repo 根以「往上找 .git」判定，不用 `git rev-parse`：sandbox 的 git wrapper 會把它改寫到
-    // 別的 worktree，拿到的根不是這個來源。
-    let repoRoot = SOURCE;
-    while (!fs.existsSync(path.join(repoRoot, '.git'))) {
-      const parent = path.dirname(repoRoot);
-      if (parent === repoRoot) throw new Error(`來源 ${SOURCE} 不在任何 git repo 內`);
-      repoRoot = parent;
-    }
-    if (!fs.existsSync(path.join(SOURCE, 'package.json'))) {
-      throw new Error('來源必須是套件目錄（含 package.json 的 web/）；請在 web/ 內執行本工具，或讓 ACCEPTANCE_SOURCE_DIR 指向含 package.json 的目錄');
-    }
-    const packageDir = path.relative(repoRoot, SOURCE).split(path.sep).join('/');
-    if (!packageDir || packageDir.startsWith('..')) throw new Error('來源套件目錄必須在 git repo 內');
+    // archive 的 cwd／pathspec 與 repo 根判定的理由見 start() 開頭的 resolveSourceLayout。
     const archive = track(spawn('git', ['archive', session.head, packageDir], { cwd: repoRoot, stdio: ['ignore', 'pipe', 'inherit'], detached: process.platform !== 'win32' }));
     const tar = track(spawn('tar', ['-x', '--strip-components=1', '-C', session.workspace], { stdio: ['pipe', 'inherit', 'inherit'], detached: process.platform !== 'win32' }));
     tar.stdin!.on('error', () => {});
