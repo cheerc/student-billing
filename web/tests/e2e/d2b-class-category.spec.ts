@@ -64,8 +64,9 @@ async function setFirstStartTimeOfClass(page: Page, className: string, value: st
 }
 
 /**
- * 把手動覆寫恢復為自動並儲存，使同檔後續案例與 `--repeat` 的下一輪都從乾淨狀態開始。
- * D2c N-1：隔離執行器只保證「每 spec 檔全新 DB」，同檔內案例共用同一 DB 且跨輪沿用。
+ * 把手動覆寫恢復為自動並儲存，使同檔後續案例都從乾淨狀態開始（`--keep-db` 診斷模式下的下一輪亦同）。
+ * D2c N-1：隔離執行器只保證「每 spec 檔全新 DB」，同檔內案例共用同一 DB；`--repeat` 預設每輪也是全新 DB（PR #50），
+ * 只有 `--keep-db` 才跨輪沿用。
  */
 async function restoreCategoryToAutoAndSave(page: Page, className: string) {
   const row = page.locator(`[data-class-attribute-row="${className}"]`);
