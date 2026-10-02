@@ -81,37 +81,6 @@ async function restoreCategoryToAutoAndSave(page: Page, className: string) {
 }
 
 /**
- * D2c N-1（D2b r2 secondary finding）：E2E 案例間狀態隔離性。
- *
- * 隔離執行器（`npm run test:e2e:isolated`）保證的是「每個 spec 檔各用全新 DB」，
- * **同一檔內的案例共用同一個 DB**，資料由前一個案例累積。D2b r2 曾因此踩到：
- * 跨類別別名案例儲存的 alias 留在草稿裡，使「非跨類別不產生提示」的案例誤判
- * （當時靠調換執行順序解開，但那只是把相依性藏起來，不是真的隔離）。
- *
- * 本 helper 讓會寫入設定的案例**自我清理**：把該案例建立的 alias 取消勾選後再儲存，
- * 使下一個案例從乾淨狀態開始。斷言寫在 helper 內，任何案例忘記清理都會失敗。
- */
-async function removeAlias(page: Page, rawBaseName: string) {
-  await page.locator('button', { hasText: '班名對應' }).click();
-  await expect(page.locator('.mapping-table')).toBeVisible({ timeout: 10000 });
-  const row = page.locator('tr', { hasText: rawBaseName });
-  await expect(row).toBeVisible();
-  const checkbox = row.locator('input[type="checkbox"]');
-  await expect(checkbox).toBeChecked();
-  await checkbox.uncheck();
-  await expect(page.locator('.save-status-dirty')).toBeVisible();
-  await page.locator('button', { hasText: '確認變更' }).click();
-  const dialog = page.locator('dialog.impact-dialog');
-  await expect(dialog).toBeVisible({ timeout: 15000 });
-  await dialog.locator('button', { hasText: /儲存並更新結果|儲存課表/ }).click();
-  await expect(page.locator('#toast')).toContainText('課表已', { timeout: 15000 });
-  // 清理完成：回到「待確認」
-  await page.locator('button', { hasText: '班名對應' }).click();
-  await expect(page.locator('.mapping-table')).toBeVisible({ timeout: 10000 });
-  await expect(row.locator('.pill', { hasText: '已對應' })).toHaveCount(0);
-}
-
-/**
  * D2b：課表設定 UI（不要求空 DB 的案例）。
  *
  * D2c N-1：要求空 DB 的三個案例（settings_only 影響預覽、Q11 升級動作、Q9 合併阻擋）
@@ -273,43 +242,62 @@ test.describe('D2b：班級類別與固定 5 天設定 UI、升級確認', () =>
       await expect(dialog).toBeVisible({ timeout: 15000 });
       await expect(dialog.locator('[data-alias-category-notice]')).toHaveCount(0);
     });
-    test('R2-2: 跨類別別名在影響預覽提示「類別將改由系統班決定」，可展開且不阻擋儲存', async ({ page }) => {
-      await page.locator('button', { hasText: '班名對應' }).click();
-      await expect(page.locator('.mapping-table')).toBeVisible({ timeout: 10000 });
+  });
+});
 
-      // 「交通車」自動偵測為不列入折扣（none）→ 對應到美語班（english）＝跨類別
-      const row = page.locator('tr', { hasText: '交通車' });
-      await expect(row).toBeVisible();
-      await row.locator('input.input-target-classname').fill('兒童美語-Gino');
-      await row.locator('input[type="checkbox"]').check();
-      await expect(row.locator('.pill', { hasText: '已對應' })).toBeVisible();
-      // 勾選別名本身就是一項草稿變更 → 必須變 dirty，否則「確認變更」會是停用的
-      await expect(page.locator('.save-status-dirty')).toBeVisible();
+/**
+ * D2b r2 R2-2（跨類別別名提示）獨立檔。
+ *
+ * D2c N-1／N09（issue #55）後的隔離重構：本案例是同檔唯一會**寫入設定**（套用 alias）的案例，
+ * 而 N09 後 alias 套用即退出候選表、產品沒有「已生效 alias 管理」介面，故無法再於同檔內
+ * 自我清理。把「會寫入設定」與「需要乾淨起點」的案例分檔，改由 runner 保證的
+ * 「每 spec 檔全新 DB」提供結構性隔離（而非依賴測試順序的自我清理）。
+ *
+ * 斷言本身與搬移前**完全相同**（未削弱）：跨類別提示出現、可展開、類別標籤正確、
+ * 不阻擋儲存、套用成功。
+ */
+test.describe('D2b r2 R2-2：跨類別別名在影響預覽提示「類別將改由系統班決定」，可展開且不阻擋儲存', () => {
+  test.beforeEach(async ({ page }) => {
+    await activateFixture(page);
+    await page.goto('/settings');
+    await expect(page.locator('h1', { hasText: '課表設定' })).toBeVisible({ timeout: 15000 });
+    // 乾淨起點：不得已有任何 alias（runner 每檔全新 DB，此斷言使相依性可見）
+    await page.locator('button', { hasText: '班名對應' }).click();
+    await expect(page.locator('.mapping-table')).toBeVisible({ timeout: 10000 });
+    await expect(page.locator('.pill', { hasText: '已對應' })).toHaveCount(0);
+  });
 
-      await page.locator('button', { hasText: '確認變更' }).click();
-      const dialog = page.locator('dialog.impact-dialog');
-      await expect(dialog).toBeVisible({ timeout: 15000 });
+  test('跨類別別名在影響預覽提示「類別將改由系統班決定」，可展開且不阻擋儲存', async ({ page }) => {
+    await page.locator('button', { hasText: '班名對應' }).click();
+    await expect(page.locator('.mapping-table')).toBeVisible({ timeout: 10000 });
 
-      const notice = dialog.locator('[data-alias-category-notice]');
-      await expect(notice).toBeVisible();
-      await expect(notice).toContainText('1 個別名的類別將改由系統班決定');
-      await expect(notice).toContainText('交通車');
-      await expect(notice).toContainText('兒童美語-Gino');
-      // 可展開：預設收合，展開後列出（rawBaseName → targetBaseName）
-      await notice.locator('summary').click();
-      await expect(notice).toContainText('不列入折扣');
-      await expect(notice).toContainText('美語班');
+    // 「交通車」自動偵測為不列入折扣（none）→ 對應到美語班（english）＝跨類別
+    const row = page.locator('tr', { hasText: '交通車' });
+    await expect(row).toBeVisible();
+    await row.locator('input.input-target-classname').fill('兒童美語-Gino');
+    await row.locator('input[type="checkbox"]').check();
+    await expect(row.locator('.pill', { hasText: '已對應' })).toBeVisible();
+    // 勾選別名本身就是一項草稿變更 → 必須變 dirty，否則「確認變更」會是停用的
+    await expect(page.locator('.save-status-dirty')).toBeVisible();
 
-      // 提示不得阻擋儲存（D37：提示非阻擋，與 Q9 同名合併衝突阻擋不同）
-      const save = dialog.locator('button', { hasText: '儲存並更新結果' });
-      await expect(save).toBeEnabled();
-      await save.click();
-      await expect(page.locator('#toast')).toContainText('課表已套用並完成重算', { timeout: 15000 });
+    await page.locator('button', { hasText: '確認變更' }).click();
+    const dialog = page.locator('dialog.impact-dialog');
+    await expect(dialog).toBeVisible({ timeout: 15000 });
 
-      // D2c N-1：本案例是本檔最後一個會寫入設定的案例 → 清理它建立的 alias，
-      // 使同檔後續（若新增）案例從乾淨狀態開始。
-      await removeAlias(page, '交通車');
-    });
+    const notice = dialog.locator('[data-alias-category-notice]');
+    await expect(notice).toBeVisible();
+    await expect(notice).toContainText('1 個別名的類別將改由系統班決定');
+    await expect(notice).toContainText('交通車');
+    await expect(notice).toContainText('兒童美語-Gino');
+    // 可展開：預設收合，展開後列出（rawBaseName → targetBaseName）
+    await notice.locator('summary').click();
+    await expect(notice).toContainText('不列入折扣');
+    await expect(notice).toContainText('美語班');
 
+    // 提示不得阻擋儲存（D37：提示非阻擋，與 Q9 同名合併衝突阻擋不同）
+    const save = dialog.locator('button', { hasText: '儲存並更新結果' });
+    await expect(save).toBeEnabled();
+    await save.click();
+    await expect(page.locator('#toast')).toContainText('課表已套用並完成重算', { timeout: 15000 });
   });
 });

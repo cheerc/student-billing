@@ -16,7 +16,7 @@ import {
   isSettingsDirty,
   type ClassAttributeSetting,
 } from '@/contracts/settings';
-import { DynamicCandidate } from '@/domain/schedules/seed-manifest';
+import { DynamicCandidate, buildDynamicCandidates, type CandidateCounts } from '@/domain/schedules/seed-manifest';
 import { CalculatePreviewResponse } from '@/application/schedule-preview';
 import type { ClassNameMatchReport } from '@/application/class-name-match-report';
 import { WindowSummary } from '@/components/settings/window-summary';
@@ -143,7 +143,7 @@ export default function SettingsEditor({
   classNameReport = null,
   reportImportId = null,
   matchedCount = 0,
-  candidates = [],
+  candidates: initialCandidates = [],
   lastAppliedRevision,
   lastAppliedAt,
   hasActiveImport = false,
@@ -236,6 +236,29 @@ export default function SettingsEditor({
   }
   const report = persistedReportOverride ?? classNameReport;
   const reportRefreshSeq = useRef(0);
+
+  /**
+   * N09／R3-F02（issue #55；UX70）：待確認候選清單與班名比對報告（report.rosterOnly）同步。
+   *
+   * `report` 本身即「**最後一次成功取得**的報告」：重新取得失敗時
+   * `setPersistedReportOverride` 不會被呼叫，故 `persistedReportOverride` 仍持有
+   * 前一次成功值，`report` 就是 last-known。因此候選一律由 `report.rosterOnly` 重建，
+   * 同時滿足兩種 stale 情境：
+   *   - 已成功刷新過（`report` 為 last-known）→ 候選維持最後已知，不回退頁面初始值；
+   *   - 從未成功刷新過（`report` 為 SSR `classNameReport`）→ 候選即該頁最後已知（SSR 初值）。
+   * 只有 `rosterOnly` 為 null（快照不可用）時才回退 `initialCandidates`（空陣列）。
+   *
+   * 排序、去重學生數、Token 筆數與 D32-C 理由字串由既有純函式 `buildDynamicCandidates`
+   * 單一產生：不在此重寫 reason 常數、不直接 typecast report。
+   */
+  const candidates = useMemo<DynamicCandidate[]>(() => {
+    if (!report?.rosterOnly) return initialCandidates;
+    const unmatched = report.rosterOnly.map((r) => r.baseName);
+    const counts: CandidateCounts = new Map(
+      report.rosterOnly.map((r) => [r.baseName, { studentCount: r.students, tokenCount: r.tokens }])
+    );
+    return buildDynamicCandidates(unmatched, counts);
+  }, [report, initialCandidates]);
 
   // 儲存成功後就地更新版本與儲存時間（不必重新整理）：下一次確認變更要帶最新版本，狀態列顯示最新儲存時間
   const [revision, setRevision] = useState(currentRevision);
