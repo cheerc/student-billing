@@ -3,7 +3,6 @@ import path from 'path';
 import fs from 'fs';
 import os from 'os';
 import { getDatabase } from '@/adapters/sqlite';
-import { saveImportBatch } from '@/adapters/sqlite/import-repository';
 import { resolveClassEnrollment, type ClassSettingLookup } from '@/domain/classification/class-category';
 import {
   buildSeedDraft,
@@ -14,6 +13,9 @@ import {
 import { buildClassSettingMap, executeCalculationRun, resolveLatestSavedSettings } from '@/application/calculate-run';
 import { saveCalculationRun } from '@/adapters/sqlite/runs-repository';
 import { generateImportPreview } from '@/application/import-preview';
+import { computeRosterChanges } from '@/application/roster-changes';
+import { saveImportBatch } from '@/adapters/sqlite/import-repository';
+import { resolveFormalRuleSetVersion } from '@/application/rule-set-resolver';
 import { POST as previewPOST } from '@/app/api/v1/imports/preview/route';
 import { calculateSubjectCount, calculateBaseDiscountBps, parseTagDiscounts } from '@/domain/billing/discount-rules';
 import { StudentSnapshot } from '@/domain/students';
@@ -317,6 +319,96 @@ describe('API: preview 的 rosterDiff.changes 帶 PR-1 逐班資料（報名集�
       // 報名未變 → 未異動；此路徑同樣只在接線生效時成立
       expect(diff.unchangedStudents).toBeGreaterThanOrEqual(1);
     }
+  });
+
+  /**
+   * classSettings 接線的**直接可證性**（M3 變異會命中）。
+   *
+   * 設計：把「國小數學-三B」**手動**設為 `none`（不列入折扣，設定頁合法操作）。
+   *   - 帶 classSettings：報名 {輔導(care), 數學三B(none), 英文(english)} → 計入 {care, english} → 2 → 9500
+   *     （「數學三B 被手動排除」→ 少了 math 這一類 → 科數下降）
+   *   - 不帶 classSettings（自動偵測）：數學三B → math → 計入 {care, math, english} → 3 → 9000
+   * 兩者必不同 → 案例有鑑別力。
+   *
+   * 本次上傳的名單讓該生退掉數學三B → 入口的 before 側必須是「帶 classSettings」的值（2／9500）；
+   * 移除 import-roster-diff.ts 的接線後入口會退化成「不帶」（3／9000）→ 斷言失敗。
+   */
+  it('classSettings 接線：產品入口的 before 側等於帶 classSettings 的計算，且與不帶者不同', async () => {
+    const db0 = getDatabase();
+    // 寫入把「國小數學-三B」手動設為 none（不列入折扣）的設定版本
+    const draft = buildSeedDraft();
+    const i = draft.classes.findIndex((c) => c.baseName === '國小數學-三B');
+    expect(i, 'seed 課表應含 國小數學-三B').toBeGreaterThanOrEqual(0);
+    draft.classes[i] = {
+      ...draft.classes[i],
+      category: 'none',
+      categorySource: 'manual',
+      fixedFiveDays: false,
+      fixedSource: 'manual',
+    } as ClassSetting;
+    saveSettingsVersion(db0, {
+      id: 'setv_wiring',
+      contentHash: 'wiring-hash',
+      contentJson: JSON.stringify(draft),
+      effectiveFrom: null,
+      effectiveTo: null,
+      createdAt: '2026-10-01T00:00:00.000Z',
+      createdFromPreviewId: null,
+      revision: 1,
+    });
+
+    // 目標學生：報名輔導 ＋ 國小數學-三B ＋ 英文（fixture 的實際組合）
+    const target =
+      incomingStudents.find(
+        (s) =>
+          s.enrollments.some((e) => e.baseName === '國小數學-三B') &&
+          s.enrollments.some((e) => e.baseName.includes('國小輔導')) &&
+          s.enrollments.some((e) => e.baseName.includes('兒童美語'))
+      ) ?? null;
+    expect(target, 'fixture 需有一位「輔導＋國小數學-三B＋英文」的學生').not.toBeNull();
+
+    // 手算（R03 計入類別集合 ＋ R10）：不取用實作輸出
+    const settings = resolveLatestSavedSettings(db0);
+    const version = resolveFormalRuleSetVersion(db0);
+    const categoriesOf = (map?: Map<string, ClassSettingLookup>) =>
+      new Set(
+        target!.enrollments
+          .map((e) => resolveClassEnrollment(e, settings.aliasMap, map).category)
+          .filter((c): c is 'care' | 'math' | 'english' => c !== 'none')
+      );
+    const catWith = categoriesOf(settings.classSettings);
+    const catAuto = categoriesOf();
+    expect(catWith.size, '手動排除數學班後計入類別應為 2').toBe(2);
+    expect(catAuto.size, '自動偵測下數學班仍計入 → 3').toBe(3);
+    const expectedWith = calculateBaseDiscountBps(catWith.size, false, null);
+    const expectedAuto = calculateBaseDiscountBps(catAuto.size, false, null);
+    expect(expectedWith).not.toBe(expectedAuto);
+
+    // 基準名單：本次上傳的名單，但把該生的「國小數學-三B」退掉 → 該生出現在 changes，before 側可讀
+    const targetCode = target!.personCode;
+    saveBase('imp_wiring_next', incomingStudents.map((s) => ({
+      ...s,
+      enrollments:
+        s.personCode === targetCode
+          ? s.enrollments.filter((e) => e.baseName !== '國小數學-三B')
+          : [...s.enrollments],
+    })));
+
+    const previewRes = await previewPOST(uploadRequest());
+    expect(previewRes.status).toBe(200);
+    const diff = (await previewRes.json()).rosterDiff as {
+      changes: Array<{
+        personCode: string;
+        before: { subjectCount: number | null; baseDiscountBps: number | null } | null;
+      }>;
+    };
+    const change = diff.changes.find((c) => c.personCode === targetCode);
+    expect(change, '該生應出現在 changes（報名集合有變）').toBeDefined();
+
+    // 入口的 before 側必須等於「帶 classSettings」的結果，且不等於「不帶」的結果
+    expect(change!.before!.subjectCount).toBe(catWith.size);
+    expect(change!.before!.baseDiscountBps).toBe(expectedWith);
+    expect(change!.before!.baseDiscountBps).not.toBe(expectedAuto);
   });
 
   /** 預覽回應的每筆 change 都帶兩個新欄位（畫面未改，純 additive 資料）。 */
