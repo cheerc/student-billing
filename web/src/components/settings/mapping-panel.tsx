@@ -88,8 +88,8 @@ export function MappingPanel({
               <tbody>
                 {candidates.map((c) => {
                   const target = candidateTargets[c.rawBaseName] ?? c.suggestedTarget;
-                  const isChecked = target ? isAliasMapped(c.rawBaseName, target) : false;
                   const isValidTarget = target.trim() === '' || currentActiveBaseNames.has(target.trim());
+                  const isChecked = target.trim() && isValidTarget ? isAliasMapped(c.rawBaseName, target.trim()) : false;
 
                   return (
                     <tr key={c.rawBaseName}>

@@ -16,7 +16,7 @@ import {
   isSettingsDirty,
   type ClassAttributeSetting,
 } from '@/contracts/settings';
-import { DynamicCandidate } from '@/domain/schedules/seed-manifest';
+import { DynamicCandidate, buildDynamicCandidates, type CandidateCounts } from '@/domain/schedules/seed-manifest';
 import { CalculatePreviewResponse } from '@/application/schedule-preview';
 import type { ClassNameMatchReport } from '@/application/class-name-match-report';
 import { WindowSummary } from '@/components/settings/window-summary';
@@ -143,7 +143,7 @@ export default function SettingsEditor({
   classNameReport = null,
   reportImportId = null,
   matchedCount = 0,
-  candidates = [],
+  candidates: initialCandidates = [],
   lastAppliedRevision,
   lastAppliedAt,
   hasActiveImport = false,
@@ -236,6 +236,25 @@ export default function SettingsEditor({
   }
   const report = persistedReportOverride ?? classNameReport;
   const reportRefreshSeq = useRef(0);
+
+  /**
+   * N09／R3-F02（issue #55；UX70）：待確認候選清單與班名比對報告（report.rosterOnly）同步。
+   *
+   * 1. 儲存別名或班級改名後，以同一檢視名單（reportImportId）最新成功之 report.rosterOnly
+   *    重用 buildDynamicCandidates 重建候選表、標題與頁籤計數，維持單一來源與字典序排序。
+   * 2. 重新取得報告失敗（reportStaleError 存在）時，保留最後已知候選，不重設為空或假裝已更新。
+   * 3. 無報告或無名單（settings_only）時，回退至 initialCandidates（空陣列）。
+   */
+  const candidates = useMemo<DynamicCandidate[]>(() => {
+    if (reportStaleError || !report?.rosterOnly) {
+      return initialCandidates;
+    }
+    const unmatched = report.rosterOnly.map((r) => r.baseName);
+    const counts: CandidateCounts = new Map(
+      report.rosterOnly.map((r) => [r.baseName, { studentCount: r.students, tokenCount: r.tokens }])
+    );
+    return buildDynamicCandidates(unmatched, counts);
+  }, [report, reportStaleError, initialCandidates]);
 
   // 儲存成功後就地更新版本與儲存時間（不必重新整理）：下一次確認變更要帶最新版本，狀態列顯示最新儲存時間
   const [revision, setRevision] = useState(currentRevision);

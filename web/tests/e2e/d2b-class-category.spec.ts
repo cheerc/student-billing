@@ -95,6 +95,11 @@ async function removeAlias(page: Page, rawBaseName: string) {
   await page.locator('button', { hasText: '班名對應' }).click();
   await expect(page.locator('.mapping-table')).toBeVisible({ timeout: 10000 });
   const row = page.locator('tr', { hasText: rawBaseName });
+  if ((await row.count()) === 0) {
+    // 依 N09（issue #55）：成功套用之別名已即時從候選表中消失，候選表無已對應殘留
+    await expect(page.locator('.pill', { hasText: '已對應' })).toHaveCount(0);
+    return;
+  }
   await expect(row).toBeVisible();
   const checkbox = row.locator('input[type="checkbox"]');
   await expect(checkbox).toBeChecked();

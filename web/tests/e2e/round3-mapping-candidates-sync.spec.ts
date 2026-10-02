@@ -176,6 +176,10 @@ test.describe('N09／R3-F02: 儲存後候選表、標題、頁籤與報告同步
     await mappingTab.click();
     await expect(page.locator('.mapping-table')).toBeVisible({ timeout: 10000 });
 
+    const initialText = (await mappingTab.textContent()) || '';
+    const initialMatch = initialText.match(/\d+/);
+    const beforeCount = initialMatch ? parseInt(initialMatch[0], 10) : 12;
+
     // 注入一次 500 失敗
     let reportCalls = 0;
     await page.route('**/api/v1/settings/class-name-report**', async (route: Route) => {
@@ -216,8 +220,8 @@ test.describe('N09／R3-F02: 儲存後候選表、標題、頁籤與報告同步
 
     // 警示消失，數字與候選表同步減少 2 班
     await expect(staleNotice).toHaveCount(0, { timeout: 15000 });
-    await expect(mappingTab).toContainText('10');
-    await expect(page.locator('.toolbar', { hasText: '待確認米豆奶班名' })).toContainText('(10)');
+    await expect(mappingTab).toContainText(String(beforeCount - 2));
+    await expect(page.locator('.toolbar', { hasText: '待確認米豆奶班名' })).toContainText(`(${beforeCount - 2})`);
     await expect(page.locator('.mapping-table tr', { hasText: '小六數學加強班' })).toHaveCount(0);
     await expect(page.locator('.mapping-table tr', { hasText: '國小輔導-四年級A' })).toHaveCount(0);
   });
