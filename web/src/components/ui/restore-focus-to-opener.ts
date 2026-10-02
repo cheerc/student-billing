@@ -1,6 +1,6 @@
 /**
  * D2d r3／F-4（09 §6）：把焦點還給觸發點，並處理 late-disable 造成的焦點遺失。
- * 原為 impact-dialog 私有，抽成共用模組。
+ * 原為 impact-dialog 私有；leave-confirm-dialog 有同型缺陷（issue #48），故抽成共用模組。
  *
  * 缺陷（analysis t-20261001080131853832-21323-28 實測定位）：頁面載入時 arm 的
  * 250ms debounce 會在**第一次還原之後**才 fire → `setCalculating(true)` → opener 變
@@ -11,6 +11,8 @@
  * ── 設計：狀態轉移驅動，不用時間窗判斷正確性 ──────────────────────────────
  * 正確性由 opener 上 `disabled` 屬性的 **`true → false` 狀態轉移**保證：
  * 那是「本次在途計算真的結束、opener 真的恢復可聚焦」的**唯一**確定訊號。
+ * opener 在還原**當下**就已是 disabled（例如離頁確認開著期間 debounce 先觸發）也算已經處於 `true`，
+ * 之後第一次轉成 enabled 即是同一個訊號。
  *
  * 刻意**不**用時間窗（SETTLE_MS／MAX_ATTEMPTS 之類）判斷「等多久算夠」：慢的 calculate
  * 請求可能超過任何固定時間，那會變成「被時間窗截斷而永久不復焦」。時間值只用於
@@ -27,6 +29,9 @@
  * 補還原成功、使用者主動操作（pointerdown／keydown）、焦點被移到具體控制項、
  * opener 從 DOM 消失（含同一 document 內被移除）、watchdog 到期——全部走同一個 `dispose()`，
  * 不留 listener／observer。
+ *
+ * opener 不限於 button：非表單元素（例如連結）沒有 `disabled`，視為從未 disabled，
+ * 只會經過「還原一次＋移除／使用者操作／watchdog 時收掉」。
  */
 export function restoreFocusToOpener(opener: HTMLElement | null): void {
   if (!opener || !document.contains(opener)) return;
@@ -38,7 +43,7 @@ export function restoreFocusToOpener(opener: HTMLElement | null): void {
   opener.focus();
 
   let disposed = false;
-  let sawDisabled = false;
+  let sawDisabled = button.disabled === true;
   let watchdog: ReturnType<typeof setTimeout> | null = null;
 
   const dispose = () => {
