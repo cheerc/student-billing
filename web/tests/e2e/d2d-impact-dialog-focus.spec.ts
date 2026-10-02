@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { holdCalculate } from './helpers/hold-calculate';
 
 /**
  * D2d r3／F4（04 §8 UX61；09 §6「Esc 關閉後焦點回到觸發點」）：
@@ -68,26 +69,27 @@ test.describe('D2d r3／F4：確認變更視窗 late-disable 後焦點仍須還�
   test('debounce 在 Esc 還原後 fire → opener 恢復 enabled 時焦點必須回來', async ({ page }) => {
     await page.clock.install({ time: T0 });
     await page.clock.pauseAt(T0 + 1);
+    // 扣住 calculate 請求：回應約 60–80ms 就回來（page.clock 凍結時也一樣），「確認變更」disabled
+    // 只存在很短的窗口，輪詢去接會被機器負載踩掉（N7 同型）。扣住後「計算在途」是穩定可觀察的狀態。
+    const calc = await holdCalculate(page);
 
     const opener = await openAndEsc(page);
 
     // 前置確認 1：Esc 還原當下確實成功（否則本 case 測的是別的東西）
     await expect(opener, 'Esc 關閉後焦點應先回到觸發點').toBeFocused();
 
-    // 精確推進到 250ms debounce 到期 → setCalculating(true) → opener 變 disabled
+    // 精確推進到 250ms debounce 到期 → setCalculating(true) → opener 變 disabled；請求被扣住，持續 disabled
     await page.clock.runFor(250);
+    await expect.poll(() => calc.held(), { message: 'debounce 到期後 calculate 請求已送出並被扣住' }).toBe(1);
     await expect(opener, 'debounce 到期後「確認變更」應進入 disabled').toBeDisabled();
 
     // 前置確認 2：disabled 期間焦點確實遺失（這是被修的行為，不是測試造成的）
     await expect(opener, 'disabled 期間焦點不應停在 disabled 按鈕上').not.toBeFocused();
 
-    // 推進 virtual time 讓頁面 timers（debounce 之後的收尾等）繼續跑完。
-    // ⚠ 精確說明：`page.clock` 只控制**頁面內**的 timers（setTimeout／rAF／Date），
-    //   **不控制 Node／網路回應**。所以這一行的作用不是「放行 calculate response」——
-    //   真正證明 response 已回來、setCalculating(false) 已執行的是下一行的
-    //   `toBeEnabled()` 觀測（opener 從 disabled 回到 enabled 只可能是 response 到了）。
+    // 推進 virtual time（頁面 timers，含 5s watchdog 的計時）。請求仍被扣住，opener 持續 disabled。
     await page.clock.runFor(1000);
-    // 真正的事件順序證據：觀察到 enabled（＝response 已回來並 setCalculating(false)）
+    // 放行：response 回來 → setCalculating(false) → opener 從 disabled 回到 enabled（disabled true→false）
+    calc.release();
     await expect(opener, 'response 回來、setCalculating(false) 後「確認變更」應恢復 enabled').toBeEnabled();
 
     // ★ 核心斷言：09 §6「Esc 關閉後焦點回到觸發點」——焦點遺失是這次還原造成的，必須補回
@@ -104,5 +106,49 @@ test.describe('D2d r3／F4：確認變更視窗 late-disable 後焦點仍須還�
     await expect(opener, 'Esc 後焦點應維持在觸發點').toBeFocused();
     expect(await opener.isDisabled(), '未推進 debounce 時 opener 不應變 disabled').toBe(false);
     await expect(opener, '無 late-disable 時焦點應仍在觸發點').toBeFocused();
+  });
+
+  /**
+   * N5（PR #51 review NB1）：`restoreFocusToOpener` 的 `sawDisabled` 初值＝「還原當下 opener 是否已 disabled」。
+   *
+   * 上面第一案的順序是「Esc 還原**成功**→ debounce 才 fire → disabled」，opener 在還原當下是 enabled，
+   * `sawDisabled` 初值不論 true／false 都由後續的 disabled 事件設成 true，所以**鑑別不了**這個初值。
+   * 本案是另一種順序：**calculate 在途時 Esc 關閉**——debounce 在 dialog 開著期間到期，
+   * opener 在還原當下**已是 disabled**（`focus()` 落空、焦點掉到 body）；之後 response 回來、opener
+   * 重新 enabled，那是唯一的 `true→false` 轉移，必須補還原。若初值是 false，觀察到的第一個事件
+   * 就是「enabled」，會被當成「與本次無關」而 dispose，焦點永遠留在 body（變異 sawDisabled=false 轉紅）。
+   *
+   * 請求用 holdCalculate 扣住，使「calculate 在途」是穩定可觀察的狀態，不靠輪詢去接一個只有
+   * 約 60–80ms 的 disabled 窗口。
+   */
+  test('N5：calculate 在途時 Esc 關閉 → response 回來、opener 重新 enabled 後焦點必須回到「確認變更」', async ({ page }) => {
+    await page.clock.install({ time: T0 });
+    await page.clock.pauseAt(T0 + 1);
+    const calc = await holdCalculate(page);
+
+    const opener = page.locator('button', { hasText: '確認變更' });
+    const dialog = page.locator('dialog.impact-dialog');
+    await page.goto('/settings');
+    await expect(page.locator('h1', { hasText: '課表設定' })).toBeVisible({ timeout: 10000 });
+    await page.locator('input.input-time').first().fill('13:30');
+    await opener.click();
+    await expect(dialog).toBeVisible({ timeout: 15000 });
+    await expect(dialog.locator('button', { hasText: /^儲存/ })).toBeEnabled({ timeout: 15000 });
+
+    // dialog 開著期間 debounce 到期 → calculating=true → opener（在 modal 後面）disabled；請求被扣住
+    await page.clock.runFor(250);
+    await expect.poll(() => calc.held(), { message: 'debounce 到期後 calculate 請求已送出並被扣住' }).toBe(1);
+    await expect(opener, '計算在途：opener 應為 disabled').toBeDisabled();
+
+    // 此刻 Esc 關閉：還原當下 opener 已 disabled，focus() 落空
+    await page.keyboard.press('Escape');
+    await expect(dialog).toHaveCount(0);
+    await expect(opener, '還原當下 opener 是 disabled，焦點不可能在它身上').not.toBeFocused();
+
+    // 放行 → response 回來 → opener 重新 enabled（disabled true→false）
+    calc.release();
+    await page.clock.resume();
+    await expect(opener, 'response 回來後「確認變更」應恢復 enabled').toBeEnabled({ timeout: 15000 });
+    await expect(opener, 'sawDisabled 初值：還原當下已 disabled，重新 enabled 時焦點必須補回「確認變更」').toBeFocused();
   });
 });

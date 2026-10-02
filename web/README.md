@@ -89,10 +89,11 @@ npm run test:e2e:isolated                         # 每個 spec 檔各用全新 
 npm run test:e2e:isolated -- --shared             # 全部 spec 共用同一個 server＋DB，依檔名順序
 npm run test:e2e:isolated -- --repeat 2          # 連跑 2 輪；每輪新 server＋全新 DB（穩定性檢查：兩輪都從乾淨狀態通過）
 npm run test:e2e:isolated -- --shared --repeat 2 --keep-db  # 診斷 opt-in：2 輪沿用同一個臨時 DB（重現 DB 狀態跨輪殘留）
+npm run test:e2e:isolated -- --repeat 2 --keep-db tests/e2e/a11y.spec.ts  # 單一 spec 的跨輪殘留：不加 --shared，每個 spec 檔各有自己的 DB 並跨輪沿用
 npm run test:e2e:isolated -- tests/e2e/imports.spec.ts   # 只跑指定 spec
 ```
 
-- `--repeat N` 預設每輪開始前刪除 `app.sqlite` 與 `-wal`／`-shm`（server 首次開啟時重建並 migrate）；帶 `--seed-v2-active` 時每輪再從同一份 seed 複製。要刻意重現跨輪殘留（issue #25 的診斷用途）才加 `--keep-db`：它只在 `--repeat N`（N≥2）時有意義，且與 `--seed-v2-active` 互斥（兩者都會被執行器明確拒絕，不靜默忽略）。
+- `--repeat N` 預設每輪開始前刪除 `app.sqlite` 與 `-wal`／`-shm`（server 首次開啟時重建並 migrate）；帶 `--seed-v2-active` 時每輪再從同一份 seed 複製。要刻意重現跨輪殘留（issue #25 的診斷用途）才加 `--keep-db`（`--shared` 是把**全部** spec 併成一組共用同一個 server＋DB；只想重現某個 spec 自己的跨輪殘留時不要加 `--shared`，直接指定該 spec 檔，如上面最後一行）：它只在 `--repeat N`（N≥2）時有意義，且與 `--seed-v2-active` 互斥（兩者都會被執行器明確拒絕，不靜默忽略）。
 - 埠預設 3100（`--port` 可改，**不可為 3000**）；只綁 `127.0.0.1`；`reuseExistingServer:false`（埠被占用即失敗）。
 - `DATABASE_PATH` 指向系統臨時目錄下的獨立 sqlite，結束即刪；守衛（`scripts/e2e-isolation.ts`）會拒絕 3000 埠、預設資料庫與專案 `data/` 目錄。
 - 只使用 `tests/fixtures/` 的合成／匿名資料；E2E spec 不得引用資料庫檔或 `data/`（`tests/unit/e2e-specs-no-real-db.test.ts` 守衛）。

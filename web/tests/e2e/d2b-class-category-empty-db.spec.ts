@@ -50,7 +50,7 @@ test.describe('D2b 空 DB 畫面契約：settings_only 影響預覽、Q11 升級
     await expect(page.locator('#toast')).toContainText('課表已成功儲存', { timeout: 15000 });
   });
 
-  // 同檔與跨輪共用 DB：透過正式 CAS API 還原合成 seed，再從新頁面驗證清理已持久化。
+  // 同檔共用 DB（`--repeat` 預設每輪全新 DB，只有 `--keep-db` 才跨輪沿用）：透過正式 CAS API 還原合成 seed，再從新頁面驗證清理已持久化。
   // 「恢復自動」的 UI 持久化另由 d2c-restore-auto.spec.ts 獨立驗證，不由 cleanup 代替。
   test.afterEach(async ({ page }) => {
     await resetSeedSettings(page);

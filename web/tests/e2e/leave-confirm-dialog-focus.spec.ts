@@ -1,5 +1,6 @@
 import { test, expect, type Locator, type Page } from '@playwright/test';
 import { keepEditing, leaveDialog, scheduleHeading, sideLink, startInput } from './helpers/c-batch';
+import { holdCalculate } from './helpers/hold-calculate';
 
 /**
  * 離頁確認視窗（leave-confirm-dialog）關閉後的焦點還原（09 §6「關閉返回焦點」；issue #48）。
@@ -83,6 +84,9 @@ test.describe('離頁確認視窗：關閉後焦點回到開啟前的位置', ()
   test('late-disable：離頁確認開著時 debounce 讓「確認變更」變 disabled，此刻繼續編輯 → 恢復 enabled 後焦點仍回到「確認變更」', async ({ page }) => {
     await page.clock.install({ time: T0 });
     await page.clock.pauseAt(T0 + 1);
+    // 扣住 calculate 請求：回應約 60–80ms 就回來，「確認變更」disabled 只存在很短的窗口，
+    // 用輪詢去接會被機器負載影響（N7）。扣住後「計算在途」是穩定、可觀察的狀態。
+    const calc = await holdCalculate(page);
     await page.goto('/');
     await expect(page.locator('main')).toBeVisible();
     await sideLink(page, /課表設定/).click();
@@ -95,12 +99,16 @@ test.describe('離頁確認視窗：關閉後焦點回到開啟前的位置', ()
 
     await page.goBack();
     await expect(leaveDialog(page)).toBeVisible();
-    // debounce 到期 → calculating=true → 「確認變更」disabled（response 要 resume 後才會回來）
+    // debounce 到期 → calculating=true → 「確認變更」disabled；請求被扣住，所以一直維持 disabled
     await page.clock.runFor(250);
-    await expect(opener(page), 'debounce 到期後「確認變更」應為 disabled').toBeDisabled();
+    await expect.poll(() => calc.held(), { message: 'debounce 到期後 calculate 請求已送出並被扣住' }).toBe(1);
+    await expect(opener(page), '計算在途：「確認變更」應為 disabled').toBeDisabled();
 
+    // 此刻關閉離頁確認：focus() 對 disabled 的 opener 落空
     await keepEditing(page).click();
     await expect(leaveDialog(page)).toHaveCount(0);
+    // 放行：response 回來 → opener 重新 enabled（disabled true→false 的狀態轉移）
+    calc.release();
     await page.clock.resume();
     await expect(opener(page), 'response 回來後應恢復 enabled').toBeEnabled({ timeout: 15000 });
     await expect
