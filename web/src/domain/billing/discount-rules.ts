@@ -134,8 +134,9 @@ export function calculateBaseDiscountBps(
     return Math.round(specialDiscount * 10000);
   }
 
+  // Operator 裁決 d-20261002160111112854-66：無報名（科數 null）合計折扣預設 10000（無折扣）
   if (subjectCount === null) {
-    return null;
+    return 10000;
   }
 
   const effectiveCount = subjectCount + (sibling ? 1 : 0);

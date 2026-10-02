@@ -36,8 +36,8 @@ describe('U33–U49: 課程適用折扣、排課狀態與問題診斷測試', ()
     expect(calculateApplicableRate('chinese', 9500, false, false)).toBeNull();
   });
 
-  it('U38: 無班級、有姓名 → 科數 null，基本率 null', () => {
-    expect(calculateBaseDiscountBps(null, false, null)).toBeNull();
+  it('U38: 無班級、有姓名 → 科數 null，基本率 10000（operator 裁決 d-20261002160111112854-66）', () => {
+    expect(calculateBaseDiscountBps(null, false, null)).toBe(10000);
   });
 
   it('U39: 無班級但有特殊率／兄弟姊妹 → 基本率依標籤，但課程適用率皆為 null', () => {

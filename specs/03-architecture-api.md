@@ -179,7 +179,7 @@ ERP token 可有明確離班日期，依使用者決策只顯示不排除。財�
 |年級|`grade`|整數|多值 OR；`~blank`＝年級未知；非整數回 400|
 |安親天數／課輔天數|`anqinDays`、`tutoringDays`|數字（3、3.5、4、4.5、5）|多值 OR；`~blank`＝null。兩欄可同時篩（AND）；既有 `billingTier`＋`careType` 保留為單值相容|
 |額外扣天|`hasExtraDeduction`|布林|真正生效；讀取持久化 trace 之 `hasExtraFlag`（與 UI 額外扣天欄同源）|
-|合計折扣（基本率）|`baseDiscountBps`|整數bps|多值 OR；`~blank`＝null；0 與 null 不混（0 為有效 bps 值）|
+|合計折扣（基本率）|`baseDiscountBps`|整數bps|多值 OR；新 run 的無報名學生基本率為 10000（特殊折扣仍優先），不產生 null。`~blank` 的 null 解析／相容仍保留，不回 400；在新 run 此值匹配 0 人，options 不產生此選項。0 仍為有效 bps 值，不與 null 混用|
 |本班適用折扣（僅恰選一班）|`applicableDiscountBps`（需`enrollmentKey`或`classId`）|整數bps|多值 OR；僅恰選一班時生效（多班或未選班回 400）。只讀持久化之四個學生層欄位；班級類別採暫定 v2 映射：國小輔導依年級對應 care（1-2年級 anqin、3-6年級 tutoring）、國小數學對應 math、兒童美語對應 english、其餘 not_configured（待 D37 改由設定快照取代）|
 |兄弟姊妹折扣|`sibling`|布林|真正生效；多值 true/false 同時給等同該欄未篩選|
 |特殊折扣|`specialDiscount`|布林|真正生效；以 `tags_raw` 經 `parseTagDiscounts` 是否含特殊折扣判定；多值 true/false 同時給等同該欄未篩選|
@@ -203,7 +203,7 @@ ERP token 可有明確離班日期，依使用者決策只顯示不排除。財�
 |狀態|傳輸|語意|
 |---|---|---|
 |未設篩選（全部）|該欄 key 不出現（既有空字串如 `grade=` 視為未設，僅為相容；UI 不送）|該欄不限制|
-|選了「(空白)」|保留值 `~blank`，可與一般值並存（OR）|該欄為空：所屬班級＝零報名（無課程）；年級／天數／折扣＝該欄為 null 或未知|
+|選了「(空白)」|保留值 `~blank`，可與一般值並存（OR）|該欄為空：所屬班級＝零報名（無課程，以 `enrollmentKey=~blank` 查詢）；年級／天數／本班適用折扣仍可能為 null 或未知。合計折扣在新 run 不產生 null，無報名且無特殊折扣者歸入 10000；該欄的 `~blank` 仍接受但匹配 0 人，不代表無報名|
 |班名無法解析|保留值 `~empty`，僅適用於所屬班級|有 enrollment 但 baseName 為空字串（token 僅中括號等無法解析出班名者）。與 `~blank` 互斥（不可混用回 400）；**不計入無課程**|
 |取消全選後按「確定」|保留值 `~none`，**只能單獨出現**；與其他值並存回 400|空集合：0 筆，`totalStudents` 與各項 stats 皆為 0|
 

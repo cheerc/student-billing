@@ -455,14 +455,25 @@ export function calculateStudentBilling(
   });
 
   // 5. 計算各課程適用折扣 (R13–R15)
-  const applicableRates = {
-    anqin: calculateApplicableRate('anqin', baseDiscountBps, tagDiscounts.internalStudent, hasHomeworkOrMeian),
-    tutoring: calculateApplicableRate('tutoring', baseDiscountBps, tagDiscounts.internalStudent, hasHomeworkOrMeian),
-    english: calculateApplicableRate('english', baseDiscountBps, tagDiscounts.internalStudent, hasHomeworkOrMeian),
-    math: calculateApplicableRate('math', baseDiscountBps, tagDiscounts.internalStudent, hasHomeworkOrMeian),
-    enrichment: calculateApplicableRate('enrichment', baseDiscountBps, tagDiscounts.internalStudent, hasHomeworkOrMeian),
-    chinese: calculateApplicableRate('chinese', baseDiscountBps, tagDiscounts.internalStudent, hasHomeworkOrMeian),
-  };
+  // 無報名學生（subjectCount === null）各課程適用率為 null（U39；適用率「—」維持）
+  const applicableRates =
+    subjectCount === null
+      ? {
+          anqin: null,
+          tutoring: null,
+          english: null,
+          math: null,
+          enrichment: null,
+          chinese: null,
+        }
+      : {
+          anqin: calculateApplicableRate('anqin', baseDiscountBps, tagDiscounts.internalStudent, hasHomeworkOrMeian),
+          tutoring: calculateApplicableRate('tutoring', baseDiscountBps, tagDiscounts.internalStudent, hasHomeworkOrMeian),
+          english: calculateApplicableRate('english', baseDiscountBps, tagDiscounts.internalStudent, hasHomeworkOrMeian),
+          math: calculateApplicableRate('math', baseDiscountBps, tagDiscounts.internalStudent, hasHomeworkOrMeian),
+          enrichment: calculateApplicableRate('enrichment', baseDiscountBps, tagDiscounts.internalStudent, hasHomeworkOrMeian),
+          chinese: calculateApplicableRate('chinese', baseDiscountBps, tagDiscounts.internalStudent, hasHomeworkOrMeian),
+        };
 
   // 6. 級距比較 (Tier Comparisons, U43, U47)
   const tierComparisons: TierComparison[] = [];
