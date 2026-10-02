@@ -88,7 +88,8 @@ test.describe('UX78 異動明細「適用率」欄（真實匯入路徑）', () 
     await expect(lines('STU0006')).toHaveCount(2);
     await expect(row('STU0006').locator('[data-rate="anqin"]')).toHaveText('安親 無折扣 → —');
     await expect(row('STU0006').locator('[data-rate="tutoring"]')).toHaveText('課輔 無折扣 → —');
-    await expect(row('STU0006')).not.toContainText('未設定');
+    // 只斷言適用率格：既有「折扣」欄對 null 仍是「無折扣 → 未設定」（D-4 不改既有欄位）。
+    await expect(row('STU0006').locator('[data-field="rate"]')).not.toContainText('未設定');
 
     // 新增／未出現：不是異動，適用率欄「—」
     await expect(row('STU9999').locator('[data-field="rate"]')).toHaveText('—');

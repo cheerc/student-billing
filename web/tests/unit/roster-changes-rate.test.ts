@@ -219,7 +219,10 @@ describe('UX78 UI：明細表「適用率」欄只呈現 application 層的 rate
     const row = rowOf(render(build()), 'C1');
     expect(row).toMatch(/data-rate="anqin"[^>]*>安親 無折扣 → —</);
     expect(row).toMatch(/data-rate="tutoring"[^>]*>課輔 無折扣 → —</);
-    expect(row).not.toContain('未設定');
+    // 只斷言適用率格：既有「折扣」欄對 null 仍是「無折扣 → 未設定」（D-4 不改既有欄位），不在本案範圍。
+    const rateCell = /<td data-field="rate">[\s\S]*?<\/td>/.exec(row)?.[0] ?? '';
+    expect(rateCell).not.toBe('');
+    expect(rateCell, '適用率格的 null 側是「—」，不是「未設定」').not.toContain('未設定');
   });
 
   it('(d) 新增／未出現的學生：適用率欄「—」', () => {
