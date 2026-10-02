@@ -199,7 +199,11 @@ describe('B1 多值查詢／全 run 選項／無課程真實 API', () => {
     expect(zero.status).toBe(200);
     expect(zero.body.items).toEqual([]); // 此合成名冊沒有 0 bps，不可忽略 0 成全部
     const blank = await query(runId, [['baseDiscountBps', '~blank']]);
-    expect(codes(blank.body)).toEqual([code(0), code(6)]);
+    // d-20261002160111112854-66：無課程學生合計折扣預設 10000，~blank 匹配 0 人
+    expect(codes(blank.body)).toEqual([]);
+    const tenThousand = await query(runId, [['baseDiscountBps', '10000']]);
+    expect(codes(tenThousand.body)).toContain(code(0));
+    expect(codes(tenThousand.body)).toContain(code(6));
     const grade = await query(runId, [['grade', '~blank'], ['grade', '1'], ['limit', '200']]);
     expect(codes(grade.body)).toEqual(rows.filter((s) => s.grade === null || s.grade === 1).map((s) => s.personCode));
   });

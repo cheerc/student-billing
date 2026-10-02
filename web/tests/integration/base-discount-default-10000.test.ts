@@ -120,18 +120,41 @@ describe('Round3 PR-F / operator 裁決 d-20261002160111112854-66：無報名學
     expect(tenThousand?.count).toBe(2);
   });
 
-  it('4. 異動明細：學生由 1 科（10000）變更為 0 科（10000）時，合計折扣前後相同，不再列入折扣異動明細', () => {
-    const beforeStudent = makeStudent('STU_DROP', '退課學生', '國小數學-一A[團]', 1, 10);
-    const afterStudent = makeStudent('STU_DROP', '退課學生', '', 1, 10);
-    const result = computeRosterChanges(
-      [beforeStudent],
-      [afterStudent],
-      { scheduleOverride: new Map(), classCategoryMap: new Map() },
-      { scheduleOverride: new Map(), classCategoryMap: new Map() }
+  it('4. 異動明細：學生由 1 科（10000）變更為 0 科（10000）時，合計折扣前後相同，不再列入合計折扣變動；2 科退為 0 科時顯示「95折 → 無折扣」（非「未設定」）', () => {
+    // 4a: 由 1 科無折扣 (10000) 變為 0 科 (10000)
+    // 因課程清空適用率由 10000 轉為 null，會列為「適用率變動」，但 discountChange 必為 null（不再誤報已補科數變動「無折扣 → 未設定」）
+    const s1Before = makeStudent('STU_DROP_1', '退課學生1', '國小數學-一A[團]', 1, 10);
+    const s1After = makeStudent('STU_DROP_1', '退課學生1', '', 1, 10);
+    const res1 = computeRosterChanges(
+      [s1Before],
+      [s1After],
+      { scheduleOverride: new Map() },
+      { scheduleOverride: new Map() }
     );
-    expect(result.changes).toHaveLength(1);
-    // 折扣未變動（10000 → 10000），discountChange 應為 null
-    expect(result.changes[0].discountChange).toBeNull();
-    expect(result.stats.discountChangedCount).toBe(0);
+    expect(res1.changes).toHaveLength(1);
+    expect(res1.changes[0].reasons).toContain('適用率變動');
+    expect(res1.changes[0].reasons).not.toContain('已補科數變動');
+    expect(res1.changes[0].discountChange).toBeNull();
+    expect(res1.stats.discountChangedCount).toBe(0);
+
+    // 4b: 由 2 科 (9500, 95折) 退為 0 科 (10000, 無折扣)
+    // 顯示「95折 → 無折扣」，afterLabel 絕非「未設定」
+    const s2Before = makeStudent('STU_DROP_2', '退課學生2', '國小數學-一A[團]\n兒童美語-EA[團]', 1, 11);
+    const s2After = makeStudent('STU_DROP_2', '退課學生2', '', 1, 11);
+    const res2 = computeRosterChanges(
+      [s2Before],
+      [s2After],
+      { scheduleOverride: new Map() },
+      { scheduleOverride: new Map() }
+    );
+    expect(res2.changes).toHaveLength(1);
+    expect(res2.changes[0].discountChange).toEqual({
+      beforeBps: 9500,
+      afterBps: 10000,
+      beforeLabel: '95折',
+      afterLabel: '無折扣',
+      reason: '已補科數變動',
+    });
+    expect(res2.stats.discountChangedCount).toBe(1);
   });
 });
