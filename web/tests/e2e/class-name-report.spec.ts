@@ -261,7 +261,13 @@ test.describe('班名比對報告（D1）', () => {
       ['國小輔導-四年級A', '國小輔導-四年級'],
     ],
   ] as const) {
-    test(`B2：儲存成功後重新取得報告失敗（${label}）→ 明確標示無法取得最新報告，不以舊數字冒充最新；下次成功刷新後標示消失、數字為新值`, async ({ page }) => {
+    /**
+     * PR-G（operator 裁決 d-20261002162913018695-69）後：第一次失敗會**自動重試 2 次**，
+     * 因此只讓單次 GET 失敗將被自動恢復、觀察不到任何標示。本案例改為讓初次＋2 次重試皆失敗，
+     * 再以［重新載入］恢復——仍驗證原 B2 保證：已成功的儲存不被說成失敗、舊數字不冒充最新、
+     * 恢復後標示消失且數字為新值。自動重試本身由 report-refresh-recovery.spec.ts R1 驗證。
+     */
+    test(`B2：儲存成功後重新取得報告持續失敗（${label}）→ 明確標示無法取得最新報告，不以舊數字冒充最新；［重新載入］成功後標示消失、數字為新值`, async ({ page }) => {
       test.setTimeout(90_000);
       await activateFixtureAsCurrent(page);
       const before = await reportApi(page);
@@ -271,31 +277,40 @@ test.describe('班名比對報告（D1）', () => {
       const left = rosterOnlyOf(page);
       await expect(left).toContainText(`${before.rosterOnly.length} 個班`, { timeout: 15000 });
 
-      // 只讓第一次「重新取得報告」失敗；apply 本身成功
+      // 讓初次嘗試＋2 次自動重試（1s、3s）皆失敗；apply 本身成功
       let reportCalls = 0;
       await page.route('**/api/v1/settings/class-name-report**', async (route) => {
         reportCalls += 1;
-        if (reportCalls === 1) return failRefresh(route);
+        if (reportCalls <= 3) return failRefresh(route);
         return route.continue();
       });
 
       await mapAliasAndApply(page, firstPair[0], firstPair[1]);
 
-      // 已成功的儲存不能被說成儲存失敗；要有明確、可被讀屏讀到的「無法取得最新報告」標示
+      // 已成功的儲存不能被說成儲存失敗；要由儲存成功 toast 表達，報告區只給最短恢復路徑
+      // （operator 裁決 d-20261002162913018695-69：標示不解釋原因，單行＋一顆按鈕）
+      await expect(page.locator('#toast')).toContainText('課表已套用並完成重算', { timeout: 15000 });
       const notice = page.getByRole('alert').filter({ hasText: '無法取得最新的班名比對報告' });
       await expect(notice).toBeVisible({ timeout: 15000 });
-      await expect(notice).toContainText('課表已儲存');
+      await expect(notice).toContainText('無法取得最新的班名比對報告。');
       await expect(notice).not.toContainText('儲存失敗');
+      await expect(notice).not.toContainText('建議重新匯入');
       // 舊數字不得再以「目前設定的比對結果」出現：兩份清單（含儲存前的班數與影響人數）都不再顯示
       await expect(rosterOnlyOf(page)).toHaveCount(0);
       await expect(systemOnlyOf(page)).toHaveCount(0);
-      expect(reportCalls, '失敗的是第一次重新取得').toBe(1);
+      expect(reportCalls, '初次嘗試＋2 次自動重試皆失敗').toBe(3);
 
-      // 使用者再儲存另一個 alias：這次重新取得成功 → 標示消失，數字是新值（比儲存前少 2 個班）
+      // 按［重新載入］：只重新取得報告 → 標示消失，數字是新值（比儲存前少 1 個班）
+      await notice.locator('button', { hasText: '重新載入' }).click();
+      await expect(notice).toHaveCount(0, { timeout: 20000 });
+      await expect(rosterOnlyOf(page)).toContainText(`${before.rosterOnly.length - 1} 個班`, { timeout: 15000 });
+      expect(reportCalls, '［重新載入］是第 4 次重新取得且成功').toBe(4);
+
+      // 恢復後再儲存另一個 alias：這次重新取得也成功 → 數字是新值（比儲存前少 2 個班）
       await mapAliasAndApply(page, secondPair[0], secondPair[1]);
       await expect(notice).toHaveCount(0, { timeout: 15000 });
       await expect(rosterOnlyOf(page)).toContainText(`${before.rosterOnly.length - 2} 個班`, { timeout: 15000 });
-      expect(reportCalls, '第二次重新取得成功').toBe(2);
+      expect(reportCalls, '第二次儲存的重新取得成功').toBe(5);
     });
   }
 });

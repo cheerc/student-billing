@@ -117,11 +117,14 @@ async function applyAlias(page: Page, raw: string, target: string) {
   await confirmAndSave(page);
 }
 
-/** 課表頁改第一筆時段起訖 → 確認變更 → 儲存（候選表鎖定時仍可走這條路徑）。 */
-async function applyScheduleTimeChange(page: Page) {
+/**
+ * 課表頁改第一筆時段起訖 → 確認變更 → 儲存（候選表鎖定時仍可走這條路徑）。
+ * `minute` 每次不同，確保下一次呼叫一定產生新草稿（同一值不會讓 isDirty 變真）。
+ */
+async function applyScheduleTimeChange(page: Page, minute: string) {
   await page.locator('button[role="tab"]', { hasText: '課表' }).click();
   const start = page.locator('input.input-time').first();
-  await start.fill('09:40');
+  await start.fill(`09:${minute}`);
   await expect(page.locator('.save-status-dirty')).toBeVisible();
   await confirmAndSave(page);
 }
@@ -272,19 +275,23 @@ test.describe('報告刷新失敗的最短恢復路徑（UX46／operator 裁決 
     await applyAlias(page, R4_ALIAS.raw, R4_ALIAS.target);
     await expect(toolbar).toContainText(`(${base - 1})`, { timeout: 20000 });
 
-    // 步驟 2：第 2 次 apply 失敗 → 第 1 次重試被 gate 暫停（舊序列仍在進行）
+    // 步驟 2：第 2 次 apply 失敗 → 第 1 次重試被 gate 暫停（舊序列仍在進行，候選表鎖定）。
+    // 候選表只在「班名對應」頁籤可見，故切過去才觀察鎖定。
     report.failNext(1);
     const gate = report.gateNext();
-    await applyScheduleTimeChange(page);
+    await applyScheduleTimeChange(page, '41');
     await gate.entered;
-
-    // 重試序列進行中：候選表鎖定
+    await tab.click();
     const locked = candidatesLocked(page);
-    await expect(locked.container).toHaveAttribute('aria-disabled', 'true');
+    await expect(locked.container).toHaveAttribute('aria-disabled', 'true', { timeout: 20000 });
+    await expect(locked.firstTarget).toBeDisabled();
 
-    // 步驟 3：鎖定期間再 apply 一次（走課表頁）→ 新序列立即取得報告成功
-    await applyScheduleTimeChange(page);
+    // 步驟 3：鎖定期間再次 apply（課表頁，不受候選表鎖定影響）→ 新序列立即成功取得報告並解鎖
+    await page.locator('button[role="tab"]', { hasText: '課表' }).click();
+    await applyScheduleTimeChange(page, '43');
+    await page.locator('button[role="tab"]', { hasText: '班名對應' }).click();
     await expect(page.locator('.mapping-table tr', { hasText: R4_ALIAS.raw })).toHaveCount(0, { timeout: 20000 });
+    await expect(candidatesLocked(page).container).toHaveCount(0);
 
     // 步驟 4：放行舊序列的回應（內容為 base-1 的舊報告）→ 不得覆蓋新結果
     gate.release();

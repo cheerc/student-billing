@@ -162,7 +162,15 @@ test.describe('N09／R3-F02: 儲存後候選表、標題、頁籤與報告同步
     await expect(page.locator('.mapping-table tr', { hasText: '國小輔導-四年級B' })).toHaveCount(0);
   });
 
-  test('3. 重新取得報告失敗（500）時，候選表保留最後已知狀態，明示資料未更新，且可繼續操作下一個 alias', async ({
+  /**
+   * 3. 重新取得報告持續失敗（500，連自動重試 2 次皆失敗）→ 單行標示＋［重新載入］、候選表鎖定。
+   *
+   * PR-G（operator 裁決 d-20261002162913018695-69）之後，本案例的語意由「stale 期間仍可繼續操作」
+   * 改為「候選表鎖定，直到取得最新報告」：報告是儲存前的過期值，依它確認班名等於用過期結果蓋章。
+   * 「候選不得清空消失、維持最後已知值、不回退頁面初值」的保證**保留**，只是不可操作。
+   * 自動重試的行為由 tests/e2e/report-refresh-recovery.spec.ts R1 驗證。
+   */
+  test('3. 重新取得報告持續失敗 → 單行標示＋［重新載入］、候選表鎖定但保留最後已知值；恢復後解鎖', async ({
     page,
   }) => {
     await page.goto('/imports');
@@ -180,11 +188,11 @@ test.describe('N09／R3-F02: 儲存後候選表、標題、頁籤與報告同步
     const initialMatch = initialText.match(/\d+/);
     const beforeCount = initialMatch ? parseInt(initialMatch[0], 10) : 12;
 
-    // 注入一次 500 失敗
+    // 注入持續 500：初次嘗試＋2 次自動重試皆失敗（否則會被自動恢復，觀察不到鎖定）
     let reportCalls = 0;
     await page.route('**/api/v1/settings/class-name-report**', async (route: Route) => {
       reportCalls += 1;
-      if (reportCalls === 1) {
+      if (reportCalls <= 3) {
         return route.fulfill({ status: 500, contentType: 'application/json', body: '{"error":"server error"}' });
       }
       return route.continue();
@@ -202,24 +210,31 @@ test.describe('N09／R3-F02: 儲存後候選表、標題、頁籤與報告同步
     await dialog.locator('button', { hasText: '儲存並更新結果' }).click();
     await expect(page.locator('#toast')).toContainText('課表已套用並完成重算', { timeout: 15000 });
 
-    // 驗證出現無法取得最新報告的 Alert
+    // 驗證出現無法取得最新報告的單行標示（＋［重新載入］按鈕）
     const staleNotice = page.getByRole('alert').filter({ hasText: '無法取得最新的班名比對報告' });
-    await expect(staleNotice).toBeVisible({ timeout: 15000 });
+    await expect(staleNotice).toBeVisible({ timeout: 20000 });
+    await expect(staleNotice.locator('button', { hasText: '重新載入' })).toBeVisible();
 
-    // 候選表格不得清空消失！依然可以操作第二個 alias
+    // 候選表格不得清空消失：維持最後已知值，但鎖定不可操作（報告是過期值）
     const row2 = page.locator('.mapping-table tr', { hasText: '國小輔導-四年級A' });
     await expect(row2).toBeVisible();
+    await expect(row2.locator('input.input-target-classname')).toBeDisabled();
+    await expect(row2.locator('input[type="checkbox"]')).toBeDisabled();
+
+    // 按［重新載入］→ GET 恢復成功 → 標示消失、候選表解鎖且以最新報告重建
+    await staleNotice.locator('button', { hasText: '重新載入' }).click();
+    await expect(staleNotice).toHaveCount(0, { timeout: 20000 });
+    await expect(row2.locator('input.input-target-classname')).toBeEnabled();
+
+    // 恢復後繼續操作第二個 alias
     await row2.locator('input.input-target-classname').fill('國小輔導-四年級');
     await row2.locator('input[type="checkbox"]').check();
-
-    // 第二次儲存（此時 GET 成功）
     await page.locator('button', { hasText: '確認變更' }).click();
     await expect(dialog).toBeVisible({ timeout: 15000 });
     await dialog.locator('button', { hasText: '儲存並更新結果' }).click();
     await expect(page.locator('#toast')).toContainText('課表已套用並完成重算', { timeout: 15000 });
 
-    // 警示消失，數字與候選表同步減少 2 班
-    await expect(staleNotice).toHaveCount(0, { timeout: 15000 });
+    // 數字與候選表同步減少 2 班
     await expect(mappingTab).toContainText(String(beforeCount - 2));
     await expect(page.locator('.toolbar', { hasText: '待確認米豆奶班名' })).toContainText(`(${beforeCount - 2})`);
     await expect(page.locator('.mapping-table tr', { hasText: '小六數學加強班' })).toHaveCount(0);
@@ -266,8 +281,10 @@ test.describe('N09／R3-F02: 儲存後候選表、標題、頁籤與報告同步
    *
    * 既有 test 3 讓**第一次** GET 就失敗，此時從未成功刷新過，last-successful 恰好等於 SSR 初值，
    * 無法區分「回退到初始」與「保留最後已知」。本案例讓第一次**成功**（候選 12 → 11），
-   * 第二次 GET **失敗**，此時候選表／標題／頁籤必須維持 11（最後一次成功取得的報告），
-   * 已套用成功的別名不得重新浮現；第三次成功後恢復為 10。
+   * 第二次 GET **持續失敗**（初次＋2 次自動重試皆失敗），此時候選表／標題／頁籤必須維持 11
+   * （最後一次成功取得的報告），已套用成功的別名不得重新浮現，且候選表鎖定（報告是過期值）；
+   * ［重新載入］成功後恢復為 10 並解鎖。
+   * PR-G 後 stale 期間不可操作，故「繼續填寫下一個候選」改為［重新載入］恢復後再操作。
    *
    * expected 由流程獨立推導（每成功套用一個有效別名就少一個未對應班名），
    * 不使用新實作的輸出回填。
@@ -318,12 +335,11 @@ test.describe('N09／R3-F02: 儲存後候選表、標題、頁籤與報告同步
     await expect(page.locator('.mapping-table tr', { hasText: '小六國文加強班' })).toHaveCount(0);
     await expect(staleNotice).toHaveCount(0);
 
-    // ── 步驟 2：第二次儲存，但重新取得報告失敗（500）
-    //    攔截點設在第 1 次成功之後，故只讓第 2 次 refresh 的 GET 失敗。
+    // ── 步驟 2：第二次儲存，但重新取得報告持續失敗（初次＋2 次自動重試全 500）
     let reportCalls = 0;
     await page.route('**/api/v1/settings/class-name-report**', async (route: Route) => {
       reportCalls += 1;
-      if (reportCalls === 1) {
+      if (reportCalls <= 3) {
         return route.fulfill({ status: 500, contentType: 'application/json', body: '{"error":"server error"}' });
       }
       return route.continue();
@@ -341,20 +357,25 @@ test.describe('N09／R3-F02: 儲存後候選表、標題、頁籤與報告同步
     await expect(toolbar).toContainText(`(${base - 1})`);
     await expect(mappingTab).toContainText(String(base - 1));
     await expect(page.locator('.mapping-table tr', { hasText: '小六國文加強班' })).toHaveCount(0);
-    // stale 期間表格仍可操作：繼續填寫下一個候選
-    await expect(page.locator('.mapping-table tr', { hasText: '正音A班' })).toBeVisible();
+    // stale 期間候選表鎖定：維持最後已知值但不可操作（報告是過期值，PR-G）
+    const pendingRow = page.locator('.mapping-table tr', { hasText: '正音A班' });
+    await expect(pendingRow).toBeVisible();
+    await expect(pendingRow.locator('input.input-target-classname')).toBeDisabled();
 
-    // ── 步驟 3：第三次儲存成功 → stale 提示消失。
+    // ── 步驟 3：［重新載入］成功 → 標示消失、候選表解鎖並以最新報告重建（base-2）
     // 注意：第 2 步的 alias（交通車）**已成功套用**（apply 成功，只是報告 GET 失敗），
-    // 故此時伺服器端共有 3 個別名生效 → 候選為 base-3。
+    // 故此時伺服器端共有 2 個別名生效 → 候選為 base-2。「正音A班」未對應，仍是候選且可操作。
     await page.unroute('**/api/v1/settings/class-name-report**');
-    await applyAlias('正音A班', '兒童美語-Archy');
+    await staleNotice.locator('button', { hasText: '重新載入' }).click();
 
-    await expect(staleNotice).toHaveCount(0, { timeout: 15000 });
-    await expect(toolbar).toContainText(`(${base - 3})`);
-    await expect(mappingTab).toContainText(String(base - 3));
+    await expect(staleNotice).toHaveCount(0, { timeout: 20000 });
+    await expect(toolbar).toContainText(`(${base - 2})`);
+    await expect(mappingTab).toContainText(String(base - 2));
     await expect(page.locator('.mapping-table tr', { hasText: '小六國文加強班' })).toHaveCount(0);
     await expect(page.locator('.mapping-table tr', { hasText: '交通車' })).toHaveCount(0);
-    await expect(page.locator('.mapping-table tr', { hasText: '正音A班' })).toHaveCount(0);
+    // 「正音A班」未被對應，仍是候選，但現在可操作（恢復後解鎖）
+    const stillPending = page.locator('.mapping-table tr', { hasText: '正音A班' });
+    await expect(stillPending).toBeVisible();
+    await expect(stillPending.locator('input.input-target-classname')).toBeEnabled();
   });
 });

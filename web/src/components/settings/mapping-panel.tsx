@@ -18,6 +18,18 @@ interface MappingPanelProps {
   classNameReport?: ClassNameMatchReport | null;
   /** 儲存後重新取得報告失敗的說明：有值時不顯示報告（其數字是儲存前的），改顯示這則標示 */
   classNameReportStaleMessage?: string | null;
+  /**
+   * 復原階段（UX46；operator 裁決 d-20261002162913018695-69）：
+   * retrying＝自動重試中（鎖定候選表、不顯示錯誤畫面）／reload＝請按［重新載入］／reloadPage＝請按［重新整理頁面］。
+   * null 時沿用 classNameReportStaleMessage 的舊行為（本頁無報告可刷新時不會進入此狀態）。
+   */
+  reportRecoveryStage?: 'retrying' | 'reload' | 'reloadPage' | null;
+  /** 候選表鎖定：報告重新取得進行中或失敗未恢復，候選依的是過期報告，不可操作 */
+  candidatesLocked?: boolean;
+  /** ［重新載入］：只重新取得報告（不整頁 reload） */
+  onRetryReport?: () => void;
+  /** ［重新整理頁面］：整頁 reload */
+  onReloadPage?: () => void;
 }
 
 export function MappingPanel({
@@ -30,6 +42,10 @@ export function MappingPanel({
   onToggleAlias = () => {},
   classNameReport = null,
   classNameReportStaleMessage = null,
+  reportRecoveryStage = null,
+  candidatesLocked = false,
+  onRetryReport = () => {},
+  onReloadPage = () => {},
 }: MappingPanelProps) {
   if (!hasStudents) {
     return (
@@ -49,11 +65,24 @@ export function MappingPanel({
     return aliases.some((a) => a.rawBaseName === raw && a.targetBaseName === target);
   };
 
+  // 復原動作只有一顆按鈕：［重新載入］→［重新整理頁面］。不解釋原因，也不勸告重新匯入（UX46）。
+  const showRecoveryAlert = reportRecoveryStage === 'reload' || reportRecoveryStage === 'reloadPage';
+  const staleMessage = showRecoveryAlert ? classNameReportStaleMessage : null;
+
   return (
     <div className="mapping-panel-container">
-      {classNameReportStaleMessage ? (
+      {staleMessage ? (
         <div className="alert alert-warning" role="alert" data-report-stale="" style={{ marginBottom: '20px' }}>
-          {classNameReportStaleMessage}
+          <span>{staleMessage}</span>{' '}
+          {reportRecoveryStage === 'reload' ? (
+            <button type="button" className="btn-secondary" data-report-retry="" onClick={onRetryReport}>
+              重新載入
+            </button>
+          ) : (
+            <button type="button" className="btn-secondary" data-report-reload-page="" onClick={onReloadPage}>
+              重新整理頁面
+            </button>
+          )}
         </div>
       ) : (
         classNameReport && (
@@ -63,7 +92,12 @@ export function MappingPanel({
         )
       )}
 
-      <div className="card" style={{ marginBottom: '20px' }}>
+      <div
+        className="card"
+        data-candidates-locked={candidatesLocked ? '' : undefined}
+        aria-disabled={candidatesLocked ? 'true' : undefined}
+        style={{ marginBottom: '20px', opacity: candidatesLocked ? 0.55 : undefined }}
+      >
         <div className="toolbar">
           <span style={{ fontWeight: 600 }}>待確認米豆奶班名 ({candidates.length})</span>
           <span className="note end">請為米豆奶匯入的班名指定對應的系統班級</span>
@@ -97,9 +131,10 @@ export function MappingPanel({
                         <input
                           type="checkbox"
                           checked={isChecked}
-                          disabled={!target.trim() || !isValidTarget}
+                          disabled={candidatesLocked || !target.trim() || !isValidTarget}
+                          aria-disabled={candidatesLocked ? 'true' : undefined}
                           onChange={() => {
-                            if (target.trim() && isValidTarget) {
+                            if (!candidatesLocked && target.trim() && isValidTarget) {
                               onToggleAlias(c.rawBaseName, target.trim());
                             }
                           }}
@@ -117,6 +152,8 @@ export function MappingPanel({
                           placeholder="請輸入或選擇現有班級"
                           aria-label={`對應目標班級 ${c.rawBaseName}`}
                           value={target}
+                          disabled={candidatesLocked}
+                          aria-disabled={candidatesLocked ? 'true' : undefined}
                           onChange={(e) => onUpdateCandidateTarget(c.rawBaseName, e.target.value)}
                           style={{
                             borderColor: !isValidTarget ? 'var(--danger-text)' : undefined,
