@@ -66,6 +66,8 @@ export function MappingPanel({
   };
 
   // 復原動作只有一顆按鈕：［重新載入］→［重新整理頁面］。不解釋原因，也不勸告重新匯入（UX46）。
+  // retrying＝自動重試中：顯示中性佔位「更新中…」，**不渲染儲存前的舊報告**（UX46／09 §3.3：
+  // 舊數字既不能當成目前設定的結果，也不該被用來確認班名），但不是錯誤樣式、不加說明。
   const showRecoveryAlert = reportRecoveryStage === 'reload' || reportRecoveryStage === 'reloadPage';
   const staleMessage = showRecoveryAlert ? classNameReportStaleMessage : null;
 
@@ -84,6 +86,10 @@ export function MappingPanel({
             </button>
           )}
         </div>
+      ) : reportRecoveryStage === 'retrying' ? (
+        <p className="note" data-report-pending="" style={{ marginBottom: '20px' }}>
+          更新中…
+        </p>
       ) : (
         classNameReport && (
           <div style={{ marginBottom: '20px' }}>

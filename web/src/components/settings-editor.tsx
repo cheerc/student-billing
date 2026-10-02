@@ -157,6 +157,9 @@ function mapsDiffer(
  *
  * 序列守衛 `seqRef` 與 calculate 的 requestKey guard 同一目的：晚到的舊回應不得覆蓋較新的結果。
  * `delaysMs[attempt]` 存在即代表還有重試間隔可等待；間隔用完則交給使用者（`onGiveUp`）。
+ *
+ * 逾時器登錄在 `timers`（元件持有）：卸載時 cleanup 逐一 clearTimeout 並作廢序列（seq++），
+ * 因此卸載後既不會再發 GET、也不會 setState（review N2）。
  */
 async function fetchReportWithRetry(params: {
   seq: number;
@@ -164,6 +167,7 @@ async function fetchReportWithRetry(params: {
   url: string;
   delaysMs: number[];
   seqRef: { current: number };
+  timers: Set<ReturnType<typeof setTimeout>>;
   onSuccess: (report: ClassNameMatchReport) => void;
   onRecovering: () => void;
   /** 自動重試用盡後的階段：使用者按過［重新載入］→ 只剩［重新整理頁面］；否則提供［重新載入］。 */
@@ -171,7 +175,7 @@ async function fetchReportWithRetry(params: {
   /** 本序列是否由使用者的［重新載入］按鈕啟動（決定放棄後的按鈕階段） */
   manualRetry?: boolean;
 }): Promise<void> {
-  const { seq, attempt, url, delaysMs, seqRef, onSuccess, onRecovering, onGiveUp, manualRetry = false } = params;
+  const { seq, attempt, url, delaysMs, seqRef, timers, onSuccess, onRecovering, onGiveUp, manualRetry = false } = params;
   try {
     const response = await fetch(url);
     if (seq !== seqRef.current) return;
@@ -184,10 +188,12 @@ async function fetchReportWithRetry(params: {
     const delay = delaysMs[attempt];
     if (delay !== undefined) {
       onRecovering();
-      setTimeout(() => {
+      const timer = setTimeout(() => {
+        timers.delete(timer);
         if (seq !== seqRef.current) return;
         void fetchReportWithRetry({ ...params, attempt: attempt + 1 });
       }, delay);
+      timers.add(timer);
       return;
     }
     onGiveUp(manualRetry);
@@ -296,8 +302,9 @@ export default function SettingsEditor({
   }
   const report = persistedReportOverride ?? classNameReport;
   const reportRefreshSeq = useRef(0);
+  /** 重試計時器集合：卸載時統一清除（見下方 cleanup） */
+  const reportRetryTimers = useRef<Set<ReturnType<typeof setTimeout>>>(new Set());
   /** 候選表是否鎖定：報告重新取得進行中或失敗未恢復時，候選不得依過期報告操作 */
-  const candidatesLocked = reportRecovery !== null;
   const reportStaleError = reportRecovery === null ? null : REPORT_REFRESH_FAILED_MESSAGE;
 
   /**
@@ -355,14 +362,15 @@ export default function SettingsEditor({
     // 從序列啟動起候選就是過期的（報告仍是儲存前的值），故立刻鎖定；
     // 成功才解鎖，失敗則依階段顯示一顆復原按鈕（operator 裁決 d-…-69）。
     setReportRecovery('retrying');
-    // fire-and-forget: 刷新序列在元件存續期間自持；逾時器不跨頁面（整頁 reload 由使用者按鈕觸發），
-    // 元件卸載後序列自然終止——每次回應／逾時都以 seq 比對短路，不需 unmount 清理。
+    // fire-and-forget: 序列在元件存續期間自持；逾時器登錄在 reportRetryTimers，
+    // 由下方 cleanup 在卸載時清除並作廢序列，故卸載後不再 GET、不 setState（review N2）。
     void fetchReportWithRetry({
       seq,
       attempt: 0,
       url: `/api/v1/settings/class-name-report?importId=${encodeURIComponent(reportImportId)}`,
       delaysMs: reportRefreshRetryDelaysMs,
       seqRef: reportRefreshSeq,
+      timers: reportRetryTimers.current,
       manualRetry,
       onSuccess: (updated) => {
         setPersistedReportOverride(updated);
@@ -372,6 +380,16 @@ export default function SettingsEditor({
       onGiveUp: (manual) => setReportRecovery(manual ? 'reloadPage' : 'reload'),
     });
   }, [reportImportId, reportRefreshRetryDelaysMs]);
+
+  // 卸載清理：作廢進行中的序列（seq++ 使所有遞迴短路）並清除待觸發的重試計時器。
+  useEffect(() => {
+    const timers = reportRetryTimers.current;
+    return () => {
+      reportRefreshSeq.current += 1;
+      for (const timer of timers) clearTimeout(timer);
+      timers.clear();
+    };
+  }, []);
 
   const showToast = useCallback((msg: string) => {
     if (toastTimeoutRef.current) clearTimeout(toastTimeoutRef.current);
@@ -890,7 +908,9 @@ export default function SettingsEditor({
             classNameReport={report}
             classNameReportStaleMessage={reportStaleError}
             reportRecoveryStage={reportRecovery === 'retrying' ? 'retrying' : reportRecovery}
-            candidatesLocked={candidatesLocked}
+            // 重試中鎖定候選表：真正的鎖定（依過期報告不可確認班名）。
+            // 課表頁的時段編輯不在此鎖定範圍——那是使用者自己的草稿，保存後會以新報告解鎖。
+            candidatesLocked={reportRecovery !== null}
             onRetryReport={() => startReportRefresh(true)}
             onReloadPage={() => window.location.reload()}
           />

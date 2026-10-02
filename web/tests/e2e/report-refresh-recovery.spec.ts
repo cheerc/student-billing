@@ -29,15 +29,21 @@ const R1_ALIAS = { raw: '小六國文加強班', target: '小六加強班-國文
 const R2_ALIAS = { raw: '國小國語文-小三四', target: '國小國語文-小三小四' };
 const R3_ALIAS = { raw: '交通車', target: '兒童美語-Ali' };
 const R4_ALIAS = { raw: '小六數學加強班', target: '小六加強班-數學' };
+/** R4 步驟 2：第二個別名（與 R4_ALIAS 不同，且候選表靠前易操作）。 */
+const R4_SECOND_ALIAS = { raw: '國小輔導-四年級A', target: '國小輔導-四年級' };
 /** R5 用：只讓一次 GET 失敗即可進入重試等待，不需等到重試耗盡。 */
 const R5_PENDING_ALIAS = { raw: '正音A班', target: '兒童美語-Archy' };
 
 /** 可切換模式的 GET 攔截器：ok（真實回應，順帶保存最後一次成功 body）／fail（500）／gate（等待放行後回應保存的舊 body）。 */
 function installReportRoute(page: Page) {
   let mode: 'ok' | 'fail' | 'gate' = 'ok';
+  /** failEachSequence 模式：下一個 GET 開始的新序列先失敗 failNext 次（undefined＝未啟用） */
+  let failNext: number | undefined;
   let failCount = 0;
   let calls = 0;
   let lastGoodBody: string | null = null;
+  /** gate 釋放後要回傳的 body（預設＝lastGoodBody；R4 可設為明確不同的過期 body 以建立可觀察差異） */
+  let gateBody: string | null = null;
   let releaseGate: (() => void) | null = null;
   const gateArrived = new Promise<void>((resolve) => {
     releaseGate = resolve;
@@ -49,8 +55,12 @@ function installReportRoute(page: Page) {
 
   page.route(REPORT_URL, async (route: Route) => {
     calls += 1;
-    if (mode === 'fail' && failCount > 0) {
+    if (failCount > 0) {
       failCount -= 1;
+      return route.fulfill({ status: 500, contentType: 'application/json', body: '{"error":"server error"}' });
+    }
+    if (failNext !== undefined && mode === 'fail') {
+      failCount = failNext;
       return route.fulfill({ status: 500, contentType: 'application/json', body: '{"error":"server error"}' });
     }
     if (mode === 'gate') {
@@ -60,7 +70,7 @@ function installReportRoute(page: Page) {
       return route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: lastGoodBody ?? '{"rosterOnly":null}',
+        body: gateBody ?? lastGoodBody ?? '{"rosterOnly":null}',
       });
     }
     const response = await route.fetch();
@@ -75,13 +85,21 @@ function installReportRoute(page: Page) {
     failNext(times: number) {
       mode = 'fail';
       failCount = times;
+      failNext = undefined;
+    },
+    /** 之後每個新序列都先失敗 `times` 次（［重新載入］重試仍失敗時用；攔截器不解除，計數持續）。 */
+    failEachSequence(times: number) {
+      mode = 'fail';
+      failCount = 0;
+      failNext = times;
     },
     failAlways() {
       mode = 'fail';
       failCount = Number.MAX_SAFE_INTEGER;
     },
-    gateNext(): { entered: Promise<void>; release: () => void } {
+    gateNext(opts?: { body?: string }): { entered: Promise<void>; release: () => void } {
       mode = 'gate';
+      gateBody = opts?.body ?? null;
       return { entered: gateEntered, release: () => releaseGate?.() };
     },
   };
@@ -136,9 +154,20 @@ async function applyScheduleTimeChange(page: Page, minute: string) {
   await confirmAndSave(page);
 }
 
+/** 切換到「班名對應」頁籤（候選表可能在可捲動容器內，先把容器捲到頂）。 */
+async function switchToMappingTab(page: Page) {
+  const tab = page.locator('button[role="tab"]', { hasText: '班名對應' });
+  await tab.click();
+  await expect(page.locator('.mapping-table')).toBeVisible({ timeout: 15000 });
+  await page.locator('.mapping-table').evaluate((el) => {
+    el.scrollIntoView({ block: 'start' });
+  });
+}
+
 /** 候選列填入一個不存在的目標（保留值）→ 確認變更 → 儲存。apply 成功，該班因目標無效而離開候選表。 */
 async function applyCandidateWithInvalidTarget(page: Page, raw: string) {
   const row = page.locator('.mapping-table tr', { hasText: raw });
+  await row.scrollIntoViewIfNeeded();
   await expect(row).toBeVisible();
   await row.locator('input.input-target-classname').fill('不存在的目標班級-XYZ');
   await confirmAndSave(page);
@@ -266,7 +295,8 @@ test.describe('報告刷新失敗的最短恢復路徑（UX46／operator 裁決 
     const notice = page.getByRole('alert').filter({ hasText: '無法取得最新的班名比對報告' });
 
     const report = installReportRoute(page);
-    report.failNext(DECIDED_GET_ATTEMPTS);
+    // ［重新載入］的新序列也要整組失敗（含其 2 次自動重試），才會出現［重新整理頁面］
+    report.failEachSequence(DECIDED_GET_ATTEMPTS);
 
     const documentRequests = documentRequestCount(page);
 
@@ -311,37 +341,65 @@ test.describe('報告刷新失敗的最短恢復路徑（UX46／operator 裁決 
 
     const report = installReportRoute(page);
 
-    // 步驟 1：正常套用第一個別名 → base-1（同時讓攔截器保存「最後成功報告」body 作為過期回應）
+    // 步驟 1：套用第一個別名 → base-1
     await applyAlias(page, R4_ALIAS.raw, R4_ALIAS.target);
     await expect(toolbar).toContainText(`(${base - 1})`, { timeout: 20000 });
 
-    // 步驟 2：第 2 次 apply 失敗 → 第 1 次重試被 gate 暫停（舊序列仍在進行，候選表鎖定）
+    // 取得此刻的真實報告 body 作為 gate 釋放後的「過期回應」。
+    // 判斷 M2 是否有鑑別力的關鍵：舊 body（base-1 的報告）與新結果（base-2 的報告）
+    // 必須在畫面上可區分。若兩者相同，seq guard 失效時畫面不變、斷言 vacuous——
+    // 因此 M2 實跑後若仍綠，即表示此處仍需強化（見 rework 報告）。
+    const staleBody = (await (await page.request.get('/api/v1/settings/class-name-report')).json()) as {
+      rosterOnly: Array<{ baseName: string; students: number; tokens: number }>;
+    };
+
+    // 步驟 2：再套用一個別名（伺服器端候選降為 base-2），但重新取得報告失敗 →
+    // 第 1 次重試被 gate 暫停（釋放時回傳 staleBody）。畫面仍顯示 base-1，候選表鎖定。
     report.failNext(1);
-    const gate = report.gateNext();
-    await applyCandidateWithInvalidTarget(page, '國小輔導-四年級B');
+    const gate = report.gateNext({ body: JSON.stringify(staleBody) });
+    await applyAlias(page, R4_SECOND_ALIAS.raw, R4_SECOND_ALIAS.target);
     await gate.entered;
 
     // 舊序列被暫停時，報告區不得顯示過期值（UX46：重試期間不顯示儲存前的舊數字）
     await expect(page.getByRole('region', { name: '米豆奶有／系統無' })).toHaveCount(0);
+    await expect(page.locator('[data-report-pending]')).toBeVisible();
+    await expect(candidatesLocked(page).container).toHaveAttribute('aria-disabled', 'true');
 
-    // 步驟 3：鎖定期間再次 apply（候選表已鎖定，但課表頁的時段仍可編輯）→ 新序列立即成功。
-    // 這次用「時段變更」+ 步驟 2 已讓一個候選離開候選表，故新結果是 base-2 而非 base-1——
-    // 與舊序列被暫停的 body（base-1）必然不同，seq guard 失效時畫面會退回 base-1 而失敗。
+    // 步驟 3：舊序列仍在暫停時，在課表頁改時段再套用 → 新序列立即 GET 成功 → base-2。
+    // 鎖定只涵蓋「依過期報告確認班名」，課表頁的草稿不受影響。
     await applyScheduleTimeChange(page, '37');
-    // 新序列立即取得報告成功 → base-2（第二個候選以無效目標離開候選表）
+    await switchToMappingTab(page);
     await expect(toolbar).toContainText(`(${base - 2})`, { timeout: 20000 });
-    await tab.click();
-    await expect(toolbar).toContainText(`(${base - 2})`);
-    await expect(candidatesLocked(page).container).toHaveCount(0);
 
-    // 步驟 4：放行舊序列的回應（內容為 base-1 的舊報告）→ 不得覆蓋新結果
+    // 步驟 4：放行舊序列的回應（body 為 base-1 的過期報告）→ 不得覆蓋新結果。
+    // 若 seq guard 失效，畫面會退回 base-1，本斷言失敗（review B-2 M2 的鑑別力來源）。
+    const lockAfterNewSequence = await candidatesLocked(page).container.count();
+    const countAfterNewSequence = await toolbar.textContent();
+    const reportSnippetAfterNewSequence = await page
+      .getByRole('region', { name: '米豆奶有／系統無' })
+      .textContent()
+      .catch(() => null);
+
     gate.release();
     await page.waitForTimeout(1500);
 
+    // 舊序列若未被作廢：onSuccess 會把 staleBody（改過的過期報告）當成最新結果渲染。
+    // 這裡比對畫面與快照，確認舊回應未改變任何可觀察狀態。
+    expect(await candidatesLocked(page).container.count(), '舊序列回應不得重新鎖定候選表').toBe(
+      lockAfterNewSequence
+    );
+    expect(await toolbar.textContent(), '舊序列回應不得把候選數退回').toBe(countAfterNewSequence);
+    expect(
+      await page.getByRole('region', { name: '米豆奶有／系統無' }).textContent().catch(() => null),
+      '舊序列回應不得覆蓋報告區'
+    ).toBe(reportSnippetAfterNewSequence);
+
+    await switchToMappingTab(page);
     await expect(toolbar).toContainText(`(${base - 2})`);
     await expect(tab).toContainText(String(base - 2));
     await expect(page.locator('.mapping-table tr', { hasText: R4_ALIAS.raw })).toHaveCount(0);
-    await expect(page.locator('.mapping-table tr', { hasText: '國小輔導-四年級B' })).toHaveCount(0);
+    await expect(page.locator('.mapping-table tr', { hasText: R4_SECOND_ALIAS.raw })).toHaveCount(0);
+    await expect(candidatesLocked(page).container).toHaveCount(0);
   });
 
   /**
