@@ -4,6 +4,7 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import { once } from 'events';
+import net from 'net';
 import { buildSeedDraft } from '@/adapters/sqlite/settings-repository';
 
 const web = path.resolve(__dirname, '../..');
@@ -144,4 +145,32 @@ describe('T1：獨立 production build 的隔離驗收環境', () => {
     expect(control.stderr).toMatch(/marker|識別/);
     expect(fs.readdirSync(unknown)).toEqual([]);
   });
+
+  it('ACCEPTANCE_SOURCE_DIR 指向非 git repo：友善訊息、不洩漏 git 原始錯誤、不建立 sb-acceptance-* 目錄', async () => {
+    // 來源目錄與子行程的 TMPDIR 都是本測試自建：T1 的 mkdtemp 會落在這個私有 TMPDIR，
+    // 因此「有沒有新建 sb-acceptance-*」只看這個目錄，不受並行行程或他人目錄影響，
+    // 清理也只刪本測試自建的兩個目錄。
+    const sandbox = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'sb-nonrepo-test-')));
+    states.push(sandbox);
+    const source = path.join(sandbox, 'not-a-repo');
+    const privateTmp = path.join(sandbox, 'tmp');
+    fs.mkdirSync(source);
+    fs.mkdirSync(privateTmp);
+    fs.writeFileSync(path.join(source, 'package.json'), '{}\n');
+    // 自選的空閒埠（由 OS 配置的暫時埠，不碰驗收中的 3000／3200／3300／3301／3302）。
+    const probe = net.createServer();
+    await new Promise<void>((resolve) => probe.listen(0, '127.0.0.1', () => resolve()));
+    const port = (probe.address() as net.AddressInfo).port;
+    await new Promise<void>((resolve) => probe.close(() => resolve()));
+
+    const result = spawnSync(process.execPath, ['--import', loader, script, '--port', String(port)], {
+      cwd: web, encoding: 'utf8', timeout: 20000,
+      env: { ...process.env, ACCEPTANCE_SOURCE_DIR: source, TMPDIR: privateTmp },
+    });
+    expect(result.status, '非 repo 來源必須以非 0 結束').not.toBe(0);
+    expect(result.stderr, '必須是工具自己的友善訊息').toContain('不在任何 git repo 內');
+    expect(result.stderr, '不得把 git 的原始失敗當成使用者看到的錯誤').not.toContain('Command failed: git rev-parse');
+    expect(result.stderr).not.toContain('fatal: not a git repository');
+    expect(fs.readdirSync(privateTmp).filter((name) => name.startsWith('sb-acceptance-')), '失敗前不得建立 sb-acceptance-* 目錄').toEqual([]);
+  }, 30000);
 });
