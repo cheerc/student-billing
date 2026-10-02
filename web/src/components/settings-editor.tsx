@@ -66,6 +66,8 @@ interface SettingsEditorProps {
   initialTab?: 'schedule' | 'mapping';
   /** 「編輯此班課表」帶入的班級（班名）：課表頁定位並列出該班全部時段（F04） */
   focusClass?: string | null;
+  /** 報告重新取得失敗後的自動重試間隔（測試注入用；預設為約 1s、3s） */
+  reportRefreshRetryDelaysMs?: number[];
   /**
    * D2b 4（Q11）：現行 run 的規則版本。v2 時顯示「改用新規則」升級動作（明確確認，不靜默切換）。
    * null＝尚無啟用的 run（空 DB，該 run 建立時即為目標版本 v3，無需升級動作）。
@@ -75,6 +77,21 @@ interface SettingsEditorProps {
 
 /** 計算失敗時的說明（不外露狀態碼或工程字）；ScheduleGrid 會補上「不代表沒有衝堂」。 */
 const CALCULATE_FAILED_MESSAGE = '無法計算重疊與扣除天數，請稍後再試。';
+
+/**
+ * 報告重新取得失敗時的單行標示（UX46／operator 裁決 d-20261002162913018695-69）。
+ * 只說做什麼、怎麼恢復，不解釋原因，也不勸告重新匯入。
+ */
+const REPORT_REFRESH_FAILED_MESSAGE = '無法取得最新的班名比對報告。';
+
+/**
+ * 自動重試間隔（毫秒）：第一次失敗後約 1s、第二次失敗後約 3s，之後交給使用者按鈕。
+ * 測試可縮短（prop 注入）；單元測試以 0 等待，E2E 用真實間隔（總計 4s，不改用真 sleep 拉長）。
+ */
+export const REPORT_REFRESH_RETRY_DELAYS_MS = [1000, 3000];
+
+/** 報告刷新失敗後的復原階段：retrying＝自動重試中（不顯示錯誤畫面、候選表鎖定）；reload＝請按［重新載入］；reloadPage＝請按［重新整理頁面］。 */
+type ReportRecoveryStage = 'retrying' | 'reload' | 'reloadPage';
 
 /** 有效屬性 → isSettingsDirty 的 ClassAttributeSetting 形狀（className 為 key）。 */
 function toClassAttributeSetting(a: ClassAttributesView & { className?: string }): ClassAttributeSetting {
@@ -135,6 +152,54 @@ function mapsDiffer(
   return false;
 }
 
+/**
+ * 重新取得報告的單次嘗試與重試遞迴（模組層函式，不在 component scope，因此可安全地自我遞迴）。
+ *
+ * 序列守衛 `seqRef` 與 calculate 的 requestKey guard 同一目的：晚到的舊回應不得覆蓋較新的結果。
+ * `delaysMs[attempt]` 存在即代表還有重試間隔可等待；間隔用完則交給使用者（`onGiveUp`）。
+ *
+ * 逾時器登錄在 `timers`（元件持有）：卸載時 cleanup 逐一 clearTimeout 並作廢序列（seq++），
+ * 因此卸載後既不會再發 GET、也不會 setState（review N2）。
+ */
+async function fetchReportWithRetry(params: {
+  seq: number;
+  attempt: number;
+  url: string;
+  delaysMs: number[];
+  seqRef: { current: number };
+  timers: Set<ReturnType<typeof setTimeout>>;
+  onSuccess: (report: ClassNameMatchReport) => void;
+  onRecovering: () => void;
+  /** 自動重試用盡後的階段：使用者按過［重新載入］→ 只剩［重新整理頁面］；否則提供［重新載入］。 */
+  onGiveUp: (manualRetry: boolean) => void;
+  /** 本序列是否由使用者的［重新載入］按鈕啟動（決定放棄後的按鈕階段） */
+  manualRetry?: boolean;
+}): Promise<void> {
+  const { seq, attempt, url, delaysMs, seqRef, timers, onSuccess, onRecovering, onGiveUp, manualRetry = false } = params;
+  try {
+    const response = await fetch(url);
+    if (seq !== seqRef.current) return;
+    if (!response.ok) throw new Error('REPORT_REFRESH_FAILED');
+    const updated = (await response.json()) as ClassNameMatchReport;
+    if (seq !== seqRef.current) return;
+    onSuccess(updated);
+  } catch {
+    if (seq !== seqRef.current) return;
+    const delay = delaysMs[attempt];
+    if (delay !== undefined) {
+      onRecovering();
+      const timer = setTimeout(() => {
+        timers.delete(timer);
+        if (seq !== seqRef.current) return;
+        void fetchReportWithRetry({ ...params, attempt: attempt + 1 });
+      }, delay);
+      timers.add(timer);
+      return;
+    }
+    onGiveUp(manualRetry);
+  }
+}
+
 export default function SettingsEditor({
   importId,
   currentRevision,
@@ -150,6 +215,7 @@ export default function SettingsEditor({
   initialTab = 'schedule',
   focusClass = null,
   currentRuleSetVersion = null,
+  reportRefreshRetryDelaysMs = REPORT_REFRESH_RETRY_DELAYS_MS,
 }: SettingsEditorProps) {
   const [activeTab, setActiveTab] = useState<'schedule' | 'mapping'>(initialTab);
   const [draft, setDraft] = useState<SettingsDraft>(initialDraft);
@@ -227,15 +293,19 @@ export default function SettingsEditor({
   // F3：班名比對報告 client state，儲存成功後即時刷新最新 persisted 報告，避免畫面停留於舊資料
   const [persistedReportOverride, setPersistedReportOverride] = useState<ClassNameMatchReport | null>(null);
   const [prevReportProp, setPrevReportProp] = useState<ClassNameMatchReport | null>(classNameReport);
-  // 重新取得報告失敗時的說明：有值時不顯示（已過期的）報告數字，只顯示無法取得的標示
-  const [reportStaleError, setReportStaleError] = useState<string | null>(null);
+  // 重新取得報告失敗時的復原階段：retrying（自動重試中，候選表鎖定且不顯示錯誤畫面）／reload／reloadPage
+  const [reportRecovery, setReportRecovery] = useState<ReportRecoveryStage | null>(null);
   if (prevReportProp !== classNameReport) {
     setPrevReportProp(classNameReport);
     setPersistedReportOverride(null);
-    setReportStaleError(null);
+    setReportRecovery(null);
   }
   const report = persistedReportOverride ?? classNameReport;
   const reportRefreshSeq = useRef(0);
+  /** 重試計時器集合：卸載時統一清除（見下方 cleanup） */
+  const reportRetryTimers = useRef<Set<ReturnType<typeof setTimeout>>>(new Set());
+  /** 候選表是否鎖定：報告重新取得進行中或失敗未恢復時，候選不得依過期報告操作 */
+  const reportStaleError = reportRecovery === null ? null : REPORT_REFRESH_FAILED_MESSAGE;
 
   /**
    * N09／R3-F02（issue #55；UX70）：待確認候選清單與班名比對報告（report.rosterOnly）同步。
@@ -267,6 +337,59 @@ export default function SettingsEditor({
   // Toast 通知
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const toastTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  /**
+   * 重新取得班名比對報告：失敗自動重試 2 次（約 1s、3s），皆失敗才請使用者按一顆復原按鈕
+   * （UX46；operator 裁決 d-20261002162913018695-69）。
+   *
+   * - 重試中不顯示任何錯誤畫面，但候選表鎖定：報告仍是過期值，允許操作等於依過期結果確認班名。
+   * - `reportRefreshSeq` 是唯一的序列權威：每次 apply／［重新載入］都遞增，舊序列的回應與逾時器因此失效，
+   *   晚到的舊回應不得覆蓋較新的結果（與 calculate 的 requestKey guard 同一目的）。
+   * - ［重新載入］只重新 GET 報告；［重新整理頁面］才整頁 reload。不自動 reload、不跳確認視窗。
+   */
+  /**
+   * 啟動一次報告刷新序列（UX46；operator 裁決 d-20261002162913018695-69）。
+   *
+   * - 失敗自動重試 2 次（約 1s、3s，由 `reportRefreshRetryDelaysMs` 注入）；重試中不顯示任何錯誤畫面，
+   *   但候選表鎖定：報告仍是過期值，允許操作等於依過期結果確認班名。
+   * - `reportRefreshSeq` 是唯一的序列權威：每次 apply／［重新載入］都遞增，舊序列的回應與逾時器因此失效，
+   *   晚到的舊回應不得覆蓋較新的結果（與 calculate 的 requestKey guard 同一目的）。
+   * - ［重新載入］只重新 GET 報告；［重新整理頁面］才整頁 reload。不自動 reload、不跳確認視窗。
+   */
+  const startReportRefresh = useCallback((manualRetry = false) => {
+    if (!reportImportId) return;
+    const seq = ++reportRefreshSeq.current;
+    // 從序列啟動起候選就是過期的（報告仍是儲存前的值），故立刻鎖定；
+    // 成功才解鎖，失敗則依階段顯示一顆復原按鈕（operator 裁決 d-…-69）。
+    setReportRecovery('retrying');
+    // fire-and-forget: 序列在元件存續期間自持；逾時器登錄在 reportRetryTimers，
+    // 由下方 cleanup 在卸載時清除並作廢序列，故卸載後不再 GET、不 setState（review N2）。
+    void fetchReportWithRetry({
+      seq,
+      attempt: 0,
+      url: `/api/v1/settings/class-name-report?importId=${encodeURIComponent(reportImportId)}`,
+      delaysMs: reportRefreshRetryDelaysMs,
+      seqRef: reportRefreshSeq,
+      timers: reportRetryTimers.current,
+      manualRetry,
+      onSuccess: (updated) => {
+        setPersistedReportOverride(updated);
+        setReportRecovery(null);
+      },
+      onRecovering: () => setReportRecovery('retrying'),
+      onGiveUp: (manual) => setReportRecovery(manual ? 'reloadPage' : 'reload'),
+    });
+  }, [reportImportId, reportRefreshRetryDelaysMs]);
+
+  // 卸載清理：作廢進行中的序列（seq++ 使所有遞迴短路）並清除待觸發的重試計時器。
+  useEffect(() => {
+    const timers = reportRetryTimers.current;
+    return () => {
+      reportRefreshSeq.current += 1;
+      for (const timer of timers) clearTimeout(timer);
+      timers.clear();
+    };
+  }, []);
 
   const showToast = useCallback((msg: string) => {
     if (toastTimeoutRef.current) clearTimeout(toastTimeoutRef.current);
@@ -673,25 +796,7 @@ export default function SettingsEditor({
       // F3：儲存成功後，就地刷新班名比對報告（維持同頁即時更新，不需整頁 reload）。
       // 刷新的對象是畫面正在檢視的名單（reportImportId；?import= 可指定尚未啟用的另一批），不是編輯器儲存所依據的現行名單。
       // 沒有檢視中的名單（尚無任何名單）就沒有報告可刷新。
-      if (reportImportId) {
-        const seq = ++reportRefreshSeq.current;
-        const REFRESH_FAILED = '課表已儲存，但無法取得最新的班名比對報告，因此暫不顯示比對結果。請重新整理頁面後查看。';
-        fetch(`/api/v1/settings/class-name-report?importId=${encodeURIComponent(reportImportId)}`)
-          .then(async (r) => {
-            if (!r.ok) {
-              if (seq === reportRefreshSeq.current) setReportStaleError(REFRESH_FAILED);
-              return;
-            }
-            const updated = (await r.json()) as ClassNameMatchReport;
-            if (seq === reportRefreshSeq.current) {
-              setPersistedReportOverride(updated);
-              setReportStaleError(null);
-            }
-          })
-          .catch(() => {
-            if (seq === reportRefreshSeq.current) setReportStaleError(REFRESH_FAILED);
-          });
-      }
+      startReportRefresh();
     } catch (e) {
       setDialogError(describeSettingsApplyError(failureFromException(e)));
     } finally {
@@ -802,6 +907,12 @@ export default function SettingsEditor({
             onToggleAlias={handleToggleAlias}
             classNameReport={report}
             classNameReportStaleMessage={reportStaleError}
+            reportRecoveryStage={reportRecovery === 'retrying' ? 'retrying' : reportRecovery}
+            // 重試中鎖定候選表：真正的鎖定（依過期報告不可確認班名）。
+            // 課表頁的時段編輯不在此鎖定範圍——那是使用者自己的草稿，保存後會以新報告解鎖。
+            candidatesLocked={reportRecovery !== null}
+            onRetryReport={() => startReportRefresh(true)}
+            onReloadPage={() => window.location.reload()}
           />
         </section>
       )}

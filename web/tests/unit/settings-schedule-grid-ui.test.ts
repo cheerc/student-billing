@@ -292,5 +292,70 @@ describe('R2 UI 元件與排課工作流程（RED 測試）', () => {
       expect(html).toContain('匯入名單後，可確認米豆奶班名');
       expect(html).not.toContain('錯誤');
     });
+
+    /**
+     * UX46／operator 裁決 d-20261002162913018695-69（review B-1）：
+     * 自動重試期間不得顯示**儲存前的舊報告數字**，也不得顯示錯誤樣式；
+     * 改顯示一行中性佔位「更新中…」，候選表同時鎖定。
+     */
+    it('retrying：報告區顯示「更新中…」佔位，不渲染儲存前的舊報告、不顯示錯誤', () => {
+      const staleReport = {
+        snapshotStatus: 'ok',
+        reviewImportId: 'import-1',
+        rosterOnly: [{ baseName: '交通車', students: 93, tokens: 93 }],
+        rosterOnlyStudents: 93,
+        systemOnly: [],
+      } as never;
+
+      const html = renderToStaticMarkup(
+        React.createElement(MappingPanel, {
+          hasStudents: true,
+          candidates: [],
+          aliases: [],
+          onToggleAlias: () => {},
+          onUpdateCandidateTarget: () => {},
+          classNameReport: staleReport,
+          reportRecoveryStage: 'retrying',
+          candidatesLocked: true,
+        })
+      );
+
+      expect(html).toContain('更新中');
+      expect(html).not.toContain('交通車');
+      expect(html).not.toContain('個班');
+      expect(html).not.toContain('無法取得最新的班名比對報告');
+      expect(html).not.toContain('alert-warning');
+      expect(html).toContain('aria-disabled="true"');
+      expect(html).toContain('disabled');
+    });
+
+    it('reload：顯示單行「無法取得最新的班名比對報告。」＋［重新載入］，不渲染舊報告', () => {
+      const staleReport = {
+        snapshotStatus: 'ok',
+        reviewImportId: 'import-1',
+        rosterOnly: [{ baseName: '交通車', students: 93, tokens: 93 }],
+        rosterOnlyStudents: 93,
+        systemOnly: [],
+      } as never;
+
+      const html = renderToStaticMarkup(
+        React.createElement(MappingPanel, {
+          hasStudents: true,
+          candidates: [],
+          aliases: [],
+          onToggleAlias: () => {},
+          onUpdateCandidateTarget: () => {},
+          classNameReport: staleReport,
+          classNameReportStaleMessage: '無法取得最新的班名比對報告。',
+          reportRecoveryStage: 'reload',
+          candidatesLocked: true,
+        })
+      );
+
+      expect(html).toContain('無法取得最新的班名比對報告。');
+      expect(html).toContain('重新載入');
+      expect(html).not.toContain('交通車');
+      expect(html).toContain('aria-disabled="true"');
+    });
   });
 });
