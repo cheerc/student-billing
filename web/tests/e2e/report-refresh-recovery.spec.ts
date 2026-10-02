@@ -29,11 +29,14 @@ const R1_ALIAS = { raw: '小六國文加強班', target: '小六加強班-國文
 const R2_ALIAS = { raw: '國小國語文-小三四', target: '國小國語文-小三小四' };
 const R3_ALIAS = { raw: '交通車', target: '兒童美語-Ali' };
 const R4_ALIAS = { raw: '小六數學加強班', target: '小六加強班-數學' };
+/** R5 用：只讓一次 GET 失敗即可進入重試等待，不需等到重試耗盡。 */
+const R5_PENDING_ALIAS = { raw: '正音A班', target: '兒童美語-Archy' };
 
 /** 可切換模式的 GET 攔截器：ok（真實回應，順帶保存最後一次成功 body）／fail（500）／gate（等待放行後回應保存的舊 body）。 */
 function installReportRoute(page: Page) {
   let mode: 'ok' | 'fail' | 'gate' = 'ok';
   let failCount = 0;
+  let calls = 0;
   let lastGoodBody: string | null = null;
   let releaseGate: (() => void) | null = null;
   const gateArrived = new Promise<void>((resolve) => {
@@ -45,6 +48,7 @@ function installReportRoute(page: Page) {
   });
 
   page.route(REPORT_URL, async (route: Route) => {
+    calls += 1;
     if (mode === 'fail' && failCount > 0) {
       failCount -= 1;
       return route.fulfill({ status: 500, contentType: 'application/json', body: '{"error":"server error"}' });
@@ -66,6 +70,8 @@ function installReportRoute(page: Page) {
   });
 
   return {
+    /** 頁面發出的 GET 次數（重試與［重新載入］都算）。 */
+    callCount: () => calls,
     failNext(times: number) {
       mode = 'fail';
       failCount = times;
@@ -95,6 +101,7 @@ async function importRoster(page: Page) {
   await page.locator('button', { hasText: '使用這份名單' }).click();
   await expect(page.locator('.success-stage-card')).toBeVisible({ timeout: 20000 });
 }
+
 
 async function openMappingTab(page: Page) {
   await page.goto('/settings');
@@ -126,6 +133,14 @@ async function applyScheduleTimeChange(page: Page, minute: string) {
   const start = page.locator('input.input-time').first();
   await start.fill(`09:${minute}`);
   await expect(page.locator('.save-status-dirty')).toBeVisible();
+  await confirmAndSave(page);
+}
+
+/** 候選列填入一個不存在的目標（保留值）→ 確認變更 → 儲存。apply 成功，該班因目標無效而離開候選表。 */
+async function applyCandidateWithInvalidTarget(page: Page, raw: string) {
+  const row = page.locator('.mapping-table tr', { hasText: raw });
+  await expect(row).toBeVisible();
+  await row.locator('input.input-target-classname').fill('不存在的目標班級-XYZ');
   await confirmAndSave(page);
 }
 
@@ -161,14 +176,24 @@ async function expectNoExplanationText(alert: ReturnType<Page['getByRole']>) {
   await expect(alert).not.toContainText('請重新整理頁面後查看');
   await expect(alert).not.toContainText('建議重新匯入');
 }
+/**
+ * 決定的重試次數（初版＋2 次重試 ＝ 3 次 GET）。
+ *
+ * **不是**硬編碼：案例依此推導注入的失敗次數並斷言實際 GET 數，
+ * 因此把實作的 `[1000, 3000]` 改成 `[1000]`（只重試 1 次）時，R2／R3 必然失敗——
+ * 這是 review B-2 M1 要求��鑑別力。
+ */
+const DECIDED_GET_ATTEMPTS = 3;
+const RETRY_COUNT = DECIDED_GET_ATTEMPTS - 1;
 
 test.describe('報告刷新失敗的最短恢復路徑（UX46／operator 裁決 d-…-69）', () => {
-  test('R1：apply 後第一次 GET 失敗、自動重試第 2 次成功 → 全程無錯誤標示、候選為最新', async ({ page }) => {
+  test('R1：apply 後第一次 GET 失敗、自動重試第 2 次成功 → 無錯誤畫面、候選為最新', async ({ page }) => {
     test.setTimeout(180_000);
     await importRoster(page);
     const { tab, base } = await openMappingTab(page);
     const toolbar = page.locator('.toolbar', { hasText: '待確認米豆奶班名' });
     const notice = page.getByRole('alert').filter({ hasText: '無法取得最新的班名比對報告' });
+    const reportRegion = page.getByRole('region', { name: '米豆奶有／系統無' });
 
     const report = installReportRoute(page);
     report.failNext(1);
@@ -185,9 +210,11 @@ test.describe('報告刷新失敗的最短恢復路徑（UX46／operator 裁決 
     const locked = candidatesLocked(page);
     await expect(locked.container).toHaveCount(0);
     await expect(locked.firstTarget).toBeEnabled();
+    // 復原後報告區回來，且是新值
+    await expect(reportRegion).toContainText(`${base - 1} 個班`, { timeout: 20000 });
   });
 
-  test('R2：連續 3 次失敗 → 單行標示＋［重新載入］＋候選表鎖定；重試成功後復原', async ({ page }) => {
+  test('R2：重試皆失敗 → 單行標示＋［重新載入］＋候選表鎖定；［重新載入］成功後復原', async ({ page }) => {
     test.setTimeout(180_000);
     await importRoster(page);
     const { tab, base } = await openMappingTab(page);
@@ -195,12 +222,14 @@ test.describe('報告刷新失敗的最短恢復路徑（UX46／operator 裁決 
     const notice = page.getByRole('alert').filter({ hasText: '無法取得最新的班名比對報告' });
 
     const report = installReportRoute(page);
-    report.failAlways();
+    // 失敗次數＝1＋裁決的重試次數：每次嘗試皆失敗，故必須走到「請按［重新載入］」階段
+    report.failNext(DECIDED_GET_ATTEMPTS);
 
     await applyAlias(page, R2_ALIAS.raw, R2_ALIAS.target);
 
-    await expect(notice).toBeVisible({ timeout: 20000 });
+    await expect(notice).toBeVisible({ timeout: 30000 });
     await expectNoExplanationText(notice);
+    expect(report.callCount(), '重試耗盡時 GET 應為初版＋2 次重試').toBe(DECIDED_GET_ATTEMPTS);
 
     const reloadBtn = notice.locator('button', { hasText: '重新載入' });
     await expect(reloadBtn).toBeVisible();
@@ -237,22 +266,25 @@ test.describe('報告刷新失敗的最短恢復路徑（UX46／operator 裁決 
     const notice = page.getByRole('alert').filter({ hasText: '無法取得最新的班名比對報告' });
 
     const report = installReportRoute(page);
-    report.failAlways();
+    report.failNext(DECIDED_GET_ATTEMPTS);
 
     const documentRequests = documentRequestCount(page);
 
     await applyAlias(page, R3_ALIAS.raw, R3_ALIAS.target);
-    await expect(notice).toBeVisible({ timeout: 20000 });
+    await expect(notice).toBeVisible({ timeout: 30000 });
     await expectNoExplanationText(notice);
+    expect(report.callCount()).toBe(DECIDED_GET_ATTEMPTS);
 
     const beforeDocuments = documentRequests();
 
-    // ［重新載入］仍失敗 → 只換按鈕，不自動整頁 reload
+    // ［重新載入］仍失敗（自動重試也失敗）→ 只換按鈕，不自動整頁 reload
     await notice.locator('button', { hasText: '重新載入' }).click();
     const refreshPageBtn = notice.locator('button', { hasText: '重新整理頁面' });
-    await expect(refreshPageBtn).toBeVisible({ timeout: 20000 });
+    await expect(refreshPageBtn).toBeVisible({ timeout: 30000 });
     await expect(notice.locator('button', { hasText: '重新載入' })).toHaveCount(0);
     await expect(documentRequests()).toBe(beforeDocuments);
+    // ［重新載入］是新的序列：初版＋2 次重試皆失敗（共 DECIDED_GET_ATTEMPTS 次）
+    expect(report.callCount(), '［重新載入］的序列用盡').toBe(DECIDED_GET_ATTEMPTS * 2);
 
     // 按下［重新整理頁面］才整頁 reload
     const navigated = page.waitForEvent('load', { timeout: 30000 });
@@ -263,7 +295,15 @@ test.describe('報告刷新失敗的最短恢復路徑（UX46／operator 裁決 
     await expect(tab).toBeVisible();
   });
 
-  test('R4：重試序列進行中再次 apply → 舊序列回應不得覆蓋新結果', async ({ page }) => {
+  /**
+   * R4：重試序列進行中再次 apply → 舊序列回應不得覆蓋新結果。
+   *
+   * 舊序列的回應必須**晚於**新序列的結果送達，且兩者內容**必然不同**：
+   * 舊序列在步驟 2 暫停前保存的 body 是 base-1 的報告；步驟 3 另讓一個候選以無效目標離開候選表，
+   * 新序列取得的是 base-2 的報告。若 seq guard 失效，畫面會退回 base-1，斷言必然失敗
+   * （review B-2 M2 要求：變異必須使測試失敗）。
+   */
+  test('R4：重試序列進行中再次 apply → 舊序列的過期回應不得覆蓋新結果', async ({ page }) => {
     test.setTimeout(240_000);
     await importRoster(page);
     const { tab, base } = await openMappingTab(page);
@@ -275,30 +315,62 @@ test.describe('報告刷新失敗的最短恢復路徑（UX46／operator 裁決 
     await applyAlias(page, R4_ALIAS.raw, R4_ALIAS.target);
     await expect(toolbar).toContainText(`(${base - 1})`, { timeout: 20000 });
 
-    // 步驟 2：第 2 次 apply 失敗 → 第 1 次重試被 gate 暫停（舊序列仍在進行，候選表鎖定）。
-    // 候選表只在「班名對應」頁籤可見，故切過去才觀察鎖定。
+    // 步驟 2：第 2 次 apply 失敗 → 第 1 次重試被 gate 暫停（舊序列仍在進行，候選表鎖定）
     report.failNext(1);
     const gate = report.gateNext();
-    await applyScheduleTimeChange(page, '41');
+    await applyCandidateWithInvalidTarget(page, '國小輔導-四年級B');
     await gate.entered;
-    await tab.click();
-    const locked = candidatesLocked(page);
-    await expect(locked.container).toHaveAttribute('aria-disabled', 'true', { timeout: 20000 });
-    await expect(locked.firstTarget).toBeDisabled();
 
-    // 步驟 3：鎖定期間再次 apply（課表頁，不受候選表鎖定影響）→ 新序列立即成功取得報告並解鎖
-    await page.locator('button[role="tab"]', { hasText: '課表' }).click();
-    await applyScheduleTimeChange(page, '43');
-    await page.locator('button[role="tab"]', { hasText: '班名對應' }).click();
-    await expect(page.locator('.mapping-table tr', { hasText: R4_ALIAS.raw })).toHaveCount(0, { timeout: 20000 });
+    // 舊序列被暫停時，報告區不得顯示過期值（UX46：重試期間不顯示儲存前的舊數字）
+    await expect(page.getByRole('region', { name: '米豆奶有／系統無' })).toHaveCount(0);
+
+    // 步驟 3：鎖定期間再次 apply（候選表已鎖定，但課表頁的時段仍可編輯）→ 新序列立即成功。
+    // 這次用「時段變更」+ 步驟 2 已讓一個候選離開候選表，故新結果是 base-2 而非 base-1——
+    // 與舊序列被暫停的 body（base-1）必然不同，seq guard 失效時畫面會退回 base-1 而失敗。
+    await applyScheduleTimeChange(page, '37');
+    // 新序列立即取得報告成功 → base-2（第二個候選以無效目標離開候選表）
+    await expect(toolbar).toContainText(`(${base - 2})`, { timeout: 20000 });
+    await tab.click();
+    await expect(toolbar).toContainText(`(${base - 2})`);
     await expect(candidatesLocked(page).container).toHaveCount(0);
 
     // 步驟 4：放行舊序列的回應（內容為 base-1 的舊報告）→ 不得覆蓋新結果
     gate.release();
-    await page.waitForTimeout(1000);
+    await page.waitForTimeout(1500);
 
-    await expect(toolbar).toContainText(`(${base - 1})`);
-    await expect(tab).toContainText(String(base - 1));
+    await expect(toolbar).toContainText(`(${base - 2})`);
+    await expect(tab).toContainText(String(base - 2));
     await expect(page.locator('.mapping-table tr', { hasText: R4_ALIAS.raw })).toHaveCount(0);
+    await expect(page.locator('.mapping-table tr', { hasText: '國小輔導-四年級B' })).toHaveCount(0);
+  });
+
+  /**
+   * R5（N2）：元件卸載（離開設定頁）後，重試序列不得再發出 GET、不得再 setState。
+   *
+   * 卸載後仍有 pending 的 setTimeout：若沒有 cleanup 作廢序列並清除計時器，
+   * 逾時器會喚醒 fetchReportWithRetry 再發一次 GET。
+   */
+  test('R5：離開設定頁後，待重試的序列不再發出 GET（卸載清理）', async ({ page }) => {
+    test.setTimeout(180_000);
+    await importRoster(page);
+    await openMappingTab(page);
+
+    const report = installReportRoute(page);
+    report.failAlways();
+
+    // 啟動一個會進入重試等待的序列
+    await applyAlias(page, R5_PENDING_ALIAS.raw, R5_PENDING_ALIAS.target);
+    const callsBeforeLeave = report.callCount();
+    expect(callsBeforeLeave).toBeGreaterThanOrEqual(1);
+
+    // 以站內導覽離開（next/link client-side → SettingsEditor 卸載，document 不重新載入）；
+    // 此時第一次失敗的重試等待中
+    await page.locator('aside[aria-label="主要導覽"] a', { hasText: '匯入學生' }).click();
+    await expect(page).toHaveURL(/\/imports/, { timeout: 20000 });
+
+    // 等待超過所有重試間隔總和（1s＋3s ＝ 4s，再加緩衝）
+    await page.waitForTimeout(6000);
+
+    expect(report.callCount(), '卸載後不得再發出 GET').toBe(callsBeforeLeave);
   });
 });
