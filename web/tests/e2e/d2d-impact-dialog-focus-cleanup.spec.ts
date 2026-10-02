@@ -89,6 +89,9 @@ test.describe('D2d r3／F4 cleanup：所有終止路徑都不得殘留 listener'
     await installListenerTracker(page);
     await page.clock.install({ time: T0 });
     await page.clock.pauseAt(T0 + 1);
+    // 扣住 calculate 請求（見 helpers/hold-calculate.ts）：回應約 60–80ms 就回來，disabled 窗口太短，
+    // 輪詢去接會被機器負載踩掉；扣住後「計算在途」是穩定可觀察的狀態（N7 同型）。
+    const calc = await holdCalculate(page);
     const { opener, base } = await openAndEsc(page);
     await expect(opener, 'Esc 還原當下焦點在觸發點').toBeFocused();
 
@@ -97,12 +100,12 @@ test.describe('D2d r3／F4 cleanup：所有終止路徑都不得殘留 listener'
     expect(during.pointerdown, '觀察窗期間應多出 pointerdown listener').toBe(1);
     expect(during.keydown, '觀察窗期間應多出 keydown listener').toBe(1);
 
-    // 走完 late-disable：debounce fire → disabled → 焦點遺失 → 恢復 enabled。
-    // ⚠ `clock.runFor` 只推進**頁面**時鐘，不會讓 Node 端 calculate 的 response 回來。
-    //   必須 `resume()` 讓真實網路往返完成，否則按鈕會一直卡在 disabled、
-    //   `true→false` 狀態轉移永不發生（實測會這樣）。
+    // 走完 late-disable：debounce fire → disabled（請求被扣住，持續 disabled）→ 焦點遺失 →
+    // 放行後 response 回來 → 恢復 enabled（disabled true→false）→ 補還原 → dispose。
     await page.clock.runFor(250);
+    await expect.poll(() => calc.held(), { message: 'debounce 到期後 calculate 請求已送出並被扣住' }).toBe(1);
     await expect(opener, 'debounce 到期後應進入 disabled').toBeDisabled();
+    calc.release();
     await page.clock.resume();
     await expect(opener, 'response 回來後應恢復 enabled').toBeEnabled({ timeout: 15000 });
     await page.waitForTimeout(200);
