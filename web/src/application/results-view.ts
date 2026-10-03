@@ -3,7 +3,6 @@ import { queryRunStudents, QueryStudentError, type RunStudentsQueryResult } from
 import { parseResultsState, pruneResultsState } from '@/lib/results-state';
 import { queryStudentOptions, type RunStudentOptions } from './query-student-options';
 import {
-  exactlyOneClass,
   type DeductionFilters,
   type StudentFilters,
 } from '@/lib/results-filters';
@@ -31,8 +30,7 @@ type RawParams = Record<string, string | string[] | undefined>;
 
 export function resolveResultsView(db: Database.Database, runId: string, raw: RawParams): ResultsInitialState {
   const url = parseResultsState(raw);
-  const classParam = url.filters.enrollmentKey && exactlyOneClass(url.filters) ? { enrollmentKey: url.filters.enrollmentKey } : {};
-  const options = queryStudentOptions(db, runId, classParam);
+  const options = queryStudentOptions(db, runId, url.filters);
   const resolved = pruneResultsState(url, options.options);
   let invalid = resolved.invalid;
   let pruned = resolved.filters;
@@ -47,6 +45,7 @@ export function resolveResultsView(db: Database.Database, runId: string, raw: Ra
     data = queryRunStudents(db, runId, { limit: 50 });
   }
 
+  // 初始 options 已含網址條件的計數；prune 若移除了值，頁面掛載時 client 會以保留後的條件重取。
   return {
     view: url.view,
     filters: pruned,

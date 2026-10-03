@@ -160,6 +160,41 @@ describe('issue #59 / spec03 §127：tierMismatch 篩選語意對齊（R1–R6�
     expect(classBTrue).toContain('STU_R6');
   });
 
+  it('所選範圍 mismatchCount 與 tierMismatch=true 同源：A 只有 R4，不能算入 R6 的 B 班不一致', () => {
+    const scope = queryRunStudents(db, runId, { enrollmentKey: '國小輔導-一A' });
+    const mismatches = queryRunStudents(db, runId, { enrollmentKey: '國小輔導-一A', tierMismatch: true });
+    expect(mismatches.items.map((s) => s.personCode)).toEqual(['STU_R4']);
+    expect(scope.stats.mismatchCount).toBe(1);
+    expect(scope.stats.mismatchCount).toBe(mismatches.totalStudents);
+    const opts = queryStudentOptions(db, runId, { enrollmentKey: ['國小輔導-一A'] });
+    expect(opts.options.tierMismatch.find((o) => o.value === 'true')?.count).toBe(1);
+    expect(opts.options.tierMismatch.find((o) => o.value === 'false')?.count).toBe(2);
+  });
+
+  it('全run無吻合學生，但跨班學生在選定A班吻合：false值不能從選項宇宙消失', () => {
+    const rows = [makeStudent('ONLY', '合成跨班', '國小輔導-一A[團]\n國小輔導-一B[團][4]', 1, 2)];
+    saveImportBatch(db, {
+      id: 'scope-only', fileName: 'scope-only.xlsx', fileHash: 'scope-only', contentHash: 'scope-only',
+      sheetName: 'Sheet1', headerMap: {}, parserVersion: '1', scopeNote: '全合成', rowCount: 1,
+      status: 'ready', createdAt: '2026-10-03T00:00:00Z',
+    }, rows);
+    const id = activateImport(db, { importId: 'scope-only', expectedRevision: 1, idempotencyKey: 'scope-only' }).runId;
+    const all = queryStudentOptions(db, id, {});
+    const selected = queryStudentOptions(db, id, { enrollmentKey: ['國小輔導-一A'] });
+    expect(all.options.tierMismatch.find((o) => o.value === 'false')?.count).toBe(0);
+    expect(selected.options.tierMismatch.find((o) => o.value === 'false')?.count).toBe(1);
+    expect(selected.options.tierMismatch.find((o) => o.value === 'true')?.count).toBe(0);
+  });
+
+  it('issuesCount 等於所選學生範圍內 hasIssues=true；不依 issue enrollmentIds 改歸屬', () => {
+    for (const enrollmentKey of ['國小輔導-一A', '國小輔導-一B']) {
+      const scope = queryRunStudents(db, runId, { enrollmentKey });
+      const issues = queryRunStudents(db, runId, { enrollmentKey, hasIssues: true });
+      expect(scope.stats.issuesCount).toBe(issues.totalStudents);
+      expect(scope.noCourseTotal).toBe(0);
+    }
+  });
+
   it('tierMismatch 同時選取 true 與 false 時依 OR 聯集組合（收錄 R2、R4、R6，不收錄 R1、R3）', () => {
     const resBoth = queryRunStudents(db, runId, { tierMismatch: [true, false] });
     const codes = resBoth.items.map((s) => s.personCode);

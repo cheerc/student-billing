@@ -214,15 +214,20 @@ ERP token 可有明確離班日期，依使用者決策只顯示不排除。財�
 - 同一欄多個值為 **OR**；不同欄為 **AND**。
 - 複值欄（所屬班級、分校、問題類型、比較狀態）任一命中即匹配，不因多項命中而重複列出學生。
 - `totalStudents`、`stats`、`classScopeTotal`、`noCourseTotal` 一律依 `personCode` 去重。
+- `stats.mismatchCount` 在目前全部條件的學生範圍內，以與 `tierMismatch=true` 同源的班級層 `tier_comparisons` 判定；選班時不計入該生其他未選班的不一致。
+- `stats.issuesCount` 在目前全部條件的學生範圍內，以與 `hasIssues=true` 同源的學生問題旗標判定；只限縮學生集合，不依 issue 的可選 `enrollmentIds` 再分班歸屬。`noCourseTotal` 維持全批，與目前條件內的 `stats.filteredNoCourseCount` 分開。
 - `classScopeTotal` 僅套用「所屬班級」條件（含多值 OR）的去重人數；未選班為全批人數；若含 `~none` 則為 0。UI 依此標示「全部N人」「本班N人」「已選N班，共M人」（[09 §5.1](09-ui-workflow-redesign-spec.md)）。
 
 **選項（options）read model**：
 
 - 端點：`GET /api/v1/runs/{runId}/students?options=true`（同一路由唯讀模式，preview 端不提供 options）。
-- 各欄選項取自**指定 run 的全部學生**，不受分頁 `limit` 與列表篩選限制；歷史 run 讀歷史快照，不讀最新設定。
-- 每個選項回傳 `{ value: string, count: number }`，計數為去重學生人數，包含 `~blank`。
+- 各欄的值宇宙取自**指定 run 的全部學生**，包含後頁獨有值，不受分頁 `limit`／`cursor` 限制；歷史 run 讀歷史快照，不讀最新設定。每欄計數套用**其他欄目前已套用的篩選與姓名／代碼搜尋 `q`，排除本欄自身篩選**（D46）。
+- 每個選項回傳 `{ value: string, count: number }`，計數為把本欄替換為該單值後的去重學生人數（`COUNT(DISTINCT person_code)`），包含 `~blank`／`~empty`；同一學生同班多個 token 不重複計數。不是在本欄已有OR選值上累加該值的聯集人數。
+- server 保留 run 內有效但當下 `count=0` 的值；學生面板隱藏未勾選0人值，已勾選的0人值仍顯示可取消。不因 count=0 自動 prune 合法選值；面板草稿不提前影響計數，按「確定」後才刷新。
 - 班名若存在空 baseName 之 token，options 回傳 `{ value: '~empty', count: N, labelKey: 'unparsedClassLabel' }`，**不得以 `value: ''` 輸出**（避免 client 點選後變為未篩選全部）。
+- 候選值與其餘已套用條件若構成非法整體查詢（§5.1 衝突規則：`hasIssues=false`＋`issueCode`、`tierMismatch=true`＋`tierComparison=match` 等），該候選仍回傳值但 `count=0`；既有 GET 的 400 契約不變，client 依 C2 隱藏未勾選的 0 人值。
 - 敏感欄位（姓名、人員代碼）不提供選項清單，只保留搜尋框；options 回應不含個資。
+- 本班適用折扣的 context 依使用者原選班決定；計算某欄選項時的暫時排除不會把原選班誤標為 `requires_class`。本欄適用率選項只排除自己的 `applicableDiscountBps` 條件，仍保留所選班與其他欄。client 必須帶全部已套用條件重取 options，與名單請求使用獨立 abort／sequence 防護，晚到舊回應不覆蓋新面板。
 - 適用率選項：可帶單一班級參數（如 `enrollmentKey=國小輔導-一A`）查詢該班適用率選項；若未選班則回傳四欄全量值並標記 `requires_class`；若選了未配置班級則標記 `not_configured` 並回空陣列。
 - **B2 前提契約**：B2 篩選面板必須把「(空白)」與「班名無法解析」顯示為兩個不同項目、不得同形；兩者皆不得呈現為空字串。
 
