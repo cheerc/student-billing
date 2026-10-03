@@ -39,6 +39,22 @@ interface Row {
 
 type Side = 'baseline' | 'variant';
 
+/** 一個面板的完整可見內容：值 → 人數與勾選狀態。 */
+type Panel = Record<string, { count: number; checked: boolean }>;
+
+interface JourneyStep {
+  step: number;
+  action: string;
+  /** 該步驟要看的欄位（grade／enrollmentKey／sibling） */
+  panelField: 'grade' | 'enrollmentKey' | 'sibling';
+  /** 該步驟已套用的篩選（wire 值；面板計數排除本欄，結果人數含本欄） */
+  applied: Record<string, string | string[]>;
+  /** UI 可見面板：未勾選的 0 人值依 UX25 隱藏；已勾選的 0 人值仍顯示且 checked=true */
+  panelCounts: Panel;
+  /** 按確定後的結果人數 */
+  resultCount: number;
+}
+
 interface Case {
   code: string;
   tests: string;
@@ -60,8 +76,7 @@ const CASES: Case[] = [
     expected: {
       enrollmentText: ['新增 國小數學-三A[團]'],
       classDiscountText: [discountRow(C, '無折扣', '95折', '新增 國小數學-三A[團]')],
-      subjectCount: 2,
-      baseDiscountBps: 9500,
+      after: { subjectCount: 2, baseDiscountBps: 9500 },
     },
     specRefs: ['specs/09 §4 報名異動／折扣變動', 'specs/02 R10（科數 1→2 → 95折）'],
   },
@@ -73,8 +88,7 @@ const CASES: Case[] = [
     expected: {
       enrollmentText: ['退出 國小數學-三A[團]'],
       classDiscountText: [discountRow(C, '95折', '無折扣', '退出 國小數學-三A[團]')],
-      subjectCount: 1,
-      baseDiscountBps: 10000,
+      after: { subjectCount: 1, baseDiscountBps: 10000 },
     },
     specRefs: ['specs/09 §4', 'specs/02 R10（科數 2→1 → 無折扣）'],
   },
@@ -86,8 +100,7 @@ const CASES: Case[] = [
     expected: {
       enrollmentText: ['換班 國小數學-三A[團] → 國小數學-三B[團]'],
       classDiscountText: [],
-      subjectCount: 2,
-      baseDiscountBps: 9500,
+      after: { subjectCount: 2, baseDiscountBps: 9500 },
     },
     specRefs: ['specs/09 §4 換班成對只一行', 'specs/02 R09/R03（存在性計科數，同類不加）'],
   },
@@ -99,8 +112,7 @@ const CASES: Case[] = [
     expected: {
       enrollmentText: ['新增 國小數學-三B[團]'],
       classDiscountText: [],
-      subjectCount: 2,
-      baseDiscountBps: 9500,
+      after: { subjectCount: 2, baseDiscountBps: 9500 },
     },
     specRefs: ['specs/09 §4', 'specs/02 R09（同類多班不加科數）'],
   },
@@ -125,7 +137,7 @@ const CASES: Case[] = [
     tests: '加上標籤「有兄弟姊妹折扣」：科數 1＋兄弟姊妹 = 2 → 95折',
     acceptance: ['§6.1 折扣變動原因'],
     rows: { baseline: { classes: [C], grade: '一年級', tags: [] }, variant: { classes: [C], grade: '一年級', tags: [SIB] } },
-    expected: { enrollmentText: [], classDiscountText: [discountRow(C, '無折扣', '95折', '加上標籤「有兄弟姊妹折扣」')], baseDiscountBps: 9500 },
+    expected: { enrollmentText: [], classDiscountText: [discountRow(C, '無折扣', '95折', '加上標籤「有兄弟姊妹折扣」')], after: { baseDiscountBps: 9500 } },
     specRefs: ['specs/02 R06／R10', 'specs/09 §4 原因文案表'],
   },
   {
@@ -133,7 +145,7 @@ const CASES: Case[] = [
     tests: '移除標籤「有兄弟姊妹折扣」：95折 → 無折扣',
     acceptance: ['§6.1 折扣變動原因'],
     rows: { baseline: { classes: [C], grade: '一年級', tags: [SIB] }, variant: { classes: [C], grade: '一年級', tags: [] } },
-    expected: { enrollmentText: [], classDiscountText: [discountRow(C, '95折', '無折扣', '移除標籤「有兄弟姊妹折扣」')], baseDiscountBps: 10000 },
+    expected: { enrollmentText: [], classDiscountText: [discountRow(C, '95折', '無折扣', '移除標籤「有兄弟姊妹折扣」')], after: { baseDiscountBps: 10000 } },
     specRefs: ['specs/02 R06／R10', 'specs/09 §4 原因文案表'],
   },
   {
@@ -141,7 +153,7 @@ const CASES: Case[] = [
     tests: '加上標籤「特殊折扣85折」：特殊率覆蓋基本率 → 85折',
     acceptance: ['§6.1 折扣變動原因'],
     rows: { baseline: { classes: [C], grade: '一年級', tags: [] }, variant: { classes: [C], grade: '一年級', tags: [SPECIAL] } },
-    expected: { enrollmentText: [], classDiscountText: [discountRow(C, '無折扣', '85折', '加上標籤「特殊折扣85折」')], baseDiscountBps: 8500 },
+    expected: { enrollmentText: [], classDiscountText: [discountRow(C, '無折扣', '85折', '加上標籤「特殊折扣85折」')], after: { baseDiscountBps: 8500 } },
     specRefs: ['specs/02 R07（0.85）／R10（特殊折扣優先覆蓋）', 'specs/09 §4 原因文案表'],
   },
   {
@@ -176,7 +188,7 @@ const CASES: Case[] = [
     expected: {
       enrollmentText: ['退出 國小數學-三A[團]'],
       classDiscountText: [discountRow(C, '95折', '85折', '退出 國小數學-三A[團]、加上標籤「特殊折扣85折」')],
-      baseDiscountBps: 8500,
+      after: { baseDiscountBps: 8500 },
     },
     specRefs: ['specs/02 R07／R10', 'specs/09 §4 多個原因以「、」並列'],
   },
@@ -188,7 +200,7 @@ const CASES: Case[] = [
     expected: {
       enrollmentText: ['新增 國小數學-三A[團]', '新增 國小數學-二A[團]'],
       classDiscountText: [discountRow(C, '無折扣', '95折', '名單資料變動')],
-      baseDiscountBps: 9500,
+      after: { baseDiscountBps: 9500 },
     },
     specRefs: ['specs/09 §4 找不到可說明的原因 → 名單資料變動', 'specs/02 R10（科數 1→2）'],
   },
@@ -266,41 +278,114 @@ const CASES: Case[] = [
   },
   {
     code: 'R4_FACET5',
-    tests: '跨欄計數素材：五年級報名國小數學-二A、無標籤',
+    tests: '跨欄計數素材：五年級報名國小數學-二A、無標籤（兄弟姊妹=false 的手算由 journey step 4 的 sibling 面板驗證）',
     acceptance: ['N12 跨欄計數'],
     rows: { baseline: { classes: [Q], grade: '五年級', tags: [] }, variant: { classes: [Q], grade: '五年級', tags: [] } },
-    expected: { after: { grade: 5 }, enrollmentKeyWire: '國小數學-二A', sibling: false },
+    expected: { after: { grade: 5 }, enrollmentKeyWire: '國小數學-二A', siblingHandComputed: false },
     specRefs: ['specs/03 §5.1 options（各欄計數排除本欄篩選）', 'specs/04 UX25'],
   },
   {
     code: 'R4_FACET6',
-    tests: '跨欄計數素材：六年級報名同班＋有兄弟姊妹折扣（與 FACET5 同班不同年級與標籤）',
+    tests: '跨欄計數素材：六年級報名同班＋有兄弟姊妹折扣（與 FACET5 同班不同年級與標籤；兄弟姊妹=true 的手算由 journey step 4 驗證）',
     acceptance: ['N12 跨欄計數'],
     rows: { baseline: { classes: [Q], grade: '六年級', tags: [SIB] }, variant: { classes: [Q], grade: '六年級', tags: [SIB] } },
-    expected: { after: { grade: 6 }, enrollmentKeyWire: '國小數學-二A', sibling: true },
+    expected: { after: { grade: 6 }, enrollmentKeyWire: '國小數學-二A', siblingHandComputed: true },
     specRefs: ['specs/03 §5.1', 'specs/04 UX25'],
   },
 ];
 
 /**
- * 跨欄 journey（specs/03 §5.1 / specs/04 UX25）。
+ * 跨欄 journey（specs/03 §5.1 / specs/04 UX25 / specs/09 §5.1；D46）。
  *
- * 實測校正（證據：tests/integration/round4-fixtures.test.ts 以 options API 驗證）：
- *  - 面板 wire 值是**解析後 baseName**（`國小數學-二A`，不是 rawToken `國小數學-二A[團]`）；後者回 0 人。
- *  - 每欄計數**排除本欄自身篩選**（D46）：套用 grade=5 後，年級面板的「五年級／六年級」仍是 1／1。
- *  - 「某值變 0 人」發生在**其他欄**條件收斂時：套用班級 Q 後年級面板「一年級」歸 0；
- *    套用 sibling=true 後年級面板「五年級」歸 0（已套用的 0 人值仍保留、不 prune）。
- * 步驟的 resultCount 為該步驟「按確定後」的結果人數。
+ * 每一步的數值全部由上方 CASES 的名冊列**手算**，不用產品輸出當預期值：
+ *  - 名冊（variant）：21 人。year 一年級 19、五年級 1（R4_FACET5）、六年級 1（R4_FACET6）。
+ *  - 有兄弟姊妹標籤 4 人：3 位一年級（SIB_ADD／NOT_CONFIG／ZERO_SIB）＋ 1 位六年級（FACET6）；
+ *    **五年級 0 人**（FACET5 沒有兄弟姊妹標籤）——這是 journey step 6 結果為 0 人的依據。
+ *  - 學科年級 2 人都在 國小數學-二A[團]。
+ *
+ * 規則（UX25／D46）：
+ *  - 面板計數套用**其他欄**已套用的篩選，排除該欄自身篩選；勾選後按確定的人數含該欄自身。
+ *  - panelCounts 是**驗收者在畫面上實際看到的完整面板**：`{值: {count, checked}}`。
+ *    未勾選的 0 人值依 UX25 隱藏（不出現在面板）；已勾選的 0 人值仍顯示且 checked=true。
+ *  - resultCount 是該步驟按確定後的結果人數（套用全部條件，含本欄）。
+ *  - 篩選面板的 wire 值是解析後 baseName（`國小數學-二A`，不是 rawToken `國小數學-二A[團]`；
+ *    實測 rawToken 形式回 0 人，UI 選項文字就是 baseName）。
  */
-const FACET_JOURNEY = [
-  { step: 1, action: '開「年級」面板（未套用任何條件）', panelCounts: { '五年級': 1, '六年級': 1 }, resultCount: 21 },
-  { step: 2, action: '年級勾選「五年級」→「確定」', panelCounts: { '五年級': 1, '六年級': 1 }, resultCount: 1 },
-  { step: 3, action: '開「所屬班級」面板（已套用 grade=5）', panelCounts: { '國小數學-二A': 1 }, resultCount: 1 },
-  { step: 4, action: '年級再加勾「六年級」；開「兄弟姊妹折扣」面板（已套用 grade 5、6）', panelCounts: { '否': 1, '是': 1 }, resultCount: 2 },
-  { step: 5, action: '兄弟姊妹勾「是」→「確定」', panelCounts: {}, resultCount: 1 },
-  { step: 6, action: '年級取消「六年級」，兄弟姊妹仍為「是」；重開年級面板', panelCounts: { '五年級': 1, '六年級': 0 }, resultCount: 1 },
-  { step: 7, action: '取消兄弟姊妹的「是」；重開年級面板（五年級仍套用）', panelCounts: { '五年級': 1, '六年級': 1 }, resultCount: 1 },
-  { step: 8, action: '取消年級的「五年級」（全不套用）；開年級面板', panelCounts: { '一年級': 20, '五年級': 1, '六年級': 1 }, resultCount: 21 },
+const FACET_JOURNEY: JourneyStep[] = [
+  {
+    step: 1,
+    action: '開「年級」面板（未套用任何條件）',
+    panelField: 'grade',
+    applied: {},
+    // 一年級 19、五年級 1、六年級 1；0 人值不存在故無隱藏項。
+    panelCounts: { '1': { count: 19, checked: false }, '5': { count: 1, checked: false }, '6': { count: 1, checked: false } },
+    resultCount: 21,
+  },
+  {
+    step: 2,
+    action: '年級勾選「五年級」→「確定」；重開年級面板',
+    panelField: 'grade',
+    applied: { grade: '5' },
+    // 面板排除本欄篩選 → 三個值仍顯示；已勾選的「五年級」checked=true。
+    panelCounts: { '1': { count: 19, checked: false }, '5': { count: 1, checked: true }, '6': { count: 1, checked: false } },
+    resultCount: 1,
+  },
+  {
+    step: 3,
+    action: '開「所屬班級」面板（已套用 grade=5）',
+    panelField: 'enrollmentKey',
+    applied: { grade: '5' },
+    // grade=5 只剩 FACET5 一人，其班為 國小數學-二A。其餘 7 個班級值計數為 0 且未勾選 → 依 UX25 隱藏。
+    panelCounts: { '國小數學-二A': { count: 1, checked: false } },
+    resultCount: 1,
+  },
+  {
+    step: 4,
+    action: '年級再加勾「六年級」→ 共 2 人；開「兄弟姊妹折扣」面板',
+    panelField: 'sibling',
+    applied: { grade: ['5', '6'] },
+    // 其他欄（grade 5、6）收斂到 FACET5（無標籤）與 FACET6（有標籤）→ 否 1、是 1。
+    panelCounts: { false: { count: 1, checked: false }, true: { count: 1, checked: false } },
+    resultCount: 2,
+  },
+  {
+    step: 5,
+    action: '兄弟姊妹勾選「是」→「確定」；重開年級面板',
+    panelField: 'grade',
+    applied: { grade: ['5', '6'], sibling: 'true' },
+    // 面板排除本欄、套用 sibling=true：4 位有標籤者（3 位一年級、1 位六年級）→ 一年級 3、六年級 1。
+    // 五年級 0 人但**已勾選**（本步套用 grade 5、6）→ 依 UX25 仍顯示且 checked=true。
+    panelCounts: { '1': { count: 3, checked: false }, '5': { count: 0, checked: true }, '6': { count: 1, checked: true } },
+    resultCount: 1,
+  },
+  {
+    step: 6,
+    action: '年級取消「六年級」（剩五年級）、兄弟姊妹仍為「是」；重開年級面板',
+    panelField: 'grade',
+    applied: { grade: '5', sibling: 'true' },
+    // 面板排除本欄、套用 sibling=true：仍是 3 位一年級＋1 位六年級；
+    // **五年級 0 人，但已勾選 → 依 UX25 仍顯示且 checked=true**（這是本步驟的驗收重點）。
+    panelCounts: { '1': { count: 3, checked: false }, '5': { count: 0, checked: true }, '6': { count: 1, checked: false } },
+    // 結果：五年級唯一的人（FACET5）沒有兄弟姊妹標籤 → **0 人**。
+    resultCount: 0,
+  },
+  {
+    step: 7,
+    action: '取消兄弟姊妹的「是」；重開年級面板（五年級仍套用）',
+    panelField: 'grade',
+    applied: { grade: '5' },
+    // 回到與 step 2 相同：排除本欄 → 三個值都顯示。
+    panelCounts: { '1': { count: 19, checked: false }, '5': { count: 1, checked: true }, '6': { count: 1, checked: false } },
+    resultCount: 1,
+  },
+  {
+    step: 8,
+    action: '取消年級的「五年級」（全不套用）；重開年級面板',
+    panelField: 'grade',
+    applied: {},
+    panelCounts: { '1': { count: 19, checked: false }, '5': { count: 1, checked: false }, '6': { count: 1, checked: false } },
+    resultCount: 21,
+  },
 ];
 
 function rowsFor(side: Side): string[][] {

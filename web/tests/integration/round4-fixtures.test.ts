@@ -89,6 +89,7 @@ const COLUMN_OF: Record<string, string> = {
   applicableEnglishBps: 'applicable_english_bps',
   anqinDays: 'anqin_days',
   tutoringDays: 'tutoring_days',
+  grade: 'grade',
 };
 
 async function uploadPreview(file: string) {
@@ -101,6 +102,7 @@ async function uploadPreview(file: string) {
 interface ProductRun {
   runId: string;
   baselineRunId: string;
+  variantRunId: string;
   baselineCount: number;
   variantCount: number;
   changes: Map<string, { status: string; enrollmentText: string[]; classDiscountText: string[] }>;
@@ -170,7 +172,7 @@ async function productRun(out: string): Promise<ProductRun> {
   };
   const baselineRows = readRows(runId);
   const rows = readRows(variantRunId);
-  return { runId, baselineRunId: runId, baselineCount: baseline.body.stats.totalStudents, variantCount: variant.body.stats.totalStudents, changes, rows, baselineRows };
+  return { runId, baselineRunId: runId, variantRunId, baselineCount: baseline.body.stats.totalStudents, variantCount: variant.body.stats.totalStudents, changes, rows, baselineRows };
 }
 
 describe('T4：產出器契約（CLI、OOXML 形狀、manifest 結構）', () => {
@@ -280,17 +282,34 @@ describe('T4 manifest 手算預期 vs 產品實際（UI 相同匯入入口；不
     }
   });
 
-  it('各案例計算值（科數／基本率／課程率／天數／問題）逐欄等於 manifest 手算', () => {
+  it('各案例計算值逐欄等於 manifest 手算：before／after 全欄位皆被驗證（無頂層遺漏）', () => {
+    // manifest 的手算欄位一律放在 expected.before／after；這裡逐一比對兩側，且頂層不允許再出現欄位。
+    const SCALAR = COLUMN_OF;
     for (const item of manifest.cases) {
-      // 已不在名單者不在 variant run 的 student_calculations；其 after 手算不適用，before 手算比 baseline run。
-      const row = item.variantRow ? product.rows.get(item.code) : product.baselineRows.get(item.code);
-      expect(row, `${item.code} 應有計算結果`).toBeDefined();
-      const after = (item.variantRow ? item.expected.after : item.expected.before) as Record<string, unknown> | undefined;
-      if (!after) continue;
-      for (const [key, column] of Object.entries(COLUMN_OF)) {
-        if (key in after) expect(row![column], `${item.code}.after.${key}`).toEqual(after[key]);
+      for (const side of ['before', 'after'] as const) {
+        const expected = (item.expected[side] ?? {}) as Record<string, unknown>;
+        const run = side === 'after' ? product.rows : product.baselineRows;
+        const rosterRow = side === 'after' ? item.variantRow : item.baselineRow;
+        if (!rosterRow) continue;
+        const row = run.get(item.code);
+        expect(row, `${item.code}.${side} 應有計算結果`).toBeDefined();
+        for (const [key, value] of Object.entries(expected)) {
+          if (key === 'grade') { expect(row!.grade, `${item.code}.${side}.grade`).toBe(value); continue; }
+          const column = SCALAR[key];
+          expect(column, `${item.code}.${side}.${key} 必須是已知欄位`).toBeTruthy();
+          expect(row![column], `${item.code}.${side}.${key}`).toEqual(value);
+        }
+      }
+      for (const key of Object.keys(item.expected)) {
+        // siblingHandComputed 為手算註記（產品由 tags_raw 判定，非 student_calculations 欄位），
+        // 其正負由 journey step 4 的 sibling 面板逐步驗證；此處只擋掉真正的計算欄位落在頂層。
+        expect(['before', 'after', 'status', 'enrollmentText', 'classDiscountText', 'issueCodes', 'enrollmentKeyWire', 'siblingHandComputed'], `${item.code} 頂層欄位 ${key} 應改放 before/after 或屬文案欄`).toContain(key);
+        for (const scalar of Object.keys(SCALAR)) {
+          expect(Object.keys(item.expected), `${item.code} 頂層不得殘留計算欄位 ${scalar}`).not.toContain(scalar);
+        }
       }
       if (Array.isArray(item.expected.issueCodes)) {
+        const row = item.variantRow ? product.rows.get(item.code) : product.baselineRows.get(item.code);
         const codes = (JSON.parse(row!.issues as string) as Array<{ code: string }>).map((issue) => issue.code);
         for (const code of item.expected.issueCodes as string[]) expect(codes, `${item.code} 的問題`).toContain(code);
       }
@@ -309,7 +328,8 @@ describe('T4 manifest 手算預期 vs 產品實際（UI 相同匯入入口；不
     };
     for (const step of manifest.facetJourney) {
       const params: Array<[string, string]> = [['options', 'true'], ...Object.entries(step.applied).flatMap(([k, v]) => (Array.isArray(v) ? v : [v]).map((x) => [k, x] as [string, string]))];
-      const response = await runGET(new NextRequest(`http://127.0.0.1:3000/api/v1/runs/${product.runId}/students?${new URLSearchParams(params)}`), { params: Promise.resolve({ runId: product.runId }) });
+      // journey 的手算來自 manifest 的 variant 名冊列，故比對對象是 variant run。
+      const response = await runGET(new NextRequest(`http://127.0.0.1:3000/api/v1/runs/${product.variantRunId}/students?${new URLSearchParams(params)}`), { params: Promise.resolve({ runId: product.variantRunId }) });
       expect(response.status, await response.clone().text()).toBe(200);
       const data = (await response.json()) as { totalStudents: number; options: Record<string, Array<{ value: string; count: number }>> };
       const counts = new Map((data.options[step.panelField] ?? []).map((o) => [o.value, o.count]));
@@ -318,7 +338,7 @@ describe('T4 manifest 手算預期 vs 產品實際（UI 相同匯入入口；不
       expect(visible(counts, checked), `step ${step.step} ${step.panelField} 可見面板`).toEqual(step.panelCounts);
       // 結果人數：套用全部條件（含本欄）後的去重人數。
       const resultParams = Object.entries(step.applied).flatMap(([k, v]) => (Array.isArray(v) ? v : [v]).map((x) => [k, x] as [string, string]));
-      const resultResponse = await runGET(new NextRequest(`http://127.0.0.1:3000/api/v1/runs/${product.runId}/students?${new URLSearchParams(resultParams)}`), { params: Promise.resolve({ runId: product.runId }) });
+      const resultResponse = await runGET(new NextRequest(`http://127.0.0.1:3000/api/v1/runs/${product.variantRunId}/students?${new URLSearchParams(resultParams)}`), { params: Promise.resolve({ runId: product.variantRunId }) });
       expect(resultResponse.status, await resultResponse.clone().text()).toBe(200);
       expect((await resultResponse.json()).totalStudents, `step ${step.step} 結果人數`).toBe(step.resultCount);
     }
