@@ -61,7 +61,23 @@ interface Manifest {
   synthetic: boolean;
   students: { baseline: number; variant: number; cases: number };
   cases: CaseEntry[];
-  facetJourney: Array<{ step: number; action: string; panelCounts: Record<string, number>; resultCount: number }>;
+  facetJourney: JourneyStep[];
+}
+
+/** 一個面板的完整可見內容：值 → 人數；checked 表示該值已勾選（已勾選的 0 人值仍顯示）。 */
+type Panel = Record<string, { count: number; checked: boolean }>;
+
+interface JourneyStep {
+  step: number;
+  action: string;
+  /** 該步驟要看的欄位（grade／enrollmentKey／sibling） */
+  panelField: 'grade' | 'enrollmentKey' | 'sibling';
+  /** 該步驟已套用的篩選（wire 值；此欄自身排除不適用於計數，但影響結果人數） */
+  applied: Record<string, string | string[]>;
+  /** UI 可見面板（未勾選的 0 人值依 UX25 隱藏；已勾選的 0 人值保留） */
+  panelCounts: Panel;
+  /** 按確定後的結果人數 */
+  resultCount: number;
 }
 
 const COLUMN_OF: Record<string, string> = {
@@ -82,7 +98,6 @@ async function uploadPreview(file: string) {
   return { status: response.status, body: (await response.json()) as { previewId: string; issues: string[]; stats: { totalStudents: number }; rosterDiff: { changes: RosterChange[] } } };
 }
 
-interface OptionCounts { grades: Map<string, number>; classes: Map<string, number>; sibling: Map<string, number> }
 interface ProductRun {
   runId: string;
   baselineRunId: string;
@@ -91,10 +106,6 @@ interface ProductRun {
   changes: Map<string, { status: string; enrollmentText: string[]; classDiscountText: string[] }>;
   rows: Map<string, Record<string, unknown>>;
   baselineRows: Map<string, Record<string, unknown>>;
-  optionsAll: OptionCounts;
-  optionsGrade5: OptionCounts;
-  optionsClass2A: OptionCounts;
-  optionsSiblingTrue: OptionCounts;
 }
 
 async function productRun(out: string): Promise<ProductRun> {
@@ -159,19 +170,7 @@ async function productRun(out: string): Promise<ProductRun> {
   };
   const baselineRows = readRows(runId);
   const rows = readRows(variantRunId);
-  const options = async (params: Array<[string, string]>) => {
-    const response = await runGET(new NextRequest(`http://127.0.0.1:3000/api/v1/runs/${runId}/students?${new URLSearchParams(params)}`), { params: Promise.resolve({ runId }) });
-    expect(response.status, await response.clone().text()).toBe(200);
-    const data = (await response.json()) as { options: Record<string, Array<{ value: string; count: number }>> };
-    const toMap = (key: string) => new Map((data.options[key] ?? []).map((o) => [o.value, o.count]));
-    return { grades: toMap('grade'), classes: toMap('enrollmentKey'), sibling: toMap('sibling') };
-  };
-  const optionsAll = await options([['options', 'true']]);
-  const optionsGrade5 = await options([['options', 'true'], ['grade', '5']]);
-  // 篩選面板送出的是解析後 baseName（wire），非 rawToken（實測：[團] 形式回 0 人）。
-  const optionsClass2A = await options([['options', 'true'], ['enrollmentKey', '國小數學-二A']]);
-  const optionsSiblingTrue = await options([['options', 'true'], ['sibling', 'true']]);
-  return { runId, baselineRunId: runId, baselineCount: baseline.body.stats.totalStudents, variantCount: variant.body.stats.totalStudents, changes, rows, baselineRows, optionsAll, optionsGrade5, optionsClass2A, optionsSiblingTrue };
+  return { runId, baselineRunId: runId, baselineCount: baseline.body.stats.totalStudents, variantCount: variant.body.stats.totalStudents, changes, rows, baselineRows };
 }
 
 describe('T4：產出器契約（CLI、OOXML 形狀、manifest 結構）', () => {
@@ -220,9 +219,18 @@ describe('T4：產出器契約（CLI、OOXML 形狀、manifest 結構）', () =>
       expect(item.expected, `${item.code} 要有手算預期`).toBeTruthy();
     }
     expect(manifest.facetJourney.length, '跨欄 journey 至少 4 步').toBeGreaterThanOrEqual(4);
+    let previousStep = 0;
     for (const step of manifest.facetJourney) {
+      expect(step.step, 'journey 步驟編號要連續遞增').toBe(previousStep + 1);
+      previousStep = step.step;
       expect(step.action, `journey step ${step.step} 要寫操作`).toBeTruthy();
-      expect(Number.isInteger(step.resultCount)).toBe(true);
+      expect(['grade', 'enrollmentKey', 'sibling'], `step ${step.step} 的面板欄位`).toContain(step.panelField);
+      expect(step.panelCounts, `step ${step.step} 要有可見面板`).toBeTruthy();
+      for (const [value, entry] of Object.entries(step.panelCounts)) {
+        expect(entry, `step ${step.step} 的面板項目格式`).toMatchObject({ count: expect.any(Number), checked: expect.any(Boolean) });
+        expect(value.length, `step ${step.step} 的面板值`).toBeGreaterThan(0);
+      }
+      expect(Number.isInteger(step.resultCount), `step ${step.step} 的結果人數`).toBe(true);
     }
   });
 });
@@ -289,24 +297,31 @@ describe('T4 manifest 手算預期 vs 產品實際（UI 相同匯入入口；不
     }
   });
 
-  it('跨欄計數：其他欄條件套用後，本欄候選值會變 0 人、已套用值仍保留（素材 FACET5／FACET6）', () => {
-    // 未套條件：年級面板五年級 1（FACET5）、六年級 1（FACET6）。
-    expect(product.optionsAll.grades.get('5'), '未套條件：五年級').toBe(1);
-    expect(product.optionsAll.grades.get('6'), '未套條件：六年級').toBe(1);
-    // 套 grade=5（排除本欄篩選）：年級面板不變；其他欄候選套用後歸 0。
-    expect(product.optionsGrade5.grades.get('5'), '套 grade=5：年級面板五年級仍 1（排除本欄篩選）').toBe(1);
-    expect(product.optionsGrade5.grades.get('6'), '套 grade=5：年級面板六年級仍 1（排除本欄篩選）').toBe(1);
-    expect(product.optionsGrade5.classes.get('國小數學-二A'), '套 grade=5：同年級不同年級的同班候選仍有 1 人（FACET6）').toBe(1);
-    expect(product.optionsGrade5.classes.get('國小數學-三A'), '套 grade=5：其他年級的班候選變 0 人（可做出 0 人值）').toBe(0);
-    // 套 enrollmentKey=國小數學-二A（wire 用 baseName）：年級面板一年級歸 0，五年級／六年級各 1。
-    expect(product.optionsClass2A.grades.get('1'), '套班級 Q：年級面板一年級變 0 人').toBe(0);
-    expect(product.optionsClass2A.grades.get('5'), '套班級 Q：年級面板五年級 1').toBe(1);
-    expect(product.optionsClass2A.grades.get('6'), '套班級 Q：年級面板六年級 1').toBe(1);
-    expect(product.optionsClass2A.sibling.get('true'), '套班級 Q：兄弟姊妹面板 是 1（FACET6）').toBe(1);
-    expect(product.optionsClass2A.sibling.get('false'), '套班級 Q：兄弟姊妹面板 否 1（FACET5）').toBe(1);
-    // 套 sibling=true：年級面板五年級歸 0，六年級 1。
-    expect(product.optionsSiblingTrue.grades.get('5'), '套 sibling=true：年級面板五年級變 0 人').toBe(0);
-    expect(product.optionsSiblingTrue.grades.get('6'), '套 sibling=true：年級面板六年級 1').toBe(1);
+  it('跨欄 journey 每一步的可見面板（含已勾選的 0 人值）與結果人數都等於 manifest 手算', async () => {
+    // 依 UX25：未勾選的 0 人值隱藏；已勾選的 0 人值仍顯示。
+    const visible = (counts: Map<string, number>, checked: string[]): Panel => {
+      const panel: Panel = {};
+      for (const [value, count] of counts) {
+        if (count === 0 && !checked.includes(value)) continue;
+        panel[value] = { count, checked: checked.includes(value) };
+      }
+      return panel;
+    };
+    for (const step of manifest.facetJourney) {
+      const params: Array<[string, string]> = [['options', 'true'], ...Object.entries(step.applied).flatMap(([k, v]) => (Array.isArray(v) ? v : [v]).map((x) => [k, x] as [string, string]))];
+      const response = await runGET(new NextRequest(`http://127.0.0.1:3000/api/v1/runs/${product.runId}/students?${new URLSearchParams(params)}`), { params: Promise.resolve({ runId: product.runId }) });
+      expect(response.status, await response.clone().text()).toBe(200);
+      const data = (await response.json()) as { totalStudents: number; options: Record<string, Array<{ value: string; count: number }>> };
+      const counts = new Map((data.options[step.panelField] ?? []).map((o) => [o.value, o.count]));
+      const raw = step.applied[step.panelField];
+      const checked = raw === undefined ? [] : (Array.isArray(raw) ? raw : [raw]);
+      expect(visible(counts, checked), `step ${step.step} ${step.panelField} 可見面板`).toEqual(step.panelCounts);
+      // 結果人數：套用全部條件（含本欄）後的去重人數。
+      const resultParams = Object.entries(step.applied).flatMap(([k, v]) => (Array.isArray(v) ? v : [v]).map((x) => [k, x] as [string, string]));
+      const resultResponse = await runGET(new NextRequest(`http://127.0.0.1:3000/api/v1/runs/${product.runId}/students?${new URLSearchParams(resultParams)}`), { params: Promise.resolve({ runId: product.runId }) });
+      expect(resultResponse.status, await resultResponse.clone().text()).toBe(200);
+      expect((await resultResponse.json()).totalStudents, `step ${step.step} 結果人數`).toBe(step.resultCount);
+    }
   });
 
   it('manifest 使用的折扣短標與畫面短標一致（呈現契約，非 expected）', () => {
