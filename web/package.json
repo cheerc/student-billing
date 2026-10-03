@@ -10,6 +10,7 @@
     "build": "next build",
     "start": "next start -H 127.0.0.1 -p 3000",
     "test": "vitest run",
+    "test:perf:isolated": "tsx scripts/perf-isolated.ts",
     "verify:baseline": "tsx scripts/verify-baseline.ts",
     "verify:fixtures": "tsx scripts/verify-fixtures.ts",
     "bench": "tsx scripts/bench.ts",

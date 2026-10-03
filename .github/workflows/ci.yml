@@ -43,3 +43,11 @@ jobs:
       - name: Next.js Production Build
         working-directory: web
         run: npm run build
+
+      - name: Install Chromium for isolated performance measurement
+        working-directory: web
+        run: npx playwright install --with-deps chromium
+
+      - name: Isolated production API performance (477 students, no retries)
+        working-directory: web
+        run: npm run test:perf:isolated
