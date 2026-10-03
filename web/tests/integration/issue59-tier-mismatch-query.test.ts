@@ -166,7 +166,7 @@ describe('issue #59 / spec03 §127：tierMismatch 篩選語意對齊（R1–R6�
     expect(mismatches.items.map((s) => s.personCode)).toEqual(['STU_R4']);
     expect(scope.stats.mismatchCount).toBe(1);
     expect(scope.stats.mismatchCount).toBe(mismatches.totalStudents);
-    const opts = queryStudentOptions(db, runId, { enrollmentKey: '國小輔導-一A' });
+    const opts = queryStudentOptions(db, runId, { enrollmentKey: ['國小輔導-一A'] });
     expect(opts.options.tierMismatch.find((o) => o.value === 'true')?.count).toBe(1);
     expect(opts.options.tierMismatch.find((o) => o.value === 'false')?.count).toBe(2);
   });
@@ -180,7 +180,7 @@ describe('issue #59 / spec03 §127：tierMismatch 篩選語意對齊（R1–R6�
     }, rows);
     const id = activateImport(db, { importId: 'scope-only', expectedRevision: 1, idempotencyKey: 'scope-only' }).runId;
     const all = queryStudentOptions(db, id, {});
-    const selected = queryStudentOptions(db, id, { enrollmentKey: '國小輔導-一A' });
+    const selected = queryStudentOptions(db, id, { enrollmentKey: ['國小輔導-一A'] });
     expect(all.options.tierMismatch.find((o) => o.value === 'false')?.count).toBe(0);
     expect(selected.options.tierMismatch.find((o) => o.value === 'false')?.count).toBe(1);
     expect(selected.options.tierMismatch.find((o) => o.value === 'true')?.count).toBe(0);

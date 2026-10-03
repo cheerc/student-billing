@@ -7,6 +7,8 @@ import { rateCategoryOfClass } from './applicable-rate';
 import { ALLOWED_RUN_QUERY_PARAMS, validateRunQueryParams, QueryStudentError, type RunStudentQueryParams } from './query-students';
 
 export interface StudentFilterOption { value: string; count: number; labelKey?: 'unparsedClassLabel' }
+/** URL／內部篩選條件（wire 值的 partial record）；與 RunStudentQueryParams 同形但非查詢專用。 */
+export type StudentFilterParams = Partial<Record<string, string[]>>;
 export interface RunStudentOptions {
   runId: string;
   importId: string;
@@ -24,15 +26,22 @@ function wireValue(value: string | number | boolean | null): string {
 }
 
 /** 指定 run 的值宇宙；每欄 count 套其他已套用條件（排除自身），不受列表 limit/cursor 影響。 */
-export function queryStudentOptions(db: Database.Database, runId: string, params: RunStudentQueryParams): RunStudentOptions {
+export function queryStudentOptions(db: Database.Database, runId: string, params: StudentFilterParams): RunStudentOptions {
   validateRunQueryParams(params);
   const query = normalizeStudentQuery(params, ALLOWED_RUN_QUERY_PARAMS);
   const run = getCalculationRun(db, runId);
   if (!run) throw new QueryStudentError(404, `找不到計算 run: ${runId}`);
   if (query.runId && query.runId !== runId) throw new QueryStudentError(400, 'runId 與路徑不符');
-  const rows = db.prepare(`SELECT person_code, grade, branch, subject_count, base_discount_bps, anqin_days, tutoring_days,
+  const base = createStudentPredicateBuilder(db, runId, run.importId);
+  const allRows = db.prepare(`SELECT person_code, grade, branch, subject_count, base_discount_bps, anqin_days, tutoring_days,
     applicable_anqin_bps, applicable_tutoring_bps, applicable_math_bps, applicable_english_bps,
     has_issues, tier_mismatch, issues, tier_comparisons, trace FROM student_calculations WHERE run_id = ?`).all(runId) as any[];
+  // 值宇宙＝全 run 的值；學生範圍＝其他欄已套用的條件（排除本欄，0人值仍回傳）。
+  const scopeOf = (key: string) => {
+    const { where } = base(query, key);
+    return new Set((db.prepare(`SELECT sc.person_code FROM student_calculations sc WHERE ${where.sql}`).all(...where.args) as Array<{ person_code: string }>).map((row) => row.person_code));
+  };
+  const rows = allRows;
   const enrollments = db.prepare('SELECT person_code, base_name FROM student_enrollments WHERE import_id = ?').all(run.importId) as Array<{ person_code: string; base_name: string }>;
   const classNames = new Map<string, Set<string>>();
   for (const enrollment of enrollments) {
@@ -97,8 +106,7 @@ export function queryStudentOptions(db: Database.Database, runId: string, params
       add('applicableDiscountBps', [row.applicable_anqin_bps, row.applicable_tutoring_bps, row.applicable_math_bps, row.applicable_english_bps]);
     }
   }
-  // context 只由使用者的原選班決定；算 enrollmentKey facet 時排除該欄，
-  // 不會把這個暫時排除傳回成 requires_class，亦不混入 applicable 的候選值。
+  // context 只由使用者的原選班決定；算 enrollmentKey facet 時排除該欄，不會把這個暫時排除傳回成 requires_class。
   const build = createStudentPredicateBuilder(db, runId, run.importId);
   // 候選＋其餘已套用條件必須是合法的整體查詢；非法組合仍回值但 count=0
   // （既有 GET 400 契約不變；點不動的值不該顯示人數，-81）。
@@ -114,14 +122,13 @@ export function queryStudentOptions(db: Database.Database, runId: string, params
     // 一般欄每欄一次GROUP BY，不對每個候選值重掃run；仍由同源predicate定義其他欄範圍。
     // 班級候選會改變tierMismatch／applicable的取值context，這兩種情況須逐候選重建predicate。
     const contextual = key === 'tierMismatch' || (key === 'enrollmentKey' && Boolean(query.selections.tierMismatch || query.selections.applicableDiscountBps));
-    const pairs = facetRows.get(key)!.filter(([, wire]) => legal(key, group.get(wire)!));
+    const scoped = scopeOf(key);
+    const pairs = facetRows.get(key)!.filter(([code, wire]) => scoped.has(code) && legal(key, group.get(wire)!));
     let counts = new Map<string, number>();
     if (!contextual) {
-      const { where } = build(query, key);
       const counted = db.prepare(`SELECT json_extract(f.value, '$[1]') AS value,
         COUNT(DISTINCT json_extract(f.value, '$[0]')) AS total FROM json_each(?) f
-        WHERE json_extract(f.value, '$[0]') IN (SELECT sc.person_code FROM student_calculations sc WHERE ${where.sql})
-        GROUP BY json_extract(f.value, '$[1]')`).all(JSON.stringify(pairs), ...where.args) as Array<{ value: string; total: number }>;
+        GROUP BY json_extract(f.value, '$[1]')`).all(JSON.stringify(pairs)) as Array<{ value: string; total: number }>;
       counts = new Map(counted.map((row) => [row.value, row.total]));
     }
     return [key, [...group].sort(([a], [b]) => a.localeCompare(b)).map(([value, raw]) => {

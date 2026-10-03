@@ -30,7 +30,7 @@ type RawParams = Record<string, string | string[] | undefined>;
 
 export function resolveResultsView(db: Database.Database, runId: string, raw: RawParams): ResultsInitialState {
   const url = parseResultsState(raw);
-  let options = queryStudentOptions(db, runId, url.filters);
+  const options = queryStudentOptions(db, runId, url.filters);
   const resolved = pruneResultsState(url, options.options);
   let invalid = resolved.invalid;
   let pruned = resolved.filters;
@@ -45,8 +45,7 @@ export function resolveResultsView(db: Database.Database, runId: string, raw: Ra
     data = queryRunStudents(db, runId, { limit: 50 });
   }
 
-  if (JSON.stringify(pruned) !== JSON.stringify(url.filters)) options = queryStudentOptions(db, runId, pruned);
-
+  // 初始 options 已含網址條件的計數；prune 若移除了值，頁面掛載時 client 會以保留後的條件重取。
   return {
     view: url.view,
     filters: pruned,
