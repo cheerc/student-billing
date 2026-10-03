@@ -10,6 +10,10 @@ import type {
   RosterChange,
 } from '@/application/roster-changes';
 
+type ReasonWithRaw = ClassDiscountReason & { rawToken?: string };
+/** reasons 的 rawToken 為 additive 欄位；用這個 helper 讓形狀在 base（尚無該欄位）也能編譯，換成執行期斷言 RED。 */
+const reason = (r: ReasonWithRaw): ClassDiscountReason => r;
+
 /**
  * PR-2 呈現（-181；decisions -68／-75／-76／-79；specs/06 D43）。
  *
@@ -28,7 +32,7 @@ type Change = RosterChange & {
 const ONE_BREAKDOWN: ClassBreakdown[] = [
   {
     baseName: '國小數學-三A',
-    rawToken: 'a',
+    rawToken: '國小數學-三A[團]',
     presence: 'kept',
     beforeAnqinDeduction: 0,
     beforeTutoringDeduction: 0,
@@ -109,17 +113,17 @@ describe('PR-2 逐人明細：表頭與欄位契約', () => {
       change({
         reasons: ['已補科數變動'],
         enrollmentChanges: [
-          { baseName: '兒童美語-EA', rawToken: 'a', presence: 'added' },
-          { baseName: '國小數學-三A', rawToken: 'b', presence: 'removed' },
+          { baseName: '兒童美語-EA', rawToken: '兒童美語-EA[團]', presence: 'added' },
+          { baseName: '國小數學-三A', rawToken: '國小數學-三A[團]', presence: 'removed' },
         ],
         classDiscountChanges: [
           {
             baseName: '國小數學-三A',
-            rawToken: 'b',
+            rawToken: '國小數學-三A[團]',
             sideOf: 'math',
             beforeBps: 10000,
             afterBps: 9500,
-            reasons: [{ kind: 'enrollment_added', className: '兒童美語-EA' }],
+            reasons: [reason({ kind: 'enrollment_added', className: '兒童美語-EA', rawToken: '兒童美語-EA[團]' })],
           },
         ],
       }),
@@ -148,11 +152,11 @@ describe('PR-2 狀態欄', () => {
         personCode: 'NEW',
         isNew: true,
         before: null,
-        enrollmentChanges: [{ baseName: '兒童美語-EA', rawToken: 'a', presence: 'added' }],
+        enrollmentChanges: [{ baseName: '兒童美語-EA', rawToken: '兒童美語-EA[團]', presence: 'added' }],
         classDiscountChanges: [
           {
             baseName: '兒童美語-EA',
-            rawToken: 'a',
+            rawToken: '兒童美語-EA[團]',
             sideOf: 'english',
             beforeBps: null,
             afterBps: 10000,
@@ -173,15 +177,15 @@ describe('PR-2 報名異動欄（-76 一：每列一件事）', () => {
       change({
         personCode: 'K',
         enrollmentChanges: [
-          { baseName: '國小數學-三A', rawToken: 'a', presence: 'kept' },
-          { baseName: '兒童美語-EA', rawToken: 'b', presence: 'added' },
-          { baseName: '兒童美語-EC', rawToken: 'c', presence: 'removed' },
+          { baseName: '國小數學-三A', rawToken: '國小數學-三A[團]', presence: 'kept' },
+          { baseName: '兒童美語-EA', rawToken: '兒童美語-EA[團]', presence: 'added' },
+          { baseName: '兒童美語-EC', rawToken: '兒童美語-EC[團]', presence: 'removed' },
         ],
       }),
     ]);
     const cell = rowOf(html, 'K').match(/<td data-field="enrollment">([\s\S]*?)<\/td>/)![1];
-    expect(cell).toContain('新增 兒童美語-EA');
-    expect(cell).toContain('退出 兒童美語-EC');
+    expect(cell).toContain('新增 兒童美語-EA[團]');
+    expect(cell).toContain('退出 兒童美語-EC[團]');
     expect(cell).not.toContain('國小數學-三A');
     expect(cell).not.toContain('保留');
   });
@@ -190,7 +194,7 @@ describe('PR-2 報名異動欄（-76 一：每列一件事）', () => {
     const html = render([
       change({
         personCode: 'ONLYK',
-        enrollmentChanges: [{ baseName: '國小數學-三A', rawToken: 'a', presence: 'kept' }],
+        enrollmentChanges: [{ baseName: '國小數學-三A', rawToken: '國小數學-三A[團]', presence: 'kept' }],
       }),
     ]);
     expect(rowOf(html, 'ONLYK')).toMatch(/<td data-field="enrollment">—<\/td>/);
@@ -209,15 +213,79 @@ describe('PR-2 報名異動欄（-76 一：每列一件事）', () => {
       }),
     ]);
     const cell = rowOf(html, 'SW').match(/<td data-field="enrollment">([\s\S]*?)<\/td>/)![1];
-    expect(cell).toContain('換班 國小數學-三A → 國小數學-三B');
+    expect(cell).toContain('換班 國小數學-三A[團] → 國小數學-三B[團]');
     expect(cell.match(/換班/g)?.length, '換班只一行').toBe(1);
+  });
+
+  it('同類一對一換班：畫面顯示名冊原文（含 [團]），不是去掉標註的 baseName', () => {
+    const html = render([
+      change({
+        personCode: 'SWRAW',
+        enrollmentChanges: [
+          { baseName: '國小數學-三A', rawToken: '國小數學-三A[團]', presence: 'switched', switchedWith: '國小數學-三B[團]' },
+          { baseName: '國小數學-三B', rawToken: '國小數學-三B[團]', presence: 'switched', switchedWith: '國小數學-三A[團]' },
+        ],
+      }),
+    ]);
+    const cell = rowOf(html, 'SWRAW').match(/<td data-field="enrollment">([\s\S]*?)<\/td>/)![1];
+    expect(cell).toContain('換班 國小數學-三A[團] → 國小數學-三B[團]');
+    expect(cell).not.toContain('換班 國小數學-三A →');
+    expect(cell.match(/換班/g)?.length, '換班只一行').toBe(1);
+  });
+
+  it('新增／退出顯示名冊原文 rawToken（含 [團] 與注記）', () => {
+    const html = render([
+      change({
+        personCode: 'ADDRAW',
+        enrollmentChanges: [
+          { baseName: '兒童美語-EA', rawToken: '兒童美語-EA[團]', presence: 'added' },
+          { baseName: '國小數學-三A', rawToken: '國小數學-三A[團][4]', presence: 'removed' },
+        ],
+      }),
+    ]);
+    const cell = rowOf(html, 'ADDRAW').match(/<td data-field="enrollment">([\s\S]*?)<\/td>/)![1];
+    expect(cell).toContain('新增 兒童美語-EA[團]');
+    expect(cell).toContain('退出 國小數學-三A[團][4]');
+  });
+
+  it('同一班只換天數級距：畫面看得出兩者差異，不得出現「換班 X → X」', () => {
+    // data layer 已證此情境是 switched（rawToken 不同、同類別）；UI 必須以 rawToken 呈現兩端。
+    const html = render([
+      change({
+        personCode: 'TIER',
+        enrollmentChanges: [
+          { baseName: '國小輔導-三年級', rawToken: '國小輔導-三年級[團][4]', presence: 'switched', switchedWith: '國小輔導-三年級[團][4_5]' },
+          { baseName: '國小輔導-三年級', rawToken: '國小輔導-三年級[團][4_5]', presence: 'switched', switchedWith: '國小輔導-三年級[團][4]' },
+        ],
+      }),
+    ]);
+    const cell = rowOf(html, 'TIER').match(/<td data-field="enrollment">([\s\S]*?)<\/td>/)![1];
+    expect(cell).toContain('換班 國小輔導-三年級[團][4] → 國小輔導-三年級[團][4_5]');
+    expect(cell).not.toMatch(/換班 國小輔導-三年級 → 國小輔導-三年級/);
+    expect(cell.match(/換班/g)?.length, '換班只一行').toBe(1);
+  });
+
+  it('逐班扣天展開列以名冊原文顯示班名', () => {
+    const html = render([
+      change({
+        personCode: 'BD',
+        dayChange: {
+          beforeAnqinDays: 5,
+          afterAnqinDays: 4.5,
+          beforeTutoringDays: 5,
+          afterTutoringDays: 5,
+          classBreakdown: [{ ...ONE_BREAKDOWN[0], rawToken: '國小數學-三A[團]', baseName: '國小數學-三A' }],
+        },
+      }),
+    ]);
+    expect(html).toContain('國小數學-三A[團]');
   });
 
   it('班名用名冊原文，不縮寫', () => {
     const html = render([
       change({
         personCode: 'FULL',
-        enrollmentChanges: [{ baseName: '115國小輔導-四年級A[團]', rawToken: 'a', presence: 'added' }],
+        enrollmentChanges: [{ baseName: '115國小輔導-四年級A', rawToken: '115國小輔導-四年級A[團]', presence: 'added' }],
       }),
     ]);
     expect(rowOf(html, 'FULL')).toContain('新增 115國小輔導-四年級A[團]');
@@ -239,30 +307,31 @@ describe('PR-2 折扣變動欄（-76 二：班級｜原本｜現在｜原因）'
       'D1',
       {
         baseName: '國小數學-三A',
-        rawToken: 'a',
+        rawToken: '國小數學-三A[團]',
         sideOf: 'math',
         beforeBps: 10000,
         afterBps: 9500,
-        reasons: [{ kind: 'enrollment_added', className: '兒童美語-EA' }],
+        reasons: [reason({ kind: 'enrollment_added', className: '兒童美語-EA', rawToken: '兒童美語-EA[團]' })],
       }
     );
     expect(html).toContain('<td data-field="class-discount"');
-    expect(html).toContain('國小數學-三A');
+    expect(html).toContain('國小數學-三A[團]');
     expect(html).toContain('無折扣 → 95折');
-    expect(html).toContain('新增 兒童美語-EA');
+    expect(html).toContain('新增 兒童美語-EA[團]');
   });
 
-  it('原因文案：新增／退出／加上標籤「X」／移除標籤「X」', () => {
+  it('原因文案：新增／退出／加上標籤「X」／移除標籤「X」；班名用名冊原文（含 [團]）', () => {
     const cases: Array<[ClassDiscountReason[], RegExp]> = [
-      [[{ kind: 'enrollment_added', className: '兒童美語-EA' }], /新增 兒童美語-EA/],
-      [[{ kind: 'enrollment_removed', className: '國小數學-三A' }], /退出 國小數學-三A/],
-      [[{ kind: 'tag_added', tag: '有兄弟姊妹折扣' }], /加上標籤「有兄弟姊妹折扣」/],
-      [[{ kind: 'tag_removed', tag: '特殊折扣85折' }], /移除標籤「特殊折扣85折」/],
+      [[reason({ kind: 'enrollment_added', className: '兒童美語-EA', rawToken: '兒童美語-EA[團]' })], /新增 兒童美語-EA\[團\]/],
+      [[reason({ kind: 'enrollment_removed', className: '國小數學-三A', rawToken: '國小數學-三A[團]' })], /退出 國小數學-三A\[團\]/],
+      [[reason({ kind: 'enrollment_added', className: '兒童美語-EA' })], /新增 兒童美語-EA(?!\[)/],
+      [[reason({ kind: 'tag_added', tag: '有兄弟姊妹折扣' })], /加上標籤「有兄弟姊妹折扣」/],
+      [[reason({ kind: 'tag_removed', tag: '特殊折扣85折' })], /移除標籤「特殊折扣85折」/],
     ];
     for (const [reasons, pattern] of cases) {
       const html = discountRow('R', {
         baseName: '國小輔導-一A',
-        rawToken: 'a',
+        rawToken: '國小輔導-一A[團]',
         sideOf: 'care',
         beforeBps: 10000,
         afterBps: 9500,
@@ -275,23 +344,23 @@ describe('PR-2 折扣變動欄（-76 二：班級｜原本｜現在｜原因）'
   it('多個原因以「、」並列，不加「同時」', () => {
     const html = discountRow('MULTI', {
       baseName: '國小輔導-一A',
-      rawToken: 'a',
+      rawToken: '國小輔導-一A[團]',
       sideOf: 'care',
       beforeBps: 10000,
       afterBps: 9500,
       reasons: [
-        { kind: 'enrollment_removed', className: '國小數學-三A' },
+        reason({ kind: 'enrollment_removed', className: '國小數學-三A', rawToken: '國小數學-三A[團]' }),
         { kind: 'tag_added', tag: '有兄弟姊妹折扣' },
       ],
     });
-    expect(html).toContain('退出 國小數學-三A、加上標籤「有兄弟姊妹折扣」');
+    expect(html).toContain('退出 國小數學-三A[團]、加上標籤「有兄弟姊妹折扣」');
     expect(html).not.toContain('同時');
   });
 
   it('reasons 空陣列 → 「名單資料變動」', () => {
     const html = discountRow('NOR', {
       baseName: '國小輔導-一A',
-      rawToken: 'a',
+      rawToken: '國小輔導-一A[團]',
       sideOf: 'care',
       beforeBps: 10000,
       afterBps: 9500,
@@ -300,14 +369,30 @@ describe('PR-2 折扣變動欄（-76 二：班級｜原本｜現在｜原因）'
     expect(html).toContain('名單資料變動');
   });
 
-  it('原因欄不寫數字、不寫「因為」', () => {
-    const html = discountRow('PLAIN', {
-      baseName: '國小輔導-一A',
-      rawToken: 'a',
+  it('折扣變動的班級欄顯示名冊原文 rawToken（含 [團]／注記）', () => {
+    const html = discountRow('RAWDIS', {
+      baseName: '國小輔導-三年級',
+      rawToken: '國小輔導-三年級[團][4]',
       sideOf: 'care',
       beforeBps: 10000,
       afterBps: 9500,
-      reasons: [{ kind: 'enrollment_added', className: '兒童美語-EA' }],
+      reasons: [reason({ kind: 'enrollment_added', className: '國小數學-三A', rawToken: '國小數學-三A[團]' })],
+    });
+    const cell = rowOf(html, 'RAWDIS').match(/<td data-field="class-discount">([\s\S]*?)<\/td>/)![1];
+    expect(cell).toContain('國小輔導-三年級[團][4]');
+    expect(cell).toContain('無折扣 → 95折');
+    expect(cell).toContain('新增 國小數學-三A[團]');
+    expect(cell).not.toContain('原因');
+  });
+
+  it('原因欄不寫數字、不寫「因為」', () => {
+    const html = discountRow('PLAIN', {
+      baseName: '國小輔導-一A',
+      rawToken: '國小輔導-一A[團]',
+      sideOf: 'care',
+      beforeBps: 10000,
+      afterBps: 9500,
+      reasons: [reason({ kind: 'enrollment_added', className: '兒童美語-EA', rawToken: '兒童美語-EA[團]' })],
     });
     const reasonsCell = html.match(/data-reason="[\s\S]*?<\/span>/)![0];
     expect(reasonsCell).not.toMatch(/因為/);
@@ -317,11 +402,11 @@ describe('PR-2 折扣變動欄（-76 二：班級｜原本｜現在｜原因）'
   it('switched 不得被寫成折扣原因（只有 enrollment_added／removed／tag_*）', () => {
     const html = discountRow('SW', {
       baseName: '國小數學-三A',
-      rawToken: 'a',
+      rawToken: '國小數學-三A[團]',
       sideOf: 'math',
       beforeBps: 10000,
       afterBps: 9500,
-      reasons: [{ kind: 'enrollment_added', className: '兒童美語-EA' }],
+      reasons: [reason({ kind: 'enrollment_added', className: '兒童美語-EA', rawToken: '兒童美語-EA[團]' })],
     });
     expect(html).not.toContain('換班');
   });
