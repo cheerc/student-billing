@@ -4,7 +4,7 @@ import { parseTagDiscounts } from '@/domain/billing/discount-rules';
 import { normalizeStudentQuery, type QueryValue } from '@/contracts/student-query';
 import { createStudentPredicateBuilder } from './student-query-predicates';
 import { rateCategoryOfClass } from './applicable-rate';
-import { ALLOWED_RUN_QUERY_PARAMS, validateRunQueryParams, QueryStudentError, type RunStudentQueryParams } from './query-students';
+import { ALLOWED_RUN_QUERY_PARAMS, validateRunQueryParams, QueryStudentError } from './query-students';
 
 export interface StudentFilterOption { value: string; count: number; labelKey?: 'unparsedClassLabel' }
 /** URL／內部篩選條件（wire 值的 partial record）；與 RunStudentQueryParams 同形但非查詢專用。 */
@@ -33,7 +33,7 @@ export function queryStudentOptions(db: Database.Database, runId: string, params
   if (!run) throw new QueryStudentError(404, `找不到計算 run: ${runId}`);
   if (query.runId && query.runId !== runId) throw new QueryStudentError(400, 'runId 與路徑不符');
   const base = createStudentPredicateBuilder(db, runId, run.importId);
-  const allRows = db.prepare(`SELECT person_code, grade, branch, subject_count, base_discount_bps, anqin_days, tutoring_days,
+  const rows = db.prepare(`SELECT person_code, grade, branch, subject_count, base_discount_bps, anqin_days, tutoring_days,
     applicable_anqin_bps, applicable_tutoring_bps, applicable_math_bps, applicable_english_bps,
     has_issues, tier_mismatch, issues, tier_comparisons, trace FROM student_calculations WHERE run_id = ?`).all(runId) as any[];
   // 值宇宙＝全 run 的值；學生範圍＝其他欄已套用的條件（排除本欄，0人值仍回傳）。
@@ -41,7 +41,6 @@ export function queryStudentOptions(db: Database.Database, runId: string, params
     const { where } = base(query, key);
     return new Set((db.prepare(`SELECT sc.person_code FROM student_calculations sc WHERE ${where.sql}`).all(...where.args) as Array<{ person_code: string }>).map((row) => row.person_code));
   };
-  const rows = allRows;
   const enrollments = db.prepare('SELECT person_code, base_name FROM student_enrollments WHERE import_id = ?').all(run.importId) as Array<{ person_code: string; base_name: string }>;
   const classNames = new Map<string, Set<string>>();
   for (const enrollment of enrollments) {
@@ -106,8 +105,6 @@ export function queryStudentOptions(db: Database.Database, runId: string, params
       add('applicableDiscountBps', [row.applicable_anqin_bps, row.applicable_tutoring_bps, row.applicable_math_bps, row.applicable_english_bps]);
     }
   }
-  // context 只由使用者的原選班決定；算 enrollmentKey facet 時排除該欄，不會把這個暫時排除傳回成 requires_class。
-  const build = createStudentPredicateBuilder(db, runId, run.importId);
   // 候選＋其餘已套用條件必須是合法的整體查詢；非法組合仍回值但 count=0
   // （既有 GET 400 契約不變；點不動的值不該顯示人數，-81）。
   const legal = (key: string, raw: QueryValue): boolean => {
@@ -134,7 +131,7 @@ export function queryStudentOptions(db: Database.Database, runId: string, params
     return [key, [...group].sort(([a], [b]) => a.localeCompare(b)).map(([value, raw]) => {
       let count = counts.get(value) ?? 0;
       if (contextual && legal(key, raw)) {
-        const { where } = build(query, key, { values: [raw], none: false });
+        const { where } = base(query, key, { values: [raw], none: false });
         count = (db.prepare(`SELECT COUNT(DISTINCT sc.person_code) AS total FROM student_calculations sc WHERE ${where.sql}`).get(...where.args) as { total: number }).total;
       }
       return key === 'enrollmentKey' && value === '~empty' ? { value, count, labelKey: 'unparsedClassLabel' as const } : { value, count };
