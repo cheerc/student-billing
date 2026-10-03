@@ -74,11 +74,11 @@ function assertPortFree(port: number) {
   });
 }
 
-async function proxy(upstreamPort: number) {
+async function proxy(upstreamPort: number, preloader?: string) {
   await assertPortFree(PROXY_PORT);
   const state = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'sb-acceptance-proxy-')));
   states.push(state);
-  const child = spawn(process.execPath, ['--import', loader, script, '--port', String(PROXY_PORT), '--upstream', `http://127.0.0.1:${upstreamPort}`, '--token', 'test-token', '--state', state], { cwd: web, stdio: ['ignore', 'pipe', 'pipe'] });
+  const child = spawn(process.execPath, [...(preloader ? ['--require', preloader] : []), '--import', loader, script, '--port', String(PROXY_PORT), '--upstream', `http://127.0.0.1:${upstreamPort}`, '--token', 'test-token', '--state', state], { cwd: web, stdio: ['ignore', 'pipe', 'pipe'] });
   children.push(child);
   const transcript = path.join(state, 'transcript.log');
   files.push(transcript);
@@ -157,7 +157,7 @@ async function post(endpoint: string, body: unknown, headers: Record<string, str
 }
 
 /** 自帶 headers 的原始請求（Origin／Referer 觀察用；仍用新的 raw agent）。 */
-function rawWithHeaders(method: string, pathname: string, body: string | undefined, extra: Record<string, string>) {
+function rawWithHeaders(method: string, pathname: string, body: string | undefined, extra: Record<string, string | string[]>) {
   return new Promise<{ status: number; headers: http.IncomingHttpHeaders; stream: import('node:stream').Readable }>((resolve, reject) => {
     const request = http.request({ port: PROXY_PORT, host: '127.0.0.1', path: pathname, method, agent: new http.Agent({ keepAlive: false }),
       headers: { ...(body ? { 'content-type': 'application/json', 'content-length': Buffer.byteLength(body) } : {}), ...extra } }, (response) => {
@@ -169,7 +169,141 @@ function rawWithHeaders(method: string, pathname: string, body: string | undefin
   });
 }
 
+function throwingPreloader(mode: 'request' | 'response-header' | 'response-pipe'): string {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sb-proxy-throw-'));
+  states.push(dir);
+  const preloader = path.join(dir, 'inject.cjs');
+  // 只在測試子程序的指定請求注入一次；經真 HTTP 入口觸發，不在產品放 test-only hook。
+  fs.writeFileSync(preloader, `
+    const http = require('node:http');
+    const original = http.request;
+    let injected = false;
+    http.request = function(options, callback) {
+      if (options.path !== '/injected-exception' || injected) return original.apply(this, arguments);
+      injected = true;
+      const mode = ${JSON.stringify(mode)};
+      if (mode === 'request') {
+        process.stderr.write('INJECT request\\n');
+        throw new Error('synthetic http.request exception');
+      }
+      return original.call(this, options, (incoming) => {
+        if (mode === 'response-header') {
+          process.stderr.write('INJECT response-header\\n');
+          incoming.headers['x-invalid'] = '\\n';
+        } else {
+          incoming.pipe = () => {
+            process.stderr.write('INJECT response-pipe\\n');
+            throw new Error('synthetic upstream pipe exception');
+          };
+        }
+        callback(incoming);
+      });
+    };
+  `);
+  return preloader;
+}
+
 describe('T2：隔離驗收環境前的故障注入代理', () => {
+  it.each(['abort', 'status', 'delay'] as const)('action=clear 清除持續 %s 規則；相同路徑恢復轉發且不再 HIT', async (action) => {
+    const app = await upstream(upstreamPorts[0], 200);
+    const instance = await proxy(upstreamPorts[0]);
+    const pathname = '/persistent-clear';
+    const set = await instance.control('rules', { rules: [{ method: 'GET', path: pathname, action, ...(action === 'status' ? { status: 500 } : {}), ...(action === 'delay' ? { delayMs: 1 } : {}) }] });
+    expect(JSON.parse(set.body).rules[0].remaining).toBeNull();
+    if (action === 'abort') await expect(get(pathname)).rejects.toThrow();
+    else {
+      const hit = await get(pathname);
+      expect(hit.status).toBe(action === 'status' ? 500 : 200);
+      await readAll(hit.stream);
+    }
+    const cleared = await instance.control('clear');
+    expect({ status: cleared.status, body: JSON.parse(cleared.body) }).toEqual({ status: 200, body: { ok: true, rules: [] } });
+    for (let i = 0; i < 2; i++) {
+      const result = await get(pathname);
+      expect(result.status).toBe(200);
+      expect(result.headers['x-upstream']).toBe('yes');
+      await readAll(result.stream);
+    }
+    const closed = once(instance.child, 'close');
+    await instance.control('stop');
+    await closed;
+    expect(instance.output().match(/HIT GET \/persistent-clear /g) ?? []).toHaveLength(1);
+    expect(app.hits).toHaveLength(action === 'delay' ? 3 : 2);
+  });
+
+  it('重複 Origin／Referer 含首值空字串：鎖定 Node 正規化後的既有轉發行為（baseline GREEN）', async () => {
+    await upstream(upstreamPorts[3], 200, false, true);
+    const instance = await proxy(upstreamPorts[3]);
+    const self = `http://127.0.0.1:${PROXY_PORT}`;
+    const target = `http://127.0.0.1:${upstreamPorts[3]}`;
+    const cases: Array<{ input: Record<string, string | string[]>; expected: { origin: string | null; referer: string | null } }> = [
+      { input: { origin: ['', self] }, expected: { origin: `, ${self}`, referer: null } },
+      { input: { origin: [self, 'https://evil.example.com'] }, expected: { origin: `${self}, https://evil.example.com`, referer: null } },
+      { input: { referer: ['', `${self}/p`] }, expected: { origin: null, referer: '' } },
+      { input: { referer: [`${self}/p`, 'https://evil.example.com/p'] }, expected: { origin: null, referer: `${target}/p` } },
+      { input: { origin: ['', 'https://evil.example.com'], referer: ['', `${self}/p`] }, expected: { origin: ', https://evil.example.com', referer: '' } },
+    ];
+    for (const { input, expected } of cases) {
+      const result = await rawWithHeaders('POST', '/api/v1/settings/preview', '{}', input);
+      expect(result.status).toBe(200);
+      const observed = JSON.parse(await readAll(result.stream)).headers;
+      console.info('[duplicate headers baseline]', JSON.stringify({ input, observed }));
+      expect(observed).toEqual(expected);
+    }
+    expect((await instance.control('rules', { rules: [] })).status).toBe(200);
+  });
+
+  it.each([false, true])('http.request 同步例外隔離（delay=%s）；回502且後續請求／控制仍服務', async (delayed) => {
+    await upstream(upstreamPorts[0], 200);
+    const instance = await proxy(upstreamPorts[0], throwingPreloader('request'));
+    if (delayed) await instance.control('rules', { rules: [{ method: 'GET', path: '/injected-exception', action: 'delay', delayMs: 1 }] });
+    const failed = await get('/injected-exception').then(async (result) => ({ status: result.status, body: await readAll(result.stream) }), (error: Error) => ({ error: error.message }));
+    expect(failed, instance.output()).toMatchObject({ status: 502 });
+    expect(instance.output()).toContain('INJECT request');
+    const next = await get('/healthy');
+    expect(next.status).toBe(200);
+    await readAll(next.stream);
+    expect((await instance.control('clear')).status).toBe(200);
+    expect(instance.child.exitCode).toBeNull();
+  });
+
+  it('upstream response callback 在 headers 前丟例外回502；不使行程退出', async () => {
+    await upstream(upstreamPorts[0], 200);
+    const instance = await proxy(upstreamPorts[0], throwingPreloader('response-header'));
+    const failed = await get('/injected-exception').then(async (result) => ({ status: result.status, body: await readAll(result.stream) }), (error: Error) => ({ error: error.message }));
+    expect(failed, instance.output()).toMatchObject({ status: 502 });
+    expect(instance.output()).toContain('INJECT response-header');
+    const next = await get('/healthy');
+    expect(next.status).toBe(200);
+    await readAll(next.stream);
+    expect((await instance.control('clear')).status).toBe(200);
+  });
+
+  it('headers 已送出後 pipe 丟例外只中斷該回應；後續請求／控制仍服務', async () => {
+    await upstream(upstreamPorts[0], 200);
+    const instance = await proxy(upstreamPorts[0], throwingPreloader('response-pipe'));
+    await expect(get('/injected-exception')).rejects.toThrow();
+    expect(instance.output()).toContain('INJECT response-pipe');
+    const next = await get('/healthy');
+    expect(next.status, instance.output()).toBe(200);
+    await readAll(next.stream);
+    expect((await instance.control('clear')).status).toBe(200);
+    expect(instance.child.exitCode).toBeNull();
+  });
+
+  it('--help 與錯誤用法共用 control action／規則欄位說明', () => {
+    const help = cli(['--help']);
+    expect(help.status).toBe(0);
+    for (const token of ['rules', 'clear', 'stop', 'method', 'path', 'status', 'abort', 'delay', 'delayMs', 'times', '400–599', '0–60000', '1–1000']) {
+      expect(help.stdout).toContain(token);
+    }
+    const bad = cli(['--unknown']);
+    expect(bad.status).not.toBe(0);
+    expect(bad.stderr).toContain(help.stdout.trim());
+    const missing = cli(['--upstream', 'http://127.0.0.1:3300']);
+    expect(missing.status).not.toBe(0);
+    expect(missing.stderr).toContain(help.stdout.trim());
+  });
   it('next GET 500 後恢復、GET 故障不擋 POST、abort／delay／streaming／query-body-header 與停止', async () => {
     const app = await upstream(upstreamPorts[0], 200);
     const instance = await proxy(upstreamPorts[0]);
