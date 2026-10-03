@@ -229,7 +229,7 @@ describe('B1 多值查詢／全 run 選項／無課程真實 API', () => {
     expect(unavailable.body.options.applicableDiscountBps).toEqual([]);
   });
 
-  it('options 來自整個205人run，不受limit/grade影響；後頁獨有值、~blank、~~值與count均正確，不提供姓名/代碼', async () => {
+  it('options 值宇宙涵蓋205人不受limit；班級count受grade=1影響，後頁值／空白／跳脫均保留，不提供姓名/代碼', async () => {
     const first = await query(runId, [['limit', '200']]);
     expect(first.body.items).toHaveLength(200);
     expect(codes(first.body)).not.toContain(code(204));
@@ -237,9 +237,10 @@ describe('B1 多值查詢／全 run 選項／無課程真實 API', () => {
     expect(status).toBe(200);
     expect(body.options.enrollmentKey).toContainEqual({ value: '後頁獨有班', count: 1 });
     expect(body.options.enrollmentKey).toContainEqual({ value: '~blank', count: 2 });
-    expect(body.options.enrollmentKey).toContainEqual({ value: '~~班,甲', count: 1 });
+    // 列14為三年級，不符合其他欄grade=1，但仍是run中有效值（count=0）。
+    expect(body.options.enrollmentKey).toContainEqual({ value: '~~班,甲', count: 0 });
     expect(body.options.branch).toContainEqual({ value: '後頁獨有分校', count: 1 });
-    expect(body.options.enrollmentKey.find((o: any) => o.value === MATH).count).toBe(rows.filter((s) => s.enrollments.some((e) => e.baseName === MATH)).length);
+    expect(body.options.enrollmentKey.find((o: any) => o.value === MATH).count).toBe(rows.filter((s) => s.grade === 1 && s.enrollments.some((e) => e.baseName === MATH)).length);
     expect(body.options).not.toHaveProperty('q');
     expect(body.options).not.toHaveProperty('name');
     expect(body.options).not.toHaveProperty('personCode');

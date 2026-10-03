@@ -1,9 +1,9 @@
 import Database from 'better-sqlite3';
 import { StudentCalculationRecord, getCalculationRun } from '@/adapters/sqlite/runs-repository';
 import { ParsedToken } from '@/domain/students';
-import { parseTagDiscounts } from '@/domain/billing/discount-rules';
+import { createStudentPredicateBuilder } from './student-query-predicates';
 import { normalizeStudentQuery, StudentQueryInputError, queryIdentity, decodeStudentCursor, encodeStudentCursor, type NormalizedStudentQuery } from '@/contracts/student-query';
-import { selectionPredicate, classPredicate, branchPredicate, noCoursePredicate, applicableRateColumn, escapeLike, type QueryPredicate } from './student-query-sql';
+import { noCoursePredicate } from './student-query-sql';
 
 export class QueryStudentError extends Error {
   statusCode: number;
@@ -114,116 +114,20 @@ export function queryRunStudents(db: Database.Database, runId: string, params: R
   let lastPersonCode: string | null;
   try { lastPersonCode = decodeStudentCursor(query.cursor, identity); }
   catch (error) { throw new QueryStudentError(400, (error as Error).message); }
-  const whereClauses = ['sc.run_id = ?'];
-  const queryArgs: Array<string | number> = [runId];
-  const add = (predicate: QueryPredicate) => {
-    whereClauses.push(predicate.sql);
-    queryArgs.push(...predicate.args);
-  };
   const selected = query.selections;
-  const classes = classPredicate(run.importId, 'sc', selected.enrollmentKey);
-  add(classes);
-  for (const [key, column] of Object.entries({
-    grade: 'sc.grade', baseDiscountBps: 'sc.base_discount_bps', anqinDays: 'sc.anqin_days', tutoringDays: 'sc.tutoring_days',
-    hasIssues: 'sc.has_issues',
-  })) add(selectionPredicate(selected[key], column));
-  if (selected.tierMismatch) {
-    if (selected.tierMismatch.none) {
-      add({ sql: '0', args: [] });
-    } else {
-      const classValues = selected.enrollmentKey && !selected.enrollmentKey.none
-        ? selected.enrollmentKey.values.filter((v): v is string => typeof v === 'string')
-        : [];
-      const classScopeSql = classValues.length > 0
-        ? `json_extract(j.value, '$.baseName') IN (${classValues.map(() => '?').join(',')}) AND `
-        : '';
-      const terms: string[] = [];
-      const args: Array<string | number> = [];
-      for (const val of selected.tierMismatch.values) {
-        if (val === true) {
-          terms.push(`EXISTS (SELECT 1 FROM json_each(sc.tier_comparisons) j WHERE ${classScopeSql}json_extract(j.value, '$.status') = 'mismatch')`);
-          args.push(...classValues);
-        } else if (val === false) {
-          terms.push(
-            `(EXISTS (SELECT 1 FROM json_each(sc.tier_comparisons) j WHERE ${classScopeSql}json_extract(j.value, '$.status') = 'match') ` +
-            `AND NOT EXISTS (SELECT 1 FROM json_each(sc.tier_comparisons) j WHERE ${classScopeSql}json_extract(j.value, '$.status') IN ('mismatch', 'unavailable')))`
-          );
-          args.push(...classValues, ...classValues);
-        } else {
-          terms.push('0');
-        }
-      }
-      if (terms.length > 0) {
-        add({ sql: `(${terms.join(' OR ')})`, args });
-      }
-    }
-  }
-  add(branchPredicate('sc.branch', selected.branch));
-  add(selectionPredicate(selected.hasClass, '(coalesce(sc.subject_count,0) > 0)', '0'));
-  if (selected.billingTier) add(selectionPredicate(selected.billingTier, query.careType === 'anqin' ? 'sc.anqin_days' : 'sc.tutoring_days'));
-  if (selected.applicableDiscountBps) {
-    const target = String(selected.enrollmentKey.values[0]);
-    const column = applicableRateColumn(target);
-    add(column ? selectionPredicate(selected.applicableDiscountBps, column) : { sql: '0', args: [] });
-  }
-  if (query.q) {
-    whereClauses.push("(sc.name LIKE ? ESCAPE '\\' OR sc.person_code LIKE ? ESCAPE '\\')");
-    queryArgs.push(`%${escapeLike(query.q)}%`, `%${escapeLike(query.q)}%`);
-  }
-  if (query.subject) {
-    whereClauses.push("EXISTS (SELECT 1 FROM student_enrollments e WHERE e.import_id = ? AND e.person_code = sc.person_code AND (e.base_name LIKE ? ESCAPE '\\' OR e.raw_token LIKE ? ESCAPE '\\'))");
-    queryArgs.push(run.importId, `%${escapeLike(query.subject)}%`, `%${escapeLike(query.subject)}%`);
-  }
-  for (const [key, column, source] of [
-    ['issueCode', "json_extract(j.value, '$.code')", 'sc.issues'],
-    ['tierComparison', "json_extract(j.value, '$.status')", 'sc.tier_comparisons'],
-  ]) {
-    const group = selected[key];
-    if (!group) continue;
-    if (group.none) { add({ sql: '0', args: [] }); continue; }
-    const parts: string[] = [];
-    const args: Array<string | number> = [];
-    for (const value of group.values) {
-      if (value === null) parts.push(`json_array_length(${source}) = 0`);
-      else {
-        parts.push(`EXISTS (SELECT 1 FROM json_each(${source}) j WHERE ${column} = ?)`);
-        args.push(String(value));
-      }
-    }
-    add({ sql: `(${parts.join(' OR ')})`, args });
-  }
-  for (const [key, tag] of [['sibling', '有兄弟姊妹折扣'], ['internalStudent', '園內生']]) {
-    const column = `EXISTS (SELECT 1 FROM imported_students s WHERE s.import_id = '${run.importId.replace(/'/g, "''")}' AND s.person_code = sc.person_code AND instr(s.tags_raw, '${tag}') > 0)`;
-    add(selectionPredicate(selected[key], column, '0'));
-  }
-  // 額外扣天與結果表同源：讀已持久化的 hasExtraFlag，不以天數是否為 0 推測。
-  add(selectionPredicate(selected.hasExtraDeduction,
-    "(coalesce(json_extract(sc.trace, '$.careDays.anqin.hasExtraFlag'),0) OR coalesce(json_extract(sc.trace, '$.careDays.tutoring.hasExtraFlag'),0))", '0'));
-  if (selected.specialDiscount) {
-    const tagged = db.prepare('SELECT person_code, trace FROM student_calculations WHERE run_id = ?').all(runId) as Array<{ person_code: string; trace: string }>;
-    const codes = tagged.filter((row) => parseTagDiscounts(JSON.parse(row.trace).rawTags).specialDiscount !== null).map((row) => row.person_code);
-    const hasSpecial = codes.length ? `sc.person_code IN (${codes.map(() => '?').join(',')})` : '0';
-    const terms: string[] = [];
-    const args: Array<string | number> = [];
-    if (selected.specialDiscount.none) terms.push('0');
-    for (const value of selected.specialDiscount.values) {
-      if (value === null) { terms.push('0'); continue; }
-      terms.push(value ? `(${hasSpecial})` : `NOT (${hasSpecial})`);
-      args.push(...codes);
-    }
-    add({ sql: `(${terms.join(' OR ')})`, args });
-  }
-  const baseWhereSql = whereClauses.join(' AND ');
+  const { where, classes, mismatch, issues } = createStudentPredicateBuilder(db, runId, run.importId)(query);
+  const baseWhereSql = where.sql;
+  const queryArgs = where.args;
   const noCourse = noCoursePredicate(run.importId, 'sc');
   const totalRow = db.prepare(`SELECT COUNT(*) AS total FROM student_calculations sc WHERE ${baseWhereSql}`).get(...queryArgs) as { total: number };
   const totalStudents = totalRow.total;
-  const mismatchRow = db.prepare(`SELECT COUNT(*) AS total FROM student_calculations sc WHERE ${baseWhereSql} AND sc.tier_mismatch = 1`).get(...queryArgs) as { total: number };
-  const issuesRow = db.prepare(`SELECT COUNT(*) AS total FROM student_calculations sc WHERE ${baseWhereSql} AND sc.has_issues = 1`).get(...queryArgs) as { total: number };
+  const mismatchRow = db.prepare(`SELECT COUNT(*) AS total FROM student_calculations sc WHERE ${baseWhereSql} AND ${mismatch.sql}`).get(...queryArgs, ...mismatch.args) as { total: number };
+  const issuesRow = db.prepare(`SELECT COUNT(*) AS total FROM student_calculations sc WHERE ${baseWhereSql} AND ${issues.sql}`).get(...queryArgs, ...issues.args) as { total: number };
   const noCourseTotal = (db.prepare(`SELECT COUNT(*) AS total FROM student_calculations sc WHERE sc.run_id = ? AND ${noCourse.sql}`).get(runId, ...noCourse.args) as { total: number }).total;
   const filteredNoCourseCount = (db.prepare(`SELECT COUNT(*) AS total FROM student_calculations sc WHERE ${baseWhereSql} AND ${noCourse.sql}`).get(...queryArgs, ...noCourse.args) as { total: number }).total;
   const emptySelection = Object.values(selected).some((s) => s.none);
   const classScopeTotal = emptySelection ? 0 : (db.prepare(`SELECT COUNT(*) AS total FROM student_calculations sc WHERE sc.run_id = ? AND ${classes.sql}`).get(runId, ...classes.args) as { total: number }).total;
-  const pagedWhere = [...whereClauses];
+  const pagedWhere = [baseWhereSql];
   const pagedArgs = [...queryArgs];
   if (lastPersonCode) { pagedWhere.push('sc.person_code > ?'); pagedArgs.push(lastPersonCode); }
   pagedArgs.push(limit + 1);

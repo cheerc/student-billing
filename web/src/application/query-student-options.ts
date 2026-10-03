@@ -1,7 +1,8 @@
 import type Database from 'better-sqlite3';
 import { getCalculationRun } from '@/adapters/sqlite/runs-repository';
 import { parseTagDiscounts } from '@/domain/billing/discount-rules';
-import { normalizeStudentQuery } from '@/contracts/student-query';
+import { normalizeStudentQuery, type QueryValue } from '@/contracts/student-query';
+import { createStudentPredicateBuilder } from './student-query-predicates';
 import { rateCategoryOfClass } from './applicable-rate';
 import { ALLOWED_RUN_QUERY_PARAMS, validateRunQueryParams, QueryStudentError, type RunStudentQueryParams } from './query-students';
 
@@ -22,7 +23,7 @@ function wireValue(value: string | number | boolean | null): string {
   return text.startsWith('~') ? '~' + text : text;
 }
 
-/** 指定 run 全量 read model；不讀 active pointer、最新設定、姓名或代碼選項，也不受列表 filters/limit 影響。 */
+/** 指定 run 的值宇宙；每欄 count 套其他已套用條件（排除自身），不受列表 limit/cursor 影響。 */
 export function queryStudentOptions(db: Database.Database, runId: string, params: RunStudentQueryParams): RunStudentOptions {
   validateRunQueryParams(params);
   const query = normalizeStudentQuery(params, ALLOWED_RUN_QUERY_PARAMS);
@@ -43,14 +44,21 @@ export function queryStudentOptions(db: Database.Database, runId: string, params
   const classKey = selected && !selected.none && selected.values.length === 1 && typeof selected.values[0] === 'string' ? selected.values[0] : null;
   const category = classKey === null ? null : rateCategoryOfClass(classKey);
   const context: RunStudentOptions['applicableRateContext'] = { classKey: classKey === null ? null : wireValue(classKey), status: classKey === null ? 'requires_class' : category ? 'configured' : 'not_configured' };
-  const counts = new Map<string, Map<string, number>>();
-  for (const key of ['enrollmentKey', 'grade', 'branch', 'anqinDays', 'tutoringDays', 'baseDiscountBps', 'applicableDiscountBps', 'hasExtraDeduction', 'sibling', 'specialDiscount', 'internalStudent', 'hasIssues', 'issueCode', 'tierMismatch', 'tierComparison', 'hasClass']) counts.set(key, new Map());
-  const add = (key: string, values: Array<string | number | boolean | null>) => {
-    const group = counts.get(key)!;
-    for (const value of new Set(values.map(wireValue))) group.set(value, (group.get(value) ?? 0) + 1);
+  const candidates = new Map<string, Map<string, QueryValue>>();
+  for (const key of ['enrollmentKey', 'grade', 'branch', 'anqinDays', 'tutoringDays', 'baseDiscountBps', 'applicableDiscountBps', 'hasExtraDeduction', 'sibling', 'specialDiscount', 'internalStudent', 'hasIssues', 'issueCode', 'tierMismatch', 'tierComparison', 'hasClass']) candidates.set(key, new Map());
+  const facetRows = new Map<string, Array<[string, string]>>([...candidates.keys()].map((key) => [key, []]));
+  let currentPersonCode = '';
+  const add = (key: string, values: QueryValue[]) => {
+    const group = candidates.get(key)!;
+    for (const value of values) {
+      const wire = wireValue(value);
+      group.set(wire, value);
+      facetRows.get(key)!.push([currentPersonCode, wire]);
+    }
   };
   let noCourseTotal = 0;
   for (const row of rows) {
+    currentPersonCode = row.person_code;
     const names = classNames.get(row.person_code);
     if (!names?.size) noCourseTotal++;
     add('enrollmentKey', names?.size ? [...names] : [null]);
@@ -64,10 +72,11 @@ export function queryStudentOptions(db: Database.Database, runId: string, params
     add('hasIssues', [Boolean(row.has_issues)]);
     const comparisons = JSON.parse(row.tier_comparisons) as Array<{ status: string }>;
     const hasMismatch = comparisons.some((c) => c.status === 'mismatch');
-    const isMatchOnly = comparisons.some((c) => c.status === 'match') && !comparisons.some((c) => c.status === 'mismatch' || c.status === 'unavailable');
+    // 值宇宙涵蓋任一班曾match者；全run的false人數可為0，選該match班後卻可能大於0。
+    const hasMatch = comparisons.some((c) => c.status === 'match');
     const tierMismatchValues: boolean[] = [];
     if (hasMismatch) tierMismatchValues.push(true);
-    if (isMatchOnly) tierMismatchValues.push(false);
+    if (hasMatch) tierMismatchValues.push(false);
     add('tierMismatch', tierMismatchValues);
     const issues = JSON.parse(row.issues) as Array<{ code: string }>;
     add('issueCode', issues.length ? issues.map((i) => i.code) : [null]);
@@ -88,9 +97,41 @@ export function queryStudentOptions(db: Database.Database, runId: string, params
       add('applicableDiscountBps', [row.applicable_anqin_bps, row.applicable_tutoring_bps, row.applicable_math_bps, row.applicable_english_bps]);
     }
   }
-  const options = Object.fromEntries([...counts].map(([key, group]) => [key,
-    [...group].sort(([a], [b]) => a.localeCompare(b)).map(([value, count]) =>
-      key === 'enrollmentKey' && value === '~empty' ? { value, count, labelKey: 'unparsedClassLabel' as const } : { value, count }),
-  ]));
+  // context 只由使用者的原選班決定；算 enrollmentKey facet 時排除該欄，
+  // 不會把這個暫時排除傳回成 requires_class，亦不混入 applicable 的候選值。
+  const build = createStudentPredicateBuilder(db, runId, run.importId);
+  // 候選＋其餘已套用條件必須是合法的整體查詢；非法組合仍回值但 count=0
+  // （既有 GET 400 契約不變；點不動的值不該顯示人數，-81）。
+  const legal = (key: string, raw: QueryValue): boolean => {
+    try {
+      normalizeStudentQuery({ ...params, [key]: [wireValue(raw)] }, ALLOWED_RUN_QUERY_PARAMS);
+      return true;
+    } catch {
+      return false;
+    }
+  };
+  const options = Object.fromEntries([...candidates].map(([key, group]) => {
+    // 一般欄每欄一次GROUP BY，不對每個候選值重掃run；仍由同源predicate定義其他欄範圍。
+    // 班級候選會改變tierMismatch／applicable的取值context，這兩種情況須逐候選重建predicate。
+    const contextual = key === 'tierMismatch' || (key === 'enrollmentKey' && Boolean(query.selections.tierMismatch || query.selections.applicableDiscountBps));
+    const pairs = facetRows.get(key)!.filter(([, wire]) => legal(key, group.get(wire)!));
+    let counts = new Map<string, number>();
+    if (!contextual) {
+      const { where } = build(query, key);
+      const counted = db.prepare(`SELECT json_extract(f.value, '$[1]') AS value,
+        COUNT(DISTINCT json_extract(f.value, '$[0]')) AS total FROM json_each(?) f
+        WHERE json_extract(f.value, '$[0]') IN (SELECT sc.person_code FROM student_calculations sc WHERE ${where.sql})
+        GROUP BY json_extract(f.value, '$[1]')`).all(JSON.stringify(pairs), ...where.args) as Array<{ value: string; total: number }>;
+      counts = new Map(counted.map((row) => [row.value, row.total]));
+    }
+    return [key, [...group].sort(([a], [b]) => a.localeCompare(b)).map(([value, raw]) => {
+      let count = counts.get(value) ?? 0;
+      if (contextual && legal(key, raw)) {
+        const { where } = build(query, key, { values: [raw], none: false });
+        count = (db.prepare(`SELECT COUNT(DISTINCT sc.person_code) AS total FROM student_calculations sc WHERE ${where.sql}`).get(...where.args) as { total: number }).total;
+      }
+      return key === 'enrollmentKey' && value === '~empty' ? { value, count, labelKey: 'unparsedClassLabel' as const } : { value, count };
+    })];
+  }));
   return { runId, importId: run.importId, totalStudents: rows.length, noCourseTotal, options, applicableRateContext: context };
 }

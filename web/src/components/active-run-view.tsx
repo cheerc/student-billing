@@ -43,7 +43,7 @@ interface ActiveRunViewProps {
   revision: number;
   asOfDate: string;
   initialData: RunStudentsQueryResult;
-  /** 全 run 的欄位選項（來自指定 run 全部學生，不受分頁與篩選限制；03 §5.1 options read model） */
+  /** 全 run 值宇宙，計數依其他已套用篩選、不受分頁限制（03 §5.1 options read model）。 */
   initialOptions: RunStudentOptions;
   /** 網址還原的頁籤與各頁籤條件（F03／F04：兩頁籤各自保留條件） */
   initialView?: 'students' | 'deductions';
@@ -174,6 +174,8 @@ export default function ActiveRunView({
   }, [options]);
   const seqRef = useRef(0);
   const abortRef = useRef<AbortController | null>(null);
+  const optionsSeqRef = useRef(0);
+  const optionsAbortRef = useRef<AbortController | null>(null);
   const qTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingScroll = useRef<{ top: number; win: number } | null>(null);
   // 還原捲動位置前，等姓名搜尋還原後的那次查詢完成（用 ref：同一個 commit 內的 effect 讀得到最新值）
@@ -226,31 +228,30 @@ export default function ActiveRunView({
     [runId]
   );
 
-  /** 恰選一班時，取該班的本班適用折扣選項（其他欄選項取自整個 run，不受影響）。 */
+  /** 已套用條件變動時重取全部facet；面板草稿不影響查詢，晚到舊回應不能覆蓋新計數。 */
   const ensureApplicableOptions = useCallback(
     async (next: StudentFilters, resolveDeferred = false): Promise<StudentFilters | null> => {
-      const single = exactlyOneClass(next);
-      const wire = next.enrollmentKey?.[0];
-      if (!single || !wire || optionsRef.current.applicableRateContext.classKey === wire) return next;
+      const seq = ++optionsSeqRef.current;
+      optionsAbortRef.current?.abort();
+      const ac = new AbortController();
+      optionsAbortRef.current = ac;
+      const q = qRef.current;
+      const params = buildStudentApiParams(next, q, { options: 'true' });
       try {
-        const res = await fetch(`/api/v1/runs/${runId}/students?options=true&enrollmentKey=${encodeURIComponent(wire)}`);
-        if (!res.ok) throw new Error('無法還原本班適用折扣選項');
+        const res = await fetch(`/api/v1/runs/${runId}/students?${params.toString()}`, { signal: ac.signal });
+        if (!res.ok) throw new Error('無法載入篩選選項');
         const json = (await res.json()) as RunStudentOptions;
-        if (exactlyOneClass(filtersRef.current) !== single) return null;
-        setOptions((prev) => ({
-          ...prev,
-          options: { ...prev.options, applicableDiscountBps: json.options.applicableDiscountBps },
-          applicableRateContext: json.applicableRateContext,
-        }));
+        if (seq !== optionsSeqRef.current || JSON.stringify(filtersRef.current) !== JSON.stringify(next) || qRef.current !== q) return null;
+        optionsRef.current = json;
+        setOptions(json);
         if (!resolveDeferred) return next;
-        // 等待期間另有操作時，不用舊 options 還原／載入過期條件。
-        if (JSON.stringify(filtersRef.current) !== JSON.stringify(next)) return null;
         const resolved = pruneResultsState({ ...restored, filters: next, pruned: [] }, json.options);
         filtersRef.current = resolved.filters;
         setFilters(resolved.filters);
         if (resolved.pruned.length) setPrunedNotice((prev) => [...prev, ...resolved.pruned]);
         return resolved.filters;
       } catch (error) {
+        if (seq !== optionsSeqRef.current || ac.signal.aborted) return null;
         if (resolveDeferred && JSON.stringify(filtersRef.current) === JSON.stringify(next)) {
           setError(describeLoadError('還原本班適用折扣', failureFromException(error)));
           setLoading(false);
@@ -261,6 +262,11 @@ export default function ActiveRunView({
     },
     [runId, restored]
   );
+
+  useEffect(() => () => {
+    optionsSeqRef.current++;
+    optionsAbortRef.current?.abort();
+  }, []);
 
   const resetPaging = () => {
     setCursor(null);
@@ -299,8 +305,9 @@ export default function ActiveRunView({
       writeStorage(Q_KEY(runId), q === '' ? null : q);
       resetPaging();
       void load(filtersRef.current, q, null);
+      void ensureApplicableOptions(filtersRef.current);
     },
-    [load, runId]
+    [load, runId, ensureApplicableOptions]
   );
 
   const handleSearchChange = (val: string) => {
@@ -322,7 +329,8 @@ export default function ActiveRunView({
     setFilters({});
     resetPaging();
     void load({}, '', null);
-  }, [load, runId]);
+    void ensureApplicableOptions({});
+  }, [load, runId, ensureApplicableOptions]);
 
   // 掛載：還原頁內保存的姓名搜尋與捲動位置；條件與頁籤來自網址（伺服器已還原）
   useEffect(() => {
@@ -444,7 +452,7 @@ export default function ActiveRunView({
     filteredNoCourseCount: 0,
   };
 
-  // ── 表頭篩選：各欄選項（整個 run）與已套用條件 ─────────────────
+  // ── 表頭篩選：全 run 值宇宙、依其他已套用條件的計數 ─────────────────
   const singleClass = exactlyOneClass(filters);
   const singleWire = filters.enrollmentKey?.[0] ?? null;
 
@@ -470,6 +478,7 @@ export default function ActiveRunView({
     return (
       <HeaderFilter
         column={name}
+        hideUnselectedZero
         sections={sections}
         value={value}
         onApply={(next) => applyFilters({ ...filtersRef.current, ...next })}

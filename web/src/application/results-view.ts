@@ -3,7 +3,6 @@ import { queryRunStudents, QueryStudentError, type RunStudentsQueryResult } from
 import { parseResultsState, pruneResultsState } from '@/lib/results-state';
 import { queryStudentOptions, type RunStudentOptions } from './query-student-options';
 import {
-  exactlyOneClass,
   type DeductionFilters,
   type StudentFilters,
 } from '@/lib/results-filters';
@@ -31,8 +30,7 @@ type RawParams = Record<string, string | string[] | undefined>;
 
 export function resolveResultsView(db: Database.Database, runId: string, raw: RawParams): ResultsInitialState {
   const url = parseResultsState(raw);
-  const classParam = url.filters.enrollmentKey && exactlyOneClass(url.filters) ? { enrollmentKey: url.filters.enrollmentKey } : {};
-  const options = queryStudentOptions(db, runId, classParam);
+  let options = queryStudentOptions(db, runId, url.filters);
   const resolved = pruneResultsState(url, options.options);
   let invalid = resolved.invalid;
   let pruned = resolved.filters;
@@ -46,6 +44,8 @@ export function resolveResultsView(db: Database.Database, runId: string, raw: Ra
     pruned = {};
     data = queryRunStudents(db, runId, { limit: 50 });
   }
+
+  if (JSON.stringify(pruned) !== JSON.stringify(url.filters)) options = queryStudentOptions(db, runId, pruned);
 
   return {
     view: url.view,

@@ -213,6 +213,12 @@ export function scopeOf(filters: StudentFilters): { kind: ScopeKind; count: numb
   return { kind: 'multi', count: wires.length };
 }
 
+/** 面板少雜訊，但0人仍是合法值；已勾選者保留供取消，不影響 prune。 */
+export function visibleFilterOptions<T extends { value: string; count?: number }>(options: T[], selected: string[]): T[] {
+  const checked = new Set(selected);
+  return options.filter((option) => option.count !== 0 || checked.has(option.value));
+}
+
 export interface OptionLike { value: string }
 export type OptionsByKey = Record<string, OptionLike[] | undefined>;
 

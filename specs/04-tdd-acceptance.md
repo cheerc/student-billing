@@ -256,7 +256,7 @@ Playwright 最小完整旅程：
 |UX22|已apply設定（自訂時段＋班名對應）→匯入新批次→activate；另帶不同的client scheduleVersionId|先RED（現況run用seed-v250922、不套班名對應）；GREEN：run.scheduleVersionId＝最新已儲存設定id，逐堂／班級／學生天數與對應皆採該設定，client scheduleVersionId被忽略；尚無已儲存設定時仍為seed-v250922|integration/E2E|
 |UX23|刪光某班全部時段／清空所有列時間／移除整班|逐堂預覽、班級扣天、學生run三者一致：無時段→不扣天＋issue（schedule_empty），不在該版本→schedule_not_found＋issue，皆不退回seed（先RED）|unit/integration|
 |UX24|開課表頁；送出careWindows與ruleSet不同的draft|畫面無窗口輸入／調整入口，顯示值＝ruleSet（窗口固定，D33）；calculate回應windows＝ruleSet；server對不同careWindows回400 INVALID_DRAFT|component/API|
-|UX25|表頭▾輸入「數學」→全選搜尋結果→確定；再加一欄；取消；移除chip；清除全部；鍵盤全程操作；768×600開面板|選項來自整個run（含後頁獨有值）；同欄OR跨欄AND；取消不改條件；三種空狀態分開；面板不被裁切、確定鈕可見、Esc回焦點|integration/E2E|
+|UX25|表頭▾輸入「數學」→全選搜尋結果→確定；再加一欄；取消；移除chip；清除全部；鍵盤全程操作；768×600開面板；選班後開其他欄；快速切換已套用條件|值宇宙涵蓋整個run（含後頁獨有值），不受limit／cursor限制；每欄計數依其他欄已套用篩選（含選班、q、特殊值），排除本欄，等於將本欄替換為該單值後的人數，同生多班／同班多token去重。server回0人值，UI隱藏未勾選0人、已勾選0人仍可取消且不被prune。統計mismatchCount與所選範圍tierMismatch=true同源、issuesCount與範圍內hasIssues=true同源，noCourseTotal仍全批、classScopeTotal仍只按選班。options只在已套用條件變動刷新，abort／sequence拒絕晚到舊回應；適用率context保留單班／未選班／未配置三分支。同欄OR跨欄AND；取消不改條件；三種空狀態分開；面板不被裁切、確定鈕可見、Esc回焦點|unit/integration/E2E|
 |UX26|班級只有課輔側重疊；一側未知|狀態不為「無重疊」；未知不被另一側掩蓋|component/E2E|
 |UX27|班級扣天展開→編輯此班課表；直接開`/?view=deductions`；重新整理／返回|課表定位該班全部時段；頁籤依網址；返回不丟頁籤|E2E|
 |UX28|恰選一班／選兩班／未選班|恰一班顯示本班適用折扣並與基本率並列（兩者不同的合成案例值正確）；多班與未選班不出現「本班」與本班率|component/E2E|

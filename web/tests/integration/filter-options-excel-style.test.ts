@@ -45,7 +45,7 @@ describe('Excel 式各欄選項：其他欄 AND、自欄排除、全 run 值宇�
       status: 'ready', createdAt: '2026-10-03T00:00:00Z',
     }, rows);
     runId = activateImport(getDatabase(), { importId: 'excel-options', expectedRevision: 0, idempotencyKey: 'excel-options' }).runId;
-    // H 有員工家屬問題、I 無問題（issues/03:187 與 H 的 CLASS_NOT_MAPPED 之外的真問題）。
+    // H 有員工家屬無折扣問題（R18），I 的數學一A課表存在無問題。
     const issueRows = [{ ...student('H', 2, `${MATH}[團]`), tagsRaw: '員工家屬', tags: ['員工家屬'] }, student('I', 3, `${MATH}[團]`)];
     saveImportBatch(getDatabase(), {
       id: 'excel-issues', fileName: 'synthetic.xlsx', fileHash: 'excel-issues-file', contentHash: 'excel-issues-content',
@@ -89,14 +89,14 @@ describe('Excel 式各欄選項：其他欄 AND、自欄排除、全 run 值宇�
   it('跨欄非法組合（hasIssues=false＋issueCode、tierMismatch↔tierComparison）候選回值但 count=0；合法組合照常計數', async () => {
     const opts = await query({ options: 'true', hasIssues: 'false' }, issueRunId);
     expect(opts.status).toBe(200);
-    expect(counts(opts.body, 'issueCode')).toEqual({ STAFF_FAMILY_NO_DISCOUNT: 0, '~blank': 1 });
+    expect(counts(opts.body, 'issueCode')).toEqual({ STAFF_FAMILY_NO_DISCOUNT: 0, '~blank': 0 });
     expect((await query({ hasIssues: 'false', issueCode: 'STAFF_FAMILY_NO_DISCOUNT' }, issueRunId)).status).toBe(400);
     expect((await query({ hasIssues: 'true', issueCode: 'STAFF_FAMILY_NO_DISCOUNT' }, issueRunId)).body.totalStudents).toBe(1);
-    // B報輔導一A＋數學一A：輔導宣告4vs計算5 mismatch；數學一A未對應課表 → not_applicable。
+    // 輔導班範圍：一年級C僅輔導一A→match；二年級B輔導無宣告→mismatch，數學一A重複報名→not_applicable。
     const comparisons = await query({ options: 'true', enrollmentKey: CARE }, runId);
-    expect(counts(comparisons.body, 'tierMismatch')).toEqual({ true: 1, false: 0 });
+    expect(counts(comparisons.body, 'tierMismatch')).toEqual({ true: 1, false: 1 });
     const mismatchOnly = await query({ options: 'true', tierMismatch: 'true' }, runId);
-    expect(counts(mismatchOnly.body, 'tierComparison')).toEqual({ match: 0, mismatch: 1, not_applicable: 1 });
+    expect(counts(mismatchOnly.body, 'tierComparison')).toEqual({ '~blank': 0, mismatch: 1, not_applicable: 1, match: 0 });
     expect((await query({ tierMismatch: 'true', tierComparison: 'match' }, runId)).status).toBe(400);
   });
 

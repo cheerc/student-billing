@@ -2,7 +2,7 @@
 
 import React, { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { NONE } from '@/lib/results-filters';
+import { NONE, visibleFilterOptions } from '@/lib/results-filters';
 
 /**
  * Excel 式表頭篩選（specs/09 §5.1；D36 六點）。學生總表與班級扣天共用同一個元件。
@@ -41,6 +41,8 @@ interface HeaderFilterProps {
   /** 欄名（觸發鈕名稱為「{欄名}篩選」，面板名稱為「{欄名}篩選面板」） */
   column: string;
   sections: FilterSection[];
+  /** 學生總表的Excel式count；不改班級扣天面板的既有策略。 */
+  hideUnselectedZero?: boolean;
   /** 目前已套用的條件（各分區的 wire 值；`['~none']`＝取消全選） */
   value: SectionValues;
   onApply: (next: SectionValues) => void;
@@ -90,7 +92,7 @@ interface AnchorRect {
   bottom: number;
 }
 
-export function HeaderFilter({ column, sections, value, onApply }: HeaderFilterProps) {
+export function HeaderFilter({ column, sections, value, onApply, hideUnselectedZero = false }: HeaderFilterProps) {
   const [open, setOpen] = useState(false);
   const [anchorRect, setAnchorRect] = useState<AnchorRect>({ left: 0, top: 0, bottom: 0 });
   const btnRef = useRef<HTMLButtonElement | null>(null);
@@ -140,6 +142,7 @@ export function HeaderFilter({ column, sections, value, onApply }: HeaderFilterP
             id={panelId}
             column={column}
             sections={sections}
+            hideUnselectedZero={hideUnselectedZero}
             value={value}
             anchor={btnRef}
             initialRect={anchorRect}
@@ -156,6 +159,7 @@ export function HeaderFilter({ column, sections, value, onApply }: HeaderFilterP
 }
 
 interface PanelProps {
+  hideUnselectedZero: boolean;
   id: string;
   column: string;
   sections: FilterSection[];
@@ -166,7 +170,7 @@ interface PanelProps {
   onApply: (next: SectionValues) => void;
 }
 
-function FilterPanel({ id, column, sections, value, anchor, initialRect, onClose, onApply }: PanelProps) {
+function FilterPanel({ id, column, sections, value, anchor, initialRect, onClose, onApply, hideUnselectedZero }: PanelProps) {
   const panelRef = useRef<HTMLDivElement | null>(null);
   const searchRef = useRef<HTMLInputElement | null>(null);
   const [draft, setDraft] = useState<Record<string, Draft>>(() => initialDraft(sections, value));
@@ -204,11 +208,12 @@ function FilterPanel({ id, column, sections, value, anchor, initialRect, onClose
   const needle = search.trim().toLowerCase();
   const visible = useMemo(
     () =>
-      sections.map((s) => ({
-        ...s,
-        options: needle ? s.options.filter((o) => o.label.toLowerCase().includes(needle)) : s.options,
-      })),
-    [sections, needle]
+      sections.map((s) => {
+        const selected = [...(value[s.key] ?? []), ...(draft[s.key]?.checked ?? [])];
+        const options = hideUnselectedZero ? visibleFilterOptions(s.options, selected) : s.options;
+        return { ...s, options: needle ? options.filter((o) => o.label.toLowerCase().includes(needle)) : options };
+      }),
+    [sections, needle, hideUnselectedZero, draft, value]
   );
 
   const setChecked = (sectionKey: string, optionValue: string, on: boolean) => {
