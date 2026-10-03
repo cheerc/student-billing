@@ -77,6 +77,22 @@ async function main() {
   const upstreamPort = Number(upstream.port);
   assertIsolatedE2eTarget({ databasePath: path.join(os.tmpdir(), 'sb-acceptance-proxy-validation.sqlite'), port: upstreamPort });
   assertIsolatedE2eTarget({ databasePath: path.join(require('os').tmpdir(), 'sb-acceptance-proxy-validation.sqlite'), port: options.port });
+  const selfOrigin = `http://127.0.0.1:${options.port}`;
+  const upstreamOrigin = `http://${upstream.hostname}:${upstreamPort}`;
+  /** 僅當 incoming origin 與 proxy 自身 origin 相同才改寫；foreign／null／malformed 原樣，產品照舊 fail-closed。 */
+  const rewriteIfSelfOrigin = (value: string | string[] | undefined): string | undefined => {
+    if (!value) return undefined;
+    const text = Array.isArray(value) ? value[0] : value;
+    let parsed: URL;
+    try { parsed = new URL(text); } catch { return text; }
+    return parsed.origin === selfOrigin ? upstreamOrigin : text;
+  };
+  /** Referer 保留 path／query，只換 origin 部分（產品只比 host，但保留語意較可預期）。 */
+  const rewriteRefererIfSelfOrigin = (value: string): string => {
+    let parsed: URL;
+    try { parsed = new URL(value); } catch { return value; }
+    return parsed.origin === selfOrigin ? upstreamOrigin + parsed.pathname + parsed.search + parsed.hash : value;
+  };
   if (options.state) fs.mkdirSync(options.state, { recursive: true, mode: 0o700 });
   let rules: Stored[] = [];
   const hit = (rule: Stored, method: string, pathname: string) => {
@@ -117,6 +133,10 @@ async function main() {
     // 其餘請求標頭（含 query、content-type）原樣轉發。
     const forward = () => {
       const headers = { ...request.headers, host: `${upstream.hostname}:${upstreamPort}` };
+      // Host 改為 upstream 後，瀏覽器帶的同源 Origin／Referer 會與 Host 不符而遭產品拒絕；
+      // 只改寫「本來就會被拒」的 proxy 自身值（security.ts 比對的是 origin.host 與 Host）。
+      if (headers.origin !== undefined) headers.origin = rewriteIfSelfOrigin(headers.origin);
+      if (headers.referer !== undefined) headers.referer = rewriteRefererIfSelfOrigin(headers.referer);
       if (headers.expect) {
         delete headers.expect;
         // 用原生 write 而非 request.writeContinue()（後者要新版 ServerResponse 介面）：
