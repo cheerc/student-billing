@@ -91,7 +91,7 @@ interface EnrollmentChange {
   presence: EnrollmentPresence;
 }
 type ClassDiscountReason =
-  | { kind: 'enrollment_added' | 'enrollment_removed'; className: string }
+  | { kind: 'enrollment_added' | 'enrollment_removed'; className: string; rawToken?: string }
   | { kind: 'tag_added' | 'tag_removed'; tag: string };
 interface ClassDiscountChange {
   baseName: string;
@@ -305,7 +305,7 @@ describe('PR-1 §5 結構化原因（reasons：型別化資料，非文案）', 
     const change = only(computeRosterChanges([before], [after], beforeCtx, afterCtx))[0];
 
     for (const item of change.classDiscountChanges) {
-      expect(item.reasons).toEqual([{ kind: 'enrollment_added', className: '兒童美語-EA' }]);
+      expect(item.reasons).toEqual([{ kind: 'enrollment_added', className: '兒童美語-EA', rawToken: '兒童美語-EA[團]' }]);
     }
   });
 
@@ -317,7 +317,7 @@ describe('PR-1 §5 結構化原因（reasons：型別化資料，非文案）', 
     const change = only(computeRosterChanges([before], [after], beforeCtx, afterCtx))[0];
 
     for (const item of change.classDiscountChanges) {
-      expect(item.reasons).toEqual([{ kind: 'enrollment_removed', className: '兒童美語-EA' }]);
+      expect(item.reasons).toEqual([{ kind: 'enrollment_removed', className: '兒童美語-EA', rawToken: '兒童美語-EA[團]' }]);
     }
   });
 
@@ -344,8 +344,8 @@ describe('PR-1 §5 結構化原因（reasons：型別化資料，非文案）', 
     ]);
     // 兩個原因都在（退掉數學 ＋ 加寫功課）；順序＝先 added 再 removed
     expect(change.classDiscountChanges[0].reasons).toEqual([
-      { kind: 'enrollment_added', className: '國小輔導-寫功課' },
-      { kind: 'enrollment_removed', className: '國小數學-一A' },
+      { kind: 'enrollment_added', className: '國小輔導-寫功課', rawToken: '國小輔導-寫功課[團]' },
+      { kind: 'enrollment_removed', className: '國小數學-一A', rawToken: '國小數學-一A[團]' },
     ]);
   });
 
@@ -367,7 +367,7 @@ describe('PR-1 §5 結構化原因（reasons：型別化資料，非文案）', 
       expect(
         item.reasons,
         `${item.baseName}（${item.sideOf}）不得出現寫功課`
-      ).not.toContainEqual({ kind: 'enrollment_added', className: '國小輔導-寫功課' });
+      ).not.toContainEqual({ kind: 'enrollment_added', className: '國小輔導-寫功課', rawToken: '國小輔導-寫功課[團]' });
     }
   });
 
@@ -384,7 +384,7 @@ describe('PR-1 §5 結構化原因（reasons：型別化資料，非文案）', 
 
     expect(change.classDiscountChanges.map((c) => c.baseName)).toEqual(['國小輔導-一A']);
     expect(change.classDiscountChanges[0].reasons).toEqual([
-      { kind: 'enrollment_removed', className: '國小數學-一A' },
+      { kind: 'enrollment_removed', className: '國小數學-一A', rawToken: '國小數學-一A[團]' },
     ]);
     expect(change.enrollmentChanges.map((e) => [e.baseName, e.presence])).toEqual([
       ['國小輔導-一A', 'kept'],
@@ -470,7 +470,7 @@ describe('PR-1 §5 結構化原因（reasons：型別化資料，非文案）', 
       expect(names, `${item.baseName} 的換班不得作為原因`).not.toContain('國小數學-三A');
       expect(names).not.toContain('國小數學-三B');
       // 真正原因只有「加報英文班」（english 類別首次出現）
-      expect(item.reasons).toEqual([{ kind: 'enrollment_added', className: '兒童美語-EB' }]);
+      expect(item.reasons).toEqual([{ kind: 'enrollment_added', className: '兒童美語-EB', rawToken: '兒童美語-EB[團]' }]);
     }
   });
 
@@ -573,7 +573,7 @@ describe('PR-1 §5 結構化原因（reasons：型別化資料，非文案）', 
     expect(change.classDiscountChanges).toHaveLength(1);
     expect(change.classDiscountChanges[0].baseName).toBe('國小數學-三A');
     expect(change.classDiscountChanges[0].reasons).toEqual([
-      { kind: 'enrollment_added', className: '兒童美語-EA' },
+      { kind: 'enrollment_added', className: '兒童美語-EA', rawToken: '兒童美語-EA[團]' },
     ]);
     expect(change.classDiscountChanges[0].reasons.some((r) => r.kind === 'tag_added' || r.kind === 'tag_removed')).toBe(
       false
@@ -600,7 +600,7 @@ describe('PR-1 §5 結構化原因（reasons：型別化資料，非文案）', 
     const change = only(computeRosterChanges([before], [after], beforeCtx, afterCtx))[0];
 
     for (const item of change.classDiscountChanges) {
-      expect(item.reasons).toEqual([{ kind: 'enrollment_removed', className: '兒童美語-EA' }]);
+      expect(item.reasons).toEqual([{ kind: 'enrollment_removed', className: '兒童美語-EA', rawToken: '兒童美語-EA[團]' }]);
       expect(item.reasons.some((r) => r.kind === 'enrollment_added')).toBe(false);
     }
   });
@@ -667,7 +667,7 @@ describe('PR-2 補齊：v3（類別式 R03）路徑的 reasons（PR65 secondary 
     expect(careItem, '寫功課使課輔適用率回到 10000 → 輔導班有變動').toBeDefined();
     expect(careItem!.beforeBps).toBe(9500);
     expect(careItem!.afterBps).toBe(10000);
-    expect(careItem!.reasons).toEqual([{ kind: 'enrollment_added', className: '國小輔導-寫功課' }]);
+    expect(careItem!.reasons).toEqual([{ kind: 'enrollment_added', className: '國小輔導-寫功課', rawToken: '國小輔導-寫功課[團]' }]);
 
     const mathItem = change.classDiscountChanges.find((c) => c.baseName === '國小數學-三A');
     if (mathItem) {
@@ -692,7 +692,7 @@ describe('PR-2 補齊：v3（類別式 R03）路徑的 reasons（PR65 secondary 
     expect(mathItem!.sideOf).toBe('math');
     expect(mathItem!.beforeBps).toBe(9500);
     expect(mathItem!.afterBps).toBe(10000);
-    expect(mathItem!.reasons).toEqual([{ kind: 'enrollment_removed', className: '國小輔導-一A' }]);
+    expect(mathItem!.reasons).toEqual([{ kind: 'enrollment_removed', className: '國小輔導-一A', rawToken: '國小輔導-一A[團]' }]);
   });
 
   /**

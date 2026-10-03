@@ -62,7 +62,7 @@ export interface EnrollmentChange {
 
 /** 逐班折扣變動的結構化原因（資料，不是文案；文案由 PR-2 定稿渲染）。 */
 export type ClassDiscountReason =
-  | { kind: 'enrollment_added' | 'enrollment_removed'; className: string }
+  | { kind: 'enrollment_added' | 'enrollment_removed'; className: string; /** additive：名冊原文 rawToken（decision d-20261003090015932342-4）；舊 payload／測試缺此欄位時 UI 回退 className。 */ rawToken?: string }
   | { kind: 'tag_added' | 'tag_removed'; tag: string };
 
 /**
@@ -513,7 +513,7 @@ function buildClassDiscountChanges(
         decidesSubjectCount([...before.enrollments, ...after.enrollments], beforeCtx, token) ||
         (isCare && affectsHomeworkOrMeian(token, afterCtx))
       ) {
-        reasons.push({ kind: 'enrollment_added', className: change.baseName });
+        reasons.push({ kind: 'enrollment_added', className: change.baseName, rawToken: change.rawToken });
       }
     }
     for (const change of removedTokens) {
@@ -522,7 +522,7 @@ function buildClassDiscountChanges(
         decidesSubjectCount([...before.enrollments, ...after.enrollments], beforeCtx, token) ||
         (isCare && affectsHomeworkOrMeian(token, beforeCtx))
       ) {
-        reasons.push({ kind: 'enrollment_removed', className: change.baseName });
+        reasons.push({ kind: 'enrollment_removed', className: change.baseName, rawToken: change.rawToken });
       }
     }
     // 標籤原因：兄弟姊妹／特殊折扣 → 所有類別；園內生 → 只掛 care（增減皆然，R13 只改安親適用率）
