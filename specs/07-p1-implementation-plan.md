@@ -155,6 +155,9 @@ web/
 - 跑typecheck、lint、unit、integration、API、production build、E2E及兩條資料gate。
 - 使用477真實資料與5000合成學生量測解析／計算／寫入各段、總時長、查詢時間和瀏覽器篩選耗時；與03的原子性、trace功能同時開啟，不用關掉驗證換取速度。
 - 固定production build、瀏覽器與硬體，記錄冷啟動1次、暖機後10次的中位數和p95。目標：477筆匯入至可查結果3秒內、重算1秒內、篩選更新200ms內（以p95評估）；首次Next編譯另列。5000筆記數據及無截斷、不崩潰，不冒稱spec已設定相同秒數門檻。
+- **獨立 API 效能回歸量測**：在 `web/` 執行 `npm run test:perf:isolated`（可帶 `-- --port <非3000埠>`）。Runner 建立自有 tmp DB，以 application／adapter 準備 477 位全合成學生，執行 `next build`／`next start`（production），由 Chromium 同源 fetch 依序量四條 GET 路徑：grade／branch 多值、options、options＋tierMismatch=true、選班＋tierMismatch=true。專用單一 spec／單一 worker，不與其他測試檔同時執行，不重用既有服務、不 retry。預設 `npm run test` 保留 API 回應／GET 不寫 DB 的行為驗證，不承擔此計時 gate。CI 在原 job 的全套 test／build 之後序列執行 Chromium 安裝與量測；Chromium 用 `npx playwright install --with-deps chromium` 安裝，未設定瀏覽器 cache。
+- **量測環境記錄**：每次輸出 CPU 型號、logical cores、RAM、OS／架構、Node 版本、Chromium 版本、build 模式、worker／retry 數。每條路徑記首次請求 1 次（不等同獨立 process 冷啟動；前一路徑可暖化共用資源），另暖機 1 次後量 10 次；保留未排序的全部原始 ms，中位數為排序第 5 與第 6 個樣本平均，nearest-rank p95＝ceil(0.95×10)＝第 10 個（最大值）。每一輪獨立 gate p95 < 200ms，不以多輪 p95 中位數遮掉慢樣本；交付連跑至少 5 次，各次數值及失敗皆列出，不重跑到過。
+- **量測邊界**：計時從 Chromium fetch 開始，到 response body 完整讀取為止，包含 HTTP 與 API 執行，不含 JSON parse 或瀏覽器 render。**本量測不含瀏覽器 render；UI 篩選更新的 200ms 未由此自動化覆蓋**。不把此 API gate 宣稱為完整瀏覽器篩選耗時驗收；實際 UI 更新仍須另以固定瀏覽器／硬體量測。
 - 如果效能未達，先定位parser／運算／DB／UI哪一段；只有證據需要才增加索引、結果cache或worker，不直接引入佇列／微服務。
 - 交P1完成報告、可啟動指令、操作網址、測試結果、已知needs_review與仍未原生Excel驗證項目。無法達成門檻要列未完成，不宣稱全通過。
 

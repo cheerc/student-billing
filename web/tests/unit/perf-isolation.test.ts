@@ -37,7 +37,12 @@ describe('獨立效能量測契約', () => {
   });
 
   it('專用 config 單檔、單 worker、無 retry、不重用服務，使用 next start 與 loopback', async () => {
-    const { default: config } = await import('../../playwright.perf.config');
+    const previous = process.env.PERF_DATABASE_PATH;
+    process.env.PERF_DATABASE_PATH = path.join(os.tmpdir(), 'sb-perf-config-test.sqlite');
+    const config = await import('../../playwright.perf.config').then((module) => module.default).finally(() => {
+      if (previous === undefined) delete process.env.PERF_DATABASE_PATH;
+      else process.env.PERF_DATABASE_PATH = previous;
+    });
     expect(config.testDir).toBe('./tests/perf');
     expect(config.testMatch).toBe('filter-api.spec.ts');
     expect(config.workers).toBe(1);
@@ -70,6 +75,3 @@ describe('獨立效能量測契約', () => {
     expect(pkg.scripts['test:perf:isolated']).toBe('tsx scripts/perf-isolated.ts');
   });
 });
-
-// config import 也使用現有 isolation 守衛；測試不啟動 webServer。
-process.env.PERF_DATABASE_PATH ??= path.join(os.tmpdir(), 'sb-perf-config-test.sqlite');
