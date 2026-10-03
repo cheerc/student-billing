@@ -79,19 +79,25 @@ async function main() {
   assertIsolatedE2eTarget({ databasePath: path.join(require('os').tmpdir(), 'sb-acceptance-proxy-validation.sqlite'), port: options.port });
   const selfOrigin = `http://127.0.0.1:${options.port}`;
   const upstreamOrigin = `http://${upstream.hostname}:${upstreamPort}`;
-  /** 僅當 incoming origin 與 proxy 自身 origin 相同才改寫；foreign／null／malformed 原樣，產品照舊 fail-closed。 */
-  const rewriteIfSelfOrigin = (value: string | string[] | undefined): string | undefined => {
-    if (!value) return undefined;
+  /**
+   * 僅當 incoming origin 與 proxy 自身 origin 相同才改寫；foreign／null／malformed 原樣，產品照舊 fail-closed。
+   * 一律回傳 string：空字串是合法 client 值，必須原樣透傳——回傳 undefined 會被寫回 headers
+   * 並使 http.request 於 setHeader 拋 ERR_HTTP_INVALID_HEADER_VALUE，終止整個 proxy（r1 B-1）。
+   */
+  const rewriteIfSelfOrigin = (value: string | string[]): string => {
     const text = Array.isArray(value) ? value[0] : value;
+    if (text === undefined) return '';
     let parsed: URL;
     try { parsed = new URL(text); } catch { return text; }
     return parsed.origin === selfOrigin ? upstreamOrigin : text;
   };
-  /** Referer 保留 path／query，只換 origin 部分（產品只比 host，但保留語意較可預期）。 */
-  const rewriteRefererIfSelfOrigin = (value: string): string => {
+  /** Referer 保留 path／query，只換 origin 部分（產品只比 host，但保留語意較可預期）；空字串同樣原樣透傳。 */
+  const rewriteRefererIfSelfOrigin = (value: string | string[]): string => {
+    const text = Array.isArray(value) ? value[0] : value;
+    if (text === undefined) return '';
     let parsed: URL;
-    try { parsed = new URL(value); } catch { return value; }
-    return parsed.origin === selfOrigin ? upstreamOrigin + parsed.pathname + parsed.search + parsed.hash : value;
+    try { parsed = new URL(text); } catch { return text; }
+    return parsed.origin === selfOrigin ? upstreamOrigin + parsed.pathname + parsed.search + parsed.hash : text;
   };
   if (options.state) fs.mkdirSync(options.state, { recursive: true, mode: 0o700 });
   let rules: Stored[] = [];
