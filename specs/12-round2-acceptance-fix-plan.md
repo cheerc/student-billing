@@ -117,11 +117,12 @@ curl -s -H "x-proxy-token: $TOKEN" -H 'content-type: application/json' \
 ```
 
 - 規則以 `method`＋**完整 pathname**比對（不含 query）；`action` 為 `status`（回指定狀態碼）、`abort`（直接中斷連線）、`delay`（延遲後照常轉發，或搭配 `status`）。`times` 省略＝持續生效，給 `N`＝只生效 N 次並在回應中回報剩餘次數。
-- 清除：`curl -s -H "x-proxy-token: $TOKEN" -H 'content-type: application/json' -d '{"action":"rules","rules":[]}' http://127.0.0.1:3200/__control`（或 `{"action":"clear"}`）。
+- 清除：`curl -s -H "x-proxy-token: $TOKEN" -H 'content-type: application/json' -d '{"action":"rules","rules":[]}' http://127.0.0.1:3200/__control`（或 `{"action":"clear"}`）；清空全部規則，包含 `times` 省略的持續規則。
 - 停止：`curl -s -H "x-proxy-token: $TOKEN" -H 'content-type: application/json' -d '{"action":"stop"}' http://127.0.0.1:3200/__control`。
 - 每次命中印一行 `HIT <method> <pathname> action=<action> at=<ISO>` 作為證據；**不記 query、學生 body、token**。
 - 轉發不緩衝：RSC／streaming／上傳 body 逐片原樣串接；請求與回應標頭原樣轉發（hop-by-hop 標頭除外）。
 - upstream 只接受 `http://127.0.0.1` 且拒絕 3000；規則本身對 `/__control` 無效（控制請求不受注入影響）。
+- 單一請求例外時，未送出 header 回 502，已送出則中斷該回應；代理繼續服務後續請求。
 
 以下為乾淨 clone、系統 git、不帶環境變數照上面指令實跑的實際輸出（raw：`evidence-batch-e/clean-clone-t2.log`）：
 
