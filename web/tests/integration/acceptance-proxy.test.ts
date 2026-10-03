@@ -34,8 +34,8 @@ function cli(args: string[]) {
   return spawnSync(process.execPath, ['--import', loader, script, ...args], { cwd: web, encoding: 'utf8', timeout: 20000 });
 }
 
-/** 真 localhost 上游；chunked=true 時第一片立即送出、其餘延後，用來觀察代理是否緩衝。 */
-async function upstream(port: number, status: number, chunked = false) {
+/** echoHeaders=true 時回應帶上上游收到的 origin/referer；用 header 值（不只狀態碼）斷言有沒有被改寫。 */
+async function upstream(port: number, status: number, chunked = false, echoHeaders = false) {
   const hits: string[] = [];
   const server = http.createServer((request, response) => {
     hits.push(`${request.method} ${request.url}`);
@@ -48,7 +48,10 @@ async function upstream(port: number, status: number, chunked = false) {
       response.writeHead(status, { 'content-type': 'application/json', 'x-upstream': 'yes' });
       if (!chunked) {
         // 不等 request 事件就結束：POST 的 body 還在抵達上游時就回應，會讓 client 看不到回應。
-        response.end(JSON.stringify({ ok: true, method: request.method, url: request.url, body }));
+        response.end(JSON.stringify({
+          ok: true, method: request.method, url: request.url, body,
+          ...(echoHeaders ? { headers: { origin: request.headers.origin ?? null, referer: request.headers.referer ?? null } } : {}),
+        }));
         return;
       }
       response.write(JSON.stringify({ part: 1 }));
@@ -149,7 +152,22 @@ function firstChunk(stream: import('node:stream').Readable) {
   });
 }
 
-const post = (endpoint: string, body: unknown) => raw('POST', endpoint, JSON.stringify(body));
+async function post(endpoint: string, body: unknown, headers: Record<string, string> = {}) {
+  return rawWithHeaders('POST', endpoint, JSON.stringify(body), headers);
+}
+
+/** 自帶 headers 的原始請求（Origin／Referer 觀察用；仍用新的 raw agent）。 */
+function rawWithHeaders(method: string, pathname: string, body: string | undefined, extra: Record<string, string>) {
+  return new Promise<{ status: number; headers: http.IncomingHttpHeaders; stream: import('node:stream').Readable }>((resolve, reject) => {
+    const request = http.request({ port: PROXY_PORT, host: '127.0.0.1', path: pathname, method, agent: new http.Agent({ keepAlive: false }),
+      headers: { ...(body ? { 'content-type': 'application/json', 'content-length': Buffer.byteLength(body) } : {}), ...extra } }, (response) => {
+      resolve({ status: response.statusCode ?? 0, headers: response.headers, stream: response });
+    });
+    request.on('error', reject);
+    request.setTimeout(5000, () => request.destroy(new Error(`無回應（逾時）${method} ${pathname}`)));
+    request.end(body);
+  });
+}
 
 describe('T2：隔離驗收環境前的故障注入代理', () => {
   it('next GET 500 後恢復、GET 故障不擋 POST、abort／delay／streaming／query-body-header 與停止', async () => {
@@ -201,6 +219,34 @@ describe('T2：隔離驗收環境前的故障注入代理', () => {
     expect(Date.now() - firstAt, '第一片不可等到 upstream 結束才到').toBeLessThan(1500);
     response.stream.destroy();
     expect((await instance.control('stop')).status).toBe(200);
+  }, 60000);
+
+  it('同源 Origin／Referer 改寫為 upstream；foreign／null／malformed／缺 header 原樣抵達（issue #57）', async () => {
+    const app = await upstream(upstreamPorts[3], 200, false, true);
+    const instance = await proxy(upstreamPorts[3]);
+    const selfOrigin = `http://127.0.0.1:${PROXY_PORT}`;
+    const upstreamOrigin = `http://127.0.0.1:${upstreamPorts[3]}`;
+    const echo = async (headers: Record<string, string>, body: unknown = { a: 1 }) => {
+      const response = await post('/api/v1/settings/preview', body, headers);
+      const text = await readAll(response.stream);
+      return { status: response.status, headers: JSON.parse(text).headers as { origin: string | null; referer: string | null } };
+    };
+
+    // 同源（真瀏覽器經 proxy 的情形）：改寫為 upstream，產品 Host 比對因此通過。
+    expect(await echo({ origin: selfOrigin })).toEqual({ status: 200, headers: { origin: upstreamOrigin, referer: null } });
+    expect(await echo({ referer: `${selfOrigin}/imports?x=1` })).toEqual({ status: 200, headers: { origin: null, referer: `${upstreamOrigin}/imports?x=1` } });
+    // 外來值一個字都不改（判斷式是「等於 proxy 自身」，不是「不等於 upstream 就改」）。
+    for (const origin of ['https://evil.example.com', 'null', 'not-a-url', 'http://127.0.0.1:9', upstreamOrigin]) {
+      expect(await echo({ origin })).toEqual({ status: 200, headers: { origin, referer: null } });
+    }
+    expect(await echo({ referer: 'https://evil.example.com/page' })).toEqual({ status: 200, headers: { origin: null, referer: 'https://evil.example.com/page' } });
+    // 缺 header 時不新增任何一個。
+    expect(await echo({})).toEqual({ status: 200, headers: { origin: null, referer: null } });
+    // Origin 存在時仍以 Origin 為準：同源 Origin 被改寫後，外來 Referer 不影響判定但也原樣保留。
+    expect(await echo({ origin: selfOrigin, referer: 'https://evil.example.com/page' })).toEqual({ status: 200, headers: { origin: upstreamOrigin, referer: 'https://evil.example.com/page' } });
+
+    await instance.control('stop');
+    await app.close();
   }, 60000);
 
   it('拒絕 3000 upstream 與非法指令；缺檔時 CLI 真實失敗', () => {
