@@ -249,6 +249,24 @@ describe('T2：隔離驗收環境前的故障注入代理', () => {
     await app.close();
   }, 60000);
 
+  it('空字串 Origin／Referer 原樣透傳且不崩潰（issue #57 r1 B-1 回歸）', async () => {
+    const app = await upstream(upstreamPorts[3], 200, false, true);
+    const instance = await proxy(upstreamPorts[3]);
+    const selfOrigin = `http://127.0.0.1:${PROXY_PORT}`;
+    const echo = async (headers: Record<string, string>) => {
+      const response = await post('/api/v1/settings/preview', { a: 1 }, headers);
+      return { status: response.status, headers: JSON.parse(await readAll(response.stream)).headers as { origin: string | null; referer: string | null } };
+    };
+    // 空值是合法 client 行為，必須原樣轉發（不是「沒有這個標頭」），proxy 也不可因它崩潰。
+    expect(await echo({ origin: '' })).toEqual({ status: 200, headers: { origin: '', referer: null } });
+    expect(await echo({ referer: '' })).toEqual({ status: 200, headers: { origin: null, referer: '' } });
+    expect(await echo({ origin: '', referer: `${selfOrigin}/p` })).toEqual({ status: 200, headers: { origin: '', referer: `http://127.0.0.1:${upstreamPorts[3]}/p` } });
+    // 崩潰會讓整個 proxy 永久下線（後續連 /__control 都 ECONNREFUSED），故以真控制請求證明行程存活。
+    expect((await instance.control('rules', { rules: [] })).status).toBe(200);
+    await instance.control('stop');
+    await app.close();
+  }, 60000);
+
   it('拒絕 3000 upstream 與非法指令；缺檔時 CLI 真實失敗', () => {
     expect(cli(['--port', '3851', '--upstream', 'http://127.0.0.1:3000', '--token', 't']).stderr).toContain('3000');
     expect(cli(['--upstream', 'http://127.0.0.1:3300']).status).not.toBe(0);
