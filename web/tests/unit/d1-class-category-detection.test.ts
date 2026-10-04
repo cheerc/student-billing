@@ -117,11 +117,14 @@ describe('class-category 純函式架構約束', () => {
     // D2b：課表 UI 也讀取此模組（顯示自動偵測的類別與固定 5 天）。
     // Round3 PR-1（spike §B4）：異動明細（roster-changes.ts）也讀取此模組，讓 before 側與 run 端**同源**解析類別
     // （specs/11 §3 B1-D「共用同一套類別解析」；operator decisions d-20261002162050527935-68／-75）。
+    // #80：屬性欄併入 schedule-grid.tsx（取代已刪除的 class-attributes-panel.tsx）。
+    // #81：Excel 匯入把白話標籤對回內部類別值，走同一份 CATEGORY_LABELS（單一來源，不另寫一份對照表）。
     expect(importers.sort()).toEqual([
+      'adapters/xlsx/schedule-table-io.ts',
       'application/calculate-run.ts',
       'application/roster-changes.ts',
       'components/settings-editor.tsx',
-      'components/settings/class-attributes-panel.tsx',
+      'components/settings/schedule-grid.tsx',
       'domain/billing/billing-calculator.ts',
       'domain/billing/discount-rules.ts',
     ].sort());

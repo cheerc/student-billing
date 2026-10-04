@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   ScheduleGridRowSchema,
   ScheduleGridRow,
+  SessionSchema,
   timeStringToMinutes,
   minutesToTimeString,
   gridRowsToClasses,
@@ -156,5 +157,88 @@ describe('D1: 平鋪排課時段列模型與驗證測試 (settings-grid-model)',
     expect(roundTrip.length).toBe(1);
     expect(roundTrip[0].baseName).toBe('國小數學-一B');
     expect(roundTrip[0].sessions.length).toBe(0);
+  });
+
+  /**
+   * #82：新增時段只有「班級名稱」必填，其餘（老師／星期／起迄）可留空。
+   *
+   * 這裡鎖的是**放寬的邊界**：平鋪列接受空星期並正規化為空字串，但存檔契約
+   * （`SessionSchema`／`SavedWeekdaySchema`）必須仍然拒絕空白星期（09 §3.1）——
+   * 兩者一起斷言，才不會有人日後「順手」把 SessionSchema 也放寬而悄悄改掉存檔語意。
+   */
+  describe('#82：平鋪列可留空、存檔契約不放寬', () => {
+    const placeholderBase = {
+      rowId: 'row-placeholder',
+      className: '新開班-待排課',
+      teacher: null,
+      startTime: '',
+      endTime: '',
+      startMinutes: null,
+      endMinutes: null,
+      active: true,
+    };
+
+    it('10. 星期留空字串的佔位列可通過平鋪列契約，並保持為空字串', () => {
+      const parsed = ScheduleGridRowSchema.safeParse({ ...placeholderBase, weekday: '' });
+      expect(parsed.success).toBe(true);
+      if (parsed.success) expect(parsed.data.weekday).toBe('');
+    });
+
+    it('11. 星期為 null 時正規化為空字串（row 型別維持 string，下游不必處理 null）', () => {
+      const parsed = ScheduleGridRowSchema.safeParse({ ...placeholderBase, weekday: null });
+      expect(parsed.success).toBe(true);
+      if (parsed.success) {
+        expect(parsed.data.weekday).toBe('');
+        expect(typeof parsed.data.weekday).toBe('string');
+      }
+    });
+
+    it('12. 星期欄位缺漏時預設為空字串', () => {
+      const { weekday, ...withoutWeekday } = { ...placeholderBase, weekday: '' };
+      expect(weekday).toBe('');
+      const parsed = ScheduleGridRowSchema.safeParse(withoutWeekday);
+      expect(parsed.success).toBe(true);
+      if (parsed.success) expect(parsed.data.weekday).toBe('');
+    });
+
+    it('13. 星期超過 8 字元仍被拒絕（長度上限不放寬，避免無意義 payload 進草稿）', () => {
+      const parsed = ScheduleGridRowSchema.safeParse({ ...placeholderBase, weekday: '一二三四五六七八九' });
+      expect(parsed.success).toBe(false);
+    });
+
+    it('14. 存檔契約 SessionSchema 仍拒絕空白星期（#82 不放寬存檔，09 §3.1）', () => {
+      const blank = SessionSchema.safeParse({ weekday: '', startMinutes: 780, endMinutes: 900 });
+      expect(blank.success).toBe(false);
+      const ok = SessionSchema.safeParse({ weekday: '一', startMinutes: 780, endMinutes: 900 });
+      expect(ok.success).toBe(true);
+    });
+
+    it('15. 只有班名的佔位列不產出 session，但班級本身保留（不因沒有時段就消失）', () => {
+      const rows = buildSeedGridRows();
+      rows.push(ScheduleGridRowSchema.parse({ ...placeholderBase, weekday: '' }));
+
+      const classes = gridRowsToClasses(rows);
+      const placeholder = classes.find((c) => c.baseName === '新開班-待排課');
+      expect(placeholder).toBeDefined();
+      expect(placeholder?.sessions).toEqual([]);
+      expect(placeholder?.active).toBe(true);
+      // 其餘 89 筆 seed 列不受影響（放寬沒有改變既有班的產出）。
+      // 40 與 9 來自 probes/count-baseline.mts 實測（89 列 → 49 班，其中 40 班有 session、9 班為
+      // 8 個 care_window 班 + 國小數學-一B），不是手算。
+      const withSessions = classes.filter((c) => c.sessions.length > 0);
+      expect(withSessions).toHaveLength(40);
+      expect(classes.filter((c) => c.sessions.length === 0)).toHaveLength(10); // 9 個 seed 空時段班 + 新增的佔位班
+      expect(withSessions.some((c) => c.baseName === '新開班-待排課')).toBe(false);
+    });
+
+    it('16. 往返保真：只有班名的列 classesToGridRows → gridRowsToClasses 仍回空 sessions', () => {
+      const classes = gridRowsToClasses([ScheduleGridRowSchema.parse({ ...placeholderBase, weekday: '' })]);
+      const flat = classesToGridRows(classes);
+      expect(flat).toHaveLength(1);
+      expect(flat[0].className).toBe('新開班-待排課');
+      expect(flat[0].startMinutes).toBeNull();
+      const roundTrip = gridRowsToClasses(flat);
+      expect(roundTrip[0].sessions).toEqual([]);
+    });
   });
 });

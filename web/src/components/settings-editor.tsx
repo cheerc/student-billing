@@ -24,7 +24,6 @@ import { ScheduleGrid } from '@/components/settings/schedule-grid';
 import { ImpactDialog, SettingsPreviewData } from '@/components/settings/impact-dialog';
 import { LeaveConfirmDialog } from '@/components/settings/leave-confirm-dialog';
 import { MappingPanel } from '@/components/settings/mapping-panel';
-import { ClassAttributesPanel } from '@/components/settings/class-attributes-panel';
 import {
   attributesFromDraftClasses,
   attributesFromBaselineClasses,
@@ -539,11 +538,6 @@ export default function SettingsEditor({
     setPreview(null);
   };
 
-  /** 類別面板只列使用者此刻看得見的班（跟著課表搜尋／星期篩選一致）。 */
-  const visibleClassNames = useMemo(() => {
-    return [...new Set(rows.map((r) => r.className.trim()).filter(Boolean))];
-  }, [rows]);
-
   // 當前有效班級名稱集合
   const currentActiveBaseNames = useMemo(() => {
     return new Set(
@@ -670,6 +664,104 @@ export default function SettingsEditor({
     setRows((prev) => [...prev, newRow]);
     setPreview(null);
   };
+
+  // ---------------------------------------------------------------------------
+  // #81：課表 Excel 全量匯出／匯入（單純一鍵，無欄位挑選對話框）
+  // ---------------------------------------------------------------------------
+
+  const [scheduleTransferBusy, setScheduleTransferBusy] = useState(false);
+  const [scheduleImportError, setScheduleImportError] = useState<string | null>(null);
+
+  /**
+   * 匯出：把**目前草稿**（含尚未儲存的編輯）整份送給 server 產生 .xlsx。
+   * 匯出的是有效屬性（手動值優先、未手動者為自動偵測值），所以匯出檔本身就是一份完整的課表備份。
+   */
+  const handleExportExcel = useCallback(async () => {
+    setScheduleTransferBusy(true);
+    setScheduleImportError(null);
+    try {
+      const payload = JSON.stringify({
+        rows,
+        classAttrs: [...currentAttrs.entries()].map(([className, a]) => ({
+          className,
+          category: a.category,
+          fixedFiveDays: a.fixedFiveDays,
+        })),
+      });
+      const formData = new FormData();
+      formData.set('mode', 'export');
+      formData.set('payload', payload);
+
+      const res = await fetch('/api/v1/settings/schedule-table', { method: 'POST', body: formData });
+      if (!res.ok) {
+        setScheduleImportError('匯出失敗，請稍後再試一次。');
+        return;
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = '課表.xlsx';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+      showToast('已匯出完整課表 Excel');
+    } catch {
+      setScheduleImportError('匯出失敗，請稍後再試一次。');
+    } finally {
+      setScheduleTransferBusy(false);
+    }
+  }, [rows, currentAttrs, showToast]);
+
+  /**
+   * 匯入：整批取代目前草稿。
+   * 解析與格式驗證在 server 端（`schedule-table-io`），任何一列不合法即整批拒絕，
+   * 回傳的 error 直接顯示、**不動 rows** —— 因此不會出現「套用了一半」的破碎狀態。
+   * 匯入的屬性一律視為使用者明確指定（manual）：匯入是顯式動作，不該被自動偵測改回去。
+   */
+  const handleImportExcel = useCallback(async (file: File) => {
+    setScheduleTransferBusy(true);
+    setScheduleImportError(null);
+    try {
+      const formData = new FormData();
+      formData.set('mode', 'import');
+      formData.set('file', file);
+
+      const res = await fetch('/api/v1/settings/schedule-table', { method: 'POST', body: formData });
+      const json = await res.json().catch(() => null);
+      if (!res.ok) {
+        setScheduleImportError(json?.error ?? '匯入失敗，請確認檔案是本工具匯出的課表 Excel。');
+        return;
+      }
+
+      const importedRows = json?.rows as ScheduleGridRow[] | undefined;
+      if (!Array.isArray(importedRows) || importedRows.length === 0) {
+        setScheduleImportError('這個 Excel 檔案裡沒有任何課表資料列。');
+        return;
+      }
+
+      setRows(importedRows);
+      const nextAttrs = new Map<string, ClassAttributesView>();
+      for (const a of json?.classAttrs as Array<{ className: string; category: ClassCategory; fixedFiveDays: boolean }>) {
+        nextAttrs.set(a.className, {
+          category: a.category,
+          categorySource: 'manual',
+          fixedFiveDays: a.fixedFiveDays,
+          fixedSource: 'manual',
+        });
+      }
+      setManualAttrs(nextAttrs);
+      // 匯入是整份取代，不是「沿用原本的手動值」：清掉改名繼承與「已恢復自動」的紀錄
+      setRestoredAutoNames(new Set());
+      setPreview(null);
+      showToast(`已匯入課表（${importedRows.length} 個時段），請確認後儲存`);
+    } catch {
+      setScheduleImportError('匯入失敗，請確認檔案是本工具匯出的課表 Excel。');
+    } finally {
+      setScheduleTransferBusy(false);
+    }
+  }, [showToast]);
 
   // 還原到 baseline（取消修改與離頁時「捨棄修改」共用）
   const resetDraft = () => {
@@ -873,16 +965,8 @@ export default function SettingsEditor({
             </div>
           )}
 
-          {/* D2b 2（D37 1a）：折扣類別與固定 5 天（自動偵測＋可手動覆寫／恢復自動） */}
-          <ClassAttributesPanel
-            attributes={currentAttrs}
-            visibleClassNames={visibleClassNames}
-            onSelectCategory={handleSelectCategory}
-            onToggleFixedFiveDays={handleToggleFixedFiveDays}
-            onRestoreAuto={handleRestoreAuto}
-          />
-
-          {/* 89 筆平鋪時段表格 */}
+          {/* #80：折扣類別與固定 5 天已併入下方「89 筆平鋪時段表格」，同一列一次完成（不再有獨立的屬性卡片） */}
+          {/* 89 筆平鋪時段表格（含班級屬性欄、Excel 匯出入工具列） */}
           <ScheduleGrid
             rows={rows}
             onUpdateRow={handleUpdateRow}
@@ -893,6 +977,14 @@ export default function SettingsEditor({
             calculateInputRows={calculateInputRows}
             calculateError={calculateError}
             focusClass={focusClass}
+            classAttributes={currentAttrs}
+            onSelectCategory={handleSelectCategory}
+            onToggleFixedFiveDays={handleToggleFixedFiveDays}
+            onRestoreAuto={handleRestoreAuto}
+            onExportExcel={handleExportExcel}
+            onImportExcel={handleImportExcel}
+            importError={scheduleImportError}
+            transferBusy={scheduleTransferBusy}
           />
         </section>
       )}

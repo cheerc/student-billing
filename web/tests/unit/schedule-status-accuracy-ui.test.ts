@@ -73,8 +73,12 @@ describe('UX07（修訂）：ScheduleGrid 對未知／空白星期的呈現', ()
     // 可聚焦：徽章是 <button>，名稱「需確認原因」
     expect(tr).toMatch(/<button[^>]*aria-label="需確認原因"[^>]*>[\s\S]*?需確認[\s\S]*?<\/button>/);
     // 四個計算欄（課程時長以外）都不是 0：以徽章取代
-    const tds = tr.match(/<td[\s\S]*?<\/td>/g)!;
-    const calcCells = tds.slice(5, 9); // 安親重疊、安親扣除、課輔重疊、課輔扣除
+    // 以 class 選欄，不以欄位索引 —— #80 在表格前方插了「列入多科折扣」「天數固定 5 天」兩欄，
+    // 索引式的 slice 會在欄位增加時默默指到錯的欄位（這正是本檔先前兩個失敗的原因）。
+    const calcCells = (
+      tr.match(/<td class="(?:number )?(?:cblue|cteal)" data-calc="[a-z-]+">[\s\S]*?<\/td>/g) ?? []
+    ); // 安親重疊、安親扣除、課輔重疊、課輔扣除
+    expect(calcCells).toHaveLength(4);
     for (const cell of calcCells) {
       expect(cell).toContain('需確認');
       expect(cell).not.toMatch(/>0</);
@@ -101,7 +105,7 @@ describe('UX07（修訂）：ScheduleGrid 對未知／空白星期的呈現', ()
     const tr = trOf(html, '測試班');
     expect(tr).not.toContain('row-unknown-weekday');
     expect(tr).not.toContain('需確認');
-    expect(tr).toMatch(/<td class="number cblue">0<\/td>/);
+    expect(tr).toMatch(/<td class="number cblue" data-calc="anqin-overlap">0<\/td>/);
     expect(html).not.toContain('data-unknown-weekday-notice');
   });
 
@@ -113,7 +117,11 @@ describe('UX07（修訂）：ScheduleGrid 對未知／空白星期的呈現', ()
     const now = [row({ rowId: 'r1', className: '測試班', weekday: '八' })]; // 剛改成非法值，新結果尚未回來
     const html = renderGrid({ rows: now, calculateResult: oldResult, calculateInputRows: before });
     const tr = trOf(html, '測試班');
-    const calcCells = (tr.match(/<td[\s\S]*?<\/td>/g) ?? []).slice(4, 9); // 課程時長、安親×2、課輔×2
+    // 同上：以 class 選欄而非索引（#80 新增了兩欄，索引 slice 會指錯欄）
+    const calcCells = (
+      tr.match(/<td class="(?:col-duration )?number"[^>]*data-calc="duration">[\s\S]*?<\/td>|<td class="number (?:cblue|cteal)"[^>]*data-calc="[a-z-]+">[\s\S]*?<\/td>/g) ?? []
+    ); // 課程時長、安親×2、課輔×2
+    expect(calcCells).toHaveLength(5);
     for (const cell of calcCells) {
       expect(cell).not.toMatch(/>40</);
       expect(cell).not.toMatch(/>20</);

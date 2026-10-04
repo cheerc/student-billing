@@ -28,7 +28,7 @@ import { brokenXlsx, missingHeadersXlsx, sideLink, xlsxUpload } from './helpers/
 const FIXTURE = path.resolve(__dirname, '../fixtures/conforming-erp-fixture.xlsx');
 
 /** scan() 呼叫次數（每個頁面狀態一次，標籤不得重複）。 */
-const EXPECTED_STATES = 40;
+const EXPECTED_STATES = 42; // #81／#82（本 PR）：＋課表 Excel 匯入失敗、＋未設定時間說明
 
 /** 09 §7 文案表 ＋ 任務清單：日常介面不得出現。 */
 const FORBIDDEN: Array<{ term: string; re: RegExp }> = [
@@ -140,6 +140,26 @@ test.describe('R5 文案全頁掃描（09 §7）', () => {
     await scan(page, '課表設定｜計算失敗', violations);
     await page.unroute('**/api/v1/settings/calculate');
     await cancelEdits();
+
+    // #81（本 PR 新增的畫面狀態，依 09:254 必須加入掃描清單）：上傳非課表檔 →
+    // 整批拒絕的白話錯誤（錯誤訊息本身不得含工程字）
+    await page.locator('input[type="file"]').setInputFiles({
+      name: 'not-a-schedule.txt',
+      mimeType: 'text/plain',
+      buffer: Buffer.from('這不是 Excel'),
+    });
+    await expect(page.locator('[data-schedule-import-error]')).toBeVisible({ timeout: 10000 });
+    await scan(page, '課表設定｜課表 Excel 匯入失敗（整批拒絕）', violations);
+
+    // #82／#80（本 PR 新增的畫面狀態）：「未設定時間」說明按鈕（focus 才開 tooltip，
+    // 內容不得含工程字）；「自動設定」與「未手動修改」的操作欄文案
+    await page.reload();
+    await expect(page.locator('h1', { hasText: '課表設定' })).toBeVisible({ timeout: 10000 });
+    const notSetTip = page.getByRole('button', { name: '未設定時間' }).first();
+    await notSetTip.focus();
+    await expect(page.getByRole('tooltip')).toBeVisible({ timeout: 10000 });
+    await scan(page, '課表設定｜未設定時間說明（tooltip）', violations);
+    await page.keyboard.press('Escape');
 
     await row3.locator('input.input-time').first().fill('14:20');
     await sideLink(page, /匯入學生/).click();

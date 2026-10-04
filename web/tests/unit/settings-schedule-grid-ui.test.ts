@@ -116,10 +116,10 @@ describe('R2 UI 元件與排課工作流程（RED 測試）', () => {
         })
       );
 
-      expect(html).toContain('<td class="number cblue">—</td>');
-      expect(html).toContain('<td class="number cteal">—</td>');
-      expect(html).not.toContain('<td class="number cblue">0</td>');
-      expect(html).not.toContain('<td class="number cteal">0</td>');
+      expect(html).toContain('<td class="number cblue" data-calc="anqin-overlap">—</td>');
+      expect(html).toContain('<td class="number cteal" data-calc="tutoring-overlap">—</td>');
+      expect(html).not.toContain('<td class="number cblue" data-calc="anqin-overlap">0</td>');
+      expect(html).not.toContain('<td class="number cteal" data-calc="tutoring-overlap">0</td>');
     });
 
     it('計算結果回來且確實沒有重疊（no_overlap）時，重疊欄才顯示 0', () => {
@@ -155,11 +155,11 @@ describe('R2 UI 元件與排課工作流程（RED 測試）', () => {
         })
       );
 
-      expect(html).toContain('<td class="number cblue">0</td>');
-      expect(html).toContain('<td class="number cteal">0</td>');
+      expect(html).toContain('<td class="number cblue" data-calc="anqin-overlap">0</td>');
+      expect(html).toContain('<td class="number cblue" data-calc="anqin-deduction">0</td>');
     });
 
-    it('不完整列（缺起訖時間）時顯示「待補」或警告提示，不崩潰', () => {
+    it('不完整列（缺起訖時間）時平靜顯示「—」且對螢讀可讀為「未設定時間」，不崩潰（#82；decision d-20261004093019108435-11）', () => {
       const incompleteRow = {
         rowId: 'row-incomplete-1',
         className: '國小數學-一A',
@@ -210,7 +210,14 @@ describe('R2 UI 元件與排課工作流程（RED 測試）', () => {
         })
       );
 
-      expect(html).toContain('待補');
+      // #82：不再顯示「待補」badge，改為平靜的「—」＋ aria-label「未設定時間」
+      expect(html).not.toContain('待補');
+      expect(html).not.toContain('badge-incomplete');
+      // 5 個計算欄位（時長 + 安親×2 + 課輔×2）
+      // 五個計算欄各有可聚焦的「未設定時間」說明按鈕（不是只靠 title 的 hover）
+      expect(html.match(/aria-label="未設定時間"/g)?.length).toBe(5);
+      expect(html).not.toContain('title="未設定時間"');
+      expect(html).toMatch(/<button[^>]*aria-label="未設定時間"/);
     });
   });
 
