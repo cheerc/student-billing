@@ -51,3 +51,7 @@ jobs:
       - name: Isolated production API performance (477 students, no retries)
         working-directory: web
         run: npm run test:perf:isolated
+
+      - name: Isolated roster changes performance (477 students, no retries)
+        working-directory: web
+        run: npm run test:perf:roster-isolated
