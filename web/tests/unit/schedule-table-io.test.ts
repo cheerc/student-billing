@@ -17,7 +17,14 @@ import {
   scheduleImportRowsToGridRows,
   ScheduleTableImportError,
 } from '@/adapters/xlsx/schedule-table-io';
-import { ScheduleGridRowSchema, type ScheduleGridRow } from '@/contracts/settings';
+import {
+  ScheduleGridRowSchema,
+  buildSeedGridRows,
+  classesToGridRows,
+  gridRowsToClasses,
+  type ScheduleGridRow,
+} from '@/contracts/settings';
+import { normalizeWeekday } from '@/domain/schedules/overlap-calculator';
 
 /** 手算的完整課表（3 列、2 個班；含一列「只有班名」的佔位列，#82 的形狀）。 */
 const FIXTURE_ROWS: ScheduleGridRow[] = [
@@ -326,6 +333,72 @@ describe('#81：課表 Excel 全量匯出／匯入', () => {
       expect(message).not.toMatch(/Error|undefined|NaN|\.xlsx:/);
       // 但仍要指出位置，讓使用者找得到那一列
       expect(message).toContain('第 2 列');
+    });
+  });
+
+  /**
+   * 回歸：匯出的檔案必須能被自己的匯入端接受。
+   *
+   * 這不是風格偏好，是 #81 的核心契約（Expected Outcome 2「整批還原班級、時段、
+   * 折扣類別與固定 5 天」）。實際踩到過：`classesToGridRows` 過去把空 sessions 班的
+   * 星期寫成 `'—'`，那是 `normalizeWeekday` 不認得的**非空**值 → 匯出檔匯回來時被
+   * 「星期無法辨識」整批拒絕，使用者剛匯出就匯不回去。
+   *
+   * 這個測試刻意**用真實的 app row 來源**（seed → classes → grid 的完整往返），
+   * 不用挑過的 fixture：手挑 fixture 挑不到就等於沒有這條保護。
+   */
+  describe('回歸：自己匯出的檔案，自己匯得回去', () => {
+    const appRows = () => {
+      const seed = buildSeedGridRows();
+      // 與 settings-editor 的 initialRows 同一條路徑
+      const viaClasses = classesToGridRows(gridRowsToClasses(seed));
+      return viaClasses.length > 0 ? viaClasses : seed;
+    };
+
+    const appAttrs = (rows: ScheduleGridRow[]) =>
+      [...new Set(rows.map((r) => r.className))].map((className) => ({
+        className,
+        category: 'none' as const,
+        fixedFiveDays: false,
+      }));
+
+    it('seed 課表（89 列）匯出後能原封不動匯回來', async () => {
+      const rows = appRows();
+      const buffer = await buildScheduleWorkbook(rows, appAttrs(rows));
+      const result = await parseScheduleWorkbook(buffer);
+      expect(result.rows).toHaveLength(rows.length);
+    });
+
+    it('每一列的星期都匯得回來（沒有 normalizeWeekday 不認得的非空值）', async () => {
+      const rows = appRows();
+      const buffer = await buildScheduleWorkbook(rows, appAttrs(rows));
+      const result = await parseScheduleWorkbook(buffer);
+      // 匯入端只接受一到日或空白；這裡再確認一次「空白」真的是空白而非某個符號
+      for (const row of result.rows) {
+        expect(
+          row.weekday === '' || normalizeWeekday(row.weekday) !== null,
+          `第 ${result.rows.indexOf(row) + 1} 列的星期「${row.weekday}」無法辨識`
+        ).toBe(true);
+      }
+    });
+
+    it('空 sessions 的佔位列匯出的是「空白星期」，不是破折號之類的符號', async () => {
+      const rows = appRows();
+      // 找出至少一個沒有 session 的班（seed 內有 9 個），確認它的佔位列星期是空字串
+      const withSessions = new Set(
+        gridRowsToClasses(buildSeedGridRows())
+          .filter((c) => c.sessions.length > 0)
+          .map((c) => c.baseName)
+      );
+      const placeholder = rows.find((r) => !withSessions.has(r.className));
+      expect(placeholder, 'seed 應有沒有 session 的班').toBeDefined();
+      expect(placeholder!.weekday).toBe('');
+
+      // 這一列照樣能匯出、匯回
+      const buffer = await buildScheduleWorkbook([placeholder!], appAttrs([placeholder!]));
+      const result = await parseScheduleWorkbook(buffer);
+      expect(result.rows).toHaveLength(1);
+      expect(result.rows[0].weekday).toBe('');
     });
   });
 });

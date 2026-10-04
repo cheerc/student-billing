@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { resetSeedSettings, reloadSettings } from './helpers/d2c-settings';
+import { exportBuffer, readScheduleRows } from './helpers/schedule-excel';
 
 /**
  * #81：課表 Excel 全量匯出／匯入（單純一鍵，**不提供任何欄位挑選或勾選對話框**）。
@@ -11,6 +11,10 @@ import { resetSeedSettings, reloadSettings } from './helpers/d2c-settings';
  *
  * 真實瀏覽器的下載與上傳：用 Playwright 的 `download` 事件取匯出檔，再以
  * `setInputFiles` 把它原樣餵回匯入（真正的 round-trip，不手工重造檔案）。
+ *
+ * **每列都有可編輯的類別下拉**（#80 併入表格的結果）：同一班的多列各有一顆，值相同。
+ * 因此所有「某班的類別」定位都用 `.first()` 收斂到該班第一列 —— 這是刻意的：
+ * 同一班多列本來就代表同一個班屬性，改任一列都會改到同一個值。
  */
 
 test.describe('#81：課表 Excel 全量匯出／匯入', () => {
@@ -36,8 +40,9 @@ test.describe('#81：課表 Excel 全量匯出／匯入', () => {
 
   test('#81-2: 匯出檔可被重新匯入且內容一致（真正的 round-trip）', async ({ page }) => {
     // 先改一筆：把「國小數學-四A」手動設成不列入折扣，讓匯出帶著手動值出去
-    await page.locator('[data-category-select="國小數學-四A"]').selectOption('none');
-    await expect(page.locator('[data-restore-auto="國小數學-四A"]')).toBeVisible();
+    // （同一班 2 列 → .first()，值是班級層級的，改任一列都一樣）
+    await page.locator('[data-category-select="國小數學-四A"]').first().selectOption('none');
+    await expect(page.locator('[data-restore-auto="國小數學-四A"]').first()).toBeVisible();
 
     // 匯出
     const downloadPromise = page.waitForEvent('download');
@@ -54,21 +59,18 @@ test.describe('#81：課表 Excel 全量匯出／匯入', () => {
     await expect(page.locator('.save-status-dirty')).toBeVisible();
 
     // 匯入後手動值仍在（匯入是明確指定，不被自動偵測改回去）
-    await expect(page.locator('[data-category-select="國小數學-四A"]')).toHaveValue('none');
-    await expect(page.locator('[data-restore-auto="國小數學-四A"]')).toBeVisible();
+    await expect(page.locator('[data-category-select="國小數學-四A"]').first()).toHaveValue('none');
+    await expect(page.locator('[data-restore-auto="國小數學-四A"]').first()).toBeVisible();
 
     // 表格仍有 seed 的 89 筆時段（整批取代不是清空）
     await expect(page.locator('tr.schedule-row')).toHaveCount(89);
   });
 
-  test('#81-3: 匯出 → 匯入 → 匯出，兩次匯出檔內容逐位元組一致（冪等）', async ({ page }) => {
-    const exportOnce = async () => {
-      const p = page.waitForEvent('download');
-      await page.locator('[data-schedule-export]').click();
-      return Buffer.from(await (await p).path()!);
-    };
+  test('#81-3: 匯出 → 匯入 → 匯出，兩次匯出檔的**資料內容**一致（值層級冪等）', async ({ page }) => {
+    // 不比對 zip 位元組：ExcelJS 寫入 zip 會帶檔案時間戳，位元組相同過於嚴格。
+    // 這裡比的是「資料」——把兩份檔案的資料列讀出來逐格對照。
+    const first = await exportBuffer(page);
 
-    const first = await exportOnce();
     await page.locator('input[type="file"]').setInputFiles({
       name: '課表.xlsx',
       mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
@@ -76,11 +78,11 @@ test.describe('#81：課表 Excel 全量匯出／匯入', () => {
     });
     await expect(page.locator('#toast')).toContainText('已匯入課表', { timeout: 15000 });
 
-    const second = await exportOnce();
-    // ExcelJS 產生的 zip 含檔案時間戳，位元組相同過於嚴格；比長度與前 2KB 的內容已足以證明
-    // 資料本身一致（資料在 sheet XML 的開頭，metadata 在結尾）。
-    expect(second.length).toBe(first.length);
-    expect(second.subarray(0, 2048).equals(first.subarray(0, 2048))).toBe(true);
+    const second = await exportBuffer(page);
+
+    // 資料列逐格一致（忽略 zip metadata），且不是空資料
+    expect((await readScheduleRows(second)).length).toBe(89);
+    expect(await readScheduleRows(second)).toEqual(await readScheduleRows(first));
   });
 
   test('#81-4: 格式不符的檔案整批拒絕，明說「沒有套用任何資料」，草稿不變', async ({ page }) => {
@@ -99,11 +101,5 @@ test.describe('#81：課表 Excel 全量匯出／匯入', () => {
     // 草稿完全沒動
     await expect(page.locator('tr.schedule-row')).toHaveCount(before);
     await expect(page.locator('.save-status-clean')).toBeVisible();
-  });
-
-  test('清理：還原合成課表', async ({ page }) => {
-    await resetSeedSettings(page);
-    await page.goto('/settings');
-    await reloadSettings(page);
   });
 });

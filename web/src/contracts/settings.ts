@@ -242,12 +242,16 @@ export function classesToGridRows(classes: ClassSetting[]): ScheduleGridRow[] {
         });
       }
     } else {
-      // F2: 空時段班級展平為佔位列，保留該班級在平鋪表格之可見性與可編輯性
+      // F2: 空時段班級展平為佔位列，保留該班級在平鋪表格之可見性與可編輯性。
+      // 星期是**空字串**（#82：只有班名時段，其他欄可留空）——不要用 '—' 當佔位：
+      // '—' 是 `normalizeWeekday` 不認得的非空值，會讓這一列被當成「需確認／無法識別的星期」，
+      // 而且會讓 #81 的 Excel 匯出檔被自己的匯入端整批拒絕（匯入只接受一到日或空白）。
+      // 畫面把空星期顯示成「未定」，所以這裡存空字串不會讓使用者看到空白欄。
       rows.push({
         rowId: `grid-${c.baseName}-${rowSeq++}`,
         className: c.baseName,
         teacher: c.teacher,
-        weekday: '—',
+        weekday: '',
         startTime: '',
         endTime: '',
         startMinutes: null,

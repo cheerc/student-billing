@@ -36,32 +36,36 @@ test.describe('#80：單一表格整合屬性（班級列同時設定類別與�
     await expect(headers).toContainText('帶班老師');
     await expect(headers).toContainText('星期');
 
-    // 國小數學-四A 的類別下拉與 checkbox 都在同一個 <tr> 內
-    const row = page.locator('tr.schedule-row', {
-      has: page.locator('[data-category-select="國小數學-四A"]'),
+    // 國小數學-四A 的類別下拉與 checkbox 都在同一個 <tr> 內。
+    // 該班在 seed 有 2 筆時段 → 有 2 列（#80 併入表格後每一列都能設定該班屬性），
+    // 所以斷言「每一列都同時帶類別下拉與固定 5 天勾選」，而不是「只有一列」。
+    const rows = page.locator('tr.schedule-row', {
+      has: page.locator('[data-category-select="國小數學-四A"]').first(),
     });
-    await expect(row).toHaveCount(1);
-    await expect(row.locator('[data-category-select="國小數學-四A"]')).toHaveValue('math');
-    await expect(row.locator('[data-fixed-five-toggle="國小數學-四A"]')).toBeVisible();
+    await expect(rows).toHaveCount(2);
+    await expect(rows.locator('[data-category-select="國小數學-四A"]')).toHaveCount(2);
+    await expect(rows.locator('[data-fixed-five-toggle="國小數學-四A"]')).toHaveCount(2);
+    await expect(rows.first().locator('[data-category-select="國小數學-四A"]')).toHaveValue('math');
+    await expect(rows.first().locator('[data-fixed-five-toggle="國小數學-四A"]')).toBeVisible();
   });
 
   test('#80-3: 省略「來源：自動／手動」pill，改以「自動設定」按鈕承載狀態', async ({ page }) => {
     // 未手動的班：沒有按鈕，顯示「—」
-    await expect(page.locator('[data-restore-auto="國小數學-四A"]')).toHaveCount(0);
-    await expect(page.locator('[aria-label="國小數學-四A 未手動修改"]')).toBeVisible();
+    await expect(page.locator('[data-restore-auto="國小數學-四A"]').first()).toHaveCount(0);
+    await expect(page.locator('[aria-label="國小數學-四A 未手動修改"]').first()).toBeVisible();
     // 整張表都沒有「自動」／「手動」pill 文字欄
     await expect(page.locator('[data-category-source]')).toHaveCount(0);
     await expect(page.locator('[data-fixed-source]')).toHaveCount(0);
 
     // 手動後：出現可點的「自動設定」按鈕
-    await page.locator('[data-category-select="國小數學-四A"]').selectOption('none');
-    await expect(page.locator('[data-restore-auto="國小數學-四A"]')).toBeVisible();
-    await expect(page.locator('[data-restore-auto="國小數學-四A"]')).toHaveText('自動設定');
+    await page.locator('[data-category-select="國小數學-四A"]').first().selectOption('none');
+    await expect(page.locator('[data-restore-auto="國小數學-四A"]').first()).toBeVisible();
+    await expect(page.locator('[data-restore-auto="國小數學-四A"]').first()).toHaveText('自動設定');
 
     // 點它回到自動偵測值（數學班），按鈕消失
-    await page.locator('[data-restore-auto="國小數學-四A"]').click();
-    await expect(page.locator('[data-category-select="國小數學-四A"]')).toHaveValue('math');
-    await expect(page.locator('[data-restore-auto="國小數學-四A"]')).toHaveCount(0);
+    await page.locator('[data-restore-auto="國小數學-四A"]').first().click();
+    await expect(page.locator('[data-category-select="國小數學-四A"]').first()).toHaveValue('math');
+    await expect(page.locator('[data-restore-auto="國小數學-四A"]').first()).toHaveCount(0);
   });
 
   test('#80-4: 「＋ 新增時段」仍在表格工具列（#80 Expected Outcome 3）', async ({ page }) => {
@@ -123,7 +127,7 @@ test.describe('#80：單一表格整合屬性（班級列同時設定類別與�
 
   test('#80-6: 刪除時段仍在列尾（既有行為保留）', async ({ page }) => {
     const row = page.locator('tr.schedule-row', {
-      has: page.locator('[data-category-select="兒童美語-Gino"]'),
+      has: page.locator('[data-category-select="兒童美語-Gino"]').first(),
     });
     await expect(row.first()).toBeVisible();
     await row.first().getByRole('button', { name: /刪除時段/ }).click();
