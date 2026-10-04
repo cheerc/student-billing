@@ -93,6 +93,10 @@ function installReportRoute(page: Page) {
       failCount = 0;
       failNext = times;
     },
+    /** 調整「每個新序列先失敗幾次」，用於自動重試（多次）與手動［重新載入］（僅一次）不同的情境。 */
+    setSequenceFailCount(times: number) {
+      failNext = times;
+    },
     failAlways() {
       mode = 'fail';
       failCount = Number.MAX_SAFE_INTEGER;
@@ -214,6 +218,8 @@ async function expectNoExplanationText(alert: ReturnType<Page['getByRole']>) {
  */
 const DECIDED_GET_ATTEMPTS = 3;
 const RETRY_COUNT = DECIDED_GET_ATTEMPTS - 1;
+/** R4-F01：［重新載入］不帶自動重試 → 手動序列只有 1 次 GET。 */
+const MANUAL_GET_ATTEMPTS = 1;
 
 test.describe('報告刷新失敗的最短恢復路徑（UX46／operator 裁決 d-…-69）', () => {
   test('R1：apply 後第一次 GET 失敗、自動重試第 2 次成功 → 無錯誤畫面、候選為最新', async ({ page }) => {
@@ -295,26 +301,28 @@ test.describe('報告刷新失敗的最短恢復路徑（UX46／operator 裁決 
     const notice = page.getByRole('alert').filter({ hasText: '無法取得最新的班名比對報告' });
 
     const report = installReportRoute(page);
-    // ［重新載入］的新序列也要整組失敗（含其 2 次自動重試），才會出現［重新整理頁面］
+    // R4-F01（裁決 d-…-3）：［重新載入］＝恰好一次 GET、不帶自動重試，故手動序列只需失敗 1 次。
     report.failEachSequence(DECIDED_GET_ATTEMPTS);
+    // 手動序列開始前把失敗數降為 1：等第一序列用盡後，下一個 GET 只再失敗一次。
+    report.setSequenceFailCount(MANUAL_GET_ATTEMPTS);
 
     const documentRequests = documentRequestCount(page);
 
     await applyAlias(page, R3_ALIAS.raw, R3_ALIAS.target);
     await expect(notice).toBeVisible({ timeout: 30000 });
     await expectNoExplanationText(notice);
-    expect(report.callCount()).toBe(DECIDED_GET_ATTEMPTS);
+    expect(report.callCount(), '儲存後序列：初版＋2 次重試').toBe(DECIDED_GET_ATTEMPTS);
 
     const beforeDocuments = documentRequests();
 
-    // ［重新載入］仍失敗（自動重試也失敗）→ 只換按鈕，不自動整頁 reload
+    // ［重新載入］只發一次 GET，這次失敗即轉［重新整理頁面］，不自動整頁 reload
     await notice.locator('button', { hasText: '重新載入' }).click();
     const refreshPageBtn = notice.locator('button', { hasText: '重新整理頁面' });
     await expect(refreshPageBtn).toBeVisible({ timeout: 30000 });
     await expect(notice.locator('button', { hasText: '重新載入' })).toHaveCount(0);
     await expect(documentRequests()).toBe(beforeDocuments);
-    // ［重新載入］是新的序列：初版＋2 次重試皆失敗（共 DECIDED_GET_ATTEMPTS 次）
-    expect(report.callCount(), '［重新載入］的序列用盡').toBe(DECIDED_GET_ATTEMPTS * 2);
+    // 總數＝儲存後序列 3 次 ＋ 手動序列 1 次＝4；不得有第 5 次（手動不得帶自動重試）。
+    expect(report.callCount(), '［重新載入］只有一次 GET').toBe(DECIDED_GET_ATTEMPTS + MANUAL_GET_ATTEMPTS);
 
     // 按下［重新整理頁面］才整頁 reload
     const navigated = page.waitForEvent('load', { timeout: 30000 });
