@@ -2,6 +2,7 @@
 
 import React, { useEffect, useRef } from 'react';
 import { StudentCalculationItem } from '@/application/query-students';
+import { formatBaseDiscount } from '@/components/summary-table';
 import { issueLabel, issueMessage } from '@/lib/issue-copy';
 
 interface DetailDrawerProps {
@@ -222,11 +223,13 @@ function DrawerPanel({ student, onClose }: { student: StudentCalculationItem; on
               折扣推導
             </h4>
             <div style={{ fontSize: '0.8125rem', display: 'flex', flexDirection: 'column', gap: '6px' }}>
-              <div>已補科數：<strong>{student.subjectCount !== null ? `${student.subjectCount} 科` : '無班級 (null)'}</strong></div>
+              <div>已補科數：<strong>{student.subjectCount !== null ? `${student.subjectCount} 科` : '無班級'}</strong></div>
               <div>
                 基本折扣率：
                 <strong>
-                  {student.baseDiscountBps !== null ? `${student.baseDiscountBps / 100}% (${student.baseDiscountBps / 1000}折)` : '無 (null)'}
+                  {/* R4-S01（裁決 d-20261004023234726869-2）：與學生總表同源，
+                      顯示正式用語「未設定／無折扣／95折／9折」，不顯示 null 或百分比複合格式。 */}
+                  {formatBaseDiscount(student.baseDiscountBps)}
                 </strong>
               </div>
               <div style={{ marginTop: '6px', borderTop: '1px dashed #cbd5e1', paddingTop: '6px' }}>
