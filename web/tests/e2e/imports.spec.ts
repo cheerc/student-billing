@@ -155,11 +155,13 @@ test.describe('Imports Page E2E Test (R3 匯入頁一次完成使用名單)', ()
     await expect(table.locator('tbody tr[data-status="new"]')).toHaveCount(1);
     await expect(table.locator('tbody tr[data-status="not-appeared"]')).toHaveCount(1);
 
+    // 預期班名取自 buildVariantFixture 寫入的名冊原文 token「115國小數學-三A[團]」（第 31 列），
+    // 依 decision d-20261003090015932342-4 逐人明細顯示原文；不由產品輸出回填。
     const changedRow = table.locator('tbody tr[data-status="changed"]');
     await expect(changedRow).toContainText('STU0001');
-    await expect(changedRow.locator('[data-field="enrollment"]')).toHaveText('新增 國小數學-三A');
+    await expect(changedRow.locator('[data-field="enrollment"]')).toHaveText('新增 115國小數學-三A[團]');
     await expect(changedRow.locator('[data-field="class-discount"] .roster-change-discount-values')).toHaveText('無折扣 → 95折');
-    await expect(changedRow.locator('[data-field="class-discount"] [data-reason]')).toHaveText('新增 國小數學-三A');
+    await expect(changedRow.locator('[data-field="class-discount"] [data-reason]')).toHaveText('新增 115國小數學-三A[團]');
     await expect(table.locator('tbody tr[data-status="new"]')).toContainText('STU9999');
     await expect(table.locator('tbody tr[data-status="not-appeared"]')).toContainText('STU0477');
   });

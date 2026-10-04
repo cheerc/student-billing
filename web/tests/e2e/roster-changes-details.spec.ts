@@ -31,6 +31,12 @@ async function workbook(variant: boolean): Promise<Buffer> {
   return zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' });
 }
 
+/**
+ * 班名預期值（decision d-20261003090015932342-4）：逐人異動明細的班名一律顯示名冊原文（含 [團]）。
+ * 預期字串取自本檔 workbook() 的 fixture 原文 token，不由產品輸出回填：
+ *   國小數學-三A[團]（math）／兒童美語-EA[團]（english）／國小輔導-一A[團]（care）／
+ *   國小數學-三B[團]（SWITCH 列）／國小輔導-寫功課[團]、交通車[團]（variant 列）。
+ */
 /** expected 依 R03／R10／R13 獨立手算；不引用待測計算函式或回填頁面輸出。 */
 test('逐人明細：真入口匯入、啟用、第二份預覽與八種異動情境', async ({ page }, testInfo) => {
   test.setTimeout(180_000);
@@ -52,24 +58,24 @@ test('逐人明細：真入口匯入、啟用、第二份預覽與八種異動�
   const discounts = (code: string) => row(code).locator('[data-field="class-discount"] li');
 
   // 加報：英文一科 → 加數學兩科；只有兩側都報名的英文列 10000 → 9500。
-  await expect(enrollment('ADD')).toHaveText('新增 國小數學-三A');
+  await expect(enrollment('ADD')).toHaveText('新增 國小數學-三A[團]');
   await expect(discounts('ADD')).toHaveCount(1);
-  await expect(discounts('ADD').locator('.roster-change-class-name')).toHaveText('兒童美語-EA');
+  await expect(discounts('ADD').locator('.roster-change-class-name')).toHaveText('兒童美語-EA[團]');
   await expect(discounts('ADD').locator('.roster-change-discount-values')).toHaveText('無折扣 → 95折');
-  await expect(discounts('ADD').locator('[data-reason]')).toHaveText('新增 國小數學-三A');
+  await expect(discounts('ADD').locator('[data-reason]')).toHaveText('新增 國小數學-三A[團]');
 
   // 退出：數學＋英文兩科 → 數學一科，保留的數學 9500 → 10000；交通車不計。
-  await expect(enrollment('EXIT')).toContainText('退出 兒童美語-EA');
-  await expect(enrollment('EXIT')).toContainText('新增 交通車');
+  await expect(enrollment('EXIT')).toContainText('退出 兒童美語-EA[團]');
+  await expect(enrollment('EXIT')).toContainText('新增 交通車[團]');
   await expect(discounts('EXIT')).toHaveCount(1);
   await expect(discounts('EXIT').locator('.roster-change-discount-values')).toHaveText('95折 → 無折扣');
-  await expect(discounts('EXIT').locator('[data-reason]')).toHaveText('退出 兒童美語-EA');
+  await expect(discounts('EXIT').locator('[data-reason]')).toHaveText('退出 兒童美語-EA[團]');
 
-  await expect(enrollment('SWITCH')).toHaveText('換班 國小數學-三A → 國小數學-三B');
+  await expect(enrollment('SWITCH')).toHaveText('換班 國小數學-三A[團] → 國小數學-三B[團]');
   await expect(enrollment('SWITCH').locator('li')).toHaveCount(1);
   await expect(row('SWITCH').locator('[data-field="class-discount"]')).toHaveText('—');
   // 寫功課不計多科：math＋english 仍兩科 9500；沒有輔導班可發生 care 折扣變動。
-  await expect(enrollment('HOMEWORK')).toHaveText('新增 國小輔導-寫功課');
+  await expect(enrollment('HOMEWORK')).toHaveText('新增 國小輔導-寫功課[團]');
   await expect(row('HOMEWORK').locator('[data-field="class-discount"]')).toHaveText('—');
 
   // 一科＋兄弟姊妹：effectiveCount 1 → 2，數學 10000 → 9500。
@@ -78,7 +84,7 @@ test('逐人明細：真入口匯入、啟用、第二份預覽與八種異動�
   await expect(discounts('SIBLING').locator('[data-reason]')).toHaveText('加上標籤「有兄弟姊妹折扣」');
   // 一年級 care＋math 兩科；園內生使安親 max(9000, 9500−500)=9000，math 不變。
   await expect(discounts('GARDEN')).toHaveCount(1);
-  await expect(discounts('GARDEN').locator('.roster-change-class-name')).toHaveText('國小輔導-一A');
+  await expect(discounts('GARDEN').locator('.roster-change-class-name')).toHaveText('國小輔導-一A[團]');
   await expect(discounts('GARDEN').locator('.roster-change-discount-values')).toHaveText('95折 → 9折');
   await expect(discounts('GARDEN').locator('[data-reason]')).toHaveText('加上標籤「園內生」');
   for (const reason of await table.locator('[data-reason]').all()) await expect(reason).not.toContainText('交通車');
