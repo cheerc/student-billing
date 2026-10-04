@@ -158,19 +158,27 @@ export default function SummaryTable({
     );
   }
 
-  if (students.length === 0) {
-    return (
-      <div style={{ padding: '48px 24px', textAlign: 'center', color: 'var(--text-muted)' }}>
-        <h3 style={{ fontWeight: 600, fontSize: '0.9375rem', marginBottom: '6px' }}>沒有符合條件的學生</h3>
-        <p style={{ fontSize: '0.8125rem', marginBottom: '16px' }}>請調整篩選條件後再試。目前的核對結果不會改變。</p>
-        {onResetFilters && (
-          <button type="button" className="btn-secondary" style={{ fontSize: '0.8125rem' }} onClick={onResetFilters}>
-            清除篩選條件
-          </button>
-        )}
-      </div>
-    );
-  }
+  // R4-F03：0 人時**不得**整段抽掉表頭。表頭篩選入口在 thead 內（specs/09:151 要求
+  // 「已勾選 0 人值仍可取消且不被 prune」），一旦 0 人就 return 空狀態，使用者便只能
+  // 靠 chip 或「清除篩選條件」繞行，無法從面板調整條件。
+  // 空狀態改放在 tbody 內（同 class-deductions-panel.tsx:203 的既有做法），
+  // 表頭與文案按鈕都保留。「載入中且無資料」仍是獨立分支：此時尚未取得結果，
+  // 顯示空表頭只會誤導為「篩不到人」。
+  const emptyState = students.length === 0 && (
+    <tr>
+      <td colSpan={singleClass !== null ? 14 : 13}>
+        <div style={{ padding: '48px 24px', textAlign: 'center', color: 'var(--text-muted)' }}>
+          <h3 style={{ fontWeight: 600, fontSize: '0.9375rem', marginBottom: '6px' }}>沒有符合條件的學生</h3>
+          <p style={{ fontSize: '0.8125rem', marginBottom: '16px' }}>請調整篩選條件後再試。目前的核對結果不會改變。</p>
+          {onResetFilters && (
+            <button type="button" className="btn-secondary" style={{ fontSize: '0.8125rem' }} onClick={onResetFilters}>
+              清除篩選條件
+            </button>
+          )}
+        </div>
+      </td>
+    </tr>
+  );
 
   return (
     <>
@@ -205,6 +213,7 @@ export default function SummaryTable({
             </tr>
           </thead>
           <tbody>
+            {emptyState}
             {students.map((stu) => {
               const tags = parseTagDiscounts((stu.trace as { rawTags?: string } | undefined)?.rawTags ?? '');
               return (
