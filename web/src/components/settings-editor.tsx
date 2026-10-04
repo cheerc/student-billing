@@ -368,7 +368,10 @@ export default function SettingsEditor({
       seq,
       attempt: 0,
       url: `/api/v1/settings/class-name-report?importId=${encodeURIComponent(reportImportId)}`,
-      delaysMs: reportRefreshRetryDelaysMs,
+      // R4-F01（operator 裁決 d-20261004044745983486-3）：［重新載入］＝恰好一次 GET、
+      // 不帶自動重試；再失敗即轉［重新整理頁面］。自動重試只發生在「儲存後」那條序列。
+      // 傳空 delaysMs 即「沒有重試間隔可等待」，fetchReportWithRetry 會直接走 onGiveUp。
+      delaysMs: manualRetry ? [] : reportRefreshRetryDelaysMs,
       seqRef: reportRefreshSeq,
       timers: reportRetryTimers.current,
       manualRetry,
