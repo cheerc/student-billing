@@ -6,49 +6,19 @@ import { runMigrations } from '../src/adapters/sqlite/migrator.js';
 import { saveImportBatch } from '../src/adapters/sqlite/import-repository.js';
 import { computeImportRosterChanges } from '../src/application/import-roster-diff.js';
 import { summarizeTimings, assertRosterPerformanceBudget } from './perf-contract.js';
-import type { StudentSnapshot } from '../src/domain/students/types.js';
+import { buildRosterPair, ROSTER_STUDENT_COUNT, ROSTER_NEW_STUDENT_COUNT } from './perf-fixture-roster.js';
 
-const SEED_CLASSES = [
-  '國小數學-一A', '國小數學-二A', '國小數學-二B', '國小數學-三A', '國小數學-四A', '國小數學-五A', '國小數學-六A',
-  '兒童美語-KA', '兒童美語-KB', '兒童美語-EA', '兒童美語-Gino', '兒童美語-Ali', '兒童美語-Cody',
-  '國小輔導-一A', '國小輔導-二A', '國小輔導-三年級', '國小輔導-四年級', '國小輔導-五年級', '國小輔導-六年級',
-];
-
-function makeStudent(i: number, extraClasses: string[] = [], dropLast = false): StudentSnapshot {
-  const grade = (i % 6) + 1;
-  const count = (i % 4) + 1;
-  const names: string[] = [];
-  for (let k = 0; k < count; k++) names.push(SEED_CLASSES[(i * 7 + k * 5) % SEED_CLASSES.length]);
-  const unique = [...new Set(names)];
-  if (dropLast && unique.length > 1) unique.pop();
-  for (const e of extraClasses) if (!unique.includes(e)) unique.push(e);
-  return {
-    personCode: `P${String(i).padStart(4, '0')}`,
-    name: `學生${i}`,
-    branch: '本校',
-    gradeRaw: `${grade}年級`,
-    grade,
-    gradeStatus: 'valid',
-    contact: null,
-    schoolInfo: null,
-    tagsRaw: i % 11 === 0 ? '有兄弟姊妹折扣' : i % 13 === 0 ? '園內生' : '',
-    tags: i % 11 === 0 ? ['有兄弟姊妹折扣'] : i % 13 === 0 ? ['園內生'] : [],
-    notesRaw: '',
-    enrollments: unique.map((bn) => ({
-      rawToken: `${bn}[團]`,
-      yearPrefix: null,
-      baseName: bn,
-      groupFlag: '團',
-      modifiers: [],
-      withdrawalDate: null,
-      erpBillingTierRaw: null,
-      erpBillingTier: null,
-      tierParseStatus: 'not_applicable',
-      parseStatus: 'ok',
-    })),
-    sourceRow: i + 2,
-  };
-}
+/**
+ * 逐人異動計算（computeImportRosterChanges）1000ms 獨立量測。
+ *
+ * 量測邊界：in-process application 路徑 —— 讀 SQLite 兩份名單 → 整批 before/after
+ * 計算 → 逐人明細。**不含** HTTP 上傳與瀏覽器 render，也**不是**根 CLAUDE.md:147 的
+ * 「完整重算 ≤ 1 秒」（那是 executeCalculationRun 的 gate，見 perf-recompute-isolated.ts）。
+ * 1000ms 是逐人異動的既有門檻，與完整重算同數值但不同量測對象。
+ *
+ * 統計：暖機 1 次後 10 次；median = sorted[4..5] 平均、p95 = nearest-rank
+ * ceil(0.95*10)=10（＝最慢一次），定義取自 perf-contract.summarizeTimings，未修改。
+ */
 
 function main(): void {
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sb-roster-perf-'));
@@ -57,35 +27,28 @@ function main(): void {
     const db = new Database(databasePath);
     runMigrations(db);
 
-    const N = 477;
-    const before: StudentSnapshot[] = [];
-    const after: StudentSnapshot[] = [];
-    for (let i = 0; i < N; i++) {
-      before.push(makeStudent(i));
-      if (i % 3 === 0) after.push(makeStudent(i, ['國小數學-三A']));
-      else if (i % 10 === 1) after.push(makeStudent(i, [], true));
-      else if (i % 47 === 5) continue;
-      else after.push(makeStudent(i));
-    }
-    for (let j = N; j < N + 10; j++) after.push(makeStudent(j));
-
+    const { before, after } = buildRosterPair();
     const batch = (id: string, createdAt: string, rowCount: number) => ({
       id, fileName: `${id}.xlsx`, fileHash: `hash-${id}`, contentHash: `content-${id}`,
       sheetName: 'Sheet1', headerMap: {}, parserVersion: '1.0.0', scopeNote: '',
       rowCount, status: 'ready' as const, createdAt,
     });
-    saveImportBatch(db, batch('imp_perf_base', '2026-09-28T10:00:00.000Z', before.length), before);
-    saveImportBatch(db, batch('imp_perf_next', '2026-09-29T10:00:00.000Z', after.length), after);
+    saveImportBatch(db, batch(before.importId, before.createdAt, before.students.length), before.students);
+    saveImportBatch(db, batch(after.importId, after.createdAt, after.students.length), after.students);
 
     console.log('[perf environment] ' + JSON.stringify({
       cpu: os.cpus()[0]?.model, logicalCpus: os.cpus().length, memoryBytes: os.totalmem(),
       os: `${os.platform()} ${os.release()} ${os.arch()}`, node: process.version,
-      students: N, warmup: 1, samples: 10,
+      students: ROSTER_STUDENT_COUNT, warmup: 1, samples: 10,
+      boundary: 'in-process computeImportRosterChanges: SQLite read → batch diff → per-student detail; no HTTP, no UI render',
+      dbStatePerSample: 'same DB, immutable import snapshots; no cache reuse — the function recomputes from scratch each sample',
       median: '(sorted[4]+sorted[5])/2', p95: 'nearest-rank ceil(0.95*10)=10', budget: 'p95 < 1000ms',
     }));
 
-    const warm = computeImportRosterChanges(db, 'imp_perf_next', 'imp_perf_base');
-    if (warm.newStudents !== 10) throw new Error(`fixture 新增人數 ${warm.newStudents}，預期 10`);
+    const warm = computeImportRosterChanges(db, after.importId, before.importId);
+    if (warm.newStudents !== ROSTER_NEW_STUDENT_COUNT) {
+      throw new Error(`fixture 新增人數 ${warm.newStudents}，預期 ${ROSTER_NEW_STUDENT_COUNT}`);
+    }
     if (warm.notAppearedStudents <= 0) throw new Error('fixture 未出現人數為 0');
     if (warm.changedStudents <= 0) throw new Error('fixture 異動人數為 0');
     const expectedTotal = warm.newStudents + warm.notAppearedStudents + warm.changedStudents;
@@ -94,7 +57,7 @@ function main(): void {
     const timings: number[] = [];
     for (let run = 0; run < 10; run++) {
       const t0 = performance.now();
-      computeImportRosterChanges(db, 'imp_perf_next', 'imp_perf_base');
+      computeImportRosterChanges(db, after.importId, before.importId);
       timings.push(performance.now() - t0);
     }
     const { medianMs, p95Ms } = summarizeTimings(timings);

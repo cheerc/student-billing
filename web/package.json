@@ -19,7 +19,8 @@
     "restore": "tsx scripts/backup-restore.ts restore",
     "test:e2e:isolated": "tsx scripts/e2e-isolated.ts",
     "typecheck": "tsc --noEmit",
-    "lint": "eslint ."
+    "lint": "eslint .",
+    "test:perf:recompute-isolated": "tsx scripts/perf-recompute-isolated.ts"
   },
   "dependencies": {
     "better-sqlite3": "^13.0.3",

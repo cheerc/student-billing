@@ -55,3 +55,7 @@ jobs:
       - name: Isolated roster changes performance (477 students, no retries)
         working-directory: web
         run: npm run test:perf:roster-isolated
+
+      - name: Isolated full recompute and import-to-queryable performance (477 students, no retries)
+        working-directory: web
+        run: npm run test:perf:recompute-isolated
