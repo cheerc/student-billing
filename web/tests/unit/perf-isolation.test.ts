@@ -3,7 +3,10 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import { spawnSync } from 'child_process';
-import { summarizeTimings, assertPerformanceBudget, assertRosterPerformanceBudget, PERF_PATHS } from '../../scripts/perf-contract';
+import {
+  summarizeTimings, assertPerformanceBudget, assertRosterPerformanceBudget,
+  assertRecomputePerformanceBudget, assertImportToQueryablePerformanceBudget, PERF_PATHS,
+} from '../../scripts/perf-contract';
 
 const web = path.resolve(__dirname, '../..');
 
@@ -80,7 +83,7 @@ describe('獨立效能量測契約', () => {
     expect(roster).not.toContain('performance.now');
     expect(roster).not.toContain('toBeLessThan(1000)');
     // 正確性斷言不得隨計時 gate 一起消失（結果必須是真實計算不是空轉）。
-    expect(roster).toContain('expect(result.newStudents).toBe(10)');
+    expect(roster).toContain('expect(result.newStudents).toBe(ROSTER_NEW_STUDENT_COUNT)');
     expect(roster).toContain('expect(result.notAppearedStudents).toBeGreaterThan(0)');
     expect(roster).toContain('expect(result.changedStudents).toBeGreaterThan(0)');
     expect(roster).toContain('expect(result.changes.length).toBe(');
@@ -117,5 +120,77 @@ describe('獨立效能量測契約', () => {
     expect(ci.indexOf('npm run test:perf:roster-isolated')).toBeGreaterThan(ci.indexOf('npm run test:perf:isolated'));
     const pkg = JSON.parse(fs.readFileSync(path.join(web, 'package.json'), 'utf8'));
     expect(pkg.scripts['test:perf:roster-isolated']).toBe('tsx scripts/perf-roster-isolated.ts');
+  });
+
+  it('重算／匯入兩條 gate 不在預設並行 suite：無計時斷言，行為斷言仍在', () => {
+    const roster = fs.readFileSync(path.join(web, 'tests/integration/roster-changes-performance.test.ts'), 'utf8');
+    // 1000ms 逐人異動門檻不得回預設並行 suite（它與「完整重算 ≤1 秒」不同量測對象）。
+    expect(roster).not.toContain('performance.now');
+    expect(roster).toContain('expect(result.newStudents).toBe(ROSTER_NEW_STUDENT_COUNT)');
+    // runner 與測試檔共用同一份 fixture，名冊不得再各自複製（會靜默漂移）。
+    expect(roster).toContain("from '../../scripts/perf-fixture-roster'");
+    const runner = fs.readFileSync(path.join(web, 'scripts/perf-roster-isolated.ts'), 'utf8');
+    expect(runner).toContain("from './perf-fixture-roster.js'");
+    expect(runner).not.toContain('const SEED_CLASSES');
+    expect(runner).not.toContain('function makeStudent');
+  });
+
+  it('重算／匯入 runner 記錄環境、單檔不並行、每樣本 DB 狀態與量測邊界明示', () => {
+    const runner = fs.readFileSync(path.join(web, 'scripts/perf-recompute-isolated.ts'), 'utf8');
+    expect(runner).toContain('cpu: os.cpus()[0]?.model');
+    expect(runner).toContain('node: process.version');
+    expect(runner).toContain('warmup: 1');
+    expect(runner).toContain('samples: 10');
+    expect(runner).toContain('p95: \'nearest-rank ceil(0.95*10)=10\'');
+    expect(runner).toContain('budgets:');
+    // 量測邊界必須明示為 in-process，且不得宣稱涵蓋 UI／HTTP。
+    expect(runner).toContain('in-process application paths');
+    expect(runner).toContain('no HTTP upload, no UI render');
+    expect(runner).toContain('dbStatePerSample');
+    // 原子性與 trace 不得為了速度關閉。
+    expect(runner).toContain('nothing disabled for speed');
+    // 單檔、不並行：不 spawn、不啟 server、不需 Chromium。
+    expect(runner).not.toContain('spawn');
+    expect(runner).not.toContain('playwright');
+    expect(runner).not.toContain('next start');
+    expect(runner).toContain('summarizeTimings(importSamples)');
+    expect(runner).toContain('summarizeTimings(recomputeSamples)');
+  });
+
+  it('重算 1000ms 與匯入 3000ms 各自的邊界都失敗，且不放寬就 RED', () => {
+    expect(() => assertRecomputePerformanceBudget(Array(10).fill(999.99))).not.toThrow();
+    expect(() => assertRecomputePerformanceBudget([...Array(9).fill(1), 1000])).toThrow(/1000/);
+    expect(() => assertRecomputePerformanceBudget([...Array(9).fill(1), 3000])).toThrow(/3000/);
+    expect(() => assertImportToQueryablePerformanceBudget(Array(10).fill(2999.99))).not.toThrow();
+    expect(() => assertImportToQueryablePerformanceBudget([...Array(9).fill(1), 3000])).toThrow(/3000/);
+    expect(() => assertImportToQueryablePerformanceBudget([...Array(9).fill(1), 5000])).toThrow(/5000/);
+    for (const samples of [[], Array(9).fill(1), Array(10).fill(NaN), Array(10).fill(-1)]) {
+      expect(() => assertRecomputePerformanceBudget(samples)).toThrow();
+      expect(() => assertImportToQueryablePerformanceBudget(samples)).toThrow();
+    }
+  });
+
+  it('兩條新 gate 每條都先斷言非空轉，再量時間', () => {
+    const runner = fs.readFileSync(path.join(web, 'scripts/perf-recompute-isolated.ts'), 'utf8');
+    // 匯入：解析不截斷、run 可查、可查人數一致。
+    expect(runner).toContain('解析人數');
+    expect(runner).toContain('可查人數');
+    // 重算：結果筆數、run 學生數、重算後可查。
+    expect(runner).toContain('重算結果');
+    expect(runner).toContain('重算後不可查');
+    // 斷言必須在量測之前：非空轉檢查出現在第一個 performance.now() 之前。
+    const firstMeasure = runner.indexOf('const started = performance.now()');
+    expect(firstMeasure).toBeGreaterThan(-1);
+    expect(runner.indexOf('if (queried.totalStudents !== EXPECTED_STUDENTS')).toBeLessThan(
+      runner.lastIndexOf('const ms = performance.now() - started'),
+    );
+  });
+
+  it('CI 在 test/build 與既有 gate 之後序列跑重算／匯入 gate', () => {
+    const ci = fs.readFileSync(path.join(web, '../.github/workflows/ci.yml'), 'utf8');
+    expect(ci.indexOf('npm run test:perf:recompute-isolated')).toBeGreaterThan(ci.indexOf('run: npm run test'));
+    expect(ci.indexOf('npm run test:perf:recompute-isolated')).toBeGreaterThan(ci.indexOf('npm run test:perf:roster-isolated'));
+    const pkg = JSON.parse(fs.readFileSync(path.join(web, 'package.json'), 'utf8'));
+    expect(pkg.scripts['test:perf:recompute-isolated']).toBe('tsx scripts/perf-recompute-isolated.ts');
   });
 });

@@ -117,3 +117,101 @@ describe('contextual 路徑語意斷言（tierMismatch × enrollmentKey）', () 
     expect(tierMismatch.get('false')).toBe(2);
   });
 });
+
+/**
+ * contextual 的第二條觸發分支：只選 applicableDiscountBps（不選 tierMismatch）。
+ *
+ * `query-student-options.ts:121` 的條件是
+ *   key === 'tierMismatch' || (key === 'enrollmentKey' && Boolean(selections.tierMismatch || selections.applicableDiscountBps))
+ * PR #73 只鎖了 tierMismatch 一支；此處補 applicableDiscountBps 分支。
+ *
+ * ── fixture 手算 ──────────────────────────────────────
+ * 6 位 grade-1 學生；care 班（國小輔導）適用 anqin 側，數學班取 math、英文班取 english。
+ * 適用率（specs/02 R13/R14/R15：非寫功課／非園內生 → 適用率＝基本折扣 R10）：
+ *   報名科數 1 → basic 10000；科數 2 → basic 9500；科數 3 → basic 9000。
+ *
+ * | 學生 | 報名班（類別）                        | 科數 | basic |
+ * |------|---------------------------------------|------|-------|
+ * | S1   | 一A(care)                             | 1    | 10000 |
+ * | S2   | 一A(care), 數學一A(math)              | 2    | 9500  |
+ * | S3   | 一A(care), 二A(care), 數學一A(math)   | 2    | 9500  |
+ * | S4   | 二A(care)                             | 1    | 10000 |
+ * | S5   | 二A(care), 數學一A(math)              | 2    | 9500  |
+ * | S6   | 二A(care), 兒童美語KA(english)        | 2    | 9500  |
+ *
+ * 查 `enrollmentKey=國小輔導-一A` ＋ `applicableDiscountBps=9500` 時，
+ * 逐一以**替代班別**（排除 enrollmentKey 本身）重建 predicate：
+ * `student-query-predicates.ts:53` 要求恰選一班，故替代班別即該候選班本身，
+ * 取該班類別對應的適用率欄；不屬該班的學生不計入。
+ *
+ *   一A → anqin 欄，值 9500 的學生：S2(9500), S3(9500) = 2
+ *   二A → anqin 欄，值 9500 的學生：S3(9500), S5(9500), S6(9500) = 3
+ *   數學一A → math 欄，值 9500 的學生：S2, S3, S5 = 3
+ *   兒童美語KA → english 欄，值 9500 的學生：S6 = 1
+ *
+ * 注意二A 的 9500 有三人：適用率是**學生層**的 anqin 欄，不是「該生有沒有上二A」的函數；
+ * 只要學生同時报了其他班而科數變成 2，他的 anqin 仍是 9500，只要他报了二A 就會被算進二A 的候選。
+ * 同理 S3 同時在一A／二A／數學一A，三個候選都會算他一次。
+ *
+ * 短路（非 contextual，整批 GROUP BY 不逐候選重建 predicate）時，
+ * scope 會退回「排除本欄後套用其餘條件」，此時 applicableDiscountBps 因無單班前提
+ * 退化成 `0`，scope 為空集 → 全部候選 count=0，與上述手算 2/2/3/1 不符。
+ */
+describe('contextual 路徑語意斷言（applicableDiscountBps 觸發分支）', () => {
+  let tempDir: string;
+  let db: DatabaseType;
+  let runId: string;
+
+  beforeAll(() => {
+    tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sb-contextual-ad-'));
+    db = createDatabase(path.join(tempDir, 'test.sqlite'));
+    runMigrations(db);
+
+    const students = [
+      { code: 'S1', classes: '國小輔導-一A[團]' },
+      { code: 'S2', classes: '國小輔導-一A[團]\n國小數學-一A[團]' },
+      { code: 'S3', classes: '國小輔導-一A[團]\n國小輔導-二A[團]\n國小數學-一A[團]' },
+      { code: 'S4', classes: '國小輔導-二A[團]' },
+      { code: 'S5', classes: '國小輔導-二A[團]\n國小數學-一A[團]' },
+      { code: 'S6', classes: '國小輔導-二A[團]\n兒童美語-KA[團]' },
+    ];
+    const rows = students.map((s, i) => ({
+      personCode: s.code, name: `學生${s.code}`,
+      branch: '本校', gradeRaw: '1年級', grade: 1, gradeStatus: 'valid' as const,
+      contact: null, schoolInfo: null, tagsRaw: '', tags: [] as string[], notesRaw: '',
+      sourceRow: i + 2, enrollments: parseClassTokens(s.classes),
+    }));
+    saveImportBatch(db, {
+      id: 'ctx_ad_imp', fileName: 'contextual-ad.xlsx', fileHash: 'ctx-ad-h', contentHash: 'ctx-ad-c',
+      sheetName: 'Sheet1', headerMap: {}, parserVersion: '1.0.0', scopeNote: '',
+      rowCount: rows.length, status: 'ready' as const, createdAt: '2026-10-04T00:00:00.000Z',
+    }, rows);
+    const result = activateImport(db, {
+      importId: 'ctx_ad_imp', expectedRevision: 0, idempotencyKey: 'ctx-ad-k', asOfDate: '2026-10-04',
+    });
+    runId = result.runId;
+    expect(result.totalStudents).toBe(6);
+  });
+
+  afterAll(() => {
+    db.close();
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  it('只選 applicableDiscountBps 時，enrollmentKey 候選以替代班別的適用率計數', () => {
+    const options = queryStudentOptions(db, runId, {
+      enrollmentKey: ['國小輔導-一A'],
+      applicableDiscountBps: ['9500'],
+    });
+
+    const enrollmentKey = new Map(
+      options.options.enrollmentKey.map((o) => [o.value, o.count]),
+    );
+
+    // 手算見上方表格：各候選班以自身類別欄位計 9500 的學生數。
+    expect(enrollmentKey.get('國小輔導-一A')).toBe(2);
+    expect(enrollmentKey.get('國小輔導-二A')).toBe(3);
+    expect(enrollmentKey.get('國小數學-一A')).toBe(3);
+    expect(enrollmentKey.get('兒童美語-KA')).toBe(1);
+  });
+});

@@ -22,3 +22,15 @@ export function assertRosterPerformanceBudget(samples: number[]): void {
   const { p95Ms } = summarizeTimings(samples);
   if (p95Ms >= 1000) throw new Error(`逐人異動計算 p95=${p95Ms}ms，必須 < 1000ms（不重試）`);
 }
+
+/** 根 CLAUDE.md:147「完整重算 ≤ 1 秒」（executeCalculationRun 的讀取→計算→持久化）。 */
+export function assertRecomputePerformanceBudget(samples: number[]): void {
+  const { p95Ms } = summarizeTimings(samples);
+  if (p95Ms >= 1000) throw new Error(`完整重算 p95=${p95Ms}ms，必須 < 1000ms（不重試）`);
+}
+
+/** 根 CLAUDE.md:146「匯入解析至可查詢 ≤ 3 秒」（原始內容→解析→啟用→計算→持久化）。 */
+export function assertImportToQueryablePerformanceBudget(samples: number[]): void {
+  const { p95Ms } = summarizeTimings(samples);
+  if (p95Ms >= 3000) throw new Error(`匯入至可查詢 p95=${p95Ms}ms，必須 < 3000ms（不重試）`);
+}
