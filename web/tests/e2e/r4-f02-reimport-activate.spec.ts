@@ -3,19 +3,27 @@ import JSZip from 'jszip';
 import { XLSX_MIME } from './helpers/c-batch';
 
 /**
- * R4-F02：同頁連續匯入兩份名單時，第二份的啟用因 expectedRevision 過期而 409。
+ * R4-F02：同一個瀏覽器 session 內連續啟用兩份名單時，第二份的啟用因 expectedRevision 過期而 409。
  *
- * 重現步驟即第四輪驗收的操作序列，全程不重整頁面：
- *   /imports → 上傳 baseline → 使用這份名單 →（回匯入頁）→ 上傳 variant → 使用這份名單
+ * #84 移除「再匯入其他名單」後，完成畫面只剩一個導向 `/` 的 <Link>，沒有任何按鈕能把頁面
+ * 帶回上傳階段；而檔案 input 只存在於 `{stage === 'upload' && ...}` 區塊。兩者合起來，
+ * 「不重整頁面就啟用第二份」的產品路徑已完全不存在：
+ * 唯一的回程出口是到 `/`，而 app shell 會在 pathname 改變時重掛載整棵元件樹，
+ * `revision` 因此回到 server render 的最新值。所以本檔第一個 test 改以重新載入匯入頁
+ * 走完整流程，斷言「第二份在新的頁面 session 中正常啟用」。
  *
- * #84：完成畫面的「再匯入其他名單」按鈕已被移除（會讓人誤以為支援疊加匯入），
- * 本測試改以完整頁面載入（page.goto('/imports)）重啟流程——revision 由 server render 重取，
- * 故這個測試現在守的是「revision 過期就必須 409」這條不變式；
- * 「本頁剛完成的啟用要更新本頁持有的 revision」則由單元層與 imports.spec.ts 的
- * 先備條件路徑覆蓋（第二份名單必須先成為 active 才能量到異動統計）。
- *
- * 既有 E2E（roster-changes-details.spec.ts:42）第二次匯入前都 page.goto('/imports')
- * 重整，正是這條路徑先前無覆蓋的原因。
+ * 覆蓋現況（如實記錄，不宣稱不存在的覆蓋）:
+ *   - **R4-F02 原先守護的「同 session 第二次啟用成功」在 #84 後已不可達且無守護。**
+ *     若未來重新提供同頁連續啟用的入口（例如下載狀態、或讓完成畫面回到 preview 階段），
+ *     `if (typeof json?.revision === 'number') setRevision(json.revision);` 必須重新被測試，
+ *     否則該行等同死碼。此事實與其處置需由產品決策確認，本檔不宣稱已覆蓋。
+ *   - 單元層不覆蓋 handleActivate：tests/unit/imports-workflow-ui.test.ts 全以
+ *     renderToStaticMarkup 做 SSR 靜態渲染（vitest environment: 'node'），從不執行
+ *     fetch 與狀態轉移。
+ *   - imports.spec.ts 第二次啟用前有 page.goto('/imports')，同樣由 server render 重取
+ *     revision，結構上不可能驗證「本頁持有的 revision 會隨啟用回應更新」。
+ *   - 本檔第二個 test（另一個視窗造成的真衝突仍須 409 ＋ 訊息逐字比對）才是 CAS 保護
+ *     目前的實際守護，且未受本次改動影響。
  *
  * 預期（依 R4-F02 驗收契約，非引用產品實作）：第二份名單正常啟用，
  * 畫面顯示第二份名單的人數，不顯示 ACTIVATE_CONFLICT_MESSAGE。
@@ -68,10 +76,10 @@ async function uploadAndActivate(page: import('@playwright/test').Page, name: st
   await useBtn.click();
 }
 
-test.describe('R4-F02：同頁連續匯入兩份名單，第二份啟用不得因 revision 過期而 409', () => {
+test.describe('R4-F02：同 session 連續匯入兩份名單，第二份啟用不得因 revision 過期而 409', () => {
   test.setTimeout(180_000);
 
-  test('啟用第一份後重新載入匯入頁再啟用第二份，應成功啟用第二份（#84：完成畫面已無「再匯入其他名單」）', async ({ page }) => {
+  test('啟用第一份後重新載入匯入頁再啟用第二份，應成功啟用第二份（#84：完成畫面已無返回上傳階段的動作）', async ({ page }) => {
     await page.goto('/imports');
 
     // 第一次：baseline 啟用成功。
@@ -81,11 +89,11 @@ test.describe('R4-F02：同頁連續匯入兩份名單，第二份啟用不得�
     // #84：完成畫面只有導向 03 的主 CTA，沒有再匯入按鈕
     await expect(page.locator('.success-stage-card button')).toHaveCount(0);
 
-    // #84 後的第二次匯入路徑：回到 02 匯入頁。
+    // #84 後的第二次匯入路徑：回到 02 匯入頁（revision 由 server render 重取，見檔頭說明）。
     await page.goto('/imports');
     await expect(page.locator('.step-item.step-active .step-text')).toHaveText('選擇檔案', { timeout: 10_000 });
 
-    // 第二次：variant 啟用必須成功（這是 R4-F02 的失敗點）。
+    // 第二次：variant 啟用必須成功。
     await uploadAndActivate(page, 'variant.xlsx', await workbook(true));
 
     // 預期結果：進入完成階段，顯示第二份名單的人數。

@@ -80,10 +80,16 @@ export function ImportsWorkflow({
   const [activating, setActivating] = useState(false);
   const [error, setError] = useState<UserFacingError | null>(null);
   /**
-   * R4-F02：啟用的 CAS 版本。必須是「本頁自己看得見」的版本——初值來自 server render，
+   * 啟用的 CAS 版本。必須是「本頁自己看得見」的版本——初值來自 server render，
    * 之後只由本頁剛完成的啟用回應更新；不可在啟用前向伺服器討要最新值，否則會消滅
-   * 「另一視窗已啟用」的衝突偵測。每完成一次啟用，伺服器 revision 就前進一次，
-   * 若仍沿用 server render 時的舊值，本頁接著第二次啟用必定 409。
+   * 「另一視窗已啟用」的衝突偵測。每完成一次啟用，伺服器 revision 就前進一次。
+   *
+   * #84 移除完成畫面的「再匯入其他名單」之後，同一頁面 session 內第二次啟用的產品路徑
+   * 已不存在：完成畫面唯一可點的項目是導向 `/` 的連結，會讓 pathname 改變並重掛載元件樹，
+   * `revision` 隨之回到 server render 的最新值。這一行因而在現行架構下沒有可達的測試覆蓋
+   * （原先守護它的 R4-F02 同頁連續啟用路徑隨該按鈕一同消失）——詳見
+   * tests/e2e/r4-f02-reimport-activate.spec.ts 檔頭。它本身仍是正確且必要的：若日後
+   * 重新提供同頁連續啟用的入口，這一行就是讓第二次啟用不會誤判 409 的關鍵。
    */
   const [revision, setRevision] = useState(currentRevision);
   // 核對基準日預設＝台北的今天（O02：不用 UTC 或瀏覽器時區）
