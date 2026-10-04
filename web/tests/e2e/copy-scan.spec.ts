@@ -182,7 +182,7 @@ test.describe('R5 文案全頁掃描（09 §7）', () => {
     await page.goto('/history/not-a-real-run');
     await scan(page, '歷史檢視｜找不到這筆紀錄', violations);
 
-    // ── B. 已上傳、尚未使用 ──────────────────────────────────────
+    // ── B. 已上傳、未使用 ────────────────────────────────────────
     await page.goto('/imports');
     await page.locator('input[type="file"]').setInputFiles(FIXTURE);
     await expect(page.locator('.stats-grid')).toBeVisible({ timeout: 15000 });
@@ -192,18 +192,23 @@ test.describe('R5 文案全頁掃描（09 §7）', () => {
     await expect(page.locator('main')).toBeVisible();
     await scan(page, '首頁｜已匯入、尚未使用', violations);
 
+    // #83：未使用的名單不是匯入 → 匯入紀錄仍是空狀態（這是使用者看得到的實際狀態）
     await page.goto('/history');
-    await scan(page, '匯入紀錄｜有尚未使用的批次', violations);
+    await expect(page.getByText('還沒有匯入紀錄')).toBeVisible();
+    await scan(page, '匯入紀錄｜空狀態（未使用的名單不是匯入）', violations);
 
     // ── C. 重傳同檔（判重）→ 使用這份名單 → 完成 ─────────────────
     await page.goto('/imports');
     await page.locator('input[type="file"]').setInputFiles(FIXTURE);
     await expect(page.locator('button', { hasText: '使用這份名單' })).toBeVisible({ timeout: 15000 });
-    await scan(page, '匯入學生｜確認名單（重複上傳提示）', violations);
+    // #83：同名判重不產生任何警示文案（ERP 固定檔名是正常操作）
+    await expect(page.getByText('已經上傳過同名檔案')).toHaveCount(0);
+    await expect(page.getByText('重複上傳')).toHaveCount(0);
+    await scan(page, '匯入學生｜確認名單（重傳同名檔案，無警示）', violations);
     await page.locator('button', { hasText: '使用這份名單' }).click();
     await expect(page.locator('.success-stage-card')).toBeVisible({ timeout: 15000 });
     await scan(page, '匯入學生｜完成', violations);
-    await page.locator('a', { hasText: '開始核對' }).click();
+    await page.locator('a', { hasText: '前往核對結果' }).click();
 
     // ── D. 核對結果 ──────────────────────────────────────────────
     await expect(page.locator('.data-banner-current')).toBeVisible({ timeout: 15000 });

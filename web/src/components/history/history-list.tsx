@@ -6,17 +6,18 @@ import type { HistoryEntry, HistoryStatus } from '@/application/history-view';
 import { formatDateTime } from '@/lib/datetime';
 
 /**
- * 匯入紀錄（specs/09 §2 次入口、§7 去技術化、§8.3 只讀；UX21 四態）。
+ * 匯入紀錄（specs/09 §2 次入口、§7 去技術化、§8.3 只讀；UX21）。
  *
  * 日常欄位只放行政人員需要的：名單檔案、資料更新時間、核對基準日、人數、待確認、狀態。
  * Run／版本／長 ID／雜湊等技術資訊收進每列的摺疊區（可查、不占日常畫面）。
+ * #83：只列真正使用過的名單（目前使用／歷史資料）。上傳預覽後未按「使用這份名單」
+ * 就離開的批次不是匯入，不在此出現，畫面也不保留「尚未使用」分類與其篩選選項。
  * 這裡沒有任何寫入動作：不提供「恢復為現行」（09 §8.3）。
  */
 
 const STATUS_LABEL: Record<HistoryStatus, string> = {
   current: '目前使用',
   history: '歷史資料',
-  unused: '尚未使用',
 };
 
 type StatusFilter = HistoryStatus | 'all';
@@ -105,7 +106,6 @@ export function HistoryList({ entries, initialQuery = '', initialStatus = 'all' 
                 <option value="all">全部</option>
                 <option value="current">{STATUS_LABEL.current}</option>
                 <option value="history">{STATUS_LABEL.history}</option>
-                <option value="unused">{STATUS_LABEL.unused}</option>
               </select>
             </div>
             <span className="note end" role="status" aria-live="polite">共 {filtered.length} 筆</span>
@@ -141,30 +141,24 @@ export function HistoryList({ entries, initialQuery = '', initialStatus = 'all' 
                         <TechInfo entry={e} />
                       </th>
                       <td>{formatDateTime(e.updatedAt)}</td>
-                      <td>{e.asOfDate ?? '—'}</td>
+                      <td>{e.asOfDate}</td>
                       <td className="number">{`${e.studentCount} 人`}</td>
                       <td>
-                        {e.issueCount === null
-                          ? '—'
-                          : e.issueCount > 0
-                            ? <span className="badge badge-warn">{`${e.issueCount} 項待確認`}</span>
-                            : '無待確認'}
+                        {e.issueCount > 0
+                          ? <span className="badge badge-warn">{`${e.issueCount} 項待確認`}</span>
+                          : '無待確認'}
                       </td>
                       <td>
                         <span className={`badge status-${e.status}`}>{STATUS_LABEL[e.status]}</span>
                       </td>
                       <td>
-                        {e.runId ? (
-                          <Link
-                            href={`/history/${e.runId}`}
-                            className="btn-secondary"
-                            aria-label={`查看 ${e.fileName} 的當時結果`}
-                          >
-                            查看當時結果
-                          </Link>
-                        ) : (
-                          <span className="subtle">尚無核對結果</span>
-                        )}
+                        <Link
+                          href={`/history/${e.runId}`}
+                          className="btn-secondary"
+                          aria-label={`查看 ${e.fileName} 的當時結果`}
+                        >
+                          查看當時結果
+                        </Link>
                       </td>
                     </tr>
                   ))}

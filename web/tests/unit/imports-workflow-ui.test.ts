@@ -281,7 +281,47 @@ describe('R3 匯入頁工作流程與 UI 元件（RED 測試）', () => {
       expect(html).toContain('尚未使用這份名單');
     });
 
-    it('完成階段顯示「已更新 N 位學生」與主要動作「開始核對 →」導向按鈕', () => {
+    /**
+     * #83：學校 ERP（米豆奶）每次匯出檔名固定（例如皆為「學生名冊.xlsx」）。
+     * 「已經上傳過同名檔案」會讓行政人員誤以為自己上傳失敗或選錯舊檔，造成不必要的困惑。
+     * 同名是正常操作，不是問題：畫面不因此跳出任何警示。
+     */
+    it('#83：重傳同名檔案時不跳出同名／重複警示（ERP 固定檔名是正常操作）', () => {
+      const html = renderToStaticMarkup(
+        React.createElement(ImportsWorkflow, {
+          initialStage: 'preview',
+          initialPreview: { ...mockPreview, isDuplicate: true, duplicateReason: 'same_file' as const },
+          currentRevision: 0,
+          lastScheduleSavedAt: null,
+        })
+      );
+
+      expect(html).not.toContain('重複上傳');
+      expect(html).not.toContain('同名檔案');
+      expect(html).not.toContain('這份名單的內容與既有批次相同');
+      expect(html).not.toContain('您仍可使用它');
+      // 判重仍不可阻擋使用者：主按鈕照常可見
+      expect(html).toContain('使用這份名單');
+    });
+
+    it('#83：同名判重在 UI 上完全無痕（回應仍帶 isDuplicate，畫面不消費它）', () => {
+      const sameContent = renderToStaticMarkup(
+        React.createElement(ImportsWorkflow, {
+          initialStage: 'preview',
+          initialPreview: { ...mockPreview, isDuplicate: true, duplicateReason: 'same_content' as const },
+          currentRevision: 0,
+          lastScheduleSavedAt: null,
+        })
+      );
+
+      expect(sameContent).not.toContain('重複上傳');
+      expect(sameContent).not.toContain('既有批次');
+    });
+
+    /**
+     * #84：完成畫面精簡。每次匯入都是替換而非疊加，「再匯入其他名單」會讓人誤以為支援追加匯入。
+     */
+    it('#84：完成階段只保留主 CTA「前往核對結果 →」，移除「再匯入其他名單」', () => {
       const html = renderToStaticMarkup(
         React.createElement(ImportsWorkflow, {
           initialStage: 'success',
@@ -293,8 +333,26 @@ describe('R3 匯入頁工作流程與 UI 元件（RED 測試）', () => {
       );
 
       expect(html).toContain('2 位學生資料已備妥');
-      expect(html).toContain('開始核對');
-      expect(html).toContain('href="/"');
+      expect(html).toContain('前往核對結果');
+      expect(html).toMatch(/<a[^>]*class="btn-primary"[^>]*href="\/"[^>]*>[\s\S]*?前往核對結果/);
+      expect(html).not.toContain('再匯入其他名單');
+      expect(html).not.toContain('重新匯入');
+    });
+
+    it('#84：完成文案說明下一步落在「03 核對結果」，與主 CTA 一致', () => {
+      const html = renderToStaticMarkup(
+        React.createElement(ImportsWorkflow, {
+          initialStage: 'success',
+          initialPreview: mockPreview,
+          activatedCount: 477,
+          currentRevision: 1,
+          lastScheduleSavedAt: null,
+        })
+      );
+
+      expect(html).toContain('請前往');
+      expect(html).toContain('03 核對結果');
+      expect(html).toContain('各班天數與折扣');
     });
   });
 

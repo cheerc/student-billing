@@ -4,9 +4,9 @@ import path from 'path';
 /**
  * R5：匯入紀錄（/history）與歷史唯讀檢視 E2E（specs/09 §2／§5.2／§7／§8.3；specs/04 UX21）。
  *
- * 四態：有資料／空篩選（可清除）在此以真瀏覽器驗證；空狀態、loading、失敗以元件層測試驗證
- * （tests/unit/history-ui.test.ts），原因是 E2E 無法在不寫 DB 的前提下造出空 DB 之外的失敗與載入中。
- * 空 DB 的空狀態由本檔第一個 test 涵蓋（每個 spec 檔使用全新臨時 DB）。
+ * #83：「確認使用才算匯入」——上傳預覽後未按「使用這份名單」就離開的名單不是匯入，
+ * 「匯入紀錄」不為它留下任何卡片。有資料／空篩選（可清除）在此以真瀏覽器驗證；
+ * 空狀態、loading、失敗以元件層測試驗證（tests/unit/history-ui.test.ts）。
  * 每個 spec 檔共用一個隔離 DB，測試依序執行，資料由前一個 test 累積。
  */
 
@@ -26,18 +26,21 @@ test.describe('R5 匯入紀錄與歷史唯讀檢視', () => {
     await expect(page).toHaveURL(/\/imports$/);
   });
 
-  test('UX21 有資料：上傳但未使用 → 尚未使用；使用後 → 目前使用；日期與人數清楚、技術資訊在摺疊區', async ({ page }) => {
+  test('#83：上傳預覽後未使用 → 匯入紀錄不產生「尚未使用」卡片；使用後才列為目前使用', async ({ page }) => {
     await page.goto('/imports');
     await page.locator('input[type="file"]').setInputFiles(FIXTURE);
     await expect(page.locator('.stats-grid')).toBeVisible({ timeout: 15000 });
 
-    // 尚未使用
+    // 只看預覽就離開：不該在匯入紀錄留下任何一列（#83 核心驗收）
     await page.goto('/history');
-    const unused = page.locator('tbody tr[data-status="unused"]');
-    await expect(unused).toHaveCount(1);
-    await expect(unused).toContainText('尚未使用');
-    await expect(unused).toContainText('477 人');
-    await expect(unused.locator('a', { hasText: '查看當時結果' })).toHaveCount(0);
+    await expect(page.locator('tbody tr[data-status="unused"]')).toHaveCount(0);
+    // 「尚未使用」狀態字已從 UI 移除。逐字比對（exact），因為
+    // .history-current 的空狀態句「目前尚未使用任何名單。」本身就包含這三個字。
+    await expect(page.getByText('尚未使用', { exact: true })).toHaveCount(0);
+    await expect(page.getByText('還沒有匯入紀錄')).toBeVisible();
+    await expect(page.locator('table')).toHaveCount(0);
+    // 狀態篩選也沒有「尚未使用」選項（不留死選項）
+    await expect(page.getByLabel('狀態')).toHaveCount(0);
 
     // 使用這份名單
     await page.goto('/imports');
@@ -51,6 +54,7 @@ test.describe('R5 匯入紀錄與歷史唯讀檢視', () => {
     await expect(current).toHaveCount(1);
     await expect(current).toContainText('目前使用');
     await expect(current).toContainText('477 人');
+    await expect(current.locator('a', { hasText: '查看當時結果' })).toHaveCount(1);
     // 日期格式固定為 YYYY-MM-DD HH:mm（Asia/Taipei），核對基準日另列
     await expect(current).toContainText(/\d{4}-\d{2}-\d{2} \d{2}:\d{2}/);
     await expect(page.locator('.history-current')).toContainText(/目前使用的資料：.+核對基準日 \d{4}-\d{2}-\d{2}/);
@@ -83,10 +87,9 @@ test.describe('R5 匯入紀錄與歷史唯讀檢視', () => {
     await expect(page.locator('tbody tr')).toHaveCount(total);
     await expect(page.getByLabel('檔名')).toHaveValue('');
 
-    // 狀態篩選：只看「尚未使用」時，目前資料只有「目前使用」與「歷史資料」，可能沒有符合者
-    await page.getByLabel('狀態').selectOption('current');
-    await expect(page.locator('tbody tr[data-status="current"]')).toHaveCount(1);
-    await expect(page.locator('tbody tr[data-status="unused"]')).toHaveCount(0);
+    // 狀態篩選：目前資料只有「目前使用」，篩「歷史資料」沒有符合者但可清除
+    await page.getByLabel('狀態').selectOption('history');
+    await expect(page.getByText('沒有符合的紀錄')).toBeVisible();
     await page.getByLabel('狀態').selectOption('all');
     await expect(page.locator('tbody tr')).toHaveCount(total);
   });

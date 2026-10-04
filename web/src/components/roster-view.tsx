@@ -172,7 +172,7 @@ export default function RosterView({
       <header className="page-header" style={{ marginBottom: '16px' }}>
         <h1 style={{ fontSize: '24px', fontWeight: 700, margin: '0 0 6px' }}>尚未使用這份名單</h1>
         <p className="note" style={{ margin: 0 }}>
-          名單已匯入，但還沒開始核對。按下「使用這份名單」才會計算收費結果。
+          名單已上傳預覽，但還沒開始核對。按下「使用這份名單」才會計算收費結果。
         </p>
       </header>
 
