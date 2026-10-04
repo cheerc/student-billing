@@ -74,6 +74,13 @@ export function ImportsWorkflow({
   const [loading, setLoading] = useState(false);
   const [activating, setActivating] = useState(false);
   const [error, setError] = useState<UserFacingError | null>(null);
+  /**
+   * R4-F02：啟用的 CAS 版本。必須是「本頁自己看得見」的版本——初值來自 server render，
+   * 之後只由本頁剛完成的啟用回應更新；不可在啟用前向伺服器討要最新值，否則會消滅
+   * 「另一視窗已啟用」的衝突偵測。每完成一次啟用，伺服器 revision 就前進一次，
+   * 若仍沿用 server render 時的舊值，「再匯入其他名單」後的第二次啟用必定 409。
+   */
+  const [revision, setRevision] = useState(currentRevision);
   // 核對基準日預設＝台北的今天（O02：不用 UTC 或瀏覽器時區）
   const [asOfDate, setAsOfDate] = useState(() => todayInTaipei());
   const [activatedCount, setActivatedCount] = useState(defaultActivatedCount);
@@ -154,7 +161,7 @@ export function ImportsWorkflow({
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          expectedRevision: currentRevision,
+          expectedRevision: revision,
           idempotencyKey,
           asOfDate,
         }),
@@ -166,6 +173,9 @@ export function ImportsWorkflow({
         return;
       }
 
+      // 本頁剛完成的啟用所回傳的新版本，成為下一次啟用的 expectedRevision（R4-F02）。
+      // 只信任啟用回應本體，不在此刻另外讀取伺服器狀態——那會掩蓋並行衝突。
+      if (typeof json?.revision === 'number') setRevision(json.revision);
       setActivatedCount(preview.stats.totalStudents);
       setStage('success');
     } catch (err) {
