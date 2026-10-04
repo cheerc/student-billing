@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { exportBuffer, readScheduleRows } from './helpers/schedule-excel';
+import { classesToGridRows, gridRowsToClasses, buildSeedGridRows } from '@/contracts/settings';
 
 /**
  * #81：課表 Excel 全量匯出／匯入（單純一鍵，**不提供任何欄位挑選或勾選對話框**）。
@@ -16,6 +17,19 @@ import { exportBuffer, readScheduleRows } from './helpers/schedule-excel';
  * 因此所有「某班的類別」定位都用 `.first()` 收斂到該班第一列 —— 這是刻意的：
  * 同一班多列本來就代表同一個班屬性，改任一列都會改到同一個值。
  */
+
+/**
+ * 畫面上的時段列數。
+ *
+ * **不要寫死 89**：`buildSeedGridRows()` 產 89 列，但課表頁實際載入的是
+ * `classesToGridRows(gridRowsToClasses(seed))` = 88 列（國小數學-一B 的 2 列空時段
+ * 聚合成 1 個佔位列）。這是實測值（probes），不是推算。
+ */
+function appRowCount(): number {
+  const seed = buildSeedGridRows();
+  const flat = classesToGridRows(gridRowsToClasses(seed));
+  return flat.length > 0 ? flat.length : seed.length;
+}
 
 test.describe('#81：課表 Excel 全量匯出／匯入', () => {
   test.beforeEach(async ({ page }) => {
@@ -62,8 +76,8 @@ test.describe('#81：課表 Excel 全量匯出／匯入', () => {
     await expect(page.locator('[data-category-select="國小數學-四A"]').first()).toHaveValue('none');
     await expect(page.locator('[data-restore-auto="國小數學-四A"]').first()).toBeVisible();
 
-    // 表格仍有 seed 的 89 筆時段（整批取代不是清空）
-    await expect(page.locator('tr.schedule-row')).toHaveCount(89);
+    // 表格仍有原本的全部時段（整批取代不是清空）；筆數由 seed 推導，不寫死
+    await expect(page.locator('tr.schedule-row')).toHaveCount(appRowCount());
   });
 
   test('#81-3: 匯出 → 匯入 → 匯出，兩次匯出檔的**資料內容**一致（值層級冪等）', async ({ page }) => {
@@ -81,7 +95,7 @@ test.describe('#81：課表 Excel 全量匯出／匯入', () => {
     const second = await exportBuffer(page);
 
     // 資料列逐格一致（忽略 zip metadata），且不是空資料
-    expect((await readScheduleRows(second)).length).toBe(89);
+    expect((await readScheduleRows(second)).length).toBe(appRowCount());
     expect(await readScheduleRows(second)).toEqual(await readScheduleRows(first));
   });
 
