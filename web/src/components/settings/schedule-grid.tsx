@@ -77,12 +77,15 @@ export function formatDeductionDays(val: number | null | undefined): string {
  * 協調中的佔位列，計算欄位顯示「—」而不是「待補」徽章（行政每天都有這種列，滿版 badge 是視覺疲勞）。
  * a11y 補償：視覺只留一個破折號，但這格對螢幕閱讀器讀出「未設定時間」，鍵盤與螢讀使用者
  * 仍拿得到「這格是空的」這個語意，不必靠顏色或 badge 猜。
+ *
+ * 說明用可聚焦的 `<button>`（InfoTip）而非 `title`：09 §6 與 a11y 稽核都要求
+ * 「資訊不可只藏在 hover」——`title` 只有滑鼠看得到，鍵盤使用者永遠讀不到。
  */
 function NotSetYetCell({ children = '—', label = '未設定時間' }: { children?: React.ReactNode; label?: string }) {
   return (
-    <span className="subtle" aria-label={label} title={label}>
-      {children}
-    </span>
+    <InfoTip label={label} trigger={<span className="subtle cell-not-set">{children}</span>} variant="plain">
+      {label}：這一列還沒有設定上課時間，所以算不出重疊與扣除。
+    </InfoTip>
   );
 }
 
@@ -293,13 +296,16 @@ export function ScheduleGrid({
             >
               匯入 Excel
             </button>
-            {/* 原生檔案選取（視覺隱藏、鍵盤可達：按鈕 focus 後按 Enter/Space 觸發 click 再聚焦它） */}
+            {/* 原生檔案選取：以 display:none 完全移出可及性樹——它只是［匯入 Excel］按鈕
+                的實作細節，真正的可及控制項是那顆按鈕（鍵盤可達、尺寸達標）。
+                先前用 .visually-hidden-input 會被 a11y 稽核判成 1×1px 的目標過小。 */}
             <input
               ref={importInputRef}
               type="file"
               accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-              className="visually-hidden-input"
-              aria-label="選擇要匯入的課表 Excel 檔案"
+              style={{ display: 'none' }}
+              tabIndex={-1}
+              aria-hidden="true"
               onChange={handleImportFile}
             />
           </>
@@ -501,16 +507,20 @@ export function ScheduleGrid({
                       </select>
                     </td>
 
-                    {/* 3. 天數固定 5 天（#80） */}
+                    {/* 3. 天數固定 5 天（#80）。包在 <label> 內：稽核以 label 的可點範圍
+                        計算目標尺寸，裸 checkbox 只有 16px、會被判成目標過小。 */}
                     <td className="col-fixed-five">
-                      <input
-                        type="checkbox"
-                        checked={attr?.fixedFiveDays ?? false}
-                        disabled={attrsDisabled}
-                        aria-label={`${className} 的天數固定 5 天`}
-                        data-fixed-five-toggle={className}
-                        onChange={(e) => onToggleFixedFiveDays?.(className, e.target.checked)}
-                      />
+                      <label className="fixed-five-toggle">
+                        <input
+                          type="checkbox"
+                          checked={attr?.fixedFiveDays ?? false}
+                          disabled={attrsDisabled}
+                          aria-label={`${className} 的天數固定 5 天`}
+                          data-fixed-five-toggle={className}
+                          onChange={(e) => onToggleFixedFiveDays?.(className, e.target.checked)}
+                        />
+                        <span aria-hidden="true">{attr?.fixedFiveDays ? '是' : '否'}</span>
+                      </label>
                     </td>
 
                     {/* 4. 帶班老師 */}
@@ -525,24 +535,20 @@ export function ScheduleGrid({
                       />
                     </td>
 
-                    {/* 5. 星期（#82：可清空；下拉含「未定」） */}
+                    {/* 5. 星期（#82：可清空，留空＝未定） */}
                     <td className="col-weekday">
-                      <select
+                      {/* 維持文字輸入（非下拉）：#82 只要求「可以留空」，placeholder 已能表達；
+                          下拉反而會擋掉 seed 既有的非選單值（「一~五」、「—」）與使用者手打的
+                          未知星期——而「未知星期 → 需確認」是 09 §3.1 必須保留的畫面狀態。
+                          #80 曾短暫改成下拉，導致 UX07 的「填入非法星期」路徑不可達。 */}
+                      <input
+                        type="text"
                         className="input-weekday"
+                        placeholder="未定"
                         value={r.weekday}
                         onChange={(e) => onUpdateRow(r.rowId, { weekday: e.target.value })}
                         aria-label={`星期 第 ${idx + 1} 列`}
-                      >
-                        {WEEKDAY_OPTIONS.map((o) => (
-                          <option key={o.value || 'unset'} value={o.value}>
-                            {o.label}
-                          </option>
-                        ))}
-                        {/* 保留既有非選單值（例如 seed 的「一~五」、「—」），不因下拉而默默清掉 */}
-                        {!WEEKDAY_OPTIONS.some((o) => o.value === r.weekday) && (
-                          <option value={r.weekday}>{r.weekday}</option>
-                        )}
-                      </select>
+                      />
                     </td>
 
                     {/* 6. 上課時間 (起 — 迄)（#82：可留空） */}
@@ -569,7 +575,7 @@ export function ScheduleGrid({
                     </td>
 
                     {/* 7. 課程時長 分（#82：未設定時間 → 「—」） */}
-                    <td className="col-duration number">
+                    <td className="col-duration number" data-calc="duration">
                       {isIncomplete ? (
                         <NotSetYetCell />
                       ) : isInactive ? (
@@ -580,7 +586,7 @@ export function ScheduleGrid({
                     </td>
 
                     {/* 8. 安親 重疊／分 */}
-                    <td className="number cblue">
+                    <td className="number cblue" data-calc="anqin-overlap">
                       {isIncomplete ? (
                         <NotSetYetCell />
                       ) : isInactive ? (
@@ -595,7 +601,7 @@ export function ScheduleGrid({
                     </td>
 
                     {/* 9. 安親 扣除／天 */}
-                    <td className="number cblue">
+                    <td className="number cblue" data-calc="anqin-deduction">
                       {isIncomplete ? (
                         <NotSetYetCell />
                       ) : isInactive ? (
@@ -610,7 +616,7 @@ export function ScheduleGrid({
                     </td>
 
                     {/* 10. 課輔 重疊／分 */}
-                    <td className="number cteal">
+                    <td className="number cteal" data-calc="tutoring-overlap">
                       {isIncomplete ? (
                         <NotSetYetCell />
                       ) : isInactive ? (
@@ -625,7 +631,7 @@ export function ScheduleGrid({
                     </td>
 
                     {/* 11. 課輔 扣除／天 */}
-                    <td className="number cteal">
+                    <td className="number cteal" data-calc="tutoring-deduction">
                       {isIncomplete ? (
                         <NotSetYetCell />
                       ) : isInactive ? (

@@ -1,5 +1,6 @@
 import { test, expect, type Page } from '@playwright/test';
 import { activateFixture } from './helpers/c-batch';
+import { classRow } from './helpers/d2c-settings';
 
 /**
  * D2b 畫面行為（06 D37 1a、Q11 升級、Q9 合併阻擋、Q13 alias 提示、Q14 subject 隱藏）：
@@ -69,9 +70,9 @@ async function setFirstStartTimeOfClass(page: Page, className: string, value: st
  * 只有 `--keep-db` 才跨輪沿用。
  */
 async function restoreCategoryToAutoAndSave(page: Page, className: string) {
-  const row = page.locator(`tr.schedule-row:has([data-category-select="${className}"])`);
+  const row = classRow(page, className);
   await expect(row).toBeVisible();
-  await row.locator(`[data-restore-auto="${className}"]`).click();
+  await row.locator(`[data-restore-auto="${className}"]`).first().click();
   await page.locator('button', { hasText: '確認變更' }).click();
   const dialog = page.locator('dialog.impact-dialog');
   await expect(dialog).toBeVisible({ timeout: 15000 });
@@ -92,72 +93,77 @@ test.describe('D2b：班級類別與固定 5 天設定 UI、升級確認', () =>
     await expect(page.locator('h1', { hasText: '課表設定' })).toBeVisible({ timeout: 15000 });
   });
 
-  test('D2b-2: 自動偵測的類別與固定 5 天旗標逐班顯示，來源標「自動」', async ({ page }) => {
-    const panel = page.locator('[data-class-attributes-panel]');
-    await expect(panel).toBeVisible();
-    await expect(panel).toContainText('折扣類別與固定 5 天');
+  test('D2b-2: 自動偵測的類別與固定 5 天旗標逐班顯示，未手動者不顯示「自動設定」按鈕', async ({ page }) => {
+    // #80：獨立的屬性面板卡片已刪除，欄位併入時段表格；原本斷言「面板可見且含
+    // 『折扣類別與固定 5 天』」的命題已隨元件刪除失效，改驗新契約：欄位在表格內。
+    await expect(page.locator('[data-class-attributes-panel]')).toHaveCount(0);
+    const table = page.locator('table.schedule-table');
+    await expect(table).toContainText('列入多科折扣');
+    await expect(table).toContainText('天數固定 5 天');
 
     // 國小數學-四A 自動偵測為數學班
-    const row = page.locator('tr.schedule-row:has([data-category-select="國小數學-四A"])');
+    const row = classRow(page, '國小數學-四A');
     await expect(row).toBeVisible();
-    await expect(row.locator('[data-category-select="國小數學-四A"]')).toHaveValue('math');
+    await expect(row.locator('[data-category-select="國小數學-四A"]').first()).toHaveValue('math');
+    // 未手動 → 沒有「自動設定」按鈕（#80 取代原本的「來源：自動」pill）
+    await expect(row.locator('[data-restore-auto="國小數學-四A"]')).toHaveCount(0);
 
     // 國小輔導-四年級 → 安親課輔班
-    await expect(page.locator('[data-category-select="國小輔導-四年級"]')).toHaveValue('care');
+    await expect(page.locator('[data-category-select="國小輔導-四年級"]').first()).toHaveValue('care');
 
     // 固定 5 天：seed 中沒有寫功課班，改以「兒童美語-Gino」（自動偵測非固定）確認旗標未誤開
-    await expect(page.locator('[data-fixed-five-toggle="兒童美語-Gino"]')).not.toBeChecked();
+    await expect(page.locator('[data-fixed-five-toggle="兒童美語-Gino"]').first()).not.toBeChecked();
   });
 
   test('D2b-2: 手動選類別 → 來源變「手動」；恢復自動 → 回到自動偵測值', async ({ page }) => {
-    const row = page.locator('tr.schedule-row:has([data-category-select="國小數學-四A"])');
-    await row.locator('[data-category-select="國小數學-四A"]').selectOption('none');
+    const row = classRow(page, '國小數學-四A');
+    await row.locator('[data-category-select="國小數學-四A"]').first().selectOption('none');
 
     // 「恢復自動」後回到自動偵測（數學班）
-    await row.locator('[data-restore-auto="國小數學-四A"]').click();
-    await expect(row.locator('[data-category-select="國小數學-四A"]')).toHaveValue('math');
+    await row.locator('[data-restore-auto="國小數學-四A"]').first().click();
+    await expect(row.locator('[data-category-select="國小數學-四A"]').first()).toHaveValue('math');
   });
 
   test('D2b-2: 固定 5 天可手動開啟並恢復自動', async ({ page }) => {
-    const row = page.locator('tr.schedule-row:has([data-category-select="兒童美語-Gino"])');
-    await row.locator('[data-fixed-five-toggle="兒童美語-Gino"]').check();
-    await row.locator('[data-restore-auto="兒童美語-Gino"]').click();
-    await expect(row.locator('[data-fixed-five-toggle="兒童美語-Gino"]')).not.toBeChecked();
+    const row = classRow(page, '兒童美語-Gino');
+    await row.locator('[data-fixed-five-toggle="兒童美語-Gino"]').first().check();
+    await row.locator('[data-restore-auto="兒童美語-Gino"]').first().click();
+    await expect(row.locator('[data-fixed-five-toggle="兒童美語-Gino"]').first()).not.toBeChecked();
   });
 
   test('D2b-2: 手動後改班名不再重新偵測（未手動者會跟著新名重偵測）', async ({ page }) => {
     // 先手動把「國小數學-四A」設為不列入折扣
-    const row = page.locator('tr.schedule-row:has([data-category-select="國小數學-四A"])');
-    await row.locator('[data-category-select="國小數學-四A"]').selectOption('care');
+    const row = classRow(page, '國小數學-四A');
+    await row.locator('[data-category-select="國小數學-四A"]').first().selectOption('care');
 
     // 整班改名為「國小數學-四A改名」
     await renameWholeClass(page, '國小數學-四A', '國小數學-四A改名');
 
     // 手動值帶著走：新名自動偵測本來是 math，但因為是 manual，仍顯示 care
-    const renamed = page.locator('tr.schedule-row:has([data-category-select="國小數學-四A改名"])');
+    const renamed = classRow(page, '國小數學-四A改名');
     await expect(renamed.locator('[data-category-select="國小數學-四A改名"]')).toHaveValue('care');
 
     // 未手動的「國小數學-四B」改名後依新名重新偵測（仍是數學班，來源仍自動）
     await renameWholeClass(page, '國小數學-四B', '國小數學-四B改名');
-    const bRow = page.locator('tr.schedule-row:has([data-category-select="國小數學-四B改名"])');
+    const bRow = classRow(page, '國小數學-四B改名');
     await expect(bRow.locator('[data-category-select="國小數學-四B改名"]')).toHaveValue('math');
   });
 
   test('D2b-6: 只改類別（不動時段）也會變更狀態為 dirty', async ({ page }) => {
     await expect(page.locator('.save-status-clean')).toBeVisible();
-    const row = page.locator('tr.schedule-row:has([data-category-select="國小數學-四A"])');
-    await row.locator('[data-category-select="國小數學-四A"]').selectOption('none');
+    const row = classRow(page, '國小數學-四A');
+    await row.locator('[data-category-select="國小數學-四A"]').first().selectOption('none');
     await expect(page.locator('.save-status-dirty')).toBeVisible();
   });
 
   test('D2b-6: 取消修改會把類別還原（回到未儲存狀態）', async ({ page }) => {
-    const row = page.locator('tr.schedule-row:has([data-category-select="國小數學-四A"])');
-    await row.locator('[data-category-select="國小數學-四A"]').selectOption('none');
+    const row = classRow(page, '國小數學-四A');
+    await row.locator('[data-category-select="國小數學-四A"]').first().selectOption('none');
     await expect(page.locator('.save-status-dirty')).toBeVisible();
 
     await page.locator('button', { hasText: '取消修改' }).click();
     await expect(page.locator('.save-status-clean')).toBeVisible();
-    await expect(page.locator('[data-category-select="國小數學-四A"]')).toHaveValue('math');
+    await expect(page.locator('[data-category-select="國小數學-四A"]').first()).toHaveValue('math');
   });
 
   test.describe('D2b r2：影響預覽的受影響人數（去重）與 Q13 跨類別別名提示', () => {
@@ -173,14 +179,15 @@ test.describe('D2b：班級類別與固定 5 天設定 UI、升級確認', () =>
       await expect(page.locator('.mapping-table')).toBeVisible({ timeout: 10000 });
       await expect(page.locator('.pill', { hasText: '已對應' })).toHaveCount(0);
       await page.locator('button', { hasText: '課表' }).click();
-      await expect(page.locator('[data-class-attributes-panel]')).toBeVisible();
+      // #80：屬性欄已併入時段表格，改等那張表
+      await expect(page.locator('table.schedule-table')).toBeVisible();
     });
 
     test('R2-1: 只有科數／折扣變化、天數不變時，受影響學生數仍正確（不得為 0）', async ({ page }) => {
       // 「國小輔導-一A」在 seed 無時段 → 手動改類別是**純類別**變化：天數不變，只有科數與折扣變化。
       // 這筆資料下「相加」與「聯集去重」同值（皆 21），因此本例是回歸保護：
       // 確保這條路徑不會因只算天數而顯示 0。能區分兩種算法的斷言在下一個案例。
-      await page.locator('[data-category-select="國小輔導-一A"]').selectOption('none');
+      await page.locator('[data-category-select="國小輔導-一A"]').first().selectOption('none');
       await expect(page.locator('.save-status-dirty')).toBeVisible();
 
       await page.locator('button', { hasText: '確認變更' }).click();
@@ -198,7 +205,7 @@ test.describe('D2b：班級類別與固定 5 天設定 UI、升級確認', () =>
     test('R2-1: 同一人同時有天數與科數變化時，受影響學生數不得為兩者相加', async ({ page }) => {
       // 同一個班同時改「類別」與「時段」→ 天數與科數差異落在同一批學生身上。
       // 逐格捲動會讓系統誤判拆班，因此一次批次派發。
-      await page.locator('[data-category-select="國小數學-三A"]').selectOption('none');
+      await page.locator('[data-category-select="國小數學-三A"]').first().selectOption('none');
       await setFirstStartTimeOfClass(page, '國小數學-三A', '09:45');
       await expect(page.locator('.save-status-dirty')).toBeVisible();
 

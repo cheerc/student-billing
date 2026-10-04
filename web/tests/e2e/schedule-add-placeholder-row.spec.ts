@@ -64,8 +64,9 @@ test.describe('#82：新增時段僅班名必填、平靜顯示「—」', () =>
     // 列已建立
     const row = rowOf(page, '新開班-待排課');
     await expect(row).toHaveCount(1);
-    // 星期是「未定」（空值）
-    await expect(row.locator('select.input-weekday')).toHaveValue('');
+    // 星期留空（＝未定，以 placeholder 呈現）
+    await expect(row.locator('input.input-weekday')).toHaveValue('');
+    await expect(row.locator('input.input-weekday')).toHaveAttribute('placeholder', '未定');
     // 時間是空的
     await expect(row.locator('input.input-time').first()).toHaveValue('');
     await expect(row.locator('input.input-time').last()).toHaveValue('');
@@ -119,7 +120,7 @@ test.describe('#82：新增時段僅班名必填、平靜顯示「—」', () =>
 
     // 補星期與時間：星期一 15:20–16:50（與 Gino 相同）
     const row = rowOf(page, '新開班-待排課');
-    await row.locator('select.input-weekday').selectOption('一');
+    await row.locator('input.input-weekday').fill('一');
     await row.locator('input.input-time').first().fill('15:20');
     await row.locator('input.input-time').last().fill('16:50');
 

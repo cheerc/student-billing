@@ -28,7 +28,8 @@ type ProbeWindow = Window & { __cancelRace: Barrier };
 
 const cancelButton = (page: Page) => page.getByRole('button', { name: '取消修改', exact: true });
 const reviewButton = (page: Page) => page.getByRole('button', { name: '確認變更', exact: true });
-const overlap = (page: Page) => page.locator('.schedule-table tbody tr').nth(3).locator('td').nth(5);
+// 以欄位意義定位，不用 td 索引（#80 前段插入兩欄後，舊 nth(5) 會指到 col-time）
+const overlap = (page: Page) => page.locator('.schedule-table tbody tr').nth(3).locator('[data-calc="anqin-overlap"]');
 
 async function installBarrier(page: Page) {
   await page.evaluate(() => {

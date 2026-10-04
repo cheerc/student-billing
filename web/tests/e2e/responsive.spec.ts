@@ -185,7 +185,7 @@ test.describe('R5 UX20 響應式驗收', () => {
       await page.locator('input.input-time').first().fill('13:30'); // 使操作列出現「有未儲存的變更」
       // 等計算真的回來再量測／截圖：否則截到的是「尚未計算」的瞬間，不是使用者實際看到的課表
       // （兒童美語-Gino 週一 15:20–16:50：安親重疊 40 分，手算見 schedule-stale-response.spec.ts）
-      await expect(page.locator('.schedule-table tbody tr').nth(3).locator('td').nth(5)).toHaveText(/40/, { timeout: 10000 });
+      await expect(page.locator('.schedule-table tbody tr').nth(3).locator('[data-calc="anqin-overlap"]')).toHaveText(/40/, { timeout: 10000 });
       await expect(page.locator('.calculating-indicator')).toHaveCount(0);
       await check('settings-schedule');
       // 3. 捲到底後，主要內容沒有互動元素被底部操作列蓋住

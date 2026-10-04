@@ -1,5 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
-import { resetSeedSettings, saveSettings } from './helpers/d2c-settings';
+import { resetSeedSettings, saveSettings, classRow } from './helpers/d2c-settings';
 
 async function renameWholeClass(page: Page, from: string, to: string) {
   await page
@@ -31,8 +31,8 @@ test.describe('D2b 空 DB 畫面契約：settings_only 影響預覽、Q11 升級
   });
 
   test('D2b-6: 類別變更進影響預覽（科數／折扣差異）並可儲存', async ({ page }) => {
-    const row = page.locator('tr.schedule-row:has([data-category-select="國小數學-四A"])');
-    await row.locator('[data-category-select="國小數學-四A"]').selectOption('none');
+    const row = classRow(page, '國小數學-四A');
+    await row.locator('[data-category-select="國小數學-四A"]').first().selectOption('none');
     await page.locator('button', { hasText: '確認變更' }).click();
 
     const dialog = page.locator('dialog.impact-dialog');
@@ -56,7 +56,7 @@ test.describe('D2b 空 DB 畫面契約：settings_only 影響預覽、Q11 升級
     await resetSeedSettings(page);
     await page.goto('/settings');
     for (const name of ['國小數學-四A', '國小數學-四B']) {
-      await expect(page.locator(`[data-category-select="${name}"]`)).toHaveValue('math');
+      await expect(page.locator(`[data-category-select="${name}"]`).first()).toHaveValue('math');
     }
     const current = await page.request.get('/api/v1/runs/current');
     expect(current.ok()).toBe(true);
@@ -76,7 +76,7 @@ test.describe('D2b 空 DB 畫面契約：settings_only 影響預覽、Q11 升級
     // 再只把四A 設為手動 → 兩班有效屬性確定不同 → 合併必然是衝突。
     // 「恢復自動」按鈕只在該項為手動時出現（class-attributes-panel.tsx），故條件式點擊
     for (const cn of ['國小數學-四A', '國小數學-四B']) {
-      const btn = page.locator(`[data-restore-auto="${cn}"]`);
+      const btn = page.locator(`[data-restore-auto="${cn}"]`).first();
       if (await btn.count()) {
         await btn.click();
       } else {
@@ -84,7 +84,7 @@ test.describe('D2b 空 DB 畫面契約：settings_only 影響預覽、Q11 升級
     }
 
     // 把「國小數學-四A」手動設為不列入折扣
-    await page.locator('[data-category-select="國小數學-四A"]').selectOption('none');
+    await page.locator('[data-category-select="國小數學-四A"]').first().selectOption('none');
 
     // D2c N-1：本案例必須自足——把手動設定**先儲存**再改名。
     // 合併衝突的判定基準是各來源班的「有效屬性」（已儲存的手動值優先，未手動者依 baseline 班名

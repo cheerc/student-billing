@@ -9,27 +9,48 @@ import { test, expect, type Page, type Locator } from '@playwright/test';
  * 手算（seed 課表 兒童美語-Gino 週一 15:20–16:50，v2 同星期；安親窗 13:00–16:00、課輔窗 16:30–19:30）：
  *   安親重疊 16:00−15:20＝40 分；課輔重疊 16:50−16:30＝20 分。
  *   起始改 15:40 → 安親重疊 20 分。
- * 列的欄位（tbody tr 的 td）：0 班名、1 老師、2 星期、3 起迄、4 課程時長、5 安親重疊、6 安親扣除、7 課輔重疊、8 課輔扣除、9 操作。
+ * 五個計算欄以 `data-calc` 錨點定位（`schedule-grid.tsx` 逐一對應），**不用 td 索引**：
+ * #80 往表格前段插入「列入多科折扣」「天數固定 5 天」兩欄後，舊的 `nth(5)` 會默默
+ * 指到 `col-time`（當時的失敗訊息正是 Expected "40" / Received "—"）。索引式的欄位
+ * 假設是同一個脆點的兩次實例：欄位一增就壞，而且不會有人立刻注意到。
  */
 
 const CALC_URL = '**/api/v1/settings/calculate';
 
-async function openSchedule(page: Page): Promise<{ row: Locator; cell: (i: number) => Locator }> {
+/** 四個「窗口」計算欄（安親／課輔的重疊與扣除）。 */
+const CALC_COLUMNS = [
+  'anqin-overlap',
+  'anqin-deduction',
+  'tutoring-overlap',
+  'tutoring-deduction',
+] as const;
+type CalcColumn = (typeof CALC_COLUMNS)[number];
+/** 以欄位意義（非索引）取得某一列的計算欄儲存格。 */
+type CalcCell = (name: CalcColumn) => Locator;
+
+async function openSchedule(page: Page): Promise<{ row: Locator; cell: CalcCell }> {
   await page.goto('/settings');
   await expect(page.locator('h1', { hasText: '課表設定' })).toBeVisible({ timeout: 10000 });
   const row = page.locator('.schedule-table tbody tr').nth(3); // 兒童美語-Gino 週一 15:20–16:50
-  const cell = (i: number) => row.locator('td').nth(i);
-  await expect(cell(5)).toHaveText('40', { timeout: 10000 }); // 初始結果（seed 課表）
-  await expect(cell(7)).toHaveText('20');
+  const cell: CalcCell = (name) => row.locator(`[data-calc="${name}"]`);
+  await expect(cell('anqin-overlap')).toHaveText('40', { timeout: 10000 }); // 初始結果（seed 課表）
+  await expect(cell('tutoring-overlap')).toHaveText('20');
   return { row, cell };
 }
 
 /** 四個計算欄（安親重疊／扣除、課輔重疊／扣除）都已被「需確認」取代：不是 0、不是舊值。 */
-async function expectNeedsReviewCells(cell: (i: number) => Locator) {
-  for (const i of [5, 6, 7, 8]) {
-    await expect(cell(i)).toContainText('需確認');
-    await expect(cell(i)).not.toHaveText('0');
-    await expect(cell(i)).not.toHaveText('40');
+async function expectNeedsReviewCells(cell: CalcCell) {
+  for (const name of CALC_COLUMNS) {
+    await expect(cell(name)).toContainText('需確認');
+    await expect(cell(name)).not.toHaveText('0');
+    await expect(cell(name)).not.toHaveText('40');
+  }
+}
+
+/** 等待一列的四個窗口欄全部顯示「—」（計算尚未回、或失敗）。 */
+async function expectDashedCells(cell: CalcCell) {
+  for (const name of CALC_COLUMNS) {
+    await expect(cell(name)).toHaveText('—');
   }
 }
 
@@ -40,7 +61,7 @@ test.describe('UX07（修訂）：未知／空白星期與 calculate 失敗不�
     await row.locator('input.input-weekday').fill('八');
 
     // 警告：徽章是按鈕，鍵盤可達
-    const badge = cell(5).getByRole('button', { name: '需確認原因' });
+    const badge = cell('anqin-overlap').getByRole('button', { name: '需確認原因' });
     await expect(badge).toBeVisible({ timeout: 10000 });
     await expectNeedsReviewCells(cell);
     await badge.focus();
@@ -57,8 +78,8 @@ test.describe('UX07（修訂）：未知／空白星期與 calculate 失敗不�
 
     // 合法週六：已驗證與週一至五窗口無交集 → 0，沒有警告
     await row.locator('input.input-weekday').fill('六');
-    await expect(cell(5)).toHaveText('0', { timeout: 10000 });
-    await expect(cell(7)).toHaveText('0');
+    await expect(cell('anqin-overlap')).toHaveText('0', { timeout: 10000 });
+    await expect(cell('tutoring-overlap')).toHaveText('0');
     await expect(row.getByRole('button', { name: '需確認原因' })).toHaveCount(0);
     await expect(page.locator('[data-unknown-weekday-notice]')).toHaveCount(0);
   });
@@ -77,13 +98,11 @@ test.describe('UX07（修訂）：未知／空白星期與 calculate 失敗不�
 
     await row.locator('input.input-weekday').fill('八');
     await expect.poll(() => held, { timeout: 5000 }).toBe(true);
-    for (const i of [5, 6, 7, 8]) {
-      await expect(cell(i)).toHaveText('—');
-    }
-    await expect(cell(5)).not.toHaveText('40');
+    await expectDashedCells(cell);
+    await expect(cell('anqin-overlap')).not.toHaveText('40');
 
     release();
-    await expect(cell(5).getByRole('button', { name: '需確認原因' })).toBeVisible({ timeout: 10000 });
+    await expect(cell('anqin-overlap').getByRole('button', { name: '需確認原因' })).toBeVisible({ timeout: 10000 });
   });
 
   test('(2) 清空星期（空字串）：calculate 不再 400；該列「需確認」警告與原因；舊值不冒充', async ({ page }) => {
@@ -95,7 +114,7 @@ test.describe('UX07（修訂）：未知／空白星期與 calculate 失敗不�
     await row.locator('input.input-weekday').fill('');
     expect((await blankResponse).status()).toBe(200); // 整個 calculate 不因空白星期而失敗
 
-    const badge = cell(5).getByRole('button', { name: '需確認原因' });
+    const badge = cell('anqin-overlap').getByRole('button', { name: '需確認原因' });
     await expect(badge).toBeVisible({ timeout: 10000 });
     await expectNeedsReviewCells(cell);
     await badge.focus();
@@ -103,7 +122,9 @@ test.describe('UX07（修訂）：未知／空白星期與 calculate 失敗不�
     await expect(page.locator('[data-unknown-weekday-notice]')).toContainText('沒有填星期');
     // 其他列不受影響：上一列（Gino 之前的列）仍是完整結果，畫面沒有整片變「—」
     await expect(page.locator('[data-calculate-error]')).toHaveCount(0);
-    await expect(page.locator('.schedule-table tbody tr').nth(4).locator('td').nth(5)).not.toHaveText('—');
+    await expect(
+      page.locator('.schedule-table tbody tr').nth(4).locator('[data-calc="anqin-overlap"]')
+    ).not.toHaveText('—');
   });
 
   test('(3) calculate 失敗（500／連線中斷）：顯示失敗說明、各欄「—」，不是 0／「無重疊」也不沿用舊值；恢復後自動重算', async ({ page }) => {
@@ -120,11 +141,9 @@ test.describe('UX07（修訂）：未知／空白星期與 calculate 失敗不�
     await expect(alert).toHaveAttribute('role', 'alert');
     await expect(alert).toContainText('無法計算');
     await expect(alert).toContainText('不代表沒有衝堂');
-    for (const i of [5, 6, 7, 8]) {
-      await expect(cell(i)).toHaveText('—');
-    }
-    await expect(cell(5)).not.toHaveText('40');
-    await expect(cell(5)).not.toHaveText('0');
+    await expectDashedCells(cell);
+    await expect(cell('anqin-overlap')).not.toHaveText('40');
+    await expect(cell('anqin-overlap')).not.toHaveText('0');
     // 失敗說明不外露工程字（copy-scan 同規則）
     await expect(alert).not.toContainText(/500|boom|API|JSON/);
 
@@ -133,14 +152,12 @@ test.describe('UX07（修訂）：未知／空白星期與 calculate 失敗不�
     await page.route(CALC_URL, (route) => route.abort());
     await start.fill('15:20');
     await expect(alert).toBeVisible();
-    for (const i of [5, 6, 7, 8]) {
-      await expect(cell(i)).toHaveText('—');
-    }
+    await expectDashedCells(cell);
 
     // 恢復：改動即自動重算，失敗說明消失，數值是新結果（15:40 起 → 安親 20 分）
     await page.unroute(CALC_URL);
     await start.fill('15:40');
-    await expect(cell(5)).toHaveText('20', { timeout: 10000 });
+    await expect(cell('anqin-overlap')).toHaveText('20', { timeout: 10000 });
     await expect(page.locator('[data-calculate-error]')).toHaveCount(0);
   });
 });

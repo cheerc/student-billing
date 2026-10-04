@@ -152,10 +152,14 @@ describe('#80：折扣類別與固定 5 天併入時段表格', () => {
 });
 
 describe('#82：新增時段僅班名必填、其餘可留空', () => {
-  it('星期下拉有「未定」這個可留空選項（新增表單與編輯列都在）', () => {
-    const html = render({ showAddForm: true } as Record<string, unknown>);
-    // 「未定」出現兩次：新增表單一次、表格每一列一次（共 1+2 列）
-    expect(html).toContain('未定');
+  it('星期可留空：編輯列是文字輸入且以 placeholder「未定」提示留空', () => {
+    const html = render();
+    // 編輯列：文字輸入（保留使用者輸入未知星期的能力——09 §3.1 的「需確認」狀態來自這裡）
+    expect(html).toMatch(/<input[^>]*class="input-weekday"[^>]*placeholder="未定"/);
+    expect(html).not.toMatch(/<select[^>]*class="input-weekday"/);
+    // 新增表單獨立於元件 state（showAddForm 是內部 useState），靜態渲染不會展開；
+    // 因此這裡只驗「新增時段」入口存在，星期選項交給 E2E（#82-1 實際開表單驗預設值為空）。
+    expect(html).toContain('＋ 新增時段');
   });
 
   it('缺時間的列：計算欄平靜顯示「—」且帶 aria-label「未設定時間」（decision d-…-11）', () => {
@@ -168,7 +172,9 @@ describe('#82：新增時段僅班名必填、其餘可留空', () => {
 
   it('「—」以 subtle 樣式呈現，不是可點的警示 badge（不是阻擋訊號）', () => {
     const html = render();
-    expect(html).toMatch(/<span class="subtle" aria-label="未設定時間" title="未設定時間">—<\/span>/);
+    // 說明改用可聚焦的 InfoTip 按鈕（title 只在 hover 看得到，09 §6 與 a11y 稽核都不接受）
+    expect(html).not.toContain('title="未設定時間"');
+    expect(html).toMatch(/<button[^>]*aria-label="未設定時間"[^>]*>[\s\S]*?cell-not-set[^<]*>—</);
   });
 
   it('未知星期的列仍以「需確認」標示，不被「—」取代（#82 不動這個狀態）', () => {
@@ -246,7 +252,9 @@ describe('#81：Excel 匯出／匯入工具列（單純一鍵）', () => {
     const html = render({ onExportExcel: () => {}, onImportExcel: () => {} });
     expect(html).toContain('type="file"');
     expect(html).toContain('.xlsx');
-    expect(html).toContain('visually-hidden-input');
+    // 以 display:none 移出可及性樹；可及控制項是［匯入 Excel］按鈕本身
+    expect(html).toContain('display:none');
+    expect(html).not.toContain('visually-hidden-input');
   });
 
   it('匯入失敗：role=alert 顯示白話錯誤，並明說「沒有套用任何資料」', () => {

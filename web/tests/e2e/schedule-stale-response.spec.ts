@@ -17,7 +17,8 @@ test('UX08: 舊的 calculate 回應晚到，畫面仍採用最新請求的結果
   await expect(page.locator('h1', { hasText: '課表設定' })).toBeVisible({ timeout: 10000 });
 
   const row = page.locator('.schedule-table tbody tr').nth(3); // 兒童美語-Gino 週一 15:20–16:50
-  const overlapAnqin = row.locator('td').nth(5);
+  // 以欄位意義定位，不用 td 索引（#80 前段插入兩欄後，舊 nth(5) 會指到 col-time）
+  const overlapAnqin = row.locator('[data-calc="anqin-overlap"]');
   await expect(overlapAnqin).toHaveText(/40/); // 初始結果（seed 課表）
 
   let calls = 0;
