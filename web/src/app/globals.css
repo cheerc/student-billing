@@ -495,6 +495,18 @@ body {
   color: var(--primary-color);
 }
 
+/*
+  #84：匯入完成後指向「03 核對結果」的引導高亮。
+  靜態柔和藍色外框，不使用脈衝／彈跳／無限循環動畫
+  （UI/UX Pro Max：Continuous Animation 只適用於載入指示器，不用於裝飾性元素）。
+  焦點外框與 active 狀態仍由各自規則呈現，此處只疊一層低透明度 halo。
+*/
+.nav-item-highlight {
+  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.4);
+  background: #f5f9ff;
+  color: var(--primary-color);
+}
+
 .step-num {
   font-family: ui-monospace, monospace;
   font-size: 12px;
@@ -1604,11 +1616,6 @@ dialog.impact-dialog::backdrop {
 .badge.status-history {
   background: #f1f5f9;
   color: #334155;
-}
-
-.badge.status-unused {
-  background: var(--badge-bg);
-  color: var(--badge-text);
 }
 
 /* 狀態卡：空狀態／空篩選／載入中／失敗／資料不足共用，一律「說明＋明確動作」 */

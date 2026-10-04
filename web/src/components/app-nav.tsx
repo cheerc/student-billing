@@ -1,20 +1,30 @@
 'use client';
 
-import React from 'react';
+import React, { useEffect } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { installEarlyPopstateListener } from '@/lib/leave-guard-registry';
+import { resetImportGuide, shouldHighlightResults, useImportGuide } from '@/lib/import-success-guide';
 
 // 根版面載入時（Next 掛載之前）先安裝 popstate 先手監聽器，讓離頁守衛的處理器排在 Next 前面（09 §3.2）
 installEarlyPopstateListener();
 
 export function AppNav() {
   const pathname = usePathname();
+  // #84：匯入成功後指向 03；抵達 03（/）即視為引導完成，永久清除、不復發。
+  const guideActive = useImportGuide();
+  useEffect(() => {
+    if (pathname === '/') resetImportGuide();
+  }, [pathname]);
 
   const isSchedule = pathname.startsWith('/settings');
   const isImports = pathname.startsWith('/imports');
   const isResults = pathname === '/';
   const isHistory = pathname.startsWith('/history');
+  // 柔和靜態外框（非脈衝／非無限循環）：UI/UX Pro Max Continuous Animation —
+  // 無限動畫只該用於載入指示器，不用於裝飾性元素。高亮表達「下一步在哪裡」，
+  // 不是「發生了什麼」，因此不用 aria-live／role=alert，只靠既有項目名稱與連結語意。
+  const highlightResults = shouldHighlightResults(guideActive, pathname);
 
   return (
     <aside className="side" aria-label="主要導覽">
@@ -48,8 +58,9 @@ export function AppNav() {
 
         <Link
           href="/"
-          className={`nav-item ${isResults ? 'active' : ''}`}
+          className={`nav-item ${isResults ? 'active' : ''} ${highlightResults ? 'nav-item-highlight' : ''}`}
           aria-current={isResults ? 'page' : undefined}
+          data-testid="nav-item-results"
         >
           <span className="step-num">03</span>
           <span className="step-label">核對結果</span>

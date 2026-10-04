@@ -8,12 +8,13 @@ import { SchedulePreviewError } from './schedule-preview';
  *
  * 行政人員看的是「哪一份名單、何時、現在用的是哪一份」，不是 Run／批次兩張工程表：
  *   - 每個用過的名單（run）一列：目前使用 或 歷史資料
- *   - 匯入了但從未使用的批次一列：尚未使用
+ * 「匯入」的業務語意是「確認使用才算匯入」（#83）：只上傳看預覽、未按「使用這份名單」
+ * 就離開的批次，不是匯入，不在此出現，也不留下無效的垃圾卡片。
  * 長 ID、規則版本、雜湊等收進 tech，由畫面放在摺疊區。
  * 本檔只讀不寫（不建 run、不改 active_state、不寫設定）。
  */
 
-export type HistoryStatus = 'current' | 'history' | 'unused';
+export type HistoryStatus = 'current' | 'history';
 
 export interface HistoryEntryTech {
   runId: string | null;
@@ -26,23 +27,26 @@ export interface HistoryEntryTech {
 }
 
 export interface HistoryEntry {
-  /** React key：run id 或（尚未使用的）batch id */
+  /** React key：run id */
   key: string;
-  kind: 'run' | 'batch';
+  /**
+   * 本清單只收真正建立過 calculation run 的名單歷程，故一律是 'run'。
+   * 保留此欄位是為了讓「無 run 的列不可能存在」成為可被型別與測試同時約束的契約。
+   */
+  kind: 'run';
   status: HistoryStatus;
-  /** 尚未使用的批次沒有 run，也就沒有「當時結果」可看 */
-  runId: string | null;
+  runId: string;
   importId: string;
   fileName: string;
   /** 名單匯入時間（ISO） */
   importedAt: string;
-  /** 資料更新時間（ISO）：run 為建立時間、尚未使用的批次為匯入時間 */
+  /** 資料更新時間（ISO）：run 的建立時間 */
   updatedAt: string;
-  /** 核對基準日；尚未使用者為 null */
-  asOfDate: string | null;
+  /** 核對基準日 */
+  asOfDate: string;
   studentCount: number;
-  /** 待確認事項筆數（各類問題加總）；尚未使用者為 null */
-  issueCount: number | null;
+  /** 待確認事項筆數（各類問題加總） */
+  issueCount: number;
   tech: HistoryEntryTech;
 }
 
@@ -62,19 +66,12 @@ interface RunRow {
   import_created_at: string | null;
 }
 
-interface BatchRow {
-  id: string;
-  file_name: string;
-  file_hash: string;
-  sheet_name: string | null;
-  row_count: number;
-  created_at: string;
-}
-
-/** 把批次與 run 併成一份紀錄清單，最新的在前。 */
+/** 把每個真正使用過的名單（run）併成一份紀錄清單，最新的在前。 */
 export function buildHistoryEntries(db: Database.Database): HistoryEntry[] {
   const currentRunId = getCurrentActiveRun(db).activeRunId;
 
+  // #83：只查 calculation_runs。只上傳看預覽就離開的 import_batches 不在此出現——
+  // 沒有 run 就不算匯入，匯入紀錄不為未啟用批次保留分類或垃圾卡片。
   const runRows = db
     .prepare(`
       SELECT r.id AS run_id, r.import_id, r.schedule_version_id, r.rule_set_version, r.numeric_policy,
@@ -84,14 +81,6 @@ export function buildHistoryEntries(db: Database.Database): HistoryEntry[] {
       LEFT JOIN import_batches b ON b.id = r.import_id
     `)
     .all() as RunRow[];
-
-  const unusedRows = db
-    .prepare(`
-      SELECT b.id, b.file_name, b.file_hash, b.sheet_name, b.row_count, b.created_at
-      FROM import_batches b
-      WHERE NOT EXISTS (SELECT 1 FROM calculation_runs r WHERE r.import_id = b.id)
-    `)
-    .all() as BatchRow[];
 
   const entries: HistoryEntry[] = [];
 
@@ -122,33 +111,8 @@ export function buildHistoryEntries(db: Database.Database): HistoryEntry[] {
     });
   }
 
-  for (const b of unusedRows) {
-    entries.push({
-      key: b.id,
-      kind: 'batch',
-      status: 'unused',
-      runId: null,
-      importId: b.id,
-      fileName: b.file_name,
-      importedAt: b.created_at,
-      updatedAt: b.created_at,
-      asOfDate: null,
-      studentCount: b.row_count,
-      issueCount: null,
-      tech: {
-        runId: null,
-        importId: b.id,
-        scheduleVersionId: null,
-        ruleSetVersion: null,
-        numericPolicy: null,
-        fileHash: b.file_hash,
-        sheetName: b.sheet_name ?? '',
-      },
-    });
-  }
-
-  // 由新到舊；時間相同時 run 在批次前，讓順序穩定
-  return entries.sort((a, b) => (a.updatedAt === b.updatedAt ? a.key.localeCompare(b.key) : a.updatedAt < b.updatedAt ? 1 : -1));
+  // 由新到舊
+  return entries.sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : -1));
 }
 
 export type RunDeductionsResult =

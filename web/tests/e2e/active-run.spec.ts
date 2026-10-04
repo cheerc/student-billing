@@ -35,7 +35,7 @@ test.describe('R4 重寫：核對結果頁 E2E 驗收（學生總表 12 欄 + �
     // 2. 頁內啟用（R3 已將啟用整合進匯入頁，不再回首頁找按鈕）
     await page.locator('button', { hasText: '使用這份名單' }).click();
     await expect(page.getByText(/\d+ 位學生資料已備妥/)).toBeVisible({ timeout: 15000 });
-    await page.locator('a', { hasText: '開始核對' }).click();
+    await page.locator('a', { hasText: '前往核對結果' }).click();
     await expect(page.locator('.data-banner-current', { hasText: '目前使用的資料' })).toBeVisible({ timeout: 15000 });
 
     // 3. 結果雙頁籤（09 §2／§5.2）
@@ -125,7 +125,7 @@ test.describe('R4 重寫：核對結果頁 E2E 驗收（學生總表 12 欄 + �
       await expect(page.locator('.stats-grid')).toBeVisible({ timeout: 15000 });
       await page.locator('button', { hasText: '使用這份名單' }).click();
       await expect(page.getByText(/\d+ 位學生資料已備妥/)).toBeVisible({ timeout: 15000 });
-      await page.locator('a', { hasText: '開始核對' }).click();
+      await page.locator('a', { hasText: '前往核對結果' }).click();
     }
     await expect(page.locator('.data-banner-current', { hasText: '目前使用的資料' })).toBeVisible({ timeout: 15000 });
   }

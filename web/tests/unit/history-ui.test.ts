@@ -55,11 +55,6 @@ const entry = (over: Partial<HistoryEntry>): HistoryEntry => ({
 });
 
 const ENTRIES: HistoryEntry[] = [
-  entry({
-    key: 'imp_3', kind: 'batch', status: 'unused', runId: null, importId: 'imp_3', fileName: '九月下旬.xlsx',
-    importedAt: '2026-09-20T02:00:00.000Z', updatedAt: '2026-09-20T02:00:00.000Z', asOfDate: null, issueCount: null, studentCount: 470,
-    tech: { runId: null, importId: 'imp_3', scheduleVersionId: null, ruleSetVersion: null, numericPolicy: null, fileHash: 'ffff0000ffff0000', sheetName: 'Sheet1' },
-  }),
   entry({}),
   entry({
     key: 'run_1', status: 'history', runId: 'run_1', importId: 'imp_1', fileName: '九月上旬.xlsx',
@@ -104,9 +99,23 @@ describe('匯入紀錄頁：去技術化與次入口定位（09 §2／§7）', (
     const shown = visible(render());
 
     expect(visibleText(render())).not.toMatch(FORBIDDEN);
-    for (const label of ['目前使用', '歷史資料', '尚未使用']) expect(shown).toContain(label);
-    for (const name of ['九月上旬.xlsx', '九月中旬.xlsx', '九月下旬.xlsx']) expect(shown).toContain(name);
+    for (const label of ['目前使用', '歷史資料']) expect(shown).toContain(label);
+    for (const name of ['九月上旬.xlsx', '九月中旬.xlsx']) expect(shown).toContain(name);
     expect(shown).toContain('477 人');
+  });
+
+  /**
+   * #83：只上傳看預覽、未按「使用這份名單」的名單不是匯入。
+   * 畫面不保留「尚未使用」分類、其狀態徽章與篩選選項（整條 UI 表面都被移除，而非只是沒有資料）。
+   */
+  it('不顯示「尚未使用」狀態、徽章與篩選選項（#83：確認使用才算匯入）', () => {
+    const html = render();
+
+    expect(html).not.toContain('尚未使用');
+    expect(html).not.toContain('status-unused');
+    expect(html).not.toContain('尚無核對結果');
+    expect(html).not.toContain("imp_3");
+    expect(html).not.toContain('九月下旬.xlsx');
   });
 
   it('來源日期清楚：資料更新時間與核對基準日分開標示，格式固定（Asia/Taipei，不混稱月帳期）', () => {
@@ -130,7 +139,7 @@ describe('匯入紀錄頁：去技術化與次入口定位（09 §2／§7）', (
     expect(joined).toContain('abcdef0123456789abcdef0123456789');
   });
 
-  it('只有「已使用過」的紀錄能查看當時結果（連到 /history/{id}）；尚未使用的沒有；沒有任何 API 外連', () => {
+  it('每一筆紀錄都能查看當時結果（連到 /history/{id}），沒有任何 API 外連', () => {
     const html = render();
 
     expect(html).toMatch(/href="\/history\/run_2"[^>]*>[^<]*查看當時結果/);

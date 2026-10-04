@@ -70,30 +70,53 @@ describe('匯入紀錄資料層（buildHistoryEntries）', () => {
     expect(buildHistoryEntries(db)).toEqual([]);
   });
 
-  it('run 與只匯入未使用的批次併成同一份清單：目前使用／歷史資料／尚未使用，最新的在前', () => {
+  /**
+   * #83：「確認使用才算匯入」。上傳預覽若未按「使用這份名單」就離開，
+   * 該批次不該在正式「匯入紀錄」留下任何卡片——匯入紀錄只列真正建立過
+   * calculation run 的名單歷程。
+   */
+  it('只匯入未啟用的批次不出現在紀錄中（#83：確認使用才算匯入，預覽直接離開不留垃圾紀錄）', () => {
+    saveImportBatch(db, batch('imp_unused', '2026-09-20T02:00:00.000Z', '九月下旬.xlsx'), []);
+
+    expect(buildHistoryEntries(db)).toEqual([]);
+  });
+
+  it('未啟用的批次不影響正式紀錄：清單只有 run，最新的在前（#83）', () => {
     saveImportBatch(db, batch('imp_1', '2026-09-01T02:00:00.000Z', '九月上旬.xlsx'), []);
-    saveCalculationRun(db, run('run_1', 'imp_1', '2026-09-02T02:00:00.000Z', { issueCounts: { SCHEDULE_NOT_FOUND: 2, DUPLICATE_SUBJECT_ENROLLMENT: 1 } }), []);
+    saveCalculationRun(db, run('run_1', 'imp_1', '2026-09-02T02:00:00.000Z'), []);
     saveImportBatch(db, batch('imp_2', '2026-09-10T02:00:00.000Z', '九月中旬.xlsx'), []);
     saveCalculationRun(db, run('run_2', 'imp_2', '2026-09-11T02:00:00.000Z'), []);
-    saveImportBatch(db, batch('imp_3', '2026-09-20T02:00:00.000Z', '九月下旬.xlsx'), []);
+    // 預覽後直接離開留下的批次：不得進入清單，也不得影響其他列的排序與狀態
+    saveImportBatch(db, batch('imp_unused', '2026-09-20T02:00:00.000Z', '九月下旬.xlsx'), []);
     setActive('run_2', 'imp_2');
 
     const entries = buildHistoryEntries(db);
 
-    // 由新到舊：尚未使用的批次(09-20)、目前使用的 run(09-11)、歷史 run(09-02)
     expect(entries.map((e) => [e.status, e.fileName])).toEqual([
-      ['unused', '九月下旬.xlsx'],
+      ['current', '九月中旬.xlsx'],
+      ['history', '九月上旬.xlsx'],
+    ]);
+    expect(entries.some((e) => e.fileName === '九月下旬.xlsx')).toBe(false);
+    // 每一列都是真正建立過 run 的正式名單歷程（無 kind: 'batch'、無 runId: null）
+    expect(entries.every((e) => e.kind === 'run' && e.runId !== null)).toBe(true);
+    expect(entries.every((e) => e.asOfDate !== null && e.issueCount !== null)).toBe(true);
+  });
+
+  it('run 併成同一份清單：目前使用／歷史資料，最新的在前（#83：只留下真正使用過的名單）', () => {
+    saveImportBatch(db, batch('imp_1', '2026-09-01T02:00:00.000Z', '九月上旬.xlsx'), []);
+    saveCalculationRun(db, run('run_1', 'imp_1', '2026-09-02T02:00:00.000Z', { issueCounts: { SCHEDULE_NOT_FOUND: 2, DUPLICATE_SUBJECT_ENROLLMENT: 1 } }), []);
+    saveImportBatch(db, batch('imp_2', '2026-09-10T02:00:00.000Z', '九月中旬.xlsx'), []);
+    saveCalculationRun(db, run('run_2', 'imp_2', '2026-09-11T02:00:00.000Z'), []);
+    setActive('run_2', 'imp_2');
+
+    const entries = buildHistoryEntries(db);
+
+    expect(entries.map((e) => [e.status, e.fileName])).toEqual([
       ['current', '九月中旬.xlsx'],
       ['history', '九月上旬.xlsx'],
     ]);
 
-    const [unused, current, history] = entries;
-
-    // 尚未使用：沒有 run，不能查看「當時結果」，也沒有待確認數／核對基準日
-    expect(unused.runId).toBeNull();
-    expect(unused.asOfDate).toBeNull();
-    expect(unused.issueCount).toBeNull();
-    expect(unused.updatedAt).toBe('2026-09-20T02:00:00.000Z');
+    const [current, history] = entries;
 
     // 目前使用
     expect(current.runId).toBe('run_2');

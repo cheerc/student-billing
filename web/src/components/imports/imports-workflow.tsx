@@ -17,12 +17,17 @@ import { ErrorNotice } from '@/components/ui/error-notice';
 import { ClassNameReportSummaryCard } from '@/components/imports/class-name-report-summary';
 import type { ClassNameReportSummary } from '@/application/class-name-match-report';
 import { formatDateTime, todayInTaipei } from '@/lib/datetime';
+import { announceImportActivated } from '@/lib/import-success-guide';
 
 /**
- * 匯入預覽回應（含重複判重與相對於現行名單的差異統計，specs/09 §4）。
+ * 匯入預覽回應（含相對於現行名單的差異統計，specs/09 §4）。
  * rosterDiff.baseImportId 為 null 表示尚無任何名單可比較，統計欄位此時不適用。
  * 異動（changedStudents／changes）由 API 以 before/after 計算結果判定
  * （operator 裁決 d-20260929111803466480-4／-5），畫面只呈現、不自行推導。
+ *
+ * isDuplicate／duplicateReason 仍由 API 回傳（判重是後端行為，且 batchId 的解析需要它），
+ * 但 #83 起畫面不消費：米豆奶每次匯出的檔名固定，「已經上傳過同名檔案」只會讓行政人員
+ * 誤以為上傳失敗或選錯舊檔。詳見 preview route 的說明。
  */
 type PreviewWithDiff = ImportPreviewResult & {
   isDuplicate?: boolean;
@@ -78,7 +83,7 @@ export function ImportsWorkflow({
    * R4-F02：啟用的 CAS 版本。必須是「本頁自己看得見」的版本——初值來自 server render，
    * 之後只由本頁剛完成的啟用回應更新；不可在啟用前向伺服器討要最新值，否則會消滅
    * 「另一視窗已啟用」的衝突偵測。每完成一次啟用，伺服器 revision 就前進一次，
-   * 若仍沿用 server render 時的舊值，「再匯入其他名單」後的第二次啟用必定 409。
+   * 若仍沿用 server render 時的舊值，本頁接著第二次啟用必定 409。
    */
   const [revision, setRevision] = useState(currentRevision);
   // 核對基準日預設＝台北的今天（O02：不用 UTC 或瀏覽器時區）
@@ -177,6 +182,8 @@ export function ImportsWorkflow({
       // 只信任啟用回應本體，不在此刻另外讀取伺服器狀態——那會掩蓋並行衝突。
       if (typeof json?.revision === 'number') setRevision(json.revision);
       setActivatedCount(preview.stats.totalStudents);
+      // #84：通知側邊欄指向「03 核對結果」（本頁的按鈕之外的第二個導引出口）。
+      announceImportActivated();
       setStage('success');
     } catch (err) {
       setError(describeActivateError(failureFromException(err)));
@@ -339,19 +346,6 @@ export function ImportsWorkflow({
                 <span className="stat-sub">標有 (離班日期) 之學生</span>
               </div>
             </div>
-
-            {/* 重傳同檔判重提示（重算時仍套用最新課表，不阻擋） */}
-            {preview.isDuplicate && (
-              <div className="alert alert-warning" style={{ margin: '16px 20px 0' }}>
-                <strong>重複上傳：</strong>
-                <span>
-                  {preview.duplicateReason === 'same_content'
-                    ? '這份名單的內容與既有批次相同。'
-                    : '已經上傳過同名檔案。'}
-                  您仍可使用它，系統會依最新課表重新計算。
-                </span>
-              </div>
-            )}
 
             {/* 相對於現行名單的差異統計（specs/09 §4：需 API 真實提供；異動以計算結果判定） */}
             {preview.rosterDiff && preview.rosterDiff.baseImportId !== null && (
@@ -552,24 +546,19 @@ export function ImportsWorkflow({
           <h2 style={{ fontSize: '24px', fontWeight: 700, marginBottom: '8px' }}>
             {activatedCount} 位學生資料已備妥
           </h2>
+          {/*
+            #84：每次匯入都是「以新資料替換現行資料」，不是疊加。
+            「再匯入其他名單」會讓行政人員誤以為系統支援追加匯入，故整個移除；
+            重新匯入的路徑就是側邊欄的「02 匯入學生」，不需要在完成畫面另開一個按鈕。
+          */}
           <p className="note" style={{ fontSize: '14px', marginBottom: '28px' }}>
-            系統已依最新課表完成排課衝堂與天數扣除計算，現在可以按班級查看天數與折扣。
+            系統已依最新課表完成排課衝堂與天數扣除計算，請前往「03 核對結果」查看各班天數與折扣。
           </p>
 
-          <div style={{ display: 'flex', gap: '12px', justifyContent: 'center' }}>
+          <div style={{ display: 'flex', justifyContent: 'center' }}>
             <Link href="/" className="btn-primary" style={{ padding: '10px 20px', fontSize: '15px' }}>
-              開始核對 →
+              前往核對結果 →
             </Link>
-            <button
-              type="button"
-              className="btn-secondary"
-              onClick={() => {
-                setStage('upload');
-                setPreview(null);
-              }}
-            >
-              再匯入其他名單
-            </button>
           </div>
         </div>
       )}

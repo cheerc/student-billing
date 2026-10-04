@@ -29,7 +29,7 @@ const FIXTURE_SCHEDULE_NOT_FOUND = 13;
  *       （班名對應解析後的情境由 tests/integration/unmapped-classes.test.ts 涵蓋）
  *   舊：「已啟用正式計算 Run」→ 新：橫幅「目前使用的資料」（09 §7：Run／rev／長ID 降層）
  *   舊：/history「批次清單與歷史 Run 查閱」、批次表 `ready`、Run 表「現行 Active」
- *   新：/history「匯入紀錄」；狀態改中文「尚未使用」「目前使用」；技術資訊收摺疊區（完整流程見 history.spec.ts）
+ *   新：/history「匯入紀錄」；狀態改中文「目前使用」「歷史資料」（#83 起移除「尚未使用」）；技術資訊收摺疊區（完整流程見 history.spec.ts）
  */
 
 /**
@@ -56,7 +56,7 @@ async function activateFromPreview(page: import('@playwright/test').Page) {
   await expect(useBtn).toBeEnabled();
   await useBtn.click();
   await expect(page.getByText(/\d+ 位學生資料已備妥/)).toBeVisible({ timeout: 15000 });
-  await page.locator('a', { hasText: '開始核對' }).click();
+  await page.locator('a', { hasText: '前往核對結果' }).click();
   await expect(page.locator('.data-banner-current', { hasText: '目前使用的資料' })).toBeVisible({ timeout: 15000 });
 }
 
@@ -76,17 +76,14 @@ test.describe('R4 重寫：T06 故障恢復與歷程查閱 E2E 驗收', () => {
     // 1. 上傳 ERP 名冊（進入「確認名單」階段）
     await uploadAndPreview(page);
 
-    // 2. 查閱匯入紀錄（UX21：唯讀、來源日期清楚）：剛上傳、尚未啟用 → 「尚未使用」
+    // 2. 查閱匯入紀錄（UX21：唯讀、來源日期清楚）：剛上傳、尚未啟用 → 尚無紀錄（#83）
     await page.goto('/history');
     await expect(page.locator('h1')).toHaveText('匯入紀錄');
-    const unusedRow = page.locator('tbody tr[data-status="unused"]');
-    await expect(unusedRow).toHaveCount(1);
-    await expect(unusedRow).toContainText('477 人');
-    await expect(unusedRow).toContainText('尚未使用');
-    // 檔名：瀏覽器可能以原檔名或 sample.xlsx 呈現
-    await expect(unusedRow).toHaveText(/.*(sample\.xlsx|conforming-erp-fixture\.xlsx).*/);
-    // 尚未使用者沒有核對結果可看
-    await expect(unusedRow.locator('a', { hasText: '查看當時結果' })).toHaveCount(0);
+    // #83：未按「使用這份名單」的名單不是匯入，匯入紀錄乾淨（無「尚未使用」卡片）
+    await expect(page.getByText('還沒有匯入紀錄')).toBeVisible();
+    await expect(page.locator('tbody tr[data-status="unused"]')).toHaveCount(0);
+    // 逐字比對（exact）：空狀態句「目前尚未使用任何名單。」本身包含「尚未使用」三個字
+    await expect(page.getByText('尚未使用', { exact: true })).toHaveCount(0);
 
     // 3. 頁內啟用正式 Run（R3 已整合至匯入頁）
     // 預覽是 client state：離開 /imports 會重置，故先回頁再啟用（不重複上傳）

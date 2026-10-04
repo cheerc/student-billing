@@ -70,6 +70,13 @@ export async function POST(request: Request | NextRequest) {
         // 待確認班名＝尚未對應到課表的班名（與課表設定「班名對應」同源同判斷）；
         // preview.pendingClasses 是檔案內全部不重複班名，數字會和課表設定頁不一致
         pendingClasses: findPendingClassNames(db, preview.pendingClasses),
+        /*
+          #83：isDuplicate／duplicateReason 保留在回應中，但畫面不再消費。
+          保留理由是本支真正的依賴：判重時 batchId 會回傳既有批次（不同於本次 previewId），
+          resolveActivationImportId 必須靠它決定啟用目標。移除欄位會讓「重傳同檔」啟用失敗。
+          移除的只是「已經上傳過同名檔案」這則黃色警示：米豆奶每次匯出檔名固定，
+          該警示會讓行政人員誤以為上傳失敗或選錯舊檔。
+        */
         isDuplicate: saveResult.isDuplicate,
         duplicateReason: saveResult.duplicateReason,
         batchId: saveResult.batchId,

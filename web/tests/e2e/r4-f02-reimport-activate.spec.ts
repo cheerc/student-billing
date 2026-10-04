@@ -6,7 +6,13 @@ import { XLSX_MIME } from './helpers/c-batch';
  * R4-F02：同頁連續匯入兩份名單時，第二份的啟用因 expectedRevision 過期而 409。
  *
  * 重現步驟即第四輪驗收的操作序列，全程不重整頁面：
- *   /imports → 上傳 baseline → 使用這份名單 → 再匯入其他名單 → 上傳 variant → 使用這份名單
+ *   /imports → 上傳 baseline → 使用這份名單 →（回匯入頁）→ 上傳 variant → 使用這份名單
+ *
+ * #84：完成畫面的「再匯入其他名單」按鈕已被移除（會讓人誤以為支援疊加匯入），
+ * 本測試改以完整頁面載入（page.goto('/imports)）重啟流程——revision 由 server render 重取，
+ * 故這個測試現在守的是「revision 過期就必須 409」這條不變式；
+ * 「本頁剛完成的啟用要更新本頁持有的 revision」則由單元層與 imports.spec.ts 的
+ * 先備條件路徑覆蓋（第二份名單必須先成為 active 才能量到異動統計）。
  *
  * 既有 E2E（roster-changes-details.spec.ts:42）第二次匯入前都 page.goto('/imports')
  * 重整，正是這條路徑先前無覆蓋的原因。
@@ -65,18 +71,18 @@ async function uploadAndActivate(page: import('@playwright/test').Page, name: st
 test.describe('R4-F02：同頁連續匯入兩份名單，第二份啟用不得因 revision 過期而 409', () => {
   test.setTimeout(180_000);
 
-  test('啟用第一份後不重整頁面，點「再匯入其他名單」再啟用第二份，應成功啟用第二份', async ({ page }) => {
+  test('啟用第一份後重新載入匯入頁再啟用第二份，應成功啟用第二份（#84：完成畫面已無「再匯入其他名單」）', async ({ page }) => {
     await page.goto('/imports');
 
     // 第一次：baseline 啟用成功。
     await uploadAndActivate(page, 'baseline.xlsx', await workbook(false));
     await expect(page.locator('.success-stage-card')).toBeVisible({ timeout: 20_000 });
     await expect(page.locator('.success-stage-card')).toContainText('2 位學生資料已備妥');
+    // #84：完成畫面只有導向 03 的主 CTA，沒有再匯入按鈕
+    await expect(page.locator('.success-stage-card button')).toHaveCount(0);
 
-    // 關鍵：不重整頁面，直接走「再匯入其他名單」。
-    await page.locator('button', { hasText: '再匯入其他名單' }).click();
-    // file input 本身是 .file-input-hidden（由上傳區塊觸發），故不斷言 visible；
-    // 以步驟指示器的第一階段回到 step-active 判定已回到 upload 階段。
+    // #84 後的第二次匯入路徑：回到 02 匯入頁。
+    await page.goto('/imports');
     await expect(page.locator('.step-item.step-active .step-text')).toHaveText('選擇檔案', { timeout: 10_000 });
 
     // 第二次：variant 啟用必須成功（這是 R4-F02 的失敗點）。

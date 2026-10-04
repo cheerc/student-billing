@@ -6,7 +6,7 @@ import JSZip from 'jszip';
 /**
  * specs/09 §4／specs/04 UX11：
  * R3 匯入名單與啟用工作流程 E2E 測試：
- * 選擇檔案（上傳）→ 確認名單（預覽與統計）→ 點擊「使用這份名單」啟用 → 完成並點擊「開始核對」導向首頁。
+ * 選擇檔案（上傳）→ 確認名單（預覽與統計）→ 點擊「使用這份名單」啟用 → 完成並點擊「前往核對結果」導向首頁。
  */
 
 /**
@@ -94,8 +94,33 @@ test.describe('Imports Page E2E Test (R3 匯入頁一次完成使用名單)', ()
     await expect(successCard).toBeVisible({ timeout: 15000 });
     await expect(successCard).toContainText('477 位學生資料已備妥');
 
-    // 點擊「開始核對 →」導向首頁
-    const startReviewBtn = successCard.locator('a', { hasText: '開始核對' });
+    // #84：完成畫面精簡——只有導向 03 的主 CTA，沒有「再匯入其他名單」（避免疊加匯入誤解）
+    await expect(successCard.locator('a', { hasText: '前往核對結果' })).toHaveCount(1);
+    await expect(successCard.locator('button')).toHaveCount(0);
+    await expect(successCard).not.toContainText('再匯入其他名單');
+    await expect(successCard).toContainText('03 核對結果');
+
+    /**
+     * #84：側邊欄「03 核對結果」在匯入成功階段帶柔和靜態高亮，
+     * 目的是讓使用者建立 01→02→03 的導覽心智。
+     * 這裡斷言的是**跨元件的實際渲染結果**（側邊欄與匯入工作流不是同一個元件樹），
+     * 而非 import-success-guide 的純邏輯單元測試。步驟指示器此時已進入第 3 階段，
+     * 故以 data-testid 鎖定「03 核對結果」那一列，避免抓到品牌列（品牌也連到 /）。
+     */
+    const navResults = page.locator('[data-testid="nav-item-results"]');
+    await expect(navResults).toHaveClass(/nav-item-highlight/);
+    // 高亮的是柔和靜態外框，不是動畫（UI/UX Pro Max：Continuous Animation 只用於載入指示器）
+    const highlight = await navResults.evaluate((el) => {
+      const s = getComputedStyle(el);
+      return { shadow: s.boxShadow, name: s.animationName, duration: s.animationDuration };
+    });
+    // getComputedStyle 會把顏色正規化為 rgba(37, 99, 235, 0.4) 0px 0px 0px 2px
+    expect(highlight.shadow).toContain('rgba(37, 99, 235, 0.4)');
+    expect(highlight.shadow).toContain('2px');
+    expect(highlight.name).toBe('none');
+
+    // 點擊「前往核對結果 →」導向首頁
+    const startReviewBtn = successCard.locator('a', { hasText: '前往核對結果' });
     await expect(startReviewBtn).toBeVisible();
     await startReviewBtn.click();
 
@@ -109,6 +134,13 @@ test.describe('Imports Page E2E Test (R3 匯入頁一次完成使用名單)', ()
     await expect(banner).toContainText('核對基準日');
     await expect(banner).not.toContainText(/Run|rev/);
     await expect(page.locator('h1')).toHaveText('核對結果');
+
+    // #84：抵達 03 後高亮自動消除（03 本身就是 active 頁，不需要引導），且不復發
+    const navResultsOnResults = page.locator('[data-testid="nav-item-results"]');
+    await expect(navResultsOnResults).not.toHaveClass(/nav-item-highlight/);
+    await expect(navResultsOnResults).toHaveClass(/active/);
+    await page.goto('/imports');
+    await expect(page.locator('[data-testid="nav-item-results"]')).not.toHaveClass(/nav-item-highlight/);
   });
 
   /**
