@@ -9,11 +9,12 @@ import { computeImportRosterChanges } from '@/application/import-roster-diff';
 import { StudentSnapshot } from '@/domain/students';
 
 /**
- * 效能驗收（根 CLAUDE.md §8：477 人資料量、完整重算 ≤ 1 秒）。
+ * 逐人異動計算的**行為**契約（477 人合成名單，結果必須是真實計算不是空轉）。
  *
- * Lead rework 派工要求「整批接入後重新實測」：先前量到的 3.9ms 只是單人呼叫，不是整批。
- * 本測試走**產品實際路徑**（從 SQLite 讀兩份名單 → 讀最新已儲存設定 → 整批 before/after 計算 → 逐人明細），
- * 以 477 人合成名單（保形匿名，不含真實個資）暖機後量 10 次，門檻取最慢一次（≥ p95）＜ 1000 ms。
+ * 1000ms 計時 gate 已依根 CLAUDE.md §8「效能門檻量測條件」（單檔、不與其他測試檔並行、
+ * 記錄環境）移出預設並行 suite，改由 `npm run test:perf:roster-isolated`
+ * （scripts/perf-roster-isolated.ts，CI 序列執行）承載。
+ * 本檔保留可攜帶的正確性斷言——它們不量時間，因此在並行 suite 下仍然有意義。
  */
 
 const SEED_CLASSES = [
@@ -72,7 +73,7 @@ const batch = (id: string, createdAt: string, rowCount: number) => ({
   createdAt,
 });
 
-describe('整批名單異動計算效能（477 人，門檻 ≤ 1 秒）', () => {
+describe('整批名單異動計算正確性（477 人合成名單）', () => {
   let tempDir: string;
   let db: ReturnType<typeof createDatabase>;
 
@@ -102,30 +103,12 @@ describe('整批名單異動計算效能（477 人，門檻 ≤ 1 秒）', () =>
     fs.rmSync(tempDir, { recursive: true, force: true });
   });
 
-  it('477 人整批 before/after 計算（含讀 DB、逐人明細）暖機後 10 次，最慢一次 < 1000 ms', () => {
-    // 暖機（JIT、prepared statement）
-    const warm = computeImportRosterChanges(db, 'imp_perf_next', 'imp_perf_base');
+  it('477 人整批 before/after 計算（含讀 DB、逐人明細）涵蓋加課、退課、新增、未出現四類異動', () => {
+    const result = computeImportRosterChanges(db, 'imp_perf_next', 'imp_perf_base');
     // 結果必須是真實計算，不是空轉：加課／退課／新增／未出現都要有
-    expect(warm.newStudents).toBe(10);
-    expect(warm.notAppearedStudents).toBeGreaterThan(0);
-    expect(warm.changedStudents).toBeGreaterThan(0);
-    expect(warm.changes.length).toBe(warm.newStudents + warm.notAppearedStudents + warm.changedStudents);
-
-    const timings: number[] = [];
-    for (let run = 0; run < 10; run++) {
-      const t0 = performance.now();
-      computeImportRosterChanges(db, 'imp_perf_next', 'imp_perf_base');
-      timings.push(performance.now() - t0);
-    }
-    timings.sort((a, b) => a - b);
-    const median = timings[Math.floor(timings.length / 2)];
-    const slowest = timings[timings.length - 1];
-    // 實測數字供 report 引用
-    console.info(
-      `[perf] computeImportRosterChanges 477人 整批: median=${median.toFixed(1)}ms slowest=${slowest.toFixed(1)}ms ` +
-        `(changed=${warm.changedStudents} new=${warm.newStudents} notAppeared=${warm.notAppearedStudents})`
-    );
-
-    expect(slowest).toBeLessThan(1000);
+    expect(result.newStudents).toBe(10);
+    expect(result.notAppearedStudents).toBeGreaterThan(0);
+    expect(result.changedStudents).toBeGreaterThan(0);
+    expect(result.changes.length).toBe(result.newStudents + result.notAppearedStudents + result.changedStudents);
   });
 });

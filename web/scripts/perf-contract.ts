@@ -17,3 +17,8 @@ export function assertPerformanceBudget(samples: number[]): void {
   const { p95Ms } = summarizeTimings(samples);
   if (p95Ms >= 200) throw new Error(`篩選 API p95=${p95Ms}ms，必須 < 200ms（不重試）`);
 }
+
+export function assertRosterPerformanceBudget(samples: number[]): void {
+  const { p95Ms } = summarizeTimings(samples);
+  if (p95Ms >= 1000) throw new Error(`逐人異動計算 p95=${p95Ms}ms，必須 < 1000ms（不重試）`);
+}

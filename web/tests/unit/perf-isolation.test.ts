@@ -3,7 +3,7 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import { spawnSync } from 'child_process';
-import { summarizeTimings, assertPerformanceBudget, PERF_PATHS } from '../../scripts/perf-contract';
+import { summarizeTimings, assertPerformanceBudget, assertRosterPerformanceBudget, PERF_PATHS } from '../../scripts/perf-contract';
 
 const web = path.resolve(__dirname, '../..');
 
@@ -73,5 +73,49 @@ describe('獨立效能量測契約', () => {
     expect(ci).toContain('playwright install --with-deps chromium');
     const pkg = JSON.parse(fs.readFileSync(path.join(web, 'package.json'), 'utf8'));
     expect(pkg.scripts['test:perf:isolated']).toBe('tsx scripts/perf-isolated.ts');
+  });
+
+  it('1000ms 逐人異動 gate 不在預設並行 suite：無計時斷言，行為斷言仍在', () => {
+    const roster = fs.readFileSync(path.join(web, 'tests/integration/roster-changes-performance.test.ts'), 'utf8');
+    expect(roster).not.toContain('performance.now');
+    expect(roster).not.toContain('toBeLessThan(1000)');
+    // 正確性斷言不得隨計時 gate 一起消失（結果必須是真實計算不是空轉）。
+    expect(roster).toContain('expect(result.newStudents).toBe(10)');
+    expect(roster).toContain('expect(result.notAppearedStudents).toBeGreaterThan(0)');
+    expect(roster).toContain('expect(result.changedStudents).toBeGreaterThan(0)');
+    expect(roster).toContain('expect(result.changes.length).toBe(');
+  });
+
+  it('roster 獨立 runner 記錄環境、單檔不並行，且沿用與 200ms gate 相同的統計契約', () => {
+    const runner = fs.readFileSync(path.join(web, 'scripts/perf-roster-isolated.ts'), 'utf8');
+    // 環境記錄：硬體／Node／輪數／統計方式（根 CLAUDE.md §8）。
+    expect(runner).toContain("cpu: os.cpus()[0]?.model");
+    expect(runner).toContain('node: process.version');
+    expect(runner).toContain("p95: 'nearest-rank ceil(0.95*10)=10'");
+    expect(runner).toContain("budget: 'p95 < 1000ms'");
+    // 單檔、不並行：runner 不 spawn 其他 runner，也不啟動 dev server。
+    expect(runner).not.toContain('spawn');
+    expect(runner).not.toContain('playwright');
+    expect(runner).not.toContain('next start');
+    expect(runner).toContain('samples: 10');
+    expect(runner).toContain('summarizeTimings(timings)');
+  });
+
+  it('roster 1000ms 門檻與 200ms 門檻各自的邊界都失敗，不互相寬容', () => {
+    expect(() => assertRosterPerformanceBudget(Array(10).fill(999.99))).not.toThrow();
+    expect(() => assertRosterPerformanceBudget([...Array(9).fill(1), 1000])).toThrow(/1000/);
+    expect(() => assertRosterPerformanceBudget([...Array(9).fill(1), 2500])).toThrow(/2500/);
+    // 1000ms runner 不得接受 200ms 級的樣本數不足或空殼。
+    for (const samples of [[], Array(9).fill(1), Array(10).fill(NaN), Array(10).fill(-1)]) {
+      expect(() => assertRosterPerformanceBudget(samples)).toThrow();
+    }
+  });
+
+  it('CI 在 test/build 之後序列跑 roster gate，且 roster runner 不需要 Chromium', () => {
+    const ci = fs.readFileSync(path.join(web, '../.github/workflows/ci.yml'), 'utf8');
+    expect(ci.indexOf('npm run test:perf:roster-isolated')).toBeGreaterThan(ci.indexOf('run: npm run test'));
+    expect(ci.indexOf('npm run test:perf:roster-isolated')).toBeGreaterThan(ci.indexOf('npm run test:perf:isolated'));
+    const pkg = JSON.parse(fs.readFileSync(path.join(web, 'package.json'), 'utf8'));
+    expect(pkg.scripts['test:perf:roster-isolated']).toBe('tsx scripts/perf-roster-isolated.ts');
   });
 });
