@@ -686,11 +686,22 @@ body {
   max-height: 600px;
 }
 
+/* #80：單一課表表格。欄位變多後必須能在表內上下左右捲動（如同 Excel），
+   而整頁不產生橫向捲動——寬度由 min-width 撐開，捲動只在這個容器內。 */
+.schedule-table-scroll {
+  overflow: auto;
+}
+
 .schedule-table {
   border-collapse: collapse;
   width: 100%;
   font-size: 13px;
   white-space: nowrap;
+}
+
+.schedule-table-scroll .schedule-table {
+  /* 欄位多於視窗時不壓縮欄寬，改由容器橫向捲動（#80 Expected Outcome 4） */
+  min-width: 1240px;
 }
 
 .schedule-table th {
@@ -704,6 +715,13 @@ body {
   top: 0;
   z-index: 2;
   text-align: left;
+}
+
+/* #80：表頭 2D 凍結。左上角那一格同時凍結 top 與 left（否則橫向捲動時，
+   「班級名稱」標題會被內容列蓋住），z-index 必須高於其餘表頭。 */
+.schedule-table th.sticky-corner {
+  left: 0;
+  z-index: 4;
 }
 
 .schedule-table td {
@@ -721,6 +739,19 @@ body {
   left: 0;
   background: #ffffff;
   z-index: 1;
+}
+
+/* #80：凍結欄與捲動內容之間的分界陰影（橫向捲動時提示還有右側內容） */
+.sticky-col::after,
+.schedule-table th.sticky-corner::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 1px;
+  height: 100%;
+  background: var(--border-color);
+  box-shadow: 2px 0 4px rgba(15, 23, 42, 0.06);
 }
 
 .schedule-table tr:hover .sticky-col {
@@ -766,6 +797,58 @@ body {
   border: 1px solid var(--border-color);
   border-radius: 5px;
   font-size: 13px;
+}
+
+/* #80：併入表格後新增的欄（折扣類別、固定 5 天）與操作列 */
+.input-category {
+  min-width: 104px;
+  padding: 6px 6px;
+  border: 1px solid var(--border-color);
+  border-radius: 5px;
+  font-size: 13px;
+}
+
+.schedule-table .col-category select {
+  min-width: 104px;
+  padding: 6px 6px;
+  border: 1px solid var(--border-color);
+  border-radius: 5px;
+  font-size: 13px;
+}
+
+.schedule-table .col-fixed-five {
+  text-align: center;
+}
+
+.schedule-table .col-fixed-five input[type='checkbox'] {
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+}
+
+.row-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.row-actions .btn-secondary {
+  font-size: 12px;
+  padding: 4px 8px;
+  white-space: nowrap;
+}
+
+/* #81：檔案選取器視覺隱藏但仍在 DOM（鍵盤可達、由按鈕觸發） */
+.visually-hidden-input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }
 
 .input-weekday {

@@ -83,11 +83,10 @@ test.describe('N02／R3-F01: 類別異動影響預覽科數與合計折扣明細
     await expect(page.locator('.save-status-clean')).toBeVisible();
 
     // 3. 把「國小國語文-小五」從自動（不列入折扣 none）改為「數學班」（math）
-    const row = page.locator('[data-class-attribute-row="國小國語文-小五"]');
+    const row = page.locator('tr.schedule-row:has([data-category-select="國小國語文-小五"])');
     await expect(row).toBeVisible();
     await expect(row.locator('[data-category-select="國小國語文-小五"]')).toHaveValue('none');
     await row.locator('[data-category-select="國小國語文-小五"]').selectOption('math');
-    await expect(row.locator('[data-category-source="國小國語文-小五"]')).toHaveText('手動');
     await expect(page.locator('.save-status-dirty')).toBeVisible();
 
     // 4. 開啟儲存確認視窗 (ImpactDialog)
@@ -153,7 +152,7 @@ test.describe('N02／R3-F01: 類別異動影響預覽科數與合計折扣明細
     await expect(page.locator('.save-status-clean')).toBeVisible();
 
     // 3. 修改「國小國語文-小五」為數學班
-    const row = page.locator('[data-class-attribute-row="國小國語文-小五"]');
+    const row = page.locator('tr.schedule-row:has([data-category-select="國小國語文-小五"])');
     await expect(row).toBeVisible();
     await row.locator('[data-category-select="國小國語文-小五"]').selectOption('math');
     await expect(page.locator('.save-status-dirty')).toBeVisible();

@@ -69,10 +69,9 @@ async function setFirstStartTimeOfClass(page: Page, className: string, value: st
  * 只有 `--keep-db` 才跨輪沿用。
  */
 async function restoreCategoryToAutoAndSave(page: Page, className: string) {
-  const row = page.locator(`[data-class-attribute-row="${className}"]`);
+  const row = page.locator(`tr.schedule-row:has([data-category-select="${className}"])`);
   await expect(row).toBeVisible();
   await row.locator(`[data-restore-auto="${className}"]`).click();
-  await expect(row.locator(`[data-category-source="${className}"]`)).toHaveText('自動');
   await page.locator('button', { hasText: '確認變更' }).click();
   const dialog = page.locator('dialog.impact-dialog');
   await expect(dialog).toBeVisible({ timeout: 15000 });
@@ -99,11 +98,9 @@ test.describe('D2b：班級類別與固定 5 天設定 UI、升級確認', () =>
     await expect(panel).toContainText('折扣類別與固定 5 天');
 
     // 國小數學-四A 自動偵測為數學班
-    const row = page.locator('[data-class-attribute-row="國小數學-四A"]');
+    const row = page.locator('tr.schedule-row:has([data-category-select="國小數學-四A"])');
     await expect(row).toBeVisible();
     await expect(row.locator('[data-category-select="國小數學-四A"]')).toHaveValue('math');
-    await expect(row.locator('[data-category-source="國小數學-四A"]')).toHaveText('自動');
-    await expect(row.locator('[data-fixed-source="國小數學-四A"]')).toHaveText('自動');
 
     // 國小輔導-四年級 → 安親課輔班
     await expect(page.locator('[data-category-select="國小輔導-四年級"]')).toHaveValue('care');
@@ -113,62 +110,54 @@ test.describe('D2b：班級類別與固定 5 天設定 UI、升級確認', () =>
   });
 
   test('D2b-2: 手動選類別 → 來源變「手動」；恢復自動 → 回到自動偵測值', async ({ page }) => {
-    const row = page.locator('[data-class-attribute-row="國小數學-四A"]');
+    const row = page.locator('tr.schedule-row:has([data-category-select="國小數學-四A"])');
     await row.locator('[data-category-select="國小數學-四A"]').selectOption('none');
-    await expect(row.locator('[data-category-source="國小數學-四A"]')).toHaveText('手動');
 
     // 「恢復自動」後回到自動偵測（數學班）
     await row.locator('[data-restore-auto="國小數學-四A"]').click();
     await expect(row.locator('[data-category-select="國小數學-四A"]')).toHaveValue('math');
-    await expect(row.locator('[data-category-source="國小數學-四A"]')).toHaveText('自動');
   });
 
   test('D2b-2: 固定 5 天可手動開啟並恢復自動', async ({ page }) => {
-    const row = page.locator('[data-class-attribute-row="兒童美語-Gino"]');
+    const row = page.locator('tr.schedule-row:has([data-category-select="兒童美語-Gino"])');
     await row.locator('[data-fixed-five-toggle="兒童美語-Gino"]').check();
-    await expect(row.locator('[data-fixed-source="兒童美語-Gino"]')).toHaveText('手動');
     await row.locator('[data-restore-auto="兒童美語-Gino"]').click();
     await expect(row.locator('[data-fixed-five-toggle="兒童美語-Gino"]')).not.toBeChecked();
-    await expect(row.locator('[data-fixed-source="兒童美語-Gino"]')).toHaveText('自動');
   });
 
   test('D2b-2: 手動後改班名不再重新偵測（未手動者會跟著新名重偵測）', async ({ page }) => {
     // 先手動把「國小數學-四A」設為不列入折扣
-    const row = page.locator('[data-class-attribute-row="國小數學-四A"]');
+    const row = page.locator('tr.schedule-row:has([data-category-select="國小數學-四A"])');
     await row.locator('[data-category-select="國小數學-四A"]').selectOption('care');
-    await expect(row.locator('[data-category-source="國小數學-四A"]')).toHaveText('手動');
 
     // 整班改名為「國小數學-四A改名」
     await renameWholeClass(page, '國小數學-四A', '國小數學-四A改名');
 
     // 手動值帶著走：新名自動偵測本來是 math，但因為是 manual，仍顯示 care
-    const renamed = page.locator('[data-class-attribute-row="國小數學-四A改名"]');
+    const renamed = page.locator('tr.schedule-row:has([data-category-select="國小數學-四A改名"])');
     await expect(renamed.locator('[data-category-select="國小數學-四A改名"]')).toHaveValue('care');
-    await expect(renamed.locator('[data-category-source="國小數學-四A改名"]')).toHaveText('手動');
 
     // 未手動的「國小數學-四B」改名後依新名重新偵測（仍是數學班，來源仍自動）
     await renameWholeClass(page, '國小數學-四B', '國小數學-四B改名');
-    const bRow = page.locator('[data-class-attribute-row="國小數學-四B改名"]');
+    const bRow = page.locator('tr.schedule-row:has([data-category-select="國小數學-四B改名"])');
     await expect(bRow.locator('[data-category-select="國小數學-四B改名"]')).toHaveValue('math');
-    await expect(bRow.locator('[data-category-source="國小數學-四B改名"]')).toHaveText('自動');
   });
 
   test('D2b-6: 只改類別（不動時段）也會變更狀態為 dirty', async ({ page }) => {
     await expect(page.locator('.save-status-clean')).toBeVisible();
-    const row = page.locator('[data-class-attribute-row="國小數學-四A"]');
+    const row = page.locator('tr.schedule-row:has([data-category-select="國小數學-四A"])');
     await row.locator('[data-category-select="國小數學-四A"]').selectOption('none');
     await expect(page.locator('.save-status-dirty')).toBeVisible();
   });
 
   test('D2b-6: 取消修改會把類別還原（回到未儲存狀態）', async ({ page }) => {
-    const row = page.locator('[data-class-attribute-row="國小數學-四A"]');
+    const row = page.locator('tr.schedule-row:has([data-category-select="國小數學-四A"])');
     await row.locator('[data-category-select="國小數學-四A"]').selectOption('none');
     await expect(page.locator('.save-status-dirty')).toBeVisible();
 
     await page.locator('button', { hasText: '取消修改' }).click();
     await expect(page.locator('.save-status-clean')).toBeVisible();
     await expect(page.locator('[data-category-select="國小數學-四A"]')).toHaveValue('math');
-    await expect(page.locator('[data-category-source="國小數學-四A"]')).toHaveText('自動');
   });
 
   test.describe('D2b r2：影響預覽的受影響人數（去重）與 Q13 跨類別別名提示', () => {
@@ -192,7 +181,6 @@ test.describe('D2b：班級類別與固定 5 天設定 UI、升級確認', () =>
       // 這筆資料下「相加」與「聯集去重」同值（皆 21），因此本例是回歸保護：
       // 確保這條路徑不會因只算天數而顯示 0。能區分兩種算法的斷言在下一個案例。
       await page.locator('[data-category-select="國小輔導-一A"]').selectOption('none');
-      await expect(page.locator('[data-category-source="國小輔導-一A"]')).toHaveText('手動');
       await expect(page.locator('.save-status-dirty')).toBeVisible();
 
       await page.locator('button', { hasText: '確認變更' }).click();

@@ -159,7 +159,7 @@ describe('R2 UI 元件與排課工作流程（RED 測試）', () => {
       expect(html).toContain('<td class="number cteal">0</td>');
     });
 
-    it('不完整列（缺起訖時間）時顯示「待補」或警告提示，不崩潰', () => {
+    it('不完整列（缺起訖時間）時平靜顯示「—」且對螢讀可讀為「未設定時間」，不崩潰（#82；decision d-20261004093019108435-11）', () => {
       const incompleteRow = {
         rowId: 'row-incomplete-1',
         className: '國小數學-一A',
@@ -210,7 +210,12 @@ describe('R2 UI 元件與排課工作流程（RED 測試）', () => {
         })
       );
 
-      expect(html).toContain('待補');
+      // #82：不再顯示「待補」badge，改為平靜的「—」＋ aria-label「未設定時間」
+      expect(html).not.toContain('待補');
+      expect(html).not.toContain('badge-incomplete');
+      // 5 個計算欄位（時長 + 安親×2 + 課輔×2）
+      expect(html.match(/aria-label="未設定時間"/g)?.length).toBe(5);
+      expect(html).toMatch(/<span class="subtle" aria-label="未設定時間" title="未設定時間">—<\/span>/);
     });
   });
 

@@ -34,6 +34,19 @@ export function isSavableWeekday(weekday: string): boolean {
   return SavedWeekdaySchema.safeParse(weekday).success;
 }
 
+/**
+ * 平鋪列的星期（#82）：允許空字串或 null（行政先開班名、時間與星期還在協調中的佔位列），
+ * 一律正規化為空字串，因此 row 型別仍是 `string`，下游的 `weekday.trim()` 不必全面改成 nullable。
+ *
+ * 這**只放寬平鋪列**（編輯中的草稿），存檔契約 `SavedWeekdaySchema`／`SessionSchema` 維持嚴格：
+ * 空白星期的列本來就因為「起訖不完整」而不會被 `gridRowsToClasses` 轉成 session，
+ * 而非空但未知的值存檔時仍被拒絕（09 §3.1「提交仍拒絕空白星期」不因本項放寬而改變）。
+ */
+export const GridRowWeekdaySchema = z
+  .union([z.string().max(8), z.null()])
+  .transform((val) => val ?? '')
+  .default('');
+
 /** 時段 session（分鐘制） */
 export const SessionSchema = z.object({
   weekday: SavedWeekdaySchema,
@@ -75,7 +88,7 @@ export const ScheduleGridRowSchema = z
     rowId: z.string().min(1),
     className: z.string().min(1, { message: '班級名稱不可為空' }),
     teacher: z.string().nullable().default(null),
-    weekday: SavedWeekdaySchema,
+    weekday: GridRowWeekdaySchema,
     startTime: z.string().refine((val) => val === '' || /^([01]\d|2[0-3]):([0-5]\d)$/.test(val), {
       message: '起始時間格式必須為 HH:mm 或留空',
     }),

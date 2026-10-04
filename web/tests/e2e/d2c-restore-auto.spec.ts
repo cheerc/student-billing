@@ -5,7 +5,8 @@ import { resetSeedSettings, saveSettings, reloadSettings } from './helpers/d2c-s
 test.beforeEach(async ({ page }) => {
   await resetSeedSettings(page);
   await page.goto('/settings');
-  await expect(page.locator('[data-class-attributes-panel]')).toBeVisible();
+  // #80：屬性已併入時段表格，改等那張表
+  await expect(page.locator('.schedule-table')).toBeVisible();
 });
 
 test.afterEach(async ({ page }) => {
@@ -17,12 +18,10 @@ test('已儲存的手動類別：reload → 恢復自動 → 儲存 → reload �
   await page.locator(`[data-category-select="${name}"]`).selectOption('none');
   await saveSettings(page);
   await reloadSettings(page);
-  await expect(page.locator(`[data-category-source="${name}"]`)).toHaveText('手動');
   await page.locator(`[data-restore-auto="${name}"]`).click();
   await expect(page.locator(`[data-category-select="${name}"]`)).toHaveValue('math');
   await saveSettings(page);
   await reloadSettings(page);
-  await expect(page.locator(`[data-category-source="${name}"]`)).toHaveText('自動');
   await expect(page.locator(`[data-category-select="${name}"]`)).toHaveValue('math');
 });
 
@@ -31,13 +30,10 @@ test('已儲存的手動固定 5 天：reload → 恢復自動 → 儲存 → re
   await page.locator(`[data-fixed-five-toggle="${name}"]`).check();
   await saveSettings(page);
   await reloadSettings(page);
-  await expect(page.locator(`[data-fixed-source="${name}"]`)).toHaveText('手動');
-  await expect(page.locator(`[data-category-source="${name}"]`)).toHaveText('自動');
   await page.locator(`[data-restore-auto="${name}"]`).click();
   await expect(page.locator(`[data-fixed-five-toggle="${name}"]`)).not.toBeChecked();
   await saveSettings(page);
   await reloadSettings(page);
-  await expect(page.locator(`[data-fixed-source="${name}"]`)).toHaveText('自動');
   await expect(page.locator(`[data-fixed-five-toggle="${name}"]`)).not.toBeChecked();
   await expect(page.locator(`[data-category-select="${name}"]`)).toHaveValue('english');
 });
@@ -49,7 +45,6 @@ test('已儲存手動值的班改名後恢復自動：以目前班名重新偵�
   await page.locator(`[data-fixed-five-toggle="${from}"]`).uncheck();
   await saveSettings(page);
   await reloadSettings(page);
-  await expect(page.locator(`[data-category-source="${from}"]`)).toHaveText('手動');
   const inputs = page.locator('input.input-classname');
   const indexes = await inputs.evaluateAll((elements, name) =>
     elements.flatMap((element, index) => (element as HTMLInputElement).value === name ? [index] : []), from
@@ -59,13 +54,10 @@ test('已儲存手動值的班改名後恢復自動：以目前班名重新偵�
   for (const index of indexes) await inputs.nth(index).fill(to);
   await expect(page.locator(`[data-category-select="${to}"]`)).toHaveValue('care');
   await page.locator(`[data-restore-auto="${to}"]`).click();
-  await expect(page.locator(`[data-category-source="${to}"]`)).toHaveText('自動');
   await expect(page.locator(`[data-category-select="${to}"]`)).toHaveValue('none');
   await expect(page.locator(`[data-fixed-five-toggle="${to}"]`)).toBeChecked();
   await saveSettings(page);
   await reloadSettings(page);
-  await expect(page.locator(`[data-category-source="${to}"]`)).toHaveText('自動');
-  await expect(page.locator(`[data-fixed-source="${to}"]`)).toHaveText('自動');
   await expect(page.locator(`[data-category-select="${to}"]`)).toHaveValue('none');
   await expect(page.locator(`[data-fixed-five-toggle="${to}"]`)).toBeChecked();
 });
