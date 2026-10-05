@@ -16,28 +16,36 @@ test.describe('R5-F01：課表兩層固定表頭', () => {
       const table = page.locator('table.schedule-table');
       await expect(table).toBeVisible();
       await page.evaluate(() => {
-        const title = document.querySelector<HTMLElement>('.schedule-table thead th.col-group-anqin');
+        const header = document.querySelector<HTMLElement>('.schedule-table thead');
         const nav = document.querySelector<HTMLElement>('aside.side');
-        if (!title) throw new Error('找不到安親窗口表頭');
-        const titleBox = title.getBoundingClientRect();
+        const savebar = document.querySelector<HTMLElement>('.savebar');
+        if (!header) throw new Error('找不到課表表頭');
+        const headerBox = header.getBoundingClientRect();
         const navBox = nav?.getBoundingClientRect();
+        const savebarBox = savebar?.getBoundingClientRect();
         const navBottom = navBox && navBox.width >= window.innerWidth - 2 ? navBox.bottom : 0;
-        const margin = 8;
-        const delta = titleBox.top < navBottom + margin
-          ? titleBox.top - navBottom - margin
-          : titleBox.bottom > window.innerHeight - margin
-            ? titleBox.bottom - window.innerHeight + margin
+        const savebarTop = savebarBox && savebarBox.top < window.innerHeight ? savebarBox.top : window.innerHeight;
+        const topInset = navBottom + 8;
+        const bottomInset = Math.min(window.innerHeight - 8, savebarTop - 8);
+        const delta = headerBox.top < topInset
+          ? headerBox.top - topInset
+          : headerBox.bottom > bottomInset
+            ? headerBox.bottom - bottomInset
             : 0;
         if (delta !== 0) window.scrollTo(0, Math.max(0, window.scrollY + delta));
       });
       await page.waitForFunction(() => {
-        const title = document.querySelector<HTMLElement>('.schedule-table thead th.col-group-anqin');
+        const header = document.querySelector<HTMLElement>('.schedule-table thead');
         const nav = document.querySelector<HTMLElement>('aside.side');
-        if (!title) return false;
-        const titleBox = title.getBoundingClientRect();
+        const savebar = document.querySelector<HTMLElement>('.savebar');
+        if (!header) return false;
+        const headerBox = header.getBoundingClientRect();
         const navBox = nav?.getBoundingClientRect();
+        const savebarBox = savebar?.getBoundingClientRect();
         const navBottom = navBox && navBox.width >= window.innerWidth - 2 ? navBox.bottom : 0;
-        return titleBox.top >= navBottom + 8 && titleBox.bottom <= window.innerHeight - 8;
+        const savebarTop = savebarBox && savebarBox.top < window.innerHeight ? savebarBox.top : window.innerHeight;
+        const bottomInset = Math.min(window.innerHeight - 8, savebarTop - 8);
+        return headerBox.top >= navBottom + 8 && headerBox.bottom <= bottomInset;
       });
 
       const initialScroll = await container.evaluate((el) => ({
