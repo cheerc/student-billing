@@ -224,7 +224,7 @@ Playwright 最小完整旅程：
 - P4：登入／授權、跨機構資料隔離、多人競爭、Firestore migration 對照、備份還原、部署 smoke。GitHub CI 建立時只搬已有效的本機命令，不先建空 pipeline。
 - UI 重設（09）：各 PR 對應的 UX 項目見 §8 與 [10 §1](10-ui-workflow-redesign-plan.md)；驗收修正批（UX25–UX33）見 [11 §3](11-ui-acceptance-fix-plan.md)；本專案 no-CI，merge 證據為本機隔離 E2E 與全量本機結果（10 §4）。
 
-覆蓋率不是唯一gate；R01–R18與班名／級距／來源政策各分支都有案例。U01–U49、I01–I20為規劃清單，不是已執行的產品測試。P1只需簡單red-green-refactor記錄。
+覆蓋率不是唯一gate；R01–R18與班名／級距／來源政策各分支都有案例。U01–U74、I01–I20為規劃清單，不是已執行的產品測試。P1只需簡單red-green-refactor記錄。
 
 ## 8. UI 重設驗收矩陣（UX01–UX78）
 
