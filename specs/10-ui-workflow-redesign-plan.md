@@ -47,7 +47,9 @@ R1b：
 
 R2：
 - 側邊導覽序號化與 App Shell（1 課表設定、2 匯入學生、3 核對結果、匯入紀錄），去除日常介面中顯眼的技術標籤。
-- 課表設定頁（`/settings`）：解除無名單時的阻擋卡片，空 DB 直接進入排課；預設課表頁籤，唯讀安親／課輔窗口（D33 窗口固定無編輯）；89 列平鋪排課網格，左側 5 編輯欄＋右側 5 唯讀計算欄；編輯時段 250ms debounce 呼叫 `/api/v1/settings/calculate` 即時計算，requestKey 晚到取消保護；不完整列標「待補」與 `SCHEDULE_INCOMPLETE`。
+- 課表設定頁（`/settings`）：解除無名單時的阻擋卡片，空 DB 直接進入排課；預設課表頁籤，唯讀安親／課輔窗口（D33 窗口固定無編輯）；平鋪排課網格，左側 5 編輯欄＋右側 5 唯讀計算欄；編輯時段 250ms debounce 呼叫 `/api/v1/settings/calculate` 即時計算，requestKey 晚到取消保護。
+  - **列數（2026-10-05 核對後改寫，不寫死數字）**：原敘述「89 列」已過期。S 表種子 `web/src/domain/schedules/schedule-seed.json` 的 `totalSessionRows` 與 `buildSeedGridRows()` 仍為 **89**（`web/src/contracts/settings.ts:118`；`web/tests/unit/settings-grid-model.test.ts:100`、`settings-schedule-grid-ui.test.ts:104` 仍斷言 89）。但課表頁實際載入路徑為 `classesToGridRows(initialDraft.classes)`（`web/src/components/settings-editor.tsx:224`），經 `gridRowsToClasses` 聚合後，9 個無完整時段的班級各自折疊為 **1** 列佔位列（seed 中 `empty` 班的 2 個 null 時段 session 合併），實測得 **88 列**。列數取決於名冊／課表資料，不同資料會不同，故本檔不再寫死上界；S 表 89 筆排課列的來源事實見 [08](08-drift-fix-plan.md) 的 Evidence 段（`08:20`）與 [progress/p1-acceptance.md](progress/p1-acceptance.md) 的基準驗證列。
+  - **缺時間列的呈現（2026-10-05 依 #82／PR #85 同步）**：原句「不完整列標『待補』與 `SCHEDULE_INCOMPLETE`」已過期。現行契約（#82，decision `d-20261004093019108435-11`）是：**新增時段只有班級名稱必填**，缺時間的佔位列其五個計算欄位（課程時長、安親重疊／扣除、課輔重疊／扣除）平靜顯示「—」並帶 `aria-label="未設定時間"`，**不使用「待補」徽章**。`SCHEDULE_INCOMPLETE` 問題碼仍由 `POST /api/v1/settings/calculate` 產生（`web/src/application/schedule-preview.ts:286`），只是畫面呈現已改。權威契約見 [09 §3.1「缺時間的佔位列」](09-ui-workflow-redesign-spec.md)、[04 UX07](04-tdd-acceptance.md)；「需確認」（未知／空白星期）與「共用」兩態不變。`web/src/components/results/class-deductions-panel.tsx` 的「待補」屬班級扣天面板、不在 #82 範圍，刻意保留。
 - 固定底部操作列：有未儲存變更提示，取消修改還原 baseline，確認變更開啟 ImpactDialog。
 - ImpactDialog 儲存確認視窗：無學生時顯示「尚未匯入學生」，受影響人數為 null，主按鈕「儲存課表」（送 `mode: "settings_only"` 不帶 `importId`，落地先課表後匯入）；有 active 學生時顯示受影響去重人數與天數明細，主按鈕「儲存並更新結果」。
 - 班名對應頁籤：無名單時提示「匯入名單後，可確認ERP班名」，不阻擋課表維護；有名單時保留動態差集與已對齊隱藏。
