@@ -20,7 +20,7 @@
 |第六輪|未記錄（issue 開於 2026-10-05）|`446db17`|REJECTED（R6-F01、R6-F02）|—（無後續 FAIL）|
 |**第七輪**|**2026-10-05**|**`6aacb6c1`**|**PASS**|—|
 
-**交付基準**：release tag **v0.0.1** = `main` `e4b4efcee7a8871f5ffd53714c37b572387b69d3`。tag 之後 main 僅多 PR #98（`e4b4efc`，將 `sharp` 宣告為 devDependency，非產品碼）。第七輪的受驗 SHA `6aacb6c1`（PR #97 merge）是該 tag 的祖先，二者之間的差異只在相依宣告。
+**交付基準**：release tag **v0.0.1** = `main` `e4b4efcee7a8871f5ffd53714c37b572387b69d3`，也就是 PR #98（`e4b4efc`，將 `sharp` 宣告為 devDependency，非產品碼）的 merge commit——**#98 已包含在 tag 內**，tag 之後 main 沒有新增 commit。第七輪的受驗 SHA `6aacb6c1`（PR #97 merge）是該 tag 的直接父 commit，二者之間的差異只在相依宣告。
 
 > `web/package.json` 的 `version` 欄為 `0.1.0`，與 tag 名 `v0.0.1` 不是同一個版本號。交付基準以 tag 為準；本文件不把兩者寫成同一版本。
 
