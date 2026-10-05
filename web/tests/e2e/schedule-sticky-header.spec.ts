@@ -15,7 +15,30 @@ test.describe('R5-F01：課表兩層固定表頭', () => {
       const container = page.locator('.schedule-table-scroll');
       const table = page.locator('table.schedule-table');
       await expect(table).toBeVisible();
-      await container.scrollIntoViewIfNeeded();
+      await page.evaluate(() => {
+        const title = document.querySelector<HTMLElement>('.schedule-table thead th.col-group-anqin');
+        const nav = document.querySelector<HTMLElement>('aside.side');
+        if (!title) throw new Error('找不到安親窗口表頭');
+        const titleBox = title.getBoundingClientRect();
+        const navBox = nav?.getBoundingClientRect();
+        const navBottom = navBox && navBox.width >= window.innerWidth - 2 ? navBox.bottom : 0;
+        const margin = 8;
+        const delta = titleBox.top < navBottom + margin
+          ? titleBox.top - navBottom - margin
+          : titleBox.bottom > window.innerHeight - margin
+            ? titleBox.bottom - window.innerHeight + margin
+            : 0;
+        if (delta !== 0) window.scrollTo(0, Math.max(0, window.scrollY + delta));
+      });
+      await page.waitForFunction(() => {
+        const title = document.querySelector<HTMLElement>('.schedule-table thead th.col-group-anqin');
+        const nav = document.querySelector<HTMLElement>('aside.side');
+        if (!title) return false;
+        const titleBox = title.getBoundingClientRect();
+        const navBox = nav?.getBoundingClientRect();
+        const navBottom = navBox && navBox.width >= window.innerWidth - 2 ? navBox.bottom : 0;
+        return titleBox.top >= navBottom + 8 && titleBox.bottom <= window.innerHeight - 8;
+      });
 
       const initialScroll = await container.evaluate((el) => ({
         maxLeft: el.scrollWidth - el.clientWidth,
@@ -89,9 +112,13 @@ test.describe('R5-F01：課表兩層固定表頭', () => {
           return {
             name,
             text: target.textContent?.trim(),
+            point: { x, y },
             pointInsideScrollport:
               x >= containerRect.left && x <= containerRect.right && y >= containerRect.top && y <= containerRect.bottom,
+            pointInsideViewport: x >= 0 && x <= window.innerWidth && y >= 0 && y <= window.innerHeight,
             pointHitsTarget: hit === target || (hit !== null && target.contains(hit)),
+            hitTagName: hit?.tagName ?? null,
+            hitClassName: typeof hit?.className === 'string' ? hit.className : null,
           };
         });
       });
@@ -102,7 +129,8 @@ test.describe('R5-F01：課表兩層固定表頭', () => {
       ]);
       for (const probe of titleProbes) {
         expect(probe.pointInsideScrollport, `${viewport.label}「${probe.name}」文字應在可視捲動區內`).toBe(true);
-        expect(probe.pointHitsTarget, `${viewport.label}「${probe.name}」文字點不得被其他表格儲存格遮住`).toBe(true);
+        expect(probe.pointInsideViewport, `${viewport.label}「${probe.name}」文字應在視窗內`).toBe(true);
+        expect(probe.pointHitsTarget, `${viewport.label}「${probe.name}」文字點不得被其他表格儲存格遮住：${JSON.stringify(probe)}`).toBe(true);
       }
 
       const firstDataRowTopAfter = await page.evaluate(() => {
