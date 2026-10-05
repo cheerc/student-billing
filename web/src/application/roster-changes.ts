@@ -158,7 +158,7 @@ export interface RosterChange {
    * 新增／退出／換班即使折扣與天數皆未變，這裡仍會列出，且該生也算「異動」（-75）。
    */
   enrollmentChanges: EnrollmentChange[];
-  /** 逐班適��折扣的前後變化（decisions -68；未報名一側不取值、not_configured 不列）。additive。 */
+  /** 逐班適用折扣的前後變化（decisions -68；未報名一側不取值、not_configured 不列）。additive。 */
   classDiscountChanges: ClassDiscountChange[];
 }
 
