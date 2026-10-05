@@ -112,17 +112,27 @@ test.describe('#80：單一表格整合屬性（班級列同時設定類別與�
     expect(stickyLeft).toBeGreaterThanOrEqual(-1);
     expect(stickyLeft).toBeLessThanOrEqual(1);
 
-    // 縱向捲動後：表頭仍貼在容器上緣（sticky top）
-    const stickyTop = await page.evaluate(() => {
+    // 縱向捲動後：第一列群組表頭貼齊容器上緣，第二列子欄緊接其下、不重疊。
+    const stickyRows = await page.evaluate(() => {
       const container = document.querySelector('.schedule-table-scroll') as HTMLElement;
       container.scrollTop = 200;
-      const box = container.getBoundingClientRect();
-      const th = document.querySelector('table.schedule-table thead th');
-      if (!th) throw new Error('找不到表頭');
-      return th.getBoundingClientRect().top - box.top;
+      const containerTop = container.getBoundingClientRect().top;
+      const groups = Array.from(
+        container.querySelectorAll<HTMLElement>(
+          'thead tr:first-child .col-group-anqin, thead tr:first-child .col-group-tutoring'
+        )
+      );
+      const subHeaders = Array.from(container.querySelectorAll<HTMLElement>('thead tr:nth-child(2) th'));
+      if (groups.length !== 2 || subHeaders.length !== 4) throw new Error('找不到完整的兩層表頭');
+      const groupTop = Math.min(...groups.map((th) => th.getBoundingClientRect().top));
+      const groupBottom = Math.max(...groups.map((th) => th.getBoundingClientRect().bottom));
+      const subHeaderTop = Math.min(...subHeaders.map((th) => th.getBoundingClientRect().top));
+      return { groupTopOffset: groupTop - containerTop, headerGap: subHeaderTop - groupBottom };
     });
-    expect(stickyTop).toBeGreaterThanOrEqual(-1);
-    expect(stickyTop).toBeLessThanOrEqual(1);
+    expect(stickyRows.groupTopOffset).toBeGreaterThanOrEqual(-1);
+    expect(stickyRows.groupTopOffset).toBeLessThanOrEqual(1);
+    expect(stickyRows.headerGap).toBeGreaterThanOrEqual(-1);
+    expect(stickyRows.headerGap).toBeLessThanOrEqual(1);
   });
 
   test('#80-6: 刪除時段仍在列尾（既有行為保留）', async ({ page }) => {
