@@ -216,7 +216,10 @@ async function expectNoExplanationText(alert: ReturnType<Page['getByRole']>) {
  *
  * **不是**硬編碼：案例依此推導注入的失敗次數並斷言實際 GET 數，
  * 因此把實作的 `[1000, 3000]` 改成 `[1000]`（只重試 1 次）時，R2／R3 必然失敗——
- * 這是 review B-2 M1 要求��鑑別力。
+ * 這是 review B-2 M1 要求鑑別力。
+ *
+ * （本段自 PR #64／UX46 建立以來就帶著 review B-2 的註記；其中一個字元在 ad0fee2 引入時
+ * 損毀成 U+FFFD 替換字元，已於 #92 修復為正常文字。）
  */
 const DECIDED_GET_ATTEMPTS = 3;
 const RETRY_COUNT = DECIDED_GET_ATTEMPTS - 1;
@@ -466,7 +469,7 @@ test.describe('報告刷新失敗的最短恢復路徑（UX46／operator 裁決 
     // 之後靠 setSequenceFailCount 把下一個序列（［重新載入］）也壓成失敗，走到［重新整理頁面］階段。
     report.failEachSequence(DECIDED_GET_ATTEMPTS);
     report.setSequenceFailCount(MANUAL_GET_ATTEMPTS);
-    await applyAlias(page, R6_PENDING_ALIAS.raw, R6_PENDING_ALIAS.target); // BREAK-TEST-PLACEHOLDER
+    await applyAlias(page, R6_PENDING_ALIAS.raw, R6_PENDING_ALIAS.target);
 
     await expect(notice).toBeVisible({ timeout: 30000 });
     await notice.locator('button', { hasText: '重新載入' }).click();
