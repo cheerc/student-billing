@@ -704,6 +704,13 @@ body {
   min-width: 1240px;
 }
 
+/* #80：整組黏住兩列表頭，沿用每列實際排版高度，避免子欄蓋住群組標題。 */
+.schedule-table thead {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+}
+
 .schedule-table th {
   background: #f8fafc;
   color: var(--text-muted);
@@ -711,14 +718,10 @@ body {
   font-size: 12px;
   padding: 10px 8px;
   border-bottom: 1px solid var(--border-color);
-  position: sticky;
-  top: 0;
-  z-index: 2;
   text-align: left;
 }
 
-/* #80：表頭 2D 凍結。左上角那一格同時凍結 top 與 left（否則橫向捲動時，
-   「班級名稱」標題會被內容列蓋住），z-index 必須高於其餘表頭。 */
+/* #80：左上角交會格隨表頭凍結 top，並凍結 left；堆疊高於資料列，避免橫向捲動時被蓋住。 */
 .schedule-table th.sticky-corner {
   left: 0;
   z-index: 4;
