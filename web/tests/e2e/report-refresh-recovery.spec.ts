@@ -33,6 +33,8 @@ const R4_ALIAS = { raw: '小六數學加強班', target: '小六加強班-數學
 const R4_SECOND_ALIAS = { raw: '國小輔導-四年級A', target: '國小輔導-四年級' };
 /** R5 用：只讓一次 GET 失敗即可進入重試等待，不需等到重試耗盡。 */
 const R5_PENDING_ALIAS = { raw: '正音A班', target: '兒童美語-Archy' };
+/** R6 用：只讓一次 GET 失敗即可進入重試等待；再用 setSequenceFailCount 讓手動序列也失敗，走到［重新整理頁面］階段。 */
+const R6_PENDING_ALIAS = { raw: '美語等班', target: '兒童美語-Ali' };
 
 /** 可切換模式的 GET 攔截器：ok（真實回應，順帶保存最後一次成功 body）／fail（500）／gate（等待放行後回應保存的舊 body）。 */
 function installReportRoute(page: Page) {
@@ -438,5 +440,71 @@ test.describe('報告刷新失敗的最短恢復路徑（UX46／operator 裁決 
     await page.waitForTimeout(6000);
 
     expect(report.callCount(), '卸載後不得再發出 GET').toBe(callsBeforeLeave);
+  });
+
+  /**
+   * R6（UX46 末段「重試中再次套用時舊序列回應不得覆蓋新結果」的前置路徑）：
+   * 走**已經進入［重新整理頁面］階段**之後，使用者再次儲存。
+   *
+   * 現行行為（第五輪驗收 §3.3 已於瀏覽器確認）：再次 apply 會啟動**新的**刷新序列——
+   * 先回到「更新中…」（中性佔位、不顯示過期數字、候選表仍鎖定）並重新走自動重試，
+   * 這次成功後恢復正常：復原標示消失、候選表解鎖、報告以最新結果重建。
+   *
+   * expected 依 UX46 與 decision d-20261002162913018695-69 手寫，不使用實作輸出回填。
+   */
+  test('R6：［重新整理頁面］階段再次儲存 → 回到「更新中…」並重走自動重試 → 成功恢復', async ({ page }) => {
+    test.setTimeout(240_000);
+    await importRoster(page);
+    const { tab, base } = await openMappingTab(page);
+    const toolbar = page.locator('.toolbar', { hasText: '待確認米豆奶班名' });
+    const notice = page.getByRole('alert').filter({ hasText: '無法取得最新的班名比對報告' });
+    const reportRegion = page.getByRole('region', { name: '米豆奶有／系統無' });
+
+    const report = installReportRoute(page);
+
+    // 步驟 1：套用一個有效別名（候選降為 base-1），並讓這次儲存後序列的 GET 失敗。
+    // 之後靠 setSequenceFailCount 把下一個序列（［重新載入］）也壓成失敗，走到［重新整理頁面］階段。
+    report.failEachSequence(DECIDED_GET_ATTEMPTS);
+    report.setSequenceFailCount(MANUAL_GET_ATTEMPTS);
+    await applyAlias(page, R6_PENDING_ALIAS.raw, R6_PENDING_ALIAS.target); // BREAK-TEST-PLACEHOLDER
+
+    await expect(notice).toBeVisible({ timeout: 30000 });
+    await notice.locator('button', { hasText: '重新載入' }).click();
+    await expect(notice.locator('button', { hasText: '重新整理頁面' })).toBeVisible({ timeout: 30000 });
+    await expect(reportRegion).toHaveCount(0);
+    expect(report.callCount(), '儲存後序列 3 次＋手動序列 1 次').toBe(
+      DECIDED_GET_ATTEMPTS + MANUAL_GET_ATTEMPTS
+    );
+
+    // 步驟 2：在［重新整理頁面］階段再次儲存（課表時段變更）。候選表此刻鎖定，
+    // 但鎖定只涵蓋「依過期報告確認班名」，課表頁草稿不受影響，故走這條 apply 路徑。
+    // 重裝攔截器以清掉上一個手動序列留下的剩餘失敗狀態，再用 failNext(1)：
+    // 新序列首次 GET 失敗（因此看得到回到「更新中…」），自動重試的第 2 次即成功。
+    // 注意不能用 failEachSequence —— 它的 failNext 是常駐的，該序列會永遠失敗而進不到成功。
+    await page.unroute(REPORT_URL);
+    const report2 = installReportRoute(page);
+    report2.failNext(1);
+    await applyScheduleTimeChange(page, '43');
+    await switchToMappingTab(page);
+
+    await expect(page.locator('[data-report-pending]')).toBeVisible({ timeout: 15000 });
+    await expect(notice).toHaveCount(0);
+    await expect(reportRegion).toHaveCount(0);
+    await expect(candidatesLocked(page).container).toHaveAttribute('aria-disabled', 'true');
+    // 新序列必須真的重新發出 GET 並走自動重試（首次失敗、第 2 次成功）
+    await expect(page.locator('[data-report-pending]')).toHaveCount(0, { timeout: 30000 });
+    expect(report2.callCount(), '再次儲存後新序列應至少發出 2 次 GET（首次＋重試）').toBeGreaterThanOrEqual(2);
+
+    // 步驟 3：重試成功 → 恢復正常：復原標示消失、候選表解鎖、以最新報告重建（base-1）。
+    await expect(notice).toHaveCount(0);
+    await expect(toolbar).toContainText(`(${base - 1})`);
+    await expect(tab).toContainText(String(base - 1));
+    await expect(reportRegion).toContainText(`${base - 1} 個班`, { timeout: 20000 });
+    await expect(page.locator('.mapping-table tr', { hasText: R6_PENDING_ALIAS.raw })).toHaveCount(0);
+    const unlocked = candidatesLocked(page);
+    await expect(unlocked.container).toHaveCount(0);
+    await expect(unlocked.firstTarget).toBeEnabled();
+    // 註：checkbox 的 enabled 由該列自身是否已填目標決定（不是候選表鎖定），
+    // 故沿用 R2 的斷言範圍，只驗鎖定容器消失與目標欄可編輯。
   });
 });

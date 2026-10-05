@@ -30,9 +30,11 @@ import {
  *
  * 原子性與 trace 均未關閉（走產品預設路徑，不傳任何關閉選項）。
  * 每個樣本用**不同的 DB 檔**（全新 migrate ＋ 重新匯入），因此不存在跨樣本 cache 命中
- * 或前一樣本計算結果被重用的可能；代價是每樣本含 migrate 時間，但門檻契約
- * （specs/07 T07「477 筆匯入至可查結果 3 秒內」）本來就是從使用者點上傳起算的端到端
- * 目標，migrate 屬於該目標邊界之內。
+ * 或前一樣本計算結果被重用的可能。**migrate 不在計時窗內**：`freshDatabase()`（含
+ * `runMigrations`）在 `performance.now()` 起算之前完成，實際量測窗為
+ * 匯入路徑的 parse → save → activate → query，重算路徑則為 executeCalculationRun ＋
+ * saveCalculationRun。門檻契約（specs/07 T07「477 筆匯入至可查結果 3 秒內」）是使用者
+ * 點上傳後的目標；schema migrate 是一次性的 DB 準備步驟，不屬於每次使用者的等待時間。
  */
 
 const FIXTURE = path.resolve(import.meta.dirname, '../tests/fixtures/conforming-erp-fixture.xlsx');
