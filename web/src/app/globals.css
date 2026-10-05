@@ -692,8 +692,16 @@ body {
   overflow: auto;
 }
 
+/* #96 R6-F01：接縫必須由表頭的框線與背景佔滿。
+   `border-collapse: collapse` 下，表頭列的下邊界與資料列的上邊界折疊成一條線，
+   而 tbody 的 td 不是 positioned、不參與堆疊 → 該 1px 帶狀區域由後面的資料列繪製，
+   於是資料列的 .cblue／.cteal 背景會從兩層表頭的接縫透出來。
+   改成 separate + border-spacing: 0：每個儲存格各自畫自己的邊框，不再折疊，
+   接縫因此必定落在表頭 th 的邊框／背景上。框線粗細、表格寬度與欄寬不變
+   （已在 E2E 實測：單像素框線、表格寬度 1240px 皆與 collapse 相同）。 */
 .schedule-table {
-  border-collapse: collapse;
+  border-collapse: separate;
+  border-spacing: 0;
   width: 100%;
   font-size: 13px;
   white-space: nowrap;
@@ -1479,6 +1487,16 @@ dialog.impact-dialog::backdrop {
   z-index: 1;
   background: #fff;
   min-width: 96px;
+}
+
+/* #96 R6-F02：姓名欄同時黏住 top（表頭）與 left（第一欄），是表格的左上角交會格，
+   必須排在兩者之上。原本它只吃 `.results-table .sticky-name` 的 z-index 1，
+   而一般 th 與 td.sticky-name 也都是 1 → 捲動重疊時同列的其他 th（DOM 較後）
+   與 sticky 資料格都會蓋上來，姓名欄的表頭因而消失。
+   這裡只把**表頭交會格**抬到 3；一般 th 維持 1，不動其他使用 .data-table 的表格。
+   特異度 (0,2,1) 高於 `.results-table .sticky-name` (0,2,0)。 */
+.results-table th.sticky-name {
+  z-index: 3;
 }
 
 .results-table tbody tr:hover .sticky-name {
