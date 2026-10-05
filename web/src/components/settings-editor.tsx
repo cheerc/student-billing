@@ -338,19 +338,11 @@ export default function SettingsEditor({
   const toastTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   /**
-   * 重新取得班名比對報告：失敗自動重試 2 次（約 1s、3s），皆失敗才請使用者按一顆復原按鈕
-   * （UX46；operator 裁決 d-20261002162913018695-69）。
-   *
-   * - 重試中不顯示任何錯誤畫面，但候選表鎖定：報告仍是過期值，允許操作等於依過期結果確認班名。
-   * - `reportRefreshSeq` 是唯一的序列權威：每次 apply／［重新載入］都遞增，舊序列的回應與逾時器因此失效，
-   *   晚到的舊回應不得覆蓋較新的結果（與 calculate 的 requestKey guard 同一目的）。
-   * - ［重新載入］只重新 GET 報告；［重新整理頁面］才整頁 reload。不自動 reload、不跳確認視窗。
-   */
-  /**
    * 啟動一次報告刷新序列（UX46；operator 裁決 d-20261002162913018695-69）。
    *
-   * - 失敗自動重試 2 次（約 1s、3s，由 `reportRefreshRetryDelaysMs` 注入）；重試中不顯示任何錯誤畫面，
-   *   但候選表鎖定：報告仍是過期值，允許操作等於依過期結果確認班名。
+   * - 失敗自動重試 2 次（約 1s、3s，由 `reportRefreshRetryDelaysMs` 注入）；皆失敗才請使用者按一顆
+   *   復原按鈕。重試中不顯示任何錯誤畫面，但候選表鎖定：報告仍是過期值，允許操作等於依過期結果
+   *   確認班名。
    * - `reportRefreshSeq` 是唯一的序列權威：每次 apply／［重新載入］都遞增，舊序列的回應與逾時器因此失效，
    *   晚到的舊回應不得覆蓋較新的結果（與 calculate 的 requestKey guard 同一目的）。
    * - ［重新載入］只重新 GET 報告；［重新整理頁面］才整頁 reload。不自動 reload、不跳確認視窗。
