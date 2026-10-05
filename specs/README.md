@@ -1,8 +1,10 @@
 # 學生收費核對工具：規格與交接入口
 
-版本：2026-09-30。P1 已有本機實作；目前正式規則為 erp-tag-v2（D30），班名候選依D32動態產生。歷史規劃文件中的「尚未實作」不代表目前進度。
+版本：2026-10-05。P1 已有本機實作；目前正式規則為 erp-tag-v2（D30），班名候選依D32動態產生。歷史規劃文件中的「尚未實作」不代表目前進度。
 
-UI 重設（先課表 → 匯入 → 核對）R0–R5 已交付並合併，驗收見[progress/ui-redesign-acceptance.md](progress/ui-redesign-acceptance.md)。2026-09-30 operator 第一次人工驗收裁決 REJECTED，修正計畫與決策如下；其中 erp-tag-v3（D37）截至本日尚未實作，02 仍只有 v1／v2：
+UI 重設（先課表 → 匯入 → 核對）R0–R5 已交付並合併，驗收見[progress/ui-redesign-acceptance.md](progress/ui-redesign-acceptance.md)。2026-09-30 operator 第一次人工驗收裁決 REJECTED，修正計畫與決策如下：
+
+> **進度同步（2026-10-05，取代本段原有的「截至本日尚未實作」敘述）**：原句「其中 erp-tag-v3（D37）截至本日尚未實作，02 仍只有 v1／v2」書寫於 2026-09-30，已於 2026-10-05 失效。**現況**：erp-tag-v3（D37）已於 2026-10-01 隨 D1／D2a／D2b／D2c／D2d 合併落地（`main` `fce99b6` 核對）；[02](02-calculation-rules.md) 已於 `## 9. erp-tag-v3 規則段` 寫入 v3 規則（v2 原文與行為保留），故「02 仍只有 v1／v2」亦已不成立。`CURRENT_FORMAL_RULE_SET_VERSION` 仍為 `erp-tag-v2`（`web/src/domain/billing/rule-set.ts:31`），空 DB 預設 v3 屬 Q11 升級裁決——版本現況以 06 與 02 §9 為準。
 
 - [09 UI／UX 重設規格](09-ui-workflow-redesign-spec.md)（含 2026-09-30 修訂的目標契約）
 - [10 UI 重設實作 Plan](10-ui-workflow-redesign-plan.md)（R0–R5，已交付）

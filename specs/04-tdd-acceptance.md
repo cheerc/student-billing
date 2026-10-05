@@ -226,7 +226,7 @@ Playwright 最小完整旅程：
 
 覆蓋率不是唯一gate；R01–R18與班名／級距／來源政策各分支都有案例。U01–U49、I01–I20為規劃清單，不是已執行的產品測試。P1只需簡單red-green-refactor記錄。
 
-## 8. UI 重設驗收矩陣（UX01–UX73）
+## 8. UI 重設驗收矩陣（UX01–UX78）
 
 依 [06 D33](06-handoff-decisions.md) 與 [09](09-ui-workflow-redesign-spec.md)；本節是 UI 重設的正式驗收，實作拆分與各 PR 對應項目見 [10](10-ui-workflow-redesign-plan.md) §1。UX 為新增驗收，保留原 U/I 及 08 測試。每個可觀察行為先 red 再 green；expected 來自既有 domain 固定案例／已確認案例（獨立手算），不用新 UI 自己生成。UX22、UX23 的 RED 對應 09 §8.2.1、§8.2.4 記載的現況缺陷。UX07、UX13 於 2026-09-30 修訂，UX25–UX33 為第一次人工驗收後新增（依 [06 D34–D39](06-handoff-decisions.md)、[09](09-ui-workflow-redesign-spec.md) 目標契約與 [03 §5.1](03-architecture-api.md)，實作批次見 [11 §3](11-ui-acceptance-fix-plan.md)）；UX34–UX47 為 D1（規則版本入口收斂、班名比對報告、類別偵測純函式，[11 §3 D1](11-ui-acceptance-fix-plan.md)、[06 D40](06-handoff-decisions.md)）；UX48–UX53 為 D2b（班級類別與固定 5 天設定 UI、升級確認、讀模型接線；[11 §3 D2](11-ui-acceptance-fix-plan.md)）；UX54–UX70 為 D2c 定稿的驗收目標（依 S manifest §6／§7／§9／§11）。測試層欄為目標或已有覆蓋，**不等於整列已完成**；部分覆蓋與待補項依下表註記。D2d 任務 `t-20261001030245156576-75458-17` 收斂已知缺口（decision `d-20261001030238623979-12`）；D2d 依 decision `d-20261001050915775646-5` 新增 **UX71／UX72／UX73**（原 A–E 三項在 §8 無對應列：Q10 選中班摘要天數、併入既有班、空課表候選警告），並更新 UX54／55／60／61／67／68／69 的層級與狀態；批次 E 自 UX74 起編，與本批無重疊。狀態標記只在**該列寫明的缺口確實閉合**時才更新：標為「D2d 閉合」者附測試檔與手算依據；本批 A–E 的 RED 已全部轉綠，UX61／67／68／69／71／72／73 皆已閉合。`web/tests/unit/d2c-parity-gate.test.ts` 為手算 policy suite；fixture baseline 在 `web/scripts/parity-d2b.mts`，完整逐情境／逐欄表外差異閘門由 D2d F 補於 `web/tests/unit/d2d-parity-gate.test.ts`。
 
