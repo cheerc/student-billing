@@ -2,7 +2,7 @@
 
 版本：2026-10-05。P1 已有本機實作；目前正式規則為 erp-tag-v2（D30），班名候選依D32動態產生。歷史規劃文件中的「尚未實作」不代表目前進度。
 
-UI 重設（先課表 → 匯入 → 核對）R0–R5 已交付並合併，驗收見[progress/ui-redesign-acceptance.md](progress/ui-redesign-acceptance.md)。2026-09-30 operator 第一次人工驗收裁決 REJECTED，修正計畫與決策如下：
+UI 重設（先課表 → 匯入 → 核對）R0–R5 已交付並合併，驗收見[progress/ui-redesign-acceptance.md](progress/ui-redesign-acceptance.md)。人工驗收已歷七輪修正：第一輪（2026-09-30，受驗 `e1b1a58`）裁決 REJECTED，開啟 R2–R6 的修正循環；**第七輪（2026-10-05，受驗 `6aacb6c1`）簽核 PASS**，R6-F01、R6-F02 在指定條件下皆未重現。交付基準為 release tag **v0.0.1**（`main` `e4b4efce`；`web/package.json` 的 `version` 欄為 `0.1.0`，與 tag 名稱不一致，兩者不是同一個版本號，本文件不作合併）。歷次 FAIL → 修正的對照與第七輪簽核範圍見[progress/manual-acceptance-rounds.md](progress/manual-acceptance-rounds.md)。第一輪的修正計畫與決策如下：
 
 > **進度同步（2026-10-05，取代本段原有的「截至本日尚未實作」敘述）**：原句「其中 erp-tag-v3（D37）截至本日尚未實作，02 仍只有 v1／v2」書寫於 2026-09-30，已於 2026-10-01 實作合併後失效；本段於 2026-10-05 同步。**現況**：erp-tag-v3（D37）已於 2026-10-01 隨 D2a／D2b／D2c／D2d 合併落地（`main` `447134a` 核對）；[02](02-calculation-rules.md) 已於 `## 9. erp-tag-v3 規則段` 寫入 v3 規則（v2 原文與行為保留），故「02 仍只有 v1／v2」亦已不成立。`CURRENT_FORMAL_RULE_SET_VERSION` 仍為 `erp-tag-v2`（`web/src/domain/billing/rule-set.ts:31`），空 DB 預設 v3 屬 Q11 升級裁決——版本現況以 06 與 02 §9 為準。
 
@@ -10,7 +10,16 @@ UI 重設（先課表 → 匯入 → 核對）R0–R5 已交付並合併，驗�
 - [10 UI 重設實作 Plan](10-ui-workflow-redesign-plan.md)（R0–R5，已交付）
 - [11 第一次人工驗收修正 Plan](11-ui-acceptance-fix-plan.md)（PR-0、A、S、B1、B2、C、D 分批；決策見[06 D34–D39](./06-handoff-decisions.md)）
 - [12 第二次人工驗收修正 Plan](12-round2-acceptance-fix-plan.md)（R2-F01／R2-F02 與驗收工具 T1／T2／T3；第三次人工驗收清單由 Lead 依其 §4 產出）
+- [13 人工驗收歷次收斂紀錄](progress/manual-acceptance-rounds.md)（第一至七輪的 FAIL → 修正對照、第七輪簽核範圍與已知限制）
 - [可點選介面示意（合成資料）](design/ui-workflow-prototype.html)
+
+**待裁示的後續事項（已開 issue，皆不擋本次交付）**：
+
+|issue|主題|
+|---|---|
+|[#99](https://github.com/cheerc/student-billing/issues/99)|課表分組界線因 `border-collapse: separate` 由 1px 變約 2px，待裁示是否修|
+|[#100](https://github.com/cheerc/student-billing/issues/100)|學生明細「各課程適用率」與學生總表格式不一致（% vs 折、- vs —），待裁示|
+|[#101](https://github.com/cheerc/student-billing/issues/101)|E2E（49 spec）尚未進 CI，需裁示範圍與時間成本|
 
 先課表 → 匯入 → 核對的方向記於[06 D33](./06-handoff-decisions.md)；操作介面契約見09，實作分批見10與11（執行計畫），驗收矩陣見[04 §8](./04-tdd-acceptance.md)。窗口固定、不可編輯，有效日期不在範圍（D33）；D24–D32計算決策不變，計算規則變更（D37）只走 11 的 D2 與新 ruleSet 版本（D 批依 [06 D40](./06-handoff-decisions.md) 拆為 D1 入口收斂與 D2 v3）。
 
