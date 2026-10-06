@@ -4,6 +4,7 @@ import React, { useEffect, useRef } from 'react';
 import { StudentCalculationItem } from '@/application/query-students';
 import { formatBaseDiscount } from '@/components/summary-table';
 import { issueLabel, issueMessage } from '@/lib/issue-copy';
+import { formatDiscountBps } from '@/application/roster-changes';
 
 interface DetailDrawerProps {
   student: StudentCalculationItem | null;
@@ -12,6 +13,21 @@ interface DetailDrawerProps {
 
 const FOCUSABLE =
   'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), summary, [tabindex]:not([tabindex="-1"])';
+
+/**
+ * 各課程適用率的顯示短標（issue #100）：與學生總表同一套格式化。
+ *
+ * 為什麼明細的 null 用「—」而不是總表 not_configured 的「未設定」：明細直接顯示學生層
+ * 的四個 `applicable*Bps` 欄位，沒有班別狀態可顯示。總表的「未設定」來自
+ * `applicableRateForClass` 回傳的 `not_configured`，不是這四個欄位的值。
+ *
+ * 本抽屜四欄的 null 來自無報名學生（`billing-calculator.ts`，`subjectCount === null`）；
+ * 總表 configured 分支的 `bps === null` 則可來自照顧班缺少可用年級。兩者來源狀態不同，
+ * 只是畫面都用「—」作為 placeholder。本 helper 只負責顯示格式，不改變或合併這些語義。
+ * 因此明細欄位為 null 時顯示「—」，而非「未設定」。
+ */
+const formatApplicableRate = (bps: number | null): string =>
+  bps === null ? '—' : formatDiscountBps(bps);
 
 export default function DetailDrawer({ student, onClose }: DetailDrawerProps) {
   if (!student) return null;
@@ -234,10 +250,12 @@ function DrawerPanel({ student, onClose }: { student: StudentCalculationItem; on
               </div>
               <div style={{ marginTop: '6px', borderTop: '1px dashed #cbd5e1', paddingTop: '6px' }}>
                 各課程適用率：
-                <span style={{ marginLeft: '6px' }}>安親: {student.applicableAnqinBps ? `${student.applicableAnqinBps / 100}%` : '-'}</span>
-                <span style={{ marginLeft: '12px' }}>課輔: {student.applicableTutoringBps ? `${student.applicableTutoringBps / 100}%` : '-'}</span>
-                <span style={{ marginLeft: '12px' }}>美語: {student.applicableEnglishBps ? `${student.applicableEnglishBps / 100}%` : '-'}</span>
-                <span style={{ marginLeft: '12px' }}>數學: {student.applicableMathBps ? `${student.applicableMathBps / 100}%` : '-'}</span>
+                {/* issue #100：四個科目改用與學生總表相同的短標（無折扣／95折／9折），
+                    不再顯示 bps 除以 100 的工程式百分比；null 一律「—」（見 formatApplicableRate）。 */}
+                <span style={{ marginLeft: '6px' }}>安親: {formatApplicableRate(student.applicableAnqinBps)}</span>
+                <span style={{ marginLeft: '12px' }}>課輔: {formatApplicableRate(student.applicableTutoringBps)}</span>
+                <span style={{ marginLeft: '12px' }}>美語: {formatApplicableRate(student.applicableEnglishBps)}</span>
+                <span style={{ marginLeft: '12px' }}>數學: {formatApplicableRate(student.applicableMathBps)}</span>
               </div>
             </div>
           </div>
