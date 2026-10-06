@@ -17,15 +17,14 @@ const FOCUSABLE =
 /**
  * 各課程適用率的顯示短標（issue #100）：與學生總表同一套格式化。
  *
- * 為什麼 null 用「—」而不是總表 not_configured 的「未設定」：這兩者是互斥的兩條路徑，
- * 不是同一個 null 的兩種語義。總表的「未設定」出自 `applicableRateForClass` 的
- * `not_configured` 分支，而那些分支（v3 缺該班快照、班別類別不屬數學／英文／照顧、
- * v1／v2 名稱映射失敗）都是直接 return，完全不讀取學生層的 `applicable*Bps`。
+ * 為什麼明細的 null 用「—」而不是總表 not_configured 的「未設定」：明細直接顯示學生層
+ * 的四個 `applicable*Bps` 欄位，沒有班別狀態可顯示。總表的「未設定」來自
+ * `applicableRateForClass` 回傳的 `not_configured`，不是這四個欄位的值。
  *
- * 本抽屜這四欄的 null 只有一個來源：無報名學生（`billing-calculator.ts`，
- * `subjectCount === null` 時四欄皆 null），與總表 configured 分支中 `bps === null`
- * 所顯示的「—」同義——同樣是「這位學生無法判定」。故 null 一律顯示「—」，
- * 不會與總表的「未設定」互相誤導。
+ * 本抽屜四欄的 null 來自無報名學生（`billing-calculator.ts`，`subjectCount === null`）；
+ * 總表 configured 分支的 `bps === null` 則可來自照顧班缺少可用年級。兩者來源狀態不同，
+ * 只是畫面都用「—」作為 placeholder。本 helper 只負責顯示格式，不改變或合併這些語義。
+ * 因此明細欄位為 null 時顯示「—」，而非「未設定」。
  */
 const formatApplicableRate = (bps: number | null): string =>
   bps === null ? '—' : formatDiscountBps(bps);
