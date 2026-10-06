@@ -773,6 +773,27 @@ body {
   border-top: 1px solid #cbd5e1;
 }
 
+/* #99：分組界線必須是 1px，不是相鄰疊出來的 2px。
+   #97 把本表改成 border-collapse: separate 後，每個 td 各自畫自己的邊框、
+   不再折疊：班界因此變成前一列 td 的 border-bottom（1px #f1f5f9）緊接著
+   下一班首列 td 的 border-top（1px #cbd5e1）共 2px。collapse 時代這兩條會
+   折疊成一條，所以 separate 必須補回折疊的等效效果。
+
+   做法：把班界**前一列**的 border-bottom 拿掉，只由下一班首列的 border-top
+   畫那一條 #cbd5e1。同班的相鄰兩列不受影響（前一個 tr 沒有
+   class-group-start），維持原本 1px #f1f5f9。tbody 最後一列沒有後繼 tr，
+   :has(+ …) 不會命中，其底線照舊。
+
+   本規則的選擇器只命中 tbody 的 tr，不影響 thead 的 th，因此不會動到 #96 的
+   表頭接縫露字問題（該問題位於 thead 兩層 th 之間）。
+
+   預期效果（供後續維護者逐像素比對）：tbody 的班界為**單列 1px #cbd5e1**，
+   同班內相鄰兩列之間為**單列 1px #f1f5f9**。若日後量到班界出現兩條線、或
+   同班內分隔線消失，即為本規則失效。 */
+.schedule-table tbody tr:has(+ tr.class-group-start) td {
+  border-bottom: none;
+}
+
 .cblue {
   background: var(--cblue-bg);
   color: var(--cblue-text);
