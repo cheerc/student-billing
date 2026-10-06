@@ -139,6 +139,7 @@
 
 - **測試先行 (TDD)**：所有功能修改必須先建立重現問題或驗證規格之失敗測試 (RED)，實作完成後達到通過 (GREEN)。
 - **Gate 工具與結果核實**：新 worktree 執行 gate 前，先確認 `web/node_modules` 存在且 TypeScript／Vitest 版本輸出符合工具身份；缺依賴時不得把 `npx` 的 exit code 0 當成通過。Gate 報告附實際執行的 test 數；未執行測試明確標示，不以空殼結果交付。
+- **node 依賴只能 `cp -Rc` 或 `npm ci`，不可 symlink**：Turbopack 拒絕指向 filesystem root 外的 `node_modules` symlink（`Error [TurbopackInternalError]: Symlink [project]/node_modules is invalid, it points out of the filesystem root`），症狀是 `test:e2e:isolated` 的 webServer 起不來、只回 `Process from config.webServer was not able to start. Exit code: 1`，不指出真因，會被誤判為測試失敗。disposable review worktree 需要依賴時直接 `npm ci`（約 1 分鐘）；要在 worktree 間共用已安裝副本則 `cp -Rc`（APFS clone；不可 `-a`，不可 `--symbolic-link`）。
 - **禁止反向產生測試 Expected**：測試之預期結果必須依據規格獨立手算或驗證，絕對不可使用待測函式的輸出直接作為黃金標準。
   - **狹義 baseline 差異特徵化例外（operator 決策 `d-20260930131128030911-29` A 授權）**：僅允許不可變、pre-change baseline（如 D1 之 `8961c03`）之輸出資料用於鎖定重構前後業務欄位「未發生非預期改變」；此類 golden 嚴禁作算法正確性 oracle，且不得從新 HEAD 更新以掩蓋失敗；新規則／新行為／bug 修正之預期結果仍必須依規格獨立手算或外部驗證（詳細 provenance 見 `specs/04-tdd-acceptance.md` §8 UX34）。
 - **真實樣本驗證**：477 筆真實學生資料之驗證僅於本機執行，驗收報告保存於私有報告中，不納入版本控制。
