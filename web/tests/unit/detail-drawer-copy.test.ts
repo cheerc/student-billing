@@ -97,3 +97,93 @@ describe('R4-S01：學生明細的折扣推導區塊不含「null」且與學生
     expect(html).not.toContain('無班級');
   });
 });
+
+/**
+ * issue #100：學生明細的「各課程適用率」改用與學生總表相同的格式化。
+ *
+ * 舊顯示是 `applicable*Bps ? `${bps / 100}%` : '-'`：有值時是工程式百分比
+ * （9000 → 「90%」），與學生總表的正式短標（9折／無折扣／95折）不一致。
+ *
+ * 裁定對照（預期字串由 formatDiscountBps 的定義推出，不由產品輸出回填，根 CLAUDE.md §8）：
+ *   null   → 「—」
+ *   10000  → 「無折扣」
+ *   9500   → 「95折」
+ *   9000   → 「9折」
+ *
+ * null 採「—」而非「未設定」的理由見 src/components/detail-drawer.tsx 的 helper 註解：
+ * 總表的兩種 null 語義需靠班別資訊區分，明細拿不到班別，故一律「—」。
+ */
+describe('issue #100：學生明細各課程適用率與學生總表同格式', () => {
+  const COURSES = [
+    { label: '安親', key: 'applicableAnqinBps' },
+    { label: '課輔', key: 'applicableTutoringBps' },
+    { label: '美語', key: 'applicableEnglishBps' },
+    { label: '數學', key: 'applicableMathBps' },
+  ] as const;
+
+  /** 四個科目同時套用同一組 bps，讓每個科目都經過一次格式化。 */
+  const renderAllSubjects = (bps: number | null) =>
+    render({
+      subjectCount: 2,
+      baseDiscountBps: 9000,
+      applicableAnqinBps: bps,
+      applicableTutoringBps: bps,
+      applicableEnglishBps: bps,
+      applicableMathBps: bps,
+    });
+
+  it('null：四個科目都顯示「—」，不出現百分比，也不顯示「未設定」', () => {
+    const html = renderAllSubjects(null);
+
+    for (const { label } of COURSES) {
+      expect(html, `${label} 應顯示「—」`).toContain(`${label}: —`);
+    }
+    // 明細拿不到班別，無法區分 not_configured，一律「—」（不得顯示「未設定」）。
+    expect(html).not.toContain('未設定');
+    // 舊的 '-' fallback 與百分比複合格式都不得殘留。
+    for (const { label } of COURSES) {
+      expect(html, `${label} 仍顯示舊的「-」`).not.toContain(`${label}: -`);
+    }
+    expect(html).not.toContain('%');
+  });
+
+  it('10000：四個科目都顯示「無折扣」', () => {
+    const html = renderAllSubjects(10000);
+    for (const { label } of COURSES) {
+      expect(html, `${label} 應顯示「無折扣」`).toContain(`${label}: 無折扣`);
+    }
+    expect(html).not.toContain('100%');
+  });
+
+  it('9000：四個科目都顯示「9折」（不是「90%」）', () => {
+    const html = renderAllSubjects(9000);
+    for (const { label } of COURSES) {
+      expect(html, `${label} 應顯示「9折」`).toContain(`${label}: 9折`);
+    }
+    expect(html).not.toContain('90%');
+  });
+
+  it('9500：四個科目都顯示「95折」（不是「95%」）', () => {
+    const html = renderAllSubjects(9500);
+    for (const { label } of COURSES) {
+      expect(html, `${label} 應顯示「95折」`).toContain(`${label}: 95折`);
+    }
+    expect(html).not.toContain('95%');
+  });
+
+  it('各科目獨立取值：null 與有值並存時各自套用自己的格式', () => {
+    const html = render({
+      subjectCount: 2,
+      baseDiscountBps: 9000,
+      applicableAnqinBps: 10000,
+      applicableTutoringBps: null,
+      applicableEnglishBps: 9000,
+      applicableMathBps: 9500,
+    });
+
+    expect(html).toContain('安親: 無折扣');
+    expect(html).toContain('課輔: —');
+    expect(html).toContain('美語: 9折');
+    expect(html).toContain('數學: 95折');
+  });
+});

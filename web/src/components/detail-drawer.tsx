@@ -4,6 +4,7 @@ import React, { useEffect, useRef } from 'react';
 import { StudentCalculationItem } from '@/application/query-students';
 import { formatBaseDiscount } from '@/components/summary-table';
 import { issueLabel, issueMessage } from '@/lib/issue-copy';
+import { formatDiscountBps } from '@/application/roster-changes';
 
 interface DetailDrawerProps {
   student: StudentCalculationItem | null;
@@ -12,6 +13,18 @@ interface DetailDrawerProps {
 
 const FOCUSABLE =
   'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), summary, [tabindex]:not([tabindex="-1"])';
+
+/**
+ * 各課程適用率的顯示短標（issue #100）：與學生總表同一套格式化。
+ *
+ * 取捨（刻意與總表 localRate 的一處不同）：總表對 null 有兩種語義——班別 `not_configured`
+ * 顯示「未設定」，其餘 null 顯示「—」，靠 `applicableRateForClass` 的班別資訊區分。
+ * 本抽屜直接讀學生的四個 `applicable*Bps`，沒有班別可判斷是「該班未配置」還是
+ * 「非適用」，因此 null 一律顯示「—」。這是顯示層的資訊損失（無法顯示者），不是
+ * 資料或計算的改變；統一到與總表相同的 formatDiscountBps 才是本 issue 的重點。
+ */
+const formatApplicableRate = (bps: number | null): string =>
+  bps === null ? '—' : formatDiscountBps(bps);
 
 export default function DetailDrawer({ student, onClose }: DetailDrawerProps) {
   if (!student) return null;
@@ -234,10 +247,12 @@ function DrawerPanel({ student, onClose }: { student: StudentCalculationItem; on
               </div>
               <div style={{ marginTop: '6px', borderTop: '1px dashed #cbd5e1', paddingTop: '6px' }}>
                 各課程適用率：
-                <span style={{ marginLeft: '6px' }}>安親: {student.applicableAnqinBps ? `${student.applicableAnqinBps / 100}%` : '-'}</span>
-                <span style={{ marginLeft: '12px' }}>課輔: {student.applicableTutoringBps ? `${student.applicableTutoringBps / 100}%` : '-'}</span>
-                <span style={{ marginLeft: '12px' }}>美語: {student.applicableEnglishBps ? `${student.applicableEnglishBps / 100}%` : '-'}</span>
-                <span style={{ marginLeft: '12px' }}>數學: {student.applicableMathBps ? `${student.applicableMathBps / 100}%` : '-'}</span>
+                {/* issue #100：四個科目改用與學生總表相同的短標（無折扣／95折／9折），
+                    不再顯示 bps 除以 100 的工程式百分比；null 一律「—」（見 formatApplicableRate）。 */}
+                <span style={{ marginLeft: '6px' }}>安親: {formatApplicableRate(student.applicableAnqinBps)}</span>
+                <span style={{ marginLeft: '12px' }}>課輔: {formatApplicableRate(student.applicableTutoringBps)}</span>
+                <span style={{ marginLeft: '12px' }}>美語: {formatApplicableRate(student.applicableEnglishBps)}</span>
+                <span style={{ marginLeft: '12px' }}>數學: {formatApplicableRate(student.applicableMathBps)}</span>
               </div>
             </div>
           </div>
