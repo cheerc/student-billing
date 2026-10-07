@@ -32,12 +32,20 @@ function cli(args: string[], repo = web) {
 
 // 注意 cwd 固定為 web（對應 CI 的 working-directory）：工具必須自行處理 pathspec，
 // 不能依賴呼叫者的 cwd。
+// timeout 分支與 exit 分支的失敗訊息都要帶上已累積的 child 輸出與 child 狀態（#108）。
+// 抽成純函式除了讓兩條分支共用同一組欄位，也讓 timeout 分支可在不真的等滿 120s 的情況下被測到：
+// deadline 的 120s 是 scope 內不可改的門檻，若把訊息組裝留在 setTimeout 迴圈裡，就只能靠真的逾時來
+// 觀察，而逾時本身就是 #105 尚未收斂的間歇現象（不重跑測試追綠，見 CLAUDE.md §8）。
+function timeoutMessage(child: ChildProcess, output: string) {
+  return `T1 未在120s內回報 ready；停止自有 child，不放寬門檻 pid=${child.pid} exitCode=${child.exitCode} signalCode=${child.signalCode}\n${output}`;
+}
+
 async function start(repo = web) {
   const child = spawn(process.execPath, ['--import', loader, script, '--port', '3840'], { cwd: web, stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, ACCEPTANCE_SOURCE_DIR: repo } });
   children.push(child);
   return new Promise<{ child: ChildProcess; state: string; database: string; workspace: string; url: string; source: string }>((resolve, reject) => {
     let output = '';
-    const deadline = setTimeout(() => reject(new Error('T1 未在120s內回報 ready；停止自有 child，不放寬門檻')), 120000);
+    const deadline = setTimeout(() => reject(new Error(timeoutMessage(child, output))), 120000);
     child.stderr!.on('data', (data) => { output += data.toString(); });
     child.stdout!.on('data', (data) => {
       output += data.toString();
@@ -57,6 +65,33 @@ async function start(repo = web) {
     child.on('exit', (code, signal) => { clearTimeout(deadline); reject(new Error(`T1 在 ready 前退出 code=${code} signal=${signal}\n${output}`)); });
   });
 }
+
+describe('T1 timeout 訊息：附上已累積的 child 輸出與 child 狀態', () => {
+  it('child 仍存活時：訊息含 pid、非空已累積輸出、exitCode／signalCode 為 null', async () => {
+    const child = spawn(process.execPath, ['-e', 'process.stdout.write("MARK-ARCHIVE-DONE\\n"); setInterval(() => {}, 1000);'], { cwd: web, stdio: ['ignore', 'pipe', 'pipe'] });
+    children.push(child);
+    let output = '';
+    await new Promise<void>((resolve) => child.stdout!.on('data', (data) => { output += data.toString(); if (output.includes('MARK-ARCHIVE-DONE')) resolve(); }));
+    const message = timeoutMessage(child, output);
+    expect(message, '保留原本的門檻措辭').toContain('T1 未在120s內回報 ready');
+    expect(message, '必須附上 child pid').toContain(`pid=${child.pid}`);
+    expect(message, '存活中的 child 其 exitCode 為 null').toContain('exitCode=null');
+    expect(message, '存活中的 child 其 signalCode 為 null').toContain('signalCode=null');
+    expect(message, '必須附上截止前已累積的輸出').toContain('MARK-ARCHIVE-DONE');
+  }, 30000);
+
+  it('child 已退出時：訊息帶上真實 exitCode，不會仍顯示 null', async () => {
+    const child = spawn(process.execPath, ['-e', 'process.stdout.write("MARK-EXITED\\n"); process.exit(3);'], { cwd: web, stdio: ['ignore', 'pipe', 'pipe'] });
+    children.push(child);
+    let output = '';
+    child.stdout!.on('data', (data) => { output += data.toString(); });
+    await once(child, 'exit');
+    const message = timeoutMessage(child, output);
+    expect(message).toContain('exitCode=3');
+    expect(message).toContain('MARK-EXITED');
+    expect(message, '已退出就不該再顯示 null 的 exitCode').not.toContain('exitCode=null');
+  }, 30000);
+});
 
 describe('T1：獨立 production build 的隔離驗收環境', () => {
   it('新空 DB→儲存→restart 保留→reset 清空→stop；build 只取追蹤檔、不改 checkout .next', async () => {
