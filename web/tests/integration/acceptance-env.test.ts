@@ -1,4 +1,4 @@
-import { describe, it, expect, afterEach } from 'vitest';
+import { describe, it, expect, afterEach, vi } from 'vitest';
 import { spawn, spawnSync, execFileSync, type ChildProcess } from 'child_process';
 import fs from 'fs';
 import os from 'os';
@@ -40,8 +40,8 @@ function timeoutMessage(child: ChildProcess, output: string) {
   return `T1 未在120s內回報 ready；停止自有 child，不放寬門檻 pid=${child.pid} exitCode=${child.exitCode} signalCode=${child.signalCode}\n${output}`;
 }
 
-async function start(repo = web) {
-  const child = spawn(process.execPath, ['--import', loader, script, '--port', '3840'], { cwd: web, stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, ACCEPTANCE_SOURCE_DIR: repo } });
+async function start(repo = web, scriptPath = script) {
+  const child = spawn(process.execPath, ['--import', loader, scriptPath, '--port', '3840'], { cwd: web, stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, ACCEPTANCE_SOURCE_DIR: repo } });
   children.push(child);
   return new Promise<{ child: ChildProcess; state: string; database: string; workspace: string; url: string; source: string }>((resolve, reject) => {
     let output = '';
@@ -67,30 +67,61 @@ async function start(repo = web) {
 }
 
 describe('T1 timeout 訊息：附上已累積的 child 輸出與 child 狀態', () => {
-  it('child 仍存活時：訊息含 pid、非空已累積輸出、exitCode／signalCode 為 null', async () => {
-    const child = spawn(process.execPath, ['-e', 'process.stdout.write("MARK-ARCHIVE-DONE\\n"); setInterval(() => {}, 1000);'], { cwd: web, stdio: ['ignore', 'pipe', 'pipe'] });
-    children.push(child);
-    let output = '';
-    await new Promise<void>((resolve) => child.stdout!.on('data', (data) => { output += data.toString(); if (output.includes('MARK-ARCHIVE-DONE')) resolve(); }));
-    const message = timeoutMessage(child, output);
-    expect(message, '保留原本的門檻措辭').toContain('T1 未在120s內回報 ready');
-    expect(message, '必須附上 child pid').toContain(`pid=${child.pid}`);
-    expect(message, '存活中的 child 其 exitCode 為 null').toContain('exitCode=null');
-    expect(message, '存活中的 child 其 signalCode 為 null').toContain('signalCode=null');
-    expect(message, '必須附上截止前已累積的輸出').toContain('MARK-ARCHIVE-DONE');
-  }, 30000);
+  // 這組測試要守住的是 start() 內 :48 那一行接線（把 timeoutMessage 的結果交給 reject），
+  // 不是 timeoutMessage 函式本體。守門方式是真走 start() 的 reject 路徑：起一個假的 T1 child
+  // （script 指向一個永不印 SESSION/READY 的腳本，因此不會真的 mkdtemp、不會起 server），
+  // 再用 fake timers 把 deadline 推進到 120s。若有人把 :48 改回固定字串，這裡必然失敗。
+  //
+  // 為什麼是 fake timers 而不是把 120000 變成可注入參數：120000 是 scope 內凍結的門檻，
+  // 把它變成可配置點等於留下一條「有人傳入更長 deadline 來修 flaky」的 regress 通道。
+  // vi.useFakeTimers() 只影響本測試行程的 setTimeout，start() spawn 出去的是獨立 OS 行程，
+  // 不受影響——所以 deadline 觸發與 child 是否還活著是分開可控的，不必真的等 120s。
+  const fakeT1Script = path.join(web, 'tests/integration/fixtures/stub-t1.ts');
 
-  it('child 已退出時：訊息帶上真實 exitCode，不會仍顯示 null', async () => {
-    const child = spawn(process.execPath, ['-e', 'process.stdout.write("MARK-EXITED\\n"); process.exit(3);'], { cwd: web, stdio: ['ignore', 'pipe', 'pipe'] });
-    children.push(child);
-    let output = '';
-    child.stdout!.on('data', (data) => { output += data.toString(); });
-    await once(child, 'exit');
-    const message = timeoutMessage(child, output);
-    expect(message).toContain('exitCode=3');
-    expect(message).toContain('MARK-EXITED');
-    expect(message, '已退出就不該再顯示 null 的 exitCode').not.toContain('exitCode=null');
-  }, 30000);
+  // start() 已經把 child 推進 module 層的 children（afterEach 的清理吃同一份），
+  // 這裡取最後一個就是它——不必為了測試而改動 start() 的回傳形狀。
+  // Node stream 支援多個 listener，所以掛第二個 listener 不會搶走 start() 自己那份：
+  // 兩個 listener 都會收到同一批 chunk，start() 內部的 output 照常累積。
+  const lastChild = () => children[children.length - 1];
+  function waitForChildOutput(child: ChildProcess, marker: string) {
+    return new Promise<void>((resolve, reject) => {
+      let seen = '';
+      const onData = (data: Buffer) => {
+        seen += data.toString();
+        if (seen.includes(marker)) { child.stdout!.off('data', onData); resolve(); }
+      };
+      child.stdout!.on('data', onData);
+      child.once('exit', () => reject(new Error(`child 在印出 ${marker} 前就退出了：${JSON.stringify(seen)}`)));
+    });
+  }
+
+  it('start() 的 deadline 到期時，reject 的訊息附上已累積輸出與 child 狀態（守住 :48 接線）', async () => {
+    // 必須在 start() 之前裝 fake timers：:48 的 setTimeout 在 start() 呼叫當下就抓了
+    // 當時的 setTimeout 參考，晚一步裝等於 deadline 已經掛在真時鐘上，推進假時鐘不會觸發它。
+    // 等 child 印 marker 的那段用的是真實 stream 事件（不是 setTimeout），所以不受假時鐘影響。
+    vi.useFakeTimers();
+    try {
+      const pending = start(web, fakeT1Script);
+      // 先掛好 handler 再推進時鐘：reject 是在 deadline 觸發的當下產生的，若那時還沒有
+      // 任何 handler 附在 pending 上，Node 會記成 unhandledRejection 並讓測試檔報 Errors。
+      const settled = pending.then(() => { throw new Error('deadline 到期後 start() 不應 resolve'); }, (reason: Error) => reason);
+      // 等 marker 真的進了 start() 內部的 output，之後才推進時間——確保斷言檢查的是
+      // 「截止前已累積的輸出」，而不是碰巧的空字串造成的失敗。
+      await waitForChildOutput(lastChild(), 'STUB-T1-READY-NEVER');
+      await vi.advanceTimersByTimeAsync(120000);
+      const error = await settled;
+      // 保留原本的門檻措辭，且 120s 仍是凍結常數（訊息文字寫死 120s，值也沒被參數化）。
+      expect(error.message).toContain('T1 未在120s內回報 ready');
+      // child 狀態：stub 只印一行 marker 後就停住，故仍在跑 → exitCode 與 signalCode 為 null。
+      expect(error.message, '必須附上 child pid').toContain(`pid=${lastChild().pid}`);
+      expect(error.message, '存活中的 child 其 exitCode 為 null').toContain('exitCode=null');
+      expect(error.message, '存活中的 child 其 signalCode 為 null').toContain('signalCode=null');
+      // 已累積輸出：這正是 #108 要補的診斷資訊（能分辨卡在哪一段）。
+      expect(error.message, '必須附上截止前已累積的輸出').toContain('STUB-T1-READY-NEVER');
+    } finally {
+      vi.useRealTimers();
+    }
+  }, 60000);
 });
 
 describe('T1：獨立 production build 的隔離驗收環境', () => {
