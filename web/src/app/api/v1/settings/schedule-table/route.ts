@@ -11,11 +11,13 @@ import type { ScheduleGridRow } from '@/contracts/settings';
 /** 課表匯出／匯入 payload 上限：完整課表約 90 列，遠小於此。 */
 export const MAX_SCHEDULE_TABLE_BYTES = 1024 * 1024;
 
-/** 匯入端收的每班屬性形狀（只收 category 的合法字面值與 fixedFiveDays）。 */
+/** 匯入端收的每班屬性形狀（只收 category 的合法字面值、fixedFiveDays 與 #113 的 skipDeduction）。 */
 interface ExportClassAttr {
   className: string;
   category: 'care' | 'math' | 'english' | 'none';
   fixedFiveDays: boolean;
+  /** 缺值＝未勾選＝false；不因缺欄位而靜默視為勾選。 */
+  skipDeduction?: boolean;
 }
 
 export async function POST(request: NextRequest) {

@@ -57,6 +57,18 @@ interface CandidateEval {
 }
 
 /**
+ * #113：v1／v2 路徑（無 resolvedEnrollments）的「不計扣天」判定。
+ * 以解析後的系統班名查班級設定；查不到或未勾選皆為 false（不猜、不從班名推導）。
+ */
+function skipsDeductionByClassSetting(
+  resolvedBaseName: string | null,
+  classSettings: Map<string, ClassSettingLookup> | undefined
+): boolean {
+  if (!resolvedBaseName || !classSettings) return false;
+  return classSettings.get(resolvedBaseName)?.skipDeduction === true;
+}
+
+/**
  * D2d B（04 §8 UX71／UX68）：把選中的候選轉成對外輸出。
  * 數學／美語共用此轉換，確保兩類別的輸出形狀一致、下游只需讀同一種東西。
  */
@@ -240,18 +252,32 @@ export function calculateStudentBilling(
         const ses = resolveClassSessions(cand.enr, options.aliasMap, options.scheduleOverride, classMapFor(options));
         statusByRawToken.set(cand.enr.rawToken, ses.status);
         if (ses.status === 'calculated') {
-          const ded = deductSessions(ses.sessions, ruleSetVersion);
-          const pos = isAnqinSide ? -ded.anqin : isTutoringSide ? -ded.tutoring : 0;
-          evals.push({
-            enr: cand.enr,
-            idx: cand.idx,
-            status: ses.status,
-            anqinDed: ded.anqin,
-            tutoringDed: ded.tutoring,
-            positiveDeduction: pos,
-            isCalculable: true,
-          });
-          unknownWeekdayCount += ded.unknownWeekdayCount;
+          // #113：班級勾選「不計扣天」→ 時段照常解析、狀態仍是 calculated（不是缺課表），
+          // 但兩側扣天與正值一律 0。這是**刻意的政策結果**，不是算不出來。
+          if (cand.res.skipDeduction) {
+            evals.push({
+              enr: cand.enr,
+              idx: cand.idx,
+              status: ses.status,
+              anqinDed: 0,
+              tutoringDed: 0,
+              positiveDeduction: 0,
+              isCalculable: true,
+            });
+          } else {
+            const ded = deductSessions(ses.sessions, ruleSetVersion);
+            const pos = isAnqinSide ? -ded.anqin : isTutoringSide ? -ded.tutoring : 0;
+            evals.push({
+              enr: cand.enr,
+              idx: cand.idx,
+              status: ses.status,
+              anqinDed: ded.anqin,
+              tutoringDed: ded.tutoring,
+              positiveDeduction: pos,
+              isCalculable: true,
+            });
+            unknownWeekdayCount += ded.unknownWeekdayCount;
+          }
         } else {
           evals.push({
             enr: cand.enr,
@@ -327,18 +353,31 @@ export function calculateStudentBilling(
         const ses = resolveClassSessions(cand.enr, options.aliasMap, options.scheduleOverride, classMapFor(options));
         statusByRawToken.set(cand.enr.rawToken, ses.status);
         if (ses.status === 'calculated') {
-          const ded = deductSessions(ses.sessions, ruleSetVersion);
-          const pos = isAnqinSide ? -ded.anqin : isTutoringSide ? -ded.tutoring : 0;
-          evals.push({
-            enr: cand.enr,
-            idx: cand.idx,
-            status: ses.status,
-            anqinDed: ded.anqin,
-            tutoringDed: ded.tutoring,
-            positiveDeduction: pos,
-            isCalculable: true,
-          });
-          unknownWeekdayCount += ded.unknownWeekdayCount;
+          // #113：與數學候選同一規則（班級勾選「不計扣天」→ 扣天 0、狀態仍為 calculated）。
+          if (cand.res.skipDeduction) {
+            evals.push({
+              enr: cand.enr,
+              idx: cand.idx,
+              status: ses.status,
+              anqinDed: 0,
+              tutoringDed: 0,
+              positiveDeduction: 0,
+              isCalculable: true,
+            });
+          } else {
+            const ded = deductSessions(ses.sessions, ruleSetVersion);
+            const pos = isAnqinSide ? -ded.anqin : isTutoringSide ? -ded.tutoring : 0;
+            evals.push({
+              enr: cand.enr,
+              idx: cand.idx,
+              status: ses.status,
+              anqinDed: ded.anqin,
+              tutoringDed: ded.tutoring,
+              positiveDeduction: pos,
+              isCalculable: true,
+            });
+            unknownWeekdayCount += ded.unknownWeekdayCount;
+          }
         } else {
           evals.push({
             enr: cand.enr,
@@ -403,10 +442,16 @@ export function calculateStudentBilling(
     );
     mathScheduleStatus = mathSessions.status;
     if (mathSessions.status === 'calculated') {
-      const ded = deductSessions(mathSessions.sessions, ruleSetVersion);
-      mathAnqinDed = ded.anqin;
-      mathTutoringDed = ded.tutoring;
-      unknownWeekdayCount += ded.unknownWeekdayCount;
+      // #113：v1／v2 無 resolvedEnrollments，改以解析後的系統班名查班級設定的 skipDeduction。
+      if (skipsDeductionByClassSetting(mathSessions.resolvedBaseName, options.classSettings)) {
+        mathAnqinDed = 0;
+        mathTutoringDed = 0;
+      } else {
+        const ded = deductSessions(mathSessions.sessions, ruleSetVersion);
+        mathAnqinDed = ded.anqin;
+        mathTutoringDed = ded.tutoring;
+        unknownWeekdayCount += ded.unknownWeekdayCount;
+      }
     } else if (mathSessions.status === 'schedule_not_found') {
       additionalIssues.push({
         code: 'SCHEDULE_NOT_FOUND',
@@ -422,10 +467,16 @@ export function calculateStudentBilling(
     );
     englishScheduleStatus = englishSessions.status;
     if (englishSessions.status === 'calculated') {
-      const ded = deductSessions(englishSessions.sessions, ruleSetVersion);
-      englishAnqinDed = ded.anqin;
-      englishTutoringDed = ded.tutoring;
-      unknownWeekdayCount += ded.unknownWeekdayCount;
+      // #113：與數學同一規則。
+      if (skipsDeductionByClassSetting(englishSessions.resolvedBaseName, options.classSettings)) {
+        englishAnqinDed = 0;
+        englishTutoringDed = 0;
+      } else {
+        const ded = deductSessions(englishSessions.sessions, ruleSetVersion);
+        englishAnqinDed = ded.anqin;
+        englishTutoringDed = ded.tutoring;
+        unknownWeekdayCount += ded.unknownWeekdayCount;
+      }
     }
   }
 

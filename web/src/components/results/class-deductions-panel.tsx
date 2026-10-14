@@ -84,6 +84,8 @@ function statusLabel(s: CareStatus): string {
   if (s === 'missing_time') return '待補';
   if (s === 'incomplete') return '待補';
   if (s === 'unknown_weekday') return '需確認';
+  // #113：勾選「不計扣天」是一種刻意的政策結果，不是「算不出來」，因此不併入「無重疊」。
+  if (s === 'no_deduction') return '不計扣天';
   if (s === 'no_overlap') return '無重疊';
   return '已計算';
 }

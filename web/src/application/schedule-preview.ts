@@ -200,6 +200,8 @@ export function unknownWeekdayMessage(classKey: string, weekday: string): string
 function aggregateStatus(a: {
   active: boolean;
   shared: boolean;
+  /** #113：班級勾選「不計扣天」→ 重疊分鐘刻意為 0，狀態要如實說明是政策而非算不出來。 */
+  skipDeduction: boolean;
   completeCount: number;
   incompleteCount: number;
   anyUnknownWeekday: boolean;
@@ -210,6 +212,9 @@ function aggregateStatus(a: {
   if (a.completeCount === 0 && (a.incompleteCount === 0 || a.shared)) return a.shared ? 'shared_window' : 'missing_time';
   if (a.incompleteCount > 0) return 'incomplete';
   if (a.anyUnknownWeekday) return 'unknown_weekday';
+  // #113：不計扣天排在 calculated 之前（無重疊 = 2 < 不計扣天 = 3 → 兩側任一為不計扣天即顯示不計扣天）。
+  // 該班確實可能與窗口重疊，只是政策不扣天；顯示成「無重疊」會讓核對者誤以為時段不衝突。
+  if (a.skipDeduction) return 'no_deduction';
   return a.totalOverlapMinutes > 0 ? 'calculated' : 'no_overlap';
 }
 
@@ -228,6 +233,8 @@ export function buildSchedulePreview(draft: CalculateDraft, ruleSetVersion: Form
 
   for (const c of draft.classes) {
     const shared = SHARED_WINDOW_CLASSES.has(c.baseName);
+    // #113：班級勾選「不計扣天」→ 時段全部保留，只是不扣天（不是刪空時段那種 schedule_empty）。
+    const skipDeduction = c.skipDeduction === true;
     const calcSessions = override.get(c.baseName) ?? [];
     const rowIds: string[] = [];
     let anyUnknownWeekday = false;
@@ -306,7 +313,21 @@ export function buildSchedulePreview(draft: CalculateDraft, ruleSetVersion: Form
         const group = (type: 'anqin' | 'tutoring'): PreviewRowGroup => {
           if (!c.active) return { overlapMinutes: null, rawDeduction: null, status: 'inactive' };
           const ded = calculateSessionDeduction(s.startMinutes, s.endMinutes, type, options, s.weekday);
-          const status: CareStatus = unknown ? 'unknown_weekday' : ded.overlapMinutes > 0 ? 'calculated' : 'no_overlap';
+          // #113：不計扣天時，**逐堂**仍回實測的重疊分鐘與未取整扣天，並標上 no_deduction。
+          //
+          // 這是刻意的兩層分工，不是同一份數字算兩次：
+          //  - 班級層（扣天表主列，也就是真正影響天數與計費的層級）依 issue #113 歸零；
+          //  - 逐堂層保留實測值，核對者才看得到「這個班確實重疊了幾分、只是園方政策不扣」
+          //    （D17：照實呈現、把政策判斷跟計算事實分開）。若這裡也歸零，
+          //    使用者會誤以為時段根本不衝突，那正是「照實呈現」要避免的假象。
+          //  - no_deduction 狀態就是兩層之間的說明，畫面據此顯示「不計扣天」。
+          const status: CareStatus = unknown
+            ? 'unknown_weekday'
+            : skipDeduction
+              ? 'no_deduction'
+              : ded.overlapMinutes > 0
+                ? 'calculated'
+                : 'no_overlap';
           return { overlapMinutes: ded.overlapMinutes, rawDeduction: normZero(ded.rawDeduction), status };
         };
         rows.push({
@@ -329,17 +350,24 @@ export function buildSchedulePreview(draft: CalculateDraft, ruleSetVersion: Form
         c.active && calcSessions.length > 0
           ? calculateClassDeductionD24(calcSessions, type, options)
           : { totalOverlapMinutes: 0, raw: 0, rounded: 0 };
+      // #113：不計扣天 → 重疊分鐘與扣天一律 0。這必須與 run 計算（billing-calculator）
+      // 對同一班的結果一致，否則畫面顯示 0 天、run 卻照扣。
+      const shown =
+        skipDeduction && c.active && calcSessions.length > 0
+          ? { totalOverlapMinutes: 0, raw: 0, rounded: 0 }
+          : res;
       return {
-        totalOverlapMinutes: res.totalOverlapMinutes,
-        raw: normZero(res.raw),
-        rounded: normZero(res.rounded),
+        totalOverlapMinutes: shown.totalOverlapMinutes,
+        raw: normZero(shown.raw),
+        rounded: normZero(shown.rounded),
         status: aggregateStatus({
           active: c.active,
           shared,
+          skipDeduction,
           completeCount,
           incompleteCount,
           anyUnknownWeekday,
-          totalOverlapMinutes: res.totalOverlapMinutes,
+          totalOverlapMinutes: shown.totalOverlapMinutes,
         }),
       };
     };

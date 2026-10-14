@@ -852,6 +852,11 @@ body {
   text-align: center;
 }
 
+/* #113：「不計扣天」與「天數固定 5 天」同為置中 checkbox 欄，共用同一套 toggle 版型。 */
+.schedule-table .col-skip-deduction {
+  text-align: center;
+}
+
 /* #80：固定 5 天以 label 包住 checkbox＋是／否文字。
    label 是可點的目標（≥24px 高），裸 checkbox 只有 16px 會被判成目標過小；
    文字也讓行政一眼看出目前值，不只靠勾選框。 */
@@ -1588,6 +1593,13 @@ dialog.impact-dialog::backdrop {
 .deductions-table .ded-status[data-status="no_overlap"] {
   background: #fff;
   color: var(--text-muted);
+}
+
+/* #113：勾選「不計扣天」不是「算不出來」（那用警告色），也不是「沒有重疊」（那用灰）。
+   用藍色把它和兩者都區隔開，避免核對者誤讀成時段不衝突。 */
+.deductions-table .ded-status[data-status="no_deduction"] {
+  background: #eff6ff;
+  color: #1d4ed8;
 }
 
 .deductions-table .ded-status[data-status="missing_time"],

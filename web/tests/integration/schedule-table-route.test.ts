@@ -73,8 +73,8 @@ const FIXTURE_ROWS: ScheduleGridRow[] = [
 
 /** 手算的有效屬性：`detectFixedFiveDays` 只認「寫功課」與「美安」，兩班皆非 → 不固定。 */
 const FIXTURE_ATTRS = [
-  { className: '兒童美語-Gino', category: 'english' as const, fixedFiveDays: false },
-  { className: '國小數學-一A', category: 'math' as const, fixedFiveDays: false },
+  { className: '兒童美語-Gino', category: 'english' as const, fixedFiveDays: false, skipDeduction: false },
+  { className: '國小數學-一A', category: 'math' as const, fixedFiveDays: false, skipDeduction: false },
 ];
 
 /** 打 route：multipart 表單。`headers` 可覆寫以測各 guard。 */
@@ -308,7 +308,7 @@ describe('PR #85 G1：課表 Excel route POST handler 防護分支', () => {
       expect(res.headers.get('content-disposition')).toContain('schedule.xlsx');
     });
 
-    it('mode=import 合法 → 200，rows 七欄內容與匯出時一致、classAttrs 兩班', async () => {
+    it('mode=import 合法 → 200，rows 八欄內容與匯出時一致、classAttrs 兩班（含不計扣天）', async () => {
       // 真實入口：先由 route 產出 xlsx，再把那份 bytes 當成匯入檔打回 route
       const exportForm = new FormData();
       exportForm.set('mode', 'export');
@@ -328,7 +328,7 @@ describe('PR #85 G1：課表 Excel route POST handler 防護分支', () => {
         classAttrs: Array<Record<string, unknown>>;
       };
 
-      // 七欄內容相等：逐欄比對，而非只比長度
+      // 八欄內容相等（#113 多一欄「不計扣天」）：逐欄比對，而非只比長度
       expect(body.rows).toHaveLength(3);
       expect(body.rows[0]).toMatchObject({
         className: '兒童美語-Gino',
@@ -354,14 +354,14 @@ describe('PR #85 G1：課表 Excel route POST handler 防護分支', () => {
       });
 
       expect(body.classAttrs).toEqual([
-        { className: '兒童美語-Gino', category: 'english', fixedFiveDays: false },
-        { className: '國小數學-一A', category: 'math', fixedFiveDays: false },
+        { className: '兒童美語-Gino', category: 'english', fixedFiveDays: false, skipDeduction: false },
+        { className: '國小數學-一A', category: 'math', fixedFiveDays: false, skipDeduction: false },
       ]);
     });
   });
 
   describe('表格契約（匯出檔表頭即匯入端驗證基準）', () => {
-    it('匯出檔第一列就是 issue #81 的七欄，順序一致', async () => {
+    it('匯出檔第一列就是課表表頭（#81 的七欄＋#113 的不計扣天），順序一致', async () => {
       const form = new FormData();
       form.set('mode', 'export');
       form.set('payload', JSON.stringify({ rows: FIXTURE_ROWS, classAttrs: FIXTURE_ATTRS }));
