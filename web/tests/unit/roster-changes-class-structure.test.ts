@@ -519,6 +519,23 @@ describe('PR-1 §5 結構化原因（reasons：型別化資料，非文案）', 
     expect(change.classDiscountChanges[0].reasons).toEqual([{ kind: 'tag_removed', tag: '有兄弟姊妹折扣' }]);
   });
 
+  it('同類換班（switched）伴隨保留班級折扣率變動：不因 token 查找未界定而拋錯 (rawToken of undefined)', () => {
+    const { beforeCtx, afterCtx } = contexts();
+    // 學生原報名：數學三A ＋ 美語 EA，帶「有兄弟姊妹折扣」標籤（科數 2，effective 3，math 9000）
+    // 本次名單：數學三A ＋ 美語 EB（換班），移除兄弟姊妹標籤（科數 2，effective 2，math 9500）
+    // 數學班發生折扣變動（9000 → 9500）
+    // 美語一退一進同類別判定為 switched
+    const before = student('R-SWITCH', ['國小數學-三A', '兒童美語-EA'], { grade: 3, tagsRaw: '有兄弟姊妹折扣' });
+    const after = student('R-SWITCH', ['國小數學-三A', '兒童美語-EB'], { grade: 3 });
+
+    const change = only(computeRosterChanges([before], [after], beforeCtx, afterCtx))[0];
+
+    expect(change.classDiscountChanges).toHaveLength(1);
+    expect(change.classDiscountChanges[0].baseName).toBe('國小數學-三A');
+    expect(change.classDiscountChanges[0].reasons).toEqual([{ kind: 'tag_removed', tag: '有兄弟姊妹折扣' }]);
+    expect(change.enrollmentChanges.filter((e) => e.presence === 'switched')).toHaveLength(2);
+  });
+
   it('加報特殊折扣標籤 → tag_added（特殊折扣直接覆蓋合計折扣）', () => {
     const { beforeCtx, afterCtx } = contexts();
     const before = student('R6', ['國小數學-三A'], { grade: 3 });

@@ -327,7 +327,8 @@ function discountCategoryOf(
  * **不另寫一套字串規則**：此處只用來判斷「這個 none 類別班是否值得作為原因」，
  * 實際數值仍由 calculator 的 hasHomeworkOrMeian 決定。
  */
-function affectsHomeworkOrMeian(token: Token, ctx: RosterChangeContext): boolean {
+function affectsHomeworkOrMeian(token: Token | undefined, ctx: RosterChangeContext): boolean {
+  if (!token) return false;
   const resolved = resolveClassEnrollment(token, ctx.aliasMap, ctx.classSettings);
   return resolved.fixedFiveDays || token.baseName.includes('寫功課') || token.baseName.includes('美安');
 }
@@ -361,8 +362,9 @@ function countedSubjectCount(
 function decidesSubjectCount(
   allTokens: Token[],
   ctx: RosterChangeContext,
-  token: Token
+  token: Token | undefined
 ): boolean {
+  if (!token) return false;
   const countOf = (list: Token[]) =>
     countedSubjectCount({ enrollments: list } as unknown as StudentSnapshot, ctx);
   const withToken = countOf(allTokens);
@@ -484,8 +486,12 @@ function buildClassDiscountChanges(
   //   - 對 everyChange：在 before/after 任一側**新出現**的計入類別（集合因此改變）→ 可掛所有計入類別的增減。
   //   - 對 this class：該生報名增減中，會改變 hasHomeworkOrMeian 且該班為 care → 可掛寫功課／美安的增減。
   //   - 其餘 none 類別班（交通車、國語文、加強班…）永不列為原因。
-  const addedTokens = enrollmentChanges.filter((e) => e.presence === 'added' || e.presence === 'switched');
-  const removedTokens = enrollmentChanges.filter((e) => e.presence === 'removed' || e.presence === 'switched');
+  const addedTokens = enrollmentChanges.filter(
+    (e) => (e.presence === 'added' || e.presence === 'switched') && afterTokens.has(e.rawToken)
+  );
+  const removedTokens = enrollmentChanges.filter(
+    (e) => (e.presence === 'removed' || e.presence === 'switched') && beforeTokens.has(e.rawToken)
+  );
 
   const rows: ClassDiscountChange[] = [];
   for (const key of beforeTokens.keys()) {
@@ -507,7 +513,8 @@ function buildClassDiscountChanges(
     // 該類別在 before／after 任一側**新出現或消失**才是原因（集合因此改變）；同類換班、同類多一班不列。
     // 其餘 none 類別班只有「會改變 hasHomeworkOrMeian」且只掛 care（寫功課／美安）。
     for (const change of addedTokens) {
-      const token = afterTokens.get(change.rawToken)!;
+      const token = afterTokens.get(change.rawToken);
+      if (!token) continue;
       // 決定了計入科數 → 原因；或改變 hasHomeworkOrMeian 且本班是 care（安親／課輔會回到 10000）
       if (
         decidesSubjectCount([...before.enrollments, ...after.enrollments], beforeCtx, token) ||
@@ -517,7 +524,8 @@ function buildClassDiscountChanges(
       }
     }
     for (const change of removedTokens) {
-      const token = beforeTokens.get(change.rawToken)!;
+      const token = beforeTokens.get(change.rawToken);
+      if (!token) continue;
       if (
         decidesSubjectCount([...before.enrollments, ...after.enrollments], beforeCtx, token) ||
         (isCare && affectsHomeworkOrMeian(token, beforeCtx))
