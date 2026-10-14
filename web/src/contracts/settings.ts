@@ -47,11 +47,19 @@ export const GridRowWeekdaySchema = z
   .transform((val) => val ?? '')
   .default('');
 
-/** 時段 session（分鐘制） */
+/**
+ * 時段 session（分鐘制）
+ *
+ * #113 follow-up：`skipDeduction` 改為**逐時段**設定——一個班可以有 2~3 個時段，
+ * 園方只想讓其中 1~2 堂不扣天（例：第一堂與安親重疊不扣、第二堂與課輔重疊照扣）。
+ * 缺欄位＝未勾選＝false（03 §5.2 版本界線規則第 2 點：欄位缺失＝預設，不回寫舊快照）。
+ */
 export const SessionSchema = z.object({
   weekday: SavedWeekdaySchema,
   startMinutes: z.number().int().min(0).max(1440),
   endMinutes: z.number().int().min(0).max(1440),
+  /** #113 follow-up：此時段勾選「不計扣天」→ 重疊分鐘照實計算，但不列入扣天。 */
+  skipDeduction: z.boolean().default(false),
 }).refine((s) => s.endMinutes > s.startMinutes, { message: 'endMinutes 必須大於 startMinutes' });
 
 export type Session = z.infer<typeof SessionSchema>;
@@ -79,9 +87,9 @@ export const ClassSettingSchema = z.object({
   fixedFiveDays: z.boolean().optional(),
   fixedSource: z.enum(['auto', 'manual']).optional(),
   /**
-   * #113：不計扣天。與類別／固定 5 天同一套「值＋來源」慣例。
-   * 沒有班名自動偵測規則：缺欄位＝未指定＝讀取時視為不計扣天關閉（03 §5.2 規則第 2 點），
-   * 因此舊快照讀取時不必回寫即可得到正確有效值。
+   * #113 follow-up：不計扣天已改為**逐時段**（`sessions[].skipDeduction`），不再是班級屬性。
+   * 本欄保留為舊快照的相容讀取位（值一律視為無效，只被剝除、不被讀取），
+   * 讓 #113 初版寫下的設定版本仍可解析、且不會被誤當成有效旗標。
    */
   skipDeduction: z.boolean().optional(),
   skipDeductionSource: z.enum(['auto', 'manual']).optional(),
@@ -105,6 +113,11 @@ export const ScheduleGridRowSchema = z
     startMinutes: z.number().int().min(0).max(1440).nullable().default(null),
     endMinutes: z.number().int().min(0).max(1440).nullable().default(null),
     active: z.boolean().default(true),
+    /**
+     * #113 follow-up：**逐列**的「不計扣天」。與類別／固定 5 天不同，它不是班級屬性——
+     * 每一列各自勾選，勾第一列不會連動同班的其他時段。
+     */
+    skipDeduction: z.boolean().default(false),
   })
   .refine(
     (r) => {
@@ -145,6 +158,7 @@ export function buildSeedGridRows(): ScheduleGridRow[] {
         startMinutes: startMin,
         endMinutes: endMin,
         active: true,
+        skipDeduction: false,
       });
     }
   }
@@ -152,7 +166,8 @@ export function buildSeedGridRows(): ScheduleGridRow[] {
   return rows;
 }
 
-/** 將平鋪時段列聚合為 ClassSetting[] 結構（F1: null 時段列不產出實體 session） */
+/** 將平鋪時段列聚合為 ClassSetting[] 結構（F1: null 時段列不產出實體 session）。
+ *  #113 follow-up：完整列各自帶自己的 `skipDeduction`（逐時段），不同於 category／fixedFiveDays 的整班共用。 */
 export function gridRowsToClasses(
   rows: ScheduleGridRow[],
   existingClasses?: ClassSetting[]
@@ -162,6 +177,7 @@ export function gridRowsToClasses(
       weekday: r.weekday,
       startMinutes: r.startMinutes,
       endMinutes: r.endMinutes,
+      skipDeduction: r.skipDeduction ?? false,
     }))
   );
 }
@@ -199,24 +215,20 @@ function groupGridRowsToClasses<S>(
     const teacher = classRows[0]?.teacher ?? existing?.teacher ?? null;
     const active = classRows.some((r) => r.active);
 
-    // D2b 1／5（Q9）：類別、固定 5 天與不計扣天的**手動**設定隨班保留（整班改名時由呼叫端把來源改名後的
+    // D2b 1／5（Q9）：類別與固定 5 天的**手動**設定隨班保留（整班改名時由呼叫端把來源改名後的
     // existingClasses 傳入，這裡只負責帶欄位）。未手動（auto）的班不寫這些欄位：
     // 缺欄位＝自動偵測（03 §5.2 版本界線規則第 2 點），因此改班名會即時重新偵測，
     // 也讓舊快照（無新欄位）讀取時不必回寫即可得到正確的有效值。
+    // #113 follow-up：不計扣天已逐時段化，**不再**是班級屬性，因此不再隨班繼承；
+    // 舊快照的班級層旗標一律剝除（下方 spread 之後不含 skipDeduction）。
     const attrs =
-      existing &&
-      (existing.categorySource === 'manual' ||
-        existing.fixedSource === 'manual' ||
-        existing.skipDeductionSource === 'manual')
+      existing && (existing.categorySource === 'manual' || existing.fixedSource === 'manual')
         ? {
             ...(existing.categorySource === 'manual' && existing.category !== undefined
               ? { category: existing.category, categorySource: existing.categorySource }
               : {}),
             ...(existing.fixedSource === 'manual'
               ? { fixedFiveDays: existing.fixedFiveDays ?? false, fixedSource: existing.fixedSource }
-              : {}),
-            ...(existing.skipDeductionSource === 'manual'
-              ? { skipDeduction: existing.skipDeduction ?? false, skipDeductionSource: existing.skipDeductionSource }
               : {}),
           }
         : {};
@@ -252,6 +264,8 @@ export function classesToGridRows(classes: ClassSetting[]): ScheduleGridRow[] {
           startMinutes: s.startMinutes,
           endMinutes: s.endMinutes,
           active: c.active,
+          // #113 follow-up：逐時段帶出自己的不計扣天旗標
+          skipDeduction: s.skipDeduction ?? false,
         });
       }
     } else {
@@ -270,6 +284,7 @@ export function classesToGridRows(classes: ClassSetting[]): ScheduleGridRow[] {
         startMinutes: null,
         endMinutes: null,
         active: c.active,
+        skipDeduction: false,
       });
     }
   }
@@ -325,15 +340,14 @@ export function detectSplitClasses(
   return warnings;
 }
 
+/** 班級層屬性（category／fixedFiveDays）。
+ *  #113 follow-up：不計扣天已改為逐時段（`ScheduleGridRow.skipDeduction`），不再是班級屬性。 */
 export interface ClassAttributeSetting {
   className: string;
   category?: 'care' | 'math' | 'english' | 'none';
   categorySource?: 'auto' | 'manual';
   fixedFiveDays?: boolean;
   fixedSource?: 'auto' | 'manual';
-  /** #113：不計扣天（重疊不扣天數、時段保留）。手動勾選才會生效。 */
-  skipDeduction?: boolean;
-  skipDeductionSource?: 'auto' | 'manual';
 }
 
 export interface SettingsBaseline {
@@ -363,7 +377,9 @@ export function isSettingsDirty(
       cr.weekday !== br.weekday ||
       cr.startTime !== br.startTime ||
       cr.endTime !== br.endTime ||
-      cr.active !== br.active
+      cr.active !== br.active ||
+      // #113 follow-up：不計扣天是逐列欄位，改勾選即為未儲存變更
+      (cr.skipDeduction ?? false) !== (br.skipDeduction ?? false)
     ) {
       return true;
     }
@@ -392,9 +408,7 @@ export function isSettingsDirty(
         ca.category !== ba.category ||
         ca.categorySource !== ba.categorySource ||
         ca.fixedFiveDays !== ba.fixedFiveDays ||
-        ca.fixedSource !== ba.fixedSource ||
-        ca.skipDeduction !== ba.skipDeduction ||
-        ca.skipDeductionSource !== ba.skipDeductionSource
+        ca.fixedSource !== ba.fixedSource
       ) {
         return true;
       }
@@ -442,6 +456,8 @@ export const CalculateSessionSchema = z.object({
   weekday: z.string().max(64),
   startMinutes: z.number().int().min(0).max(1440).nullable().default(null),
   endMinutes: z.number().int().min(0).max(1440).nullable().default(null),
+  /** #113 follow-up：逐時段的不計扣天（唯讀計算也要看得到每一列自己的勾選）。 */
+  skipDeduction: z.boolean().default(false),
 });
 
 export type CalculateSession = z.infer<typeof CalculateSessionSchema>;
@@ -459,6 +475,7 @@ export type CalculateDraft = z.infer<typeof CalculateDraftSchema>;
 /**
  * ScheduleGridRow[] → calculate 用班級：與 gridRowsToClasses 同一套分組，
  * 差別只在 sessions 保留「每一列」（含不完整列）並帶 grid 的 rowId，讓結果能一對一掛回畫面的列。
+ * #113 follow-up：逐列帶上自己的 `skipDeduction`，唯讀計算因此與存檔後的 run 同源。
  */
 export function gridRowsToCalculateClasses(
   rows: ScheduleGridRow[],
@@ -470,6 +487,7 @@ export function gridRowsToCalculateClasses(
       weekday: r.weekday,
       startMinutes: r.startMinutes,
       endMinutes: r.endMinutes,
+      skipDeduction: r.skipDeduction ?? false,
     }))
   );
 }

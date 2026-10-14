@@ -78,9 +78,6 @@ describe('D2b 1: 設定資料模型 — 有效類別與固定 5 天（自動偵�
       categorySource: 'auto',
       fixedFiveDays: true,
       fixedSource: 'auto',
-      // #113：不計扣天無自動偵測規則 → auto 一律 false
-      skipDeduction: false,
-      skipDeductionSource: 'auto',
     });
   });
 });
@@ -89,23 +86,21 @@ describe('D2b 5（Q9）: 整班改名帶走設定（含手動值）', () => {
   it('手動值隨班改名保留，來源仍為 manual', () => {
     const out = carryAttributesOnRename(
       [{ from: '新名字A', to: '新名字B' }],
-      new Map([['新名字A', { category: 'care', categorySource: 'manual', fixedFiveDays: true, fixedSource: 'manual', skipDeduction: false, skipDeductionSource: 'auto' as const }]]),
-      new Map([['新名字B', { category: 'math', categorySource: 'auto', fixedFiveDays: false, fixedSource: 'auto', skipDeduction: false, skipDeductionSource: 'auto' as const }]])
+      new Map([['新名字A', { category: 'care', categorySource: 'manual', fixedFiveDays: true, fixedSource: 'manual' }]]),
+      new Map([['新名字B', { category: 'math', categorySource: 'auto', fixedFiveDays: false, fixedSource: 'auto' }]])
     );
     expect(out.get('新名字B')).toEqual({
       category: 'care',
       categorySource: 'manual',
       fixedFiveDays: true,
       fixedSource: 'manual',
-      skipDeduction: false,
-      skipDeductionSource: 'auto',
     });
   });
 
   it('沒有手動覆寫的班改名後依新名重新偵測', () => {
     const out = carryAttributesOnRename(
       [{ from: '新名字A', to: '新名字B' }],
-      new Map([['新名字A', { category: 'none', categorySource: 'auto', fixedFiveDays: false, fixedSource: 'auto', skipDeduction: false, skipDeductionSource: 'auto' as const }]]),
+      new Map([['新名字A', { category: 'none', categorySource: 'auto', fixedFiveDays: false, fixedSource: 'auto' }]]),
       new Map()
     );
     // 「新名字B」自動偵測為 none（非數學班名）：此處只驗「依新名重新偵測」這件事（值與原名不同）
@@ -114,13 +109,11 @@ describe('D2b 5（Q9）: 整班改名帶走設定（含手動值）', () => {
       categorySource: 'auto',
       fixedFiveDays: false,
       fixedSource: 'auto',
-      skipDeduction: false,
-      skipDeductionSource: 'auto',
     });
 
     const out2 = carryAttributesOnRename(
       [{ from: '新名字A', to: '國小數學-新名' }],
-      new Map([['新名字A', { category: 'none', categorySource: 'auto', fixedFiveDays: false, fixedSource: 'auto', skipDeduction: false, skipDeductionSource: 'auto' as const }]]),
+      new Map([['新名字A', { category: 'none', categorySource: 'auto', fixedFiveDays: false, fixedSource: 'auto' }]]),
       new Map()
     );
     expect(out2.get('國小數學-新名')).toEqual({
@@ -128,8 +121,6 @@ describe('D2b 5（Q9）: 整班改名帶走設定（含手動值）', () => {
       categorySource: 'auto',
       fixedFiveDays: false,
       fixedSource: 'auto',
-      skipDeduction: false,
-      skipDeductionSource: 'auto',
     });
   });
 });
@@ -141,8 +132,8 @@ describe('D2b 5（Q9）: 同名合併且設定不同時阻擋儲存', () => {
         { mergedName: '國小數學-四', sources: ['國小數學-四A', '國小數學-四B'] },
       ],
       new Map([
-        ['國小數學-四A', { category: 'math', categorySource: 'auto', fixedFiveDays: false, fixedSource: 'auto', skipDeduction: false, skipDeductionSource: 'auto' }],
-        ['國小數學-四B', { category: 'care', categorySource: 'manual', fixedFiveDays: true, fixedSource: 'manual', skipDeduction: false, skipDeductionSource: 'auto' }],
+        ['國小數學-四A', { category: 'math', categorySource: 'auto', fixedFiveDays: false, fixedSource: 'auto' }],
+        ['國小數學-四B', { category: 'care', categorySource: 'manual', fixedFiveDays: true, fixedSource: 'manual' }],
       ])
     );
     expect(conflicts).toHaveLength(1);
@@ -151,7 +142,7 @@ describe('D2b 5（Q9）: 同名合併且設定不同時阻擋儲存', () => {
   });
 
   it('兩來源設定相同 → 不阻擋', () => {
-    const same = { category: 'math' as const, categorySource: 'auto' as const, fixedFiveDays: false, fixedSource: 'auto' as const, skipDeduction: false, skipDeductionSource: 'auto' as const };
+    const same = { category: 'math' as const, categorySource: 'auto' as const, fixedFiveDays: false, fixedSource: 'auto' as const };
     const conflicts = detectMergeConflicts(
       [{ mergedName: '國小數學-四', sources: ['國小數學-四A', '國小數學-四B'] }],
       new Map([
@@ -174,16 +165,12 @@ describe('D2b 1: draft ↔ 班級屬性清單轉換（單一來源）', () => {
       categorySource: 'auto',
       fixedFiveDays: false,
       fixedSource: 'auto',
-      skipDeduction: false,
-      skipDeductionSource: 'auto',
     });
     expect(attrs.get('自創班')).toEqual({
       category: 'care',
       categorySource: 'manual',
       fixedFiveDays: false,
       fixedSource: 'auto',
-      skipDeduction: false,
-      skipDeductionSource: 'auto',
     });
   });
 
@@ -194,8 +181,6 @@ describe('D2b 1: draft ↔ 班級屬性清單轉換（單一來源）', () => {
       categorySource: 'auto',
       fixedFiveDays: false,
       fixedSource: 'auto',
-      skipDeduction: false,
-      skipDeductionSource: 'auto',
     });
   });
 });

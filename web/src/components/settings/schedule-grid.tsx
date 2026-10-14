@@ -48,8 +48,6 @@ interface ScheduleGridProps {
   classAttributes?: Map<string, ClassAttributesView>;
   onSelectCategory?: (className: string, category: ClassCategory) => void;
   onToggleFixedFiveDays?: (className: string, fixed: boolean) => void;
-  /** #113：班級勾選「不計扣天」（重疊不扣天數、時段保留）。 */
-  onToggleSkipDeduction?: (className: string, skip: boolean) => void;
   /** 「自動設定」：丟棄手動覆寫，回到依班名自動偵測的系統推薦值（#80 取代原本的「來源」pill）。 */
   onRestoreAuto?: (className: string) => void;
   /** #81：課表全量匯出／匯入（單純一鍵，無欄位挑選對話框）。未提供時不渲染這兩個按鈕。 */
@@ -61,9 +59,13 @@ interface ScheduleGridProps {
   transferBusy?: boolean;
 }
 
-/** 影響某一列計算結果的輸入：星期、起迄、班名（決定所屬班級）、班級是否啟用。 */
+/**
+ * 影響某一列計算結果的輸入：星期、起迄、班名（決定所屬班級）、班級是否啟用，
+ * 以及 #113 follow-up 的逐列「不計扣天」——它一勾就會改變該列（與該班）的扣天，
+ * 因此和時間欄一樣必須讓該列的舊計算值立即失效（09 §3.1：舊值立即失效，不得沿用）。
+ */
 function rowCalcSignature(r: ScheduleGridRow): string {
-  return JSON.stringify([r.className, r.weekday, r.startMinutes, r.endMinutes, r.active]);
+  return JSON.stringify([r.className, r.weekday, r.startMinutes, r.endMinutes, r.active, r.skipDeduction ?? false]);
 }
 
 export function formatDeductionDays(val: number | null | undefined): string {
@@ -118,7 +120,6 @@ export function ScheduleGrid({
   classAttributes,
   onSelectCategory,
   onToggleFixedFiveDays,
-  onToggleSkipDeduction,
   onRestoreAuto,
   onExportExcel,
   onImportExcel,
@@ -228,6 +229,8 @@ export function ScheduleGrid({
       startMinutes: null,
       endMinutes: null,
       active: true,
+      // #113 follow-up：新增的時段預設不計扣天＝關（未勾選）。
+      skipDeduction: false,
     });
 
     setNewClassName('');
@@ -474,8 +477,7 @@ export function ScheduleGrid({
                 const attr = classAttributes?.get(className);
                 const categoryManual = attr?.categorySource === 'manual';
                 const fixedManual = attr?.fixedSource === 'manual';
-                const skipManual = attr?.skipDeductionSource === 'manual';
-                const anyManual = categoryManual || fixedManual || skipManual;
+                const anyManual = categoryManual || fixedManual;
                 const attrsDisabled = !classAttributes || !onSelectCategory || !onToggleFixedFiveDays;
 
                 return (
@@ -529,19 +531,20 @@ export function ScheduleGrid({
                       </label>
                     </td>
 
-                    {/* 4. 不計扣天（#113）。與固定 5 天同樣包在 <label> 內：
+                    {/* 4. 不計扣天（#113 follow-up）：**逐列**勾選。每一列都有自己的 checkbox，
+                        勾第一列不會連動同班的其他時段——園方常只想讓其中一兩堂不扣天。
+                        與固定 5 天同樣包在 <label> 內：
                         稽核以 label 的可點範圍計算目標尺寸，裸 checkbox 只有 16px 會被判過小。 */}
                     <td className="col-skip-deduction">
                       <label className="fixed-five-toggle">
                         <input
                           type="checkbox"
-                          checked={attr?.skipDeduction ?? false}
-                          disabled={attrsDisabled}
-                          aria-label={`${className} 的不計扣天`}
-                          data-skip-deduction-toggle={className}
-                          onChange={(e) => onToggleSkipDeduction?.(className, e.target.checked)}
+                          checked={r.skipDeduction ?? false}
+                          aria-label={`${r.className} 第 ${idx + 1} 列的不計扣天`}
+                          data-skip-deduction-toggle={r.rowId}
+                          onChange={(e) => onUpdateRow(r.rowId, { skipDeduction: e.target.checked })}
                         />
-                        <span aria-hidden="true">{attr?.skipDeduction ? '是' : '否'}</span>
+                        <span aria-hidden="true">{r.skipDeduction ? '是' : '否'}</span>
                       </label>
                     </td>
 

@@ -54,6 +54,7 @@ function gridRow(rowId: string, className: string): ScheduleGridRow {
     startMinutes: START,
     endMinutes: END,
     active: true,
+    skipDeduction: false,
   };
 }
 

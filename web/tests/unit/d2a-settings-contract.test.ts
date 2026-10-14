@@ -41,6 +41,7 @@ describe('D2a: 班級設定草稿資料模型擴充與衝突判定 (Settings Con
         startMinutes: 780,
         endMinutes: 960,
         active: true,
+        skipDeduction: false,
       },
     ];
 

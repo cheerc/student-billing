@@ -26,6 +26,7 @@ function row(over: Partial<ScheduleGridRow> & { rowId: string; className: string
     startMinutes: 920,
     endMinutes: 1010,
     active: true,
+    skipDeduction: false,
     ...over,
   };
 }
@@ -145,6 +146,20 @@ describe('UX07（修訂）：ScheduleGrid 對未知／空白星期的呈現', ()
     const html = renderGrid({ rows: now, calculateResult: oldResult, calculateInputRows: before });
     expect(trOf(html, '甲班')).not.toMatch(/>40</);
     expect(trOf(html, '乙班')).toMatch(/>40</); // 乙班未改，結果仍有效
+  });
+
+  it('舊值立即失效：勾了「不計扣天」也算改到該列的計算輸入（09 §3.1：新結果未回來前不沿用舊值）', () => {
+    // #113 follow-up：不計扣天是逐列欄位，一勾就改變扣天，因此必須和星期／時間一樣列入
+    // rowCalcSignature；否則畫面會繼續顯示舊的 40／20，讓人以為勾選沒生效。
+    const before = [row({ rowId: 'r1', className: '測試班', weekday: '一' })];
+    const oldResult = calc(before);
+    expect(oldResult.rows[0].anqin.overlapMinutes).toBe(40);
+
+    const now = [row({ rowId: 'r1', className: '測試班', weekday: '一', skipDeduction: true })];
+    const html = renderGrid({ rows: now, calculateResult: oldResult, calculateInputRows: before });
+    const tr = trOf(html, '測試班');
+    expect(tr).not.toMatch(/>40</);
+    expect(tr).toContain('—');
   });
 
   it('calculate 失敗：顯示 role=alert 的說明，所有計算欄顯示「—」，不是 0、也不是舊值', () => {

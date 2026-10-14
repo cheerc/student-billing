@@ -74,7 +74,7 @@ function draftMathOneA(startMinutes: number, endMinutes: number, weekday = '一'
     ...seed,
     aliases: [ALIAS],
     classes: seed.classes.map((c) =>
-      c.baseName === '國小數學-一A' ? { ...c, sessions: [{ weekday, startMinutes, endMinutes }] } : c
+      c.baseName === '國小數學-一A' ? { ...c, sessions: [{ weekday, startMinutes, endMinutes, skipDeduction: false }] } : c
     ),
   };
 }
@@ -238,7 +238,7 @@ describe('POST /api/v1/settings/calculate（唯讀計算 read model）', () => {
     o.endTime = '';
     o.startMinutes = null;
     o.endMinutes = null;
-    rows.push({ rowId: 'new-row-1', className: '新班', teacher: null, weekday: '一', startTime: '', endTime: '', startMinutes: null, endMinutes: null, active: true });
+    rows.push({ rowId: 'new-row-1', className: '新班', teacher: null, weekday: '一', startTime: '', endTime: '', startMinutes: null, endMinutes: null, active: true, skipDeduction: false });
     return rows;
   }
 
@@ -335,7 +335,7 @@ describe('POST /api/v1/settings/calculate（唯讀計算 read model）', () => {
       ...seed,
       classes: seed.classes.map((c, i) => {
         if (i === 0) return { ...c, sessions: [{ rowId: `${seed.classes[1].baseName}#0`, weekday: '一', startMinutes: 920, endMinutes: 1010 }] };
-        if (i === 1) return { ...c, sessions: [{ weekday: '一', startMinutes: 920, endMinutes: 1010 }] };
+        if (i === 1) return { ...c, sessions: [{ weekday: '一', startMinutes: 920, endMinutes: 1010, skipDeduction: false }] };
         return c;
       }),
     };

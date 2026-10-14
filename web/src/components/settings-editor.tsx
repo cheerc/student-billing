@@ -100,8 +100,6 @@ function toClassAttributeSetting(a: ClassAttributesView & { className?: string }
     categorySource: a.categorySource,
     fixedFiveDays: a.fixedFiveDays,
     fixedSource: a.fixedSource,
-    skipDeduction: a.skipDeduction,
-    skipDeductionSource: a.skipDeductionSource,
   };
 }
 
@@ -119,6 +117,8 @@ function applyManualAttrsToClasses<T extends { baseName: string }>(
     delete clean.categorySource;
     delete clean.fixedFiveDays;
     delete clean.fixedSource;
+    // #113 follow-up：不計扣天已逐時段化（sessions[].skipDeduction），不再是班級欄位。
+    // 舊快照的班級層旗標一律剝除，不被寫回 draft（否則會與逐列旗標分岔成兩個來源）。
     delete clean.skipDeduction;
     delete clean.skipDeductionSource;
     const m = manualAttrs.get(c.baseName);
@@ -129,9 +129,6 @@ function applyManualAttrsToClasses<T extends { baseName: string }>(
         : {}),
       ...(m?.fixedSource === 'manual'
         ? { fixedFiveDays: m.fixedFiveDays, fixedSource: m.fixedSource }
-        : {}),
-      ...(m?.skipDeductionSource === 'manual'
-        ? { skipDeduction: m.skipDeduction, skipDeductionSource: m.skipDeductionSource }
         : {}),
     };
   });
@@ -150,9 +147,7 @@ function mapsDiffer(
       av.category !== bv.category ||
       av.categorySource !== bv.categorySource ||
       av.fixedFiveDays !== bv.fixedFiveDays ||
-      av.fixedSource !== bv.fixedSource ||
-      av.skipDeduction !== bv.skipDeduction ||
-      av.skipDeductionSource !== bv.skipDeductionSource
+      av.fixedSource !== bv.fixedSource
     ) {
       return true;
     }
@@ -245,7 +240,7 @@ export default function SettingsEditor({
   const [manualAttrs, setManualAttrs] = useState<Map<string, ClassAttributesView>>(() => {
     const map = new Map<string, ClassAttributesView>();
     for (const c of initialDraft.classes) {
-      if (c.categorySource === 'manual' || c.fixedSource === 'manual' || c.skipDeductionSource === 'manual') {
+      if (c.categorySource === 'manual' || c.fixedSource === 'manual') {
         map.set(c.baseName, resolveClassAttributes(c.baseName, c));
       }
     }
@@ -263,7 +258,7 @@ export default function SettingsEditor({
   const [baselineManualAttrs, setBaselineManualAttrs] = useState<Map<string, ClassAttributesView>>(() => {
     const map = new Map<string, ClassAttributesView>();
     for (const c of initialDraft.classes) {
-      if (c.categorySource === 'manual' || c.fixedSource === 'manual' || c.skipDeductionSource === 'manual') {
+      if (c.categorySource === 'manual' || c.fixedSource === 'manual') {
         map.set(c.baseName, resolveClassAttributes(c.baseName, c));
       }
     }
@@ -526,17 +521,6 @@ export default function SettingsEditor({
     setPreview(null);
   };
 
-  /** #113：勾選「不計扣天」。手動＝使用者意圖，即使取消勾選也仍是 manual。 */
-  const handleToggleSkipDeduction = (className: string, skip: boolean) => {
-    setManualAttrs((prev) => {
-      const next = new Map(prev);
-      const base = currentAttrs.get(className) ?? resolveClassAttributes(className);
-      next.set(className, { ...base, skipDeduction: skip, skipDeductionSource: 'manual' });
-      return next;
-    });
-    setPreview(null);
-  };
-
   const handleRestoreAuto = (className: string) => {
     const names = [className, ...classLifecycle.renames
       .filter((rename) => rename.to === className)
@@ -698,7 +682,6 @@ export default function SettingsEditor({
           className,
           category: a.category,
           fixedFiveDays: a.fixedFiveDays,
-          skipDeduction: a.skipDeduction,
         })),
       });
       const formData = new FormData();
@@ -760,15 +743,12 @@ export default function SettingsEditor({
         className: string;
         category: ClassCategory;
         fixedFiveDays: boolean;
-        skipDeduction?: boolean;
       }>) {
         nextAttrs.set(a.className, {
           category: a.category,
           categorySource: 'manual',
           fixedFiveDays: a.fixedFiveDays,
           fixedSource: 'manual',
-          skipDeduction: a.skipDeduction ?? false,
-          skipDeductionSource: 'manual',
         });
       }
       setManualAttrs(nextAttrs);
@@ -886,8 +866,7 @@ export default function SettingsEditor({
       // 儲存成功後，已套用的手動值成為新的 baseline（此後離開與取消修改都回到這組值）
       const savedManualAttrs = new Map(
         [...effectiveManualAttrs].filter(
-          ([, a]) =>
-            a.categorySource === 'manual' || a.fixedSource === 'manual' || a.skipDeductionSource === 'manual'
+          ([, a]) => a.categorySource === 'manual' || a.fixedSource === 'manual'
         )
       );
       setManualAttrs(savedManualAttrs);
@@ -1001,7 +980,6 @@ export default function SettingsEditor({
             classAttributes={currentAttrs}
             onSelectCategory={handleSelectCategory}
             onToggleFixedFiveDays={handleToggleFixedFiveDays}
-            onToggleSkipDeduction={handleToggleSkipDeduction}
             onRestoreAuto={handleRestoreAuto}
             onExportExcel={handleExportExcel}
             onImportExcel={handleImportExcel}
@@ -1041,11 +1019,11 @@ export default function SettingsEditor({
           <ul style={{ margin: '6px 0 0 18px' }}>
             {mergeConflicts.map((c) => (
               <li key={c.mergedName}>
-                「{c.mergedName}」由 {c.sources.join('、')} 合併而來，各班的類別、固定 5 天與不計扣天設定不同（
+                「{c.mergedName}」由 {c.sources.join('、')} 合併而來，各班的類別與固定 5 天設定不同（
                 {c.sourceAttributes
                   .map(
                     (a) =>
-                      `${CATEGORY_LABELS[a.category]}／${a.fixedFiveDays ? '固定 5 天' : '不固定'}／${a.skipDeduction ? '不計扣天' : '計扣天'}`
+                      `${CATEGORY_LABELS[a.category]}／${a.fixedFiveDays ? '固定 5 天' : '不固定'}`
                   )
                   .join('、')}
                 ）。請先選擇要保留的設定，或改回不同的班名。

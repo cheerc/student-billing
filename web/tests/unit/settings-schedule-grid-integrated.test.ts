@@ -31,6 +31,7 @@ const ROWS: ScheduleGridRow[] = [
     startMinutes: 920,
     endMinutes: 1010,
     active: true,
+    skipDeduction: false,
   },
   {
     rowId: 'row-2',
@@ -42,13 +43,14 @@ const ROWS: ScheduleGridRow[] = [
     startMinutes: null,
     endMinutes: null,
     active: true,
+    skipDeduction: false,
   },
 ];
 
+// #113 follow-up：不計扣天不再是班級屬性，只剩類別與固定 5 天。
 const ATTRS = new Map<string, ClassAttributesView>([
-  ['兒童美語-Gino', { category: 'english', categorySource: 'auto', fixedFiveDays: false, fixedSource: 'auto', skipDeduction: false, skipDeductionSource: 'auto' }],
-  // #113：國小數學-一A 另外手動勾了「不計扣天」，用來驗新欄反映有效值
-  ['國小數學-一A', { category: 'math', categorySource: 'manual', fixedFiveDays: true, fixedSource: 'manual', skipDeduction: true, skipDeductionSource: 'manual' }],
+  ['兒童美語-Gino', { category: 'english', categorySource: 'auto', fixedFiveDays: false, fixedSource: 'auto' }],
+  ['國小數學-一A', { category: 'math', categorySource: 'manual', fixedFiveDays: true, fixedSource: 'manual' }],
 ]);
 
 function render(overrides: Record<string, unknown> = {}): string {
@@ -63,7 +65,6 @@ function render(overrides: Record<string, unknown> = {}): string {
       classAttributes: ATTRS,
       onSelectCategory: () => {},
       onToggleFixedFiveDays: () => {},
-      onToggleSkipDeduction: () => {},
       onRestoreAuto: () => {},
       ...overrides,
     })
@@ -153,7 +154,7 @@ describe('#80：折扣類別與固定 5 天併入時段表格', () => {
   });
 });
 
-describe('#113：班級可勾選「不計扣天」', () => {
+describe('#113 follow-up：逐列獨立勾選「不計扣天」', () => {
   it('表格有「不計扣天」欄，緊接在「天數固定 5 天」之後', () => {
     const html = render();
     const atFixed = html.indexOf('天數固定 5 天');
@@ -162,21 +163,35 @@ describe('#113：班級可勾選「不計扣天」', () => {
     expect(html).toContain('col-skip-deduction');
   });
 
-  it('每個時段列都帶該班的不計扣天勾選（data-skip-deduction-toggle）', () => {
+  it('每個時段列各自帶一個勾選（data-skip-deduction-toggle 以 rowId 為 key）', () => {
     const html = render();
     expect(html.match(/data-skip-deduction-toggle=/g)?.length).toBe(2);
+    // 兩列同屬不同班級 → key 必須是 rowId 而非班名，否則會互相連動
+    expect(html).toContain('data-skip-deduction-toggle="row-1"');
+    expect(html).toContain('data-skip-deduction-toggle="row-2"');
   });
 
-  it('勾選反映有效值：手動勾選的一A 為 checked，未手動的 Gino 為 false', () => {
+  it('勾選反映的是「這一列」的旗標，不是班級屬性', () => {
+    // 手算：ROWS 兩列的 skipDeduction 都是 false → 兩格都不應 checked。
     const html = render();
-    expect(html).toMatch(/data-skip-deduction-toggle="國小數學-一A"[^>]*checked/);
-    expect(html).toMatch(/data-skip-deduction-toggle="兒童美語-Gino"[^>]*>/);
-    expect(html).not.toMatch(/data-skip-deduction-toggle="兒童美語-Gino"[^>]*checked/);
+    expect(html).not.toMatch(/data-skip-deduction-toggle="row-1"[^>]*checked/);
+    expect(html).not.toMatch(/data-skip-deduction-toggle="row-2"[^>]*checked/);
   });
 
-  it('每個勾選都有可讀的班級標籤（不只靠勾選框本身）', () => {
+  it('同班兩列可一勾一不勾（逐列獨立，不會連動）', () => {
+    const rows: ScheduleGridRow[] = [
+      { ...ROWS[0], rowId: 'r-a', weekday: '一', skipDeduction: true },
+      { ...ROWS[0], rowId: 'r-b', weekday: '三', skipDeduction: false },
+    ];
+    const html = render({ rows });
+    expect(html).toMatch(/data-skip-deduction-toggle="r-a"[^>]*checked/);
+    expect(html).not.toMatch(/data-skip-deduction-toggle="r-b"[^>]*checked/);
+  });
+
+  it('每個勾選都有可讀的列標籤（不只靠勾選框本身）', () => {
     const html = render();
-    expect(html).toContain('aria-label="國小數學-一A 的不計扣天"');
+    expect(html).toContain('aria-label="兒童美語-Gino 第 1 列的不計扣天"');
+    expect(html).toContain('aria-label="國小數學-一A 第 2 列的不計扣天"');
   });
 
   it('欄位順序：…天數固定 5 天 → 不計扣天 → 帶班老師 → 星期 → …', () => {
@@ -333,7 +348,6 @@ describe('#81：Excel 匯出／匯入工具列（單純一鍵）', () => {
         classAttributes: ATTRS,
         onSelectCategory: (n: string, c: ClassCategory) => seen.push([n, c]),
         onToggleFixedFiveDays: (n: string, f: boolean) => seenFixed.push([n, f]),
-        onToggleSkipDeduction: () => {},
         onRestoreAuto: () => {},
         onExportExcel: () => {},
         onImportExcel: () => {},

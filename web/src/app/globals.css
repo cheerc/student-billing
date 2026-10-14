@@ -852,7 +852,8 @@ body {
   text-align: center;
 }
 
-/* #113：「不計扣天」與「天數固定 5 天」同為置中 checkbox 欄，共用同一套 toggle 版型。 */
+/* #113：「不計扣天」與「天數固定 5 天」同為置中 checkbox 欄，共用同一套 toggle 版型。
+   #113 follow-up：不計扣天改為**逐列**勾選，版型不變（仍沿用 .fixed-five-toggle）。 */
 .schedule-table .col-skip-deduction {
   text-align: center;
 }

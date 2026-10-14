@@ -46,6 +46,7 @@ const FIXTURE_ROWS: ScheduleGridRow[] = [
     startMinutes: 920,
     endMinutes: 1010,
     active: true,
+    skipDeduction: false,
   },
   {
     rowId: 'row-2',
@@ -57,6 +58,7 @@ const FIXTURE_ROWS: ScheduleGridRow[] = [
     startMinutes: 920,
     endMinutes: 1010,
     active: true,
+    skipDeduction: false,
   },
   {
     rowId: 'row-3',
@@ -68,13 +70,14 @@ const FIXTURE_ROWS: ScheduleGridRow[] = [
     startMinutes: null,
     endMinutes: null,
     active: true,
+    skipDeduction: false,
   },
 ];
 
 /** 手算的有效屬性：`detectFixedFiveDays` 只認「寫功課」與「美安」，兩班皆非 → 不固定。 */
 const FIXTURE_ATTRS = [
-  { className: '兒童美語-Gino', category: 'english' as const, fixedFiveDays: false, skipDeduction: false },
-  { className: '國小數學-一A', category: 'math' as const, fixedFiveDays: false, skipDeduction: false },
+  { className: '兒童美語-Gino', category: 'english' as const, fixedFiveDays: false },
+  { className: '國小數學-一A', category: 'math' as const, fixedFiveDays: false },
 ];
 
 /** 打 route：multipart 表單。`headers` 可覆寫以測各 guard。 */
@@ -308,7 +311,7 @@ describe('PR #85 G1：課表 Excel route POST handler 防護分支', () => {
       expect(res.headers.get('content-disposition')).toContain('schedule.xlsx');
     });
 
-    it('mode=import 合法 → 200，rows 八欄內容與匯出時一致、classAttrs 兩班（含不計扣天）', async () => {
+    it('mode=import 合法 → 200，rows 八欄內容與匯出時一致、逐列不計扣天往返一致、classAttrs 兩班', async () => {
       // 真實入口：先由 route 產出 xlsx，再把那份 bytes 當成匯入檔打回 route
       const exportForm = new FormData();
       exportForm.set('mode', 'export');
@@ -354,9 +357,29 @@ describe('PR #85 G1：課表 Excel route POST handler 防護分支', () => {
       });
 
       expect(body.classAttrs).toEqual([
-        { className: '兒童美語-Gino', category: 'english', fixedFiveDays: false, skipDeduction: false },
-        { className: '國小數學-一A', category: 'math', fixedFiveDays: false, skipDeduction: false },
+        { className: '兒童美語-Gino', category: 'english', fixedFiveDays: false },
+        { className: '國小數學-一A', category: 'math', fixedFiveDays: false },
       ]);
+    });
+
+    it('mode=import 逐列往返不計扣天：同班一列勾一列不勾，匯入後仍是兩種值', async () => {
+      // #113 follow-up 真實入口驗證：旗標在「列」上，route 不得把它壓回班級屬性。
+      // 手算：只把第 1 列設為 true，其餘同 fixture → 匯出再匯入必須得到 [true, false, false]。
+      const rows = FIXTURE_ROWS.map((r, i) => (i === 0 ? { ...r, skipDeduction: true } : r));
+      const exportForm = new FormData();
+      exportForm.set('mode', 'export');
+      exportForm.set('payload', JSON.stringify({ rows, classAttrs: FIXTURE_ATTRS }));
+      const exported = await postForm(exportForm);
+      expect(exported.status).toBe(200);
+
+      const importForm = new FormData();
+      importForm.set('mode', 'import');
+      importForm.set('file', new File([Buffer.from(await exported.arrayBuffer())], 'schedule.xlsx'));
+      const res = await postForm(importForm);
+      expect(res.status).toBe(200);
+
+      const body = (await res.json()) as { rows: Array<Record<string, unknown>> };
+      expect(body.rows.map((r) => r.skipDeduction)).toEqual([true, false, false]);
     });
   });
 

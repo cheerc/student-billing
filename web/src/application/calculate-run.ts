@@ -1,6 +1,6 @@
 import Database from 'better-sqlite3';
 import { StudentSnapshot, ParsedToken } from '@/domain/students';
-import { calculateStudentBilling, RuleSetVersion } from '@/domain/billing/billing-calculator';
+import { calculateStudentBilling, RuleSetVersion, ResolvedClassSession } from '@/domain/billing/billing-calculator';
 import { CalculationRunRecord, StudentCalculationRecord, RunClassCategoryRecord } from '@/adapters/sqlite/runs-repository';
 import seedData from '@/domain/schedules/schedule-seed.json';
 import { SettingsDraft } from '@/contracts/settings';
@@ -23,7 +23,9 @@ for (const cls of seedData.classes) {
   seedMap.set(cls.baseName, cls);
 }
 
-/** 將設定草稿轉為計算管線與類別快照使用的 classSettingMap (D2a R2-2)。 */
+/** 將設定草稿轉為計算管線與類別快照使用的 classSettingMap (D2a R2-2)。
+ *  #113 follow-up：不計扣天已逐時段化（sessions[].skipDeduction → scheduleOverride），不再是班級屬性，
+ *  因此這裡不再帶 skipDeduction。 */
 export function buildClassSettingMap(draft: SettingsDraft): Map<string, ClassSettingLookup> {
   const map = new Map<string, ClassSettingLookup>();
   for (const c of draft.classes) {
@@ -32,8 +34,6 @@ export function buildClassSettingMap(draft: SettingsDraft): Map<string, ClassSet
       categorySource: c.categorySource,
       fixedFiveDays: c.fixedFiveDays,
       fixedSource: c.fixedSource,
-      skipDeduction: c.skipDeduction,
-      skipDeductionSource: c.skipDeductionSource,
     });
   }
   return map;
@@ -46,7 +46,7 @@ export interface CalculateRunOptions {
   asOfDate?: string;
   /** T05: 設定覆寫（alias 映射與自訂時段），無則使用 seed 預設 */
   aliasMap?: Map<string, string>;
-  scheduleOverride?: Map<string, Array<{ start: number; end: number; weekday?: string | null }>>;
+  scheduleOverride?: Map<string, ResolvedClassSession[]>;
   classSettings?: Map<string, ClassSettingLookup>;
 }
 

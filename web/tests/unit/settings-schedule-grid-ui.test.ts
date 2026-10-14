@@ -170,6 +170,7 @@ describe('R2 UI 元件與排課工作流程（RED 測試）', () => {
         startMinutes: null,
         endMinutes: null,
         active: true,
+        skipDeduction: false,
       };
 
       const html = renderToStaticMarkup(

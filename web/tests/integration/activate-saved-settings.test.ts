@@ -45,8 +45,8 @@ function buildSavedDraft(): SeedDraft {
       ? {
           ...c,
           sessions: [
-            { weekday: '四', startMinutes: 810, endMinutes: 990 },
-            { weekday: '六', startMinutes: 630, endMinutes: 720 },
+            { weekday: '四', startMinutes: 810, endMinutes: 990, skipDeduction: false },
+            { weekday: '六', startMinutes: 630, endMinutes: 720, skipDeduction: false },
           ],
         }
       : c

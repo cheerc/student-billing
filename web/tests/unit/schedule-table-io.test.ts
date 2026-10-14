@@ -38,6 +38,7 @@ const FIXTURE_ROWS: ScheduleGridRow[] = [
     startMinutes: 920,
     endMinutes: 1010,
     active: true,
+    skipDeduction: false,
   },
   {
     rowId: 'row-2',
@@ -49,6 +50,7 @@ const FIXTURE_ROWS: ScheduleGridRow[] = [
     startMinutes: 920,
     endMinutes: 1010,
     active: true,
+    skipDeduction: false,
   },
   {
     rowId: 'row-3',
@@ -60,6 +62,7 @@ const FIXTURE_ROWS: ScheduleGridRow[] = [
     startMinutes: null,
     endMinutes: null,
     active: true,
+    skipDeduction: false,
   },
 ];
 
@@ -136,26 +139,39 @@ describe('#81：課表 Excel 全量匯出／匯入', () => {
     });
 
     /**
-     * #113：不計扣天的往返。手算：FIXTURE_ATTRS 未帶 skipDeduction → 有效值 false → 匯出「否」；
+     * #113 follow-up：不計扣天的往返。旗標在「列」上（ScheduleExportClassAttr 已無此欄）；
      * 勾選時匯出「是」，匯入後逐欄一致。與「天數固定5天」同一套「是／否」白話值。
      */
-    it('不計扣天為 true 時匯出「是」，並能匯入回來（往返一致）', async () => {
-      const buffer = await buildScheduleWorkbook(FIXTURE_ROWS, [
-        { className: '兒童美語-Gino', category: 'english', fixedFiveDays: false, skipDeduction: true },
-        { className: '國小數學-一A', category: 'math', fixedFiveDays: false, skipDeduction: false },
-      ]);
+    it('逐列的不計扣天匯出「是」，並能匯入回來（往返一致）', async () => {
+      // 手算（#113 follow-up）：旗標在「列」上 → 只把第 1 列（row-1）的 FIXTURE_ROWS
+      // 換成 skipDeduction=true，其餘不變；班級屬性不再帶這個欄位。
+      const rows = FIXTURE_ROWS.map((r, i) => (i === 0 ? { ...r, skipDeduction: true } : r));
+      const buffer = await buildScheduleWorkbook(rows, FIXTURE_ATTRS);
       const wb = new ExcelJS.Workbook();
       await wb.xlsx.load(buffer as unknown as ArrayBuffer);
       const ws = wb.getWorksheet(SCHEDULE_TABLE_SHEET_NAME)!;
       expect((ws.getRow(2).values as unknown[])[4]).toBe('是');
+      expect((ws.getRow(3).values as unknown[])[4]).toBe('否');
       expect((ws.getRow(4).values as unknown[])[4]).toBe('否');
 
       const result = await parseScheduleWorkbook(buffer);
+      // 逐列還原：只有第 1 列是 true
+      expect(result.rows.map((r) => r.skipDeduction)).toEqual([true, false, false]);
       expect(result.classAttrs).toEqual([
-        { className: '兒童美語-Gino', category: 'english', fixedFiveDays: false, skipDeduction: true },
-        { className: '國小數學-一A', category: 'math', fixedFiveDays: false, skipDeduction: false },
+        { className: '兒童美語-Gino', category: 'english', fixedFiveDays: false },
+        { className: '國小數學-一A', category: 'math', fixedFiveDays: false },
       ]);
-      expect(result.rows.every((r) => r.skipDeduction === (r.className === '兒童美語-Gino'))).toBe(true);
+    });
+
+    it('關鍵案例：同一班兩列可各填各的不計扣天（逐列獨立往返）', async () => {
+      // 手算：row-1 與 row-2 同為「兒童美語-Gino」，但一列勾、一列不勾 → 往返後必須仍是兩種值。
+      // 這是逐時段化的核心承諾：舊版會因為「同班必須一致」而整批拒絕。
+      const rows = FIXTURE_ROWS.map((r, i) => (i === 0 ? { ...r, skipDeduction: true } : r));
+      const result = await parseScheduleWorkbook(await buildScheduleWorkbook(rows, FIXTURE_ATTRS));
+      expect(result.rows.filter((r) => r.className === '兒童美語-Gino').map((r) => r.skipDeduction))
+        .toEqual([true, false]);
+      // 且帶進平鋪列後仍逐列獨立
+      expect(scheduleImportRowsToGridRows(result).map((r) => r.skipDeduction)).toEqual([true, false, false]);
     });
 
     it('不計扣天非「是／否」→ 整批拒絕（不靜默當成「否」）', async () => {
@@ -165,12 +181,12 @@ describe('#81：課表 Excel 全量匯出／匯入', () => {
       await expect(parseScheduleWorkbook(buffer)).rejects.toThrow(/「不計扣天」請填「是」或「否」/);
     });
 
-    it('同一班不同列的「不計扣天」不一致 → 拒絕（不靜默取其一）', async () => {
+    it('同一班不同列的「折扣類別」不一致 → 仍拒絕（不計扣天已逐列化，類別仍整班共用）', async () => {
       const buffer = await makeWorkbook([...SCHEDULE_TABLE_HEADERS], [
         ['甲班', '數學班', '否', '是', '', '一', '10:00', '11:00'],
-        ['甲班', '數學班', '否', '否', '', '二', '10:00', '11:00'],
+        ['甲班', '美語班', '否', '否', '', '二', '10:00', '11:00'],
       ]);
-      await expect(parseScheduleWorkbook(buffer)).rejects.toThrow(/不計扣天/);
+      await expect(parseScheduleWorkbook(buffer)).rejects.toThrow(/折扣類別或固定 5 天/);
     });
   });
 
@@ -235,8 +251,8 @@ describe('#81：課表 Excel 全量匯出／匯入', () => {
       const buffer = await buildScheduleWorkbook(FIXTURE_ROWS, FIXTURE_ATTRS);
       const result = await parseScheduleWorkbook(buffer);
       expect(result.classAttrs).toEqual([
-        { className: '兒童美語-Gino', category: 'english', fixedFiveDays: false, skipDeduction: false },
-        { className: '國小數學-一A', category: 'math', fixedFiveDays: false, skipDeduction: false },
+        { className: '兒童美語-Gino', category: 'english', fixedFiveDays: false },
+        { className: '國小數學-一A', category: 'math', fixedFiveDays: false },
       ]);
     });
 

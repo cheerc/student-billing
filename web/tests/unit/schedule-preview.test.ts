@@ -42,7 +42,12 @@ const cls = (
   subject: '國小數學',
   teacher: '老師甲',
   active: true,
-  sessions: sessions.map(([weekday, startMinutes, endMinutes]) => ({ weekday, startMinutes, endMinutes })),
+  sessions: sessions.map(([weekday, startMinutes, endMinutes]) => ({
+    weekday,
+    startMinutes,
+    endMinutes,
+    skipDeduction: false,
+  })),
   ...extra,
 });
 
@@ -273,7 +278,9 @@ const calcDraftOf = (classes: CalculateDraft['classes']): CalculateDraft => ({
   effectiveTo: null,
 });
 const s = (rowId: string | undefined, weekday: string, startMinutes: number | null, endMinutes: number | null): CalcSession =>
-  rowId === undefined ? { weekday, startMinutes, endMinutes } : { rowId, weekday, startMinutes, endMinutes };
+  rowId === undefined
+    ? { weekday, startMinutes, endMinutes, skipDeduction: false }
+    : { rowId, weekday, startMinutes, endMinutes, skipDeduction: false };
 
 describe('B1：不完整列（缺起／缺迄／迄≤起）——回 null＋missing_time＋SCHEDULE_INCOMPLETE，班級標 incomplete', () => {
   const draft = calcDraftOf([
@@ -406,7 +413,7 @@ describe('B1：存檔等價 draft——去掉不完整列與 rowId，結果與�
     other.endTime = '';
     other.startMinutes = null;
     other.endMinutes = null;
-    rows.push({ rowId: 'new-row-1', className: '新班', teacher: null, weekday: '一', startTime: '', endTime: '', startMinutes: null, endMinutes: null, active: true });
+    rows.push({ rowId: 'new-row-1', className: '新班', teacher: null, weekday: '一', startTime: '', endTime: '', startMinutes: null, endMinutes: null, active: true, skipDeduction: false });
     return rows;
   };
 
