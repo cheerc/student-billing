@@ -33,12 +33,6 @@ export interface SavedClassAttributes {
   categorySource?: AttributeSource;
   fixedFiveDays?: boolean;
   fixedSource?: AttributeSource;
-  /**
-   * #113：不計扣天。**沒有班名自動偵測規則**——`auto` 一律解析為 `false`，
-   * 只有 `manual`（使用者勾選）才會開啟。缺欄位＝未指定＝不計扣天關閉。
-   */
-  skipDeduction?: boolean;
-  skipDeductionSource?: AttributeSource;
 }
 
 /** 一個班級的「有效屬性」：值與來源一併輸出，供 draft、快照與讀模型共用。 */
@@ -47,8 +41,6 @@ export interface EffectiveClassAttributes {
   categorySource: AttributeSource;
   fixedFiveDays: boolean;
   fixedSource: AttributeSource;
-  skipDeduction: boolean;
-  skipDeductionSource: AttributeSource;
 }
 
 /** 單一來源（已儲存 or 草稿）的屬性檢視；不帶 `_source` 後綴以便與 draft 欄位同名比對。 */
@@ -57,8 +49,6 @@ export interface ClassAttributesView {
   categorySource: AttributeSource;
   fixedFiveDays: boolean;
   fixedSource: AttributeSource;
-  skipDeduction: boolean;
-  skipDeductionSource: AttributeSource;
 }
 
 /**
@@ -73,16 +63,11 @@ export function resolveClassAttributes(
   const categorySource = saved?.categorySource ?? 'auto';
   const fixedFiveDays = saved?.fixedFiveDays ?? detectFixedFiveDays(baseName);
   const fixedSource = saved?.fixedSource ?? 'auto';
-  // #113：不計扣天無自動偵測規則，auto 一律 false（不猜、不從班名推導）。
-  const skipDeduction = saved?.skipDeduction ?? false;
-  const skipDeductionSource = saved?.skipDeductionSource ?? 'auto';
   return {
     category,
     categorySource,
     fixedFiveDays,
     fixedSource,
-    skipDeduction,
-    skipDeductionSource,
   };
 }
 
@@ -93,8 +78,6 @@ export function toSavedClassAttributes(effective: EffectiveClassAttributes): Sav
     categorySource: effective.categorySource,
     fixedFiveDays: effective.fixedFiveDays,
     fixedSource: effective.fixedSource,
-    skipDeduction: effective.skipDeduction,
-    skipDeductionSource: effective.skipDeductionSource,
   };
 }
 
@@ -104,9 +87,7 @@ export function sameClassAttributes(a: ClassAttributesView, b: ClassAttributesVi
     a.category === b.category &&
     a.categorySource === b.categorySource &&
     a.fixedFiveDays === b.fixedFiveDays &&
-    a.fixedSource === b.fixedSource &&
-    a.skipDeduction === b.skipDeduction &&
-    a.skipDeductionSource === b.skipDeductionSource
+    a.fixedSource === b.fixedSource
   );
 }
 
@@ -248,7 +229,7 @@ export function carryAttributesOnRename(
     }
 
     // 兩組皆 auto → 依新名重新偵測（不帶覆蓋）
-    if (before.categorySource === 'auto' && before.fixedSource === 'auto' && before.skipDeductionSource === 'auto') {
+    if (before.categorySource === 'auto' && before.fixedSource === 'auto') {
       out.set(to, resolveClassAttributes(to));
       continue;
     }
@@ -259,8 +240,6 @@ export function carryAttributesOnRename(
       categorySource: before.categorySource === 'manual' ? 'manual' : (target?.categorySource ?? 'auto'),
       fixedFiveDays: before.fixedSource === 'manual' ? before.fixedFiveDays : (target?.fixedFiveDays ?? detected.fixedFiveDays),
       fixedSource: before.fixedSource === 'manual' ? 'manual' : (target?.fixedSource ?? 'auto'),
-      skipDeduction: before.skipDeductionSource === 'manual' ? before.skipDeduction : (target?.skipDeduction ?? detected.skipDeduction),
-      skipDeductionSource: before.skipDeductionSource === 'manual' ? 'manual' : (target?.skipDeductionSource ?? 'auto'),
     });
   }
   return out;

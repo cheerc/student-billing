@@ -33,7 +33,8 @@ export const SCHEDULE_TABLE_HEADERS = [
 const COLUMN_CLASS_NAME = 0;
 const COLUMN_CATEGORY = 1;
 const COLUMN_FIXED_FIVE = 2;
-// #113：不計扣天緊接「天數固定5天」——兩者都是「扣天怎麼算」的班級設定。
+// #113 follow-up：不計扣天緊接「天數固定5天」——兩者都是「扣天怎麼算」的設定。
+// 這一欄是**逐列**的：同一班的不同時段可以各填各的。
 const COLUMN_SKIP_DEDUCTION = 3;
 const COLUMN_TEACHER = 4;
 const COLUMN_WEEKDAY = 5;
@@ -66,11 +67,11 @@ export interface ScheduleExportClassAttr {
   className: string;
   category: ClassCategory;
   fixedFiveDays: boolean;
-  /** #113：不計扣天。缺值＝未勾選＝false（與解析層一致，不因缺欄位而靜默視為勾選）。 */
-  skipDeduction?: boolean;
 }
 
-/** 匯入回傳的一列時段（含其班級屬性；同一班多列的屬性必須一致，由解析層驗證）。 */
+/** 匯入回傳的一列時段。
+ *  #113 follow-up：`skipDeduction` 是**這一列**的旗標，同班多列可各異（只有 category／fixedFiveDays
+ *  仍須整班一致，由解析層驗證）。 */
 export interface ScheduleImportRow {
   className: string;
   teacher: string | null;
@@ -90,7 +91,6 @@ export interface ScheduleImportResult {
     className: string;
     category: ClassCategory;
     fixedFiveDays: boolean;
-    skipDeduction: boolean;
   }>;
 }
 
@@ -159,7 +159,8 @@ export async function buildScheduleWorkbook(
       // 匯出的是**有效值**：該班若無屬性（理論上不會，編輯器一定解析得出），退回不列入折扣
       c1: CATEGORY_LABELS[attr?.category ?? 'none'],
       c2: (attr?.fixedFiveDays ?? false) ? FIXED_FIVE_YES : FIXED_FIVE_NO,
-      c3: (attr?.skipDeduction ?? false) ? SKIP_DEDUCTION_YES : FIXED_FIVE_NO,
+      // #113 follow-up：逐列寫出該列自己的不計扣天（缺值＝未勾選＝否）
+      c3: (row.skipDeduction ?? false) ? SKIP_DEDUCTION_YES : FIXED_FIVE_NO,
       c4: row.teacher ?? '',
       c5: row.weekday,
       c6: row.startTime,
@@ -264,7 +265,7 @@ export async function parseScheduleWorkbook(input: Buffer | Uint8Array): Promise
   }
 
   const rows: ScheduleImportRow[] = [];
-  const attrsByName = new Map<string, { category: ClassCategory; fixedFiveDays: boolean; skipDeduction: boolean }>();
+  const attrsByName = new Map<string, { category: ClassCategory; fixedFiveDays: boolean }>();
   const rowCount = sheet.rowCount;
 
   for (let rowNumber = 2; rowNumber <= rowCount; rowNumber++) {
@@ -293,21 +294,18 @@ export async function parseScheduleWorkbook(input: Buffer | Uint8Array): Promise
     const fixedFiveDays = parseYesNoCell(cells[COLUMN_FIXED_FIVE], location, '天數固定5天');
     const skipDeduction = parseYesNoCell(cells[COLUMN_SKIP_DEDUCTION], location, '不計扣天');
 
-    // 同一班的多列必須寫同一組屬性；不一致代表檔案本身矛盾，不靜默取其一
+    // #113 follow-up：不計扣天是**逐列**的，同班多列可各填各的 → 不列入一致性檢查。
+    // 只有仍為整班共用的屬性（折扣類別、固定 5 天）必須一致；不一致代表檔案本身矛盾，不靜默取其一。
     const existing = attrsByName.get(className);
     if (existing) {
-      if (
-        existing.category !== category ||
-        existing.fixedFiveDays !== fixedFiveDays ||
-        existing.skipDeduction !== skipDeduction
-      ) {
+      if (existing.category !== category || existing.fixedFiveDays !== fixedFiveDays) {
         throw new ScheduleTableImportError(
-          `班級「${className}」在不同列填了不同的折扣類別、固定 5 天或不計扣天，請先讓它們一致再匯入。`,
+          `班級「${className}」在不同列填了不同的折扣類別或固定 5 天，請先讓它們一致再匯入。`,
           location
         );
       }
     } else {
-      attrsByName.set(className, { category, fixedFiveDays, skipDeduction });
+      attrsByName.set(className, { category, fixedFiveDays });
     }
 
     const startTime = validateTimeCell(cells[COLUMN_START], location);
@@ -341,7 +339,6 @@ export async function parseScheduleWorkbook(input: Buffer | Uint8Array): Promise
       className,
       category: a.category,
       fixedFiveDays: a.fixedFiveDays,
-      skipDeduction: a.skipDeduction,
     })),
   };
 }
@@ -358,5 +355,7 @@ export function scheduleImportRowsToGridRows(result: ScheduleImportResult): Sche
     startMinutes: timeStringToMinutes(r.startTime),
     endMinutes: timeStringToMinutes(r.endTime),
     active: true,
+    // #113 follow-up：逐列帶入該列自己的不計扣天
+    skipDeduction: r.skipDeduction ?? false,
   }));
 }

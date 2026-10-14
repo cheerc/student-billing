@@ -135,6 +135,44 @@ test.describe('#80：單一表格整合屬性（班級列同時設定類別與�
     expect(stickyRows.headerGap).toBeLessThanOrEqual(1);
   });
 
+  /**
+   * #113 follow-up：「不計扣天」改為**逐列**勾選。
+   * 驗收目標：勾第一列不連動同班其他列（這正是改動的原因——初版在班級層，會整班連動）。
+   * 手算：國小數學-四A 在 seed 有 2 列；勾第 1 列後第 2 列必須仍是未勾。
+   */
+  test('#113-1: 不計扣天逐列獨立——勾一列不連動同班其他列', async ({ page }) => {
+    const rows = page.locator('tr.schedule-row', {
+      has: page.locator('[data-category-select="國小數學-四A"]').first(),
+    });
+    await expect(rows).toHaveCount(2);
+
+    const toggles = rows.locator('input[data-skip-deduction-toggle]');
+    await expect(toggles).toHaveCount(2);
+    await expect(toggles.nth(0)).not.toBeChecked();
+    await expect(toggles.nth(1)).not.toBeChecked();
+
+    await toggles.nth(0).check();
+
+    // 逐列獨立：只有被勾的那一列變動
+    await expect(toggles.nth(0)).toBeChecked();
+    await expect(toggles.nth(1)).not.toBeChecked();
+    // 勾選是未儲存變更
+    await expect(page.locator('.save-status-dirty')).toBeVisible();
+  });
+
+  test('#113-2: 每一列的不計扣天勾選都有自己的可讀標籤（含列序號）', async ({ page }) => {
+    const rows = page.locator('tr.schedule-row', {
+      has: page.locator('[data-category-select="國小數學-四A"]').first(),
+    });
+    await expect(rows).toHaveCount(2);
+    const labels = await rows.locator('input[data-skip-deduction-toggle]').evaluateAll((els) =>
+      els.map((e) => e.getAttribute('aria-label'))
+    );
+    // 兩列的標籤必須不同（帶列序號），否則鍵盤／讀屏使用者分不出是哪一列
+    expect(new Set(labels).size).toBe(2);
+    for (const label of labels) expect(label).toMatch(/第 \d+ 列的不計扣天$/);
+  });
+
   test('#80-6: 刪除時段仍在列尾（既有行為保留）', async ({ page }) => {
     const row = page.locator('tr.schedule-row', {
       has: page.locator('[data-category-select="兒童美語-Gino"]').first(),

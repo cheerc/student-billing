@@ -33,6 +33,7 @@ function row(rowId: string, className: string): ScheduleGridRow {
     endMinutes: 1080,
     teacher: null,
     active: true,
+    skipDeduction: false,
   };
 }
 

@@ -29,7 +29,7 @@ function changedDraft(): SettingsDraft {
     ...seed,
     aliases: [ALIAS],
     classes: seed.classes.map((c) =>
-      c.baseName === '國小數學-一A' ? { ...c, sessions: [{ weekday: '一', startMinutes: 920, endMinutes: 1010 }] } : c
+      c.baseName === '國小數學-一A' ? { ...c, sessions: [{ weekday: '一', startMinutes: 920, endMinutes: 1010, skipDeduction: false }] } : c
     ),
   };
 }

@@ -173,6 +173,9 @@ export function toSaveEquivalentDraft(draft: CalculateDraft): SettingsDraft {
         weekday: s.weekday,
         startMinutes: s.startMinutes,
         endMinutes: s.endMinutes,
+        // #113 follow-up（逐時段）：存檔等價 draft 必須保留每一列自己的不計扣天旗標，
+        // 否則「預覽算 0、存檔後 run 照扣」——draftHash 也會與真正存檔的設定不一致。
+        skipDeduction: s.skipDeduction ?? false,
       })),
     })),
   };
@@ -233,9 +236,12 @@ export function buildSchedulePreview(draft: CalculateDraft, ruleSetVersion: Form
 
   for (const c of draft.classes) {
     const shared = SHARED_WINDOW_CLASSES.has(c.baseName);
-    // #113：班級勾選「不計扣天」→ 時段全部保留，只是不扣天（不是刪空時段那種 schedule_empty）。
-    const skipDeduction = c.skipDeduction === true;
     const calcSessions = override.get(c.baseName) ?? [];
+    // #113 follow-up（逐時段）：只有未勾選的時段才納入扣天。
+    // 勾選者時段仍保留（不是 schedule_empty），只是不扣天。
+    const deductibleSessions = calcSessions.filter((s) => s.skipDeduction !== true);
+    // 該班是否「整班都勾選不計扣天」（逐時段版的班級層歸零條件）
+    const allSessionsSkipped = calcSessions.length > 0 && deductibleSessions.length === 0;
     const rowIds: string[] = [];
     let anyUnknownWeekday = false;
     let completeCount = 0;
@@ -313,22 +319,28 @@ export function buildSchedulePreview(draft: CalculateDraft, ruleSetVersion: Form
         const group = (type: 'anqin' | 'tutoring'): PreviewRowGroup => {
           if (!c.active) return { overlapMinutes: null, rawDeduction: null, status: 'inactive' };
           const ded = calculateSessionDeduction(s.startMinutes, s.endMinutes, type, options, s.weekday);
-          // #113：不計扣天時，**逐堂**仍回實測的重疊分鐘與未取整扣天，並標上 no_deduction。
+          // #113 follow-up（逐時段）：這一列勾了「不計扣天」→ **逐堂**仍回實測的重疊分鐘與未取整扣天，
+          // 但扣天歸零並標上 no_deduction。
           //
           // 這是刻意的兩層分工，不是同一份數字算兩次：
-          //  - 班級層（扣天表主列，也就是真正影響天數與計費的層級）依 issue #113 歸零；
+          //  - 班級層（扣天表主列，也就是真正影響天數與計費的層級）只把勾選的時段排除；
           //  - 逐堂層保留實測值，核對者才看得到「這個班確實重疊了幾分、只是園方政策不扣」
           //    （D17：照實呈現、把政策判斷跟計算事實分開）。若這裡也歸零，
           //    使用者會誤以為時段根本不衝突，那正是「照實呈現」要避免的假象。
           //  - no_deduction 狀態就是兩層之間的說明，畫面據此顯示「不計扣天」。
+          const rowSkips = s.skipDeduction === true;
           const status: CareStatus = unknown
             ? 'unknown_weekday'
-            : skipDeduction
+            : rowSkips
               ? 'no_deduction'
               : ded.overlapMinutes > 0
                 ? 'calculated'
                 : 'no_overlap';
-          return { overlapMinutes: ded.overlapMinutes, rawDeduction: normZero(ded.rawDeduction), status };
+          return {
+            overlapMinutes: ded.overlapMinutes,
+            rawDeduction: rowSkips ? 0 : normZero(ded.rawDeduction),
+            status,
+          };
         };
         rows.push({
           rowId,
@@ -345,29 +357,25 @@ export function buildSchedulePreview(draft: CalculateDraft, ruleSetVersion: Form
     }
 
     const classGroup = (type: 'anqin' | 'tutoring'): PreviewClassGroup => {
-      // 只統計完整列：calcSessions 來自存檔等價 draft，與存檔後 run 的輸入相同
+      // 只統計未勾選「不計扣天」的完整列：calcSessions 來自存檔等價 draft，與存檔後 run 的輸入相同。
+      // #113 follow-up：勾選的時段不列入扣天，但其重疊分鐘照實計算的部分留在逐堂層。
       const res =
-        c.active && calcSessions.length > 0
-          ? calculateClassDeductionD24(calcSessions, type, options)
+        c.active && deductibleSessions.length > 0
+          ? calculateClassDeductionD24(deductibleSessions, type, options)
           : { totalOverlapMinutes: 0, raw: 0, rounded: 0 };
-      // #113：不計扣天 → 重疊分鐘與扣天一律 0。這必須與 run 計算（billing-calculator）
-      // 對同一班的結果一致，否則畫面顯示 0 天、run 卻照扣。
-      const shown =
-        skipDeduction && c.active && calcSessions.length > 0
-          ? { totalOverlapMinutes: 0, raw: 0, rounded: 0 }
-          : res;
       return {
-        totalOverlapMinutes: shown.totalOverlapMinutes,
-        raw: normZero(shown.raw),
-        rounded: normZero(shown.rounded),
+        totalOverlapMinutes: res.totalOverlapMinutes,
+        raw: normZero(res.raw),
+        rounded: normZero(res.rounded),
         status: aggregateStatus({
           active: c.active,
           shared,
-          skipDeduction,
+          // 逐時段版的班級層「不計扣天」＝ 該班**每一列**都勾選；只勾部分時段則照實計算未勾選的那些。
+          skipDeduction: allSessionsSkipped,
           completeCount,
           incompleteCount,
           anyUnknownWeekday,
-          totalOverlapMinutes: shown.totalOverlapMinutes,
+          totalOverlapMinutes: res.totalOverlapMinutes,
         }),
       };
     };

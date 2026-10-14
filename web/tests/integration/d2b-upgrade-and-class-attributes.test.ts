@@ -306,6 +306,7 @@ describe('D2b 5（Q9）: 同名合併且設定不同時阻擋儲存（課表 gri
       startMinutes: 810,
       endMinutes: 900,
       active: true,
+      skipDeduction: false,
     };
   }
 

@@ -54,8 +54,8 @@ export function buildSavedContextDraft(): SettingsDraft {
         return {
           ...c,
           sessions: [
-            { weekday: '六', startMinutes: 990, endMinutes: 1080 },
-            { weekday: '一', startMinutes: 990, endMinutes: 1080 },
+            { weekday: '六', startMinutes: 990, endMinutes: 1080, skipDeduction: false },
+            { weekday: '一', startMinutes: 990, endMinutes: 1080, skipDeduction: false },
           ],
         };
       }

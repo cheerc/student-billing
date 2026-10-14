@@ -114,7 +114,7 @@ describe('D2b r2 R2-1: affectedStudents 為三類 delta 的 personCode 聯集去
     // 兩位學生因此同時出現在 dayDeltas 與 subjectCountDeltas（相加會得到 4，應為 2）。
     const draft: SettingsDraft = buildSeedDraft();
     const math = draft.classes.find((c) => c.baseName === '國小數學-三A')!;
-    math.sessions = [{ weekday: '一', startMinutes: 990, endMinutes: 1170 }];
+    math.sessions = [{ weekday: '一', startMinutes: 990, endMinutes: 1170, skipDeduction: false }];
     math.category = 'none';
     math.categorySource = 'manual';
 
@@ -169,7 +169,7 @@ describe('D2b r2 R2-1: affectedStudents 為三類 delta 的 personCode 聯集去
     // 同一位學生同時出現在三個陣列：相加寫法會算成 3 次
     const draft: SettingsDraft = buildSeedDraft();
     const math = draft.classes.find((c) => c.baseName === '國小數學-三A')!;
-    math.sessions = [{ weekday: '一', startMinutes: 990, endMinutes: 1170 }];
+    math.sessions = [{ weekday: '一', startMinutes: 990, endMinutes: 1170, skipDeduction: false }];
     math.category = 'none';
     math.categorySource = 'manual';
 
