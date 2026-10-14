@@ -48,6 +48,8 @@ interface ScheduleGridProps {
   classAttributes?: Map<string, ClassAttributesView>;
   onSelectCategory?: (className: string, category: ClassCategory) => void;
   onToggleFixedFiveDays?: (className: string, fixed: boolean) => void;
+  /** #113：班級勾選「不計扣天」（重疊不扣天數、時段保留）。 */
+  onToggleSkipDeduction?: (className: string, skip: boolean) => void;
   /** 「自動設定」：丟棄手動覆寫，回到依班名自動偵測的系統推薦值（#80 取代原本的「來源」pill）。 */
   onRestoreAuto?: (className: string) => void;
   /** #81：課表全量匯出／匯入（單純一鍵，無欄位挑選對話框）。未提供時不渲染這兩個按鈕。 */
@@ -116,6 +118,7 @@ export function ScheduleGrid({
   classAttributes,
   onSelectCategory,
   onToggleFixedFiveDays,
+  onToggleSkipDeduction,
   onRestoreAuto,
   onExportExcel,
   onImportExcel,
@@ -423,6 +426,8 @@ export function ScheduleGrid({
               <th rowSpan={2} className="col-classname sticky-col sticky-corner">班級名稱</th>
               <th rowSpan={2} className="col-category">列入多科折扣</th>
               <th rowSpan={2} className="col-fixed-five">天數固定 5 天</th>
+              {/* #113：不計扣天與「天數固定 5 天」相鄰——兩者都是「扣天怎麼算」的操作員決策。 */}
+              <th rowSpan={2} className="col-skip-deduction">不計扣天</th>
               <th rowSpan={2} className="col-teacher">帶班老師</th>
               <th rowSpan={2} className="col-weekday">星期</th>
               <th rowSpan={2} className="col-time">上課時間<br />起 — 迄</th>
@@ -441,7 +446,7 @@ export function ScheduleGrid({
           <tbody>
             {filteredRows.length === 0 ? (
               <tr>
-                <td colSpan={12} className="empty-row-text">
+                <td colSpan={13} className="empty-row-text">
                   沒有符合篩選條件的課表時段。
                 </td>
               </tr>
@@ -469,7 +474,8 @@ export function ScheduleGrid({
                 const attr = classAttributes?.get(className);
                 const categoryManual = attr?.categorySource === 'manual';
                 const fixedManual = attr?.fixedSource === 'manual';
-                const anyManual = categoryManual || fixedManual;
+                const skipManual = attr?.skipDeductionSource === 'manual';
+                const anyManual = categoryManual || fixedManual || skipManual;
                 const attrsDisabled = !classAttributes || !onSelectCategory || !onToggleFixedFiveDays;
 
                 return (
@@ -523,7 +529,23 @@ export function ScheduleGrid({
                       </label>
                     </td>
 
-                    {/* 4. 帶班老師 */}
+                    {/* 4. 不計扣天（#113）。與固定 5 天同樣包在 <label> 內：
+                        稽核以 label 的可點範圍計算目標尺寸，裸 checkbox 只有 16px 會被判過小。 */}
+                    <td className="col-skip-deduction">
+                      <label className="fixed-five-toggle">
+                        <input
+                          type="checkbox"
+                          checked={attr?.skipDeduction ?? false}
+                          disabled={attrsDisabled}
+                          aria-label={`${className} 的不計扣天`}
+                          data-skip-deduction-toggle={className}
+                          onChange={(e) => onToggleSkipDeduction?.(className, e.target.checked)}
+                        />
+                        <span aria-hidden="true">{attr?.skipDeduction ? '是' : '否'}</span>
+                      </label>
+                    </td>
+
+                    {/* 5. 帶班老師 */}
                     <td className="col-teacher">
                       <input
                         type="text"
@@ -535,7 +557,7 @@ export function ScheduleGrid({
                       />
                     </td>
 
-                    {/* 5. 星期（#82：可清空，留空＝未定） */}
+                    {/* 6. 星期（#82：可清空，留空＝未定） */}
                     <td className="col-weekday">
                       {/* 維持文字輸入（非下拉）：#82 只要求「可以留空」，placeholder 已能表達；
                           下拉反而會擋掉 seed 既有的非選單值（「一~五」、「—」）與使用者手打的
@@ -551,7 +573,7 @@ export function ScheduleGrid({
                       />
                     </td>
 
-                    {/* 6. 上課時間 (起 — 迄)（#82：可留空） */}
+                    {/* 7. 上課時間 (起 — 迄)（#82：可留空） */}
                     <td className="col-time">
                       <div className="time-inputs-pair">
                         <input
@@ -574,7 +596,7 @@ export function ScheduleGrid({
                       </div>
                     </td>
 
-                    {/* 7. 課程時長 分（#82：未設定時間 → 「—」） */}
+                    {/* 8. 課程時長 分（#82：未設定時間 → 「—」） */}
                     <td className="col-duration number" data-calc="duration">
                       {isIncomplete ? (
                         <NotSetYetCell />
@@ -585,7 +607,7 @@ export function ScheduleGrid({
                       )}
                     </td>
 
-                    {/* 8. 安親 重疊／分 */}
+                    {/* 9. 安親 重疊／分 */}
                     <td className="number cblue" data-calc="anqin-overlap">
                       {isIncomplete ? (
                         <NotSetYetCell />
@@ -600,7 +622,7 @@ export function ScheduleGrid({
                       )}
                     </td>
 
-                    {/* 9. 安親 扣除／天 */}
+                    {/* 10. 安親 扣除／天 */}
                     <td className="number cblue" data-calc="anqin-deduction">
                       {isIncomplete ? (
                         <NotSetYetCell />
@@ -615,7 +637,7 @@ export function ScheduleGrid({
                       )}
                     </td>
 
-                    {/* 10. 課輔 重疊／分 */}
+                    {/* 11. 課輔 重疊／分 */}
                     <td className="number cteal" data-calc="tutoring-overlap">
                       {isIncomplete ? (
                         <NotSetYetCell />
@@ -630,7 +652,7 @@ export function ScheduleGrid({
                       )}
                     </td>
 
-                    {/* 11. 課輔 扣除／天 */}
+                    {/* 12. 課輔 扣除／天 */}
                     <td className="number cteal" data-calc="tutoring-deduction">
                       {isIncomplete ? (
                         <NotSetYetCell />
@@ -645,7 +667,7 @@ export function ScheduleGrid({
                       )}
                     </td>
 
-                    {/* 12. 操作：自動設定（恢復系統推薦值）＋刪除時段 */}
+                    {/* 13. 操作：自動設定（恢復系統推薦值）＋刪除時段 */}
                     <td className="col-actions">
                       <div className="row-actions">
                         {/* #80：取代原本的「來源：自動／手動」pill。可點＝已手動覆寫過，

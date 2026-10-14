@@ -32,6 +32,8 @@ export function buildClassSettingMap(draft: SettingsDraft): Map<string, ClassSet
       categorySource: c.categorySource,
       fixedFiveDays: c.fixedFiveDays,
       fixedSource: c.fixedSource,
+      skipDeduction: c.skipDeduction,
+      skipDeductionSource: c.skipDeductionSource,
     });
   }
   return map;

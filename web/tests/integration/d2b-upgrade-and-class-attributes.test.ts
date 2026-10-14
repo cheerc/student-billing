@@ -317,8 +317,8 @@ describe('D2b 5（Q9）: 同名合併且設定不同時阻擋儲存（課表 gri
     expect(lifecycle.merges).toEqual([{ mergedName: '國小數學-四', sources: ['國小數學-四A', '國小數學-四B'] }]);
 
     const sourceAttrs = new Map([
-      ['國小數學-四A', { category: 'math' as const, categorySource: 'auto' as const, fixedFiveDays: false, fixedSource: 'auto' as const }],
-      ['國小數學-四B', { category: 'care' as const, categorySource: 'manual' as const, fixedFiveDays: true, fixedSource: 'manual' as const }],
+      ['國小數學-四A', { category: 'math' as const, categorySource: 'auto' as const, fixedFiveDays: false, fixedSource: 'auto' as const, skipDeduction: false, skipDeductionSource: 'auto' as const }],
+      ['國小數學-四B', { category: 'care' as const, categorySource: 'manual' as const, fixedFiveDays: true, fixedSource: 'manual' as const, skipDeduction: false, skipDeductionSource: 'auto' as const }],
     ]);
     const conflicts = detectMergeConflicts(lifecycle.merges, sourceAttrs);
     expect(conflicts).toHaveLength(1);
@@ -330,7 +330,7 @@ describe('D2b 5（Q9）: 同名合併且設定不同時阻擋儲存（課表 gri
     const currentRows = [gridRow('r1', '國小數學-四'), gridRow('r2', '國小數學-四')];
     const lifecycle = detectClassLifecycle(baselineRows, currentRows);
 
-    const same = { category: 'math' as const, categorySource: 'auto' as const, fixedFiveDays: false, fixedSource: 'auto' as const };
+    const same = { category: 'math' as const, categorySource: 'auto' as const, fixedFiveDays: false, fixedSource: 'auto' as const, skipDeduction: false, skipDeductionSource: 'auto' as const };
     const sourceAttrs = new Map([
       ['國小數學-四A', { ...same }],
       ['國小數學-四B', { ...same }],

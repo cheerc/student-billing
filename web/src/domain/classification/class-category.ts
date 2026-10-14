@@ -48,6 +48,9 @@ export interface ResolvedClassEnrollment {
   categorySource: 'auto' | 'manual';
   fixedFiveDays: boolean;
   fixedSource: 'auto' | 'manual';
+  /** #113：不計扣天（重疊不扣天數、時段保留）。無自動偵測規則，auto 一律 false。 */
+  skipDeduction: boolean;
+  skipDeductionSource: 'auto' | 'manual';
 }
 
 export interface ClassSettingLookup {
@@ -55,6 +58,9 @@ export interface ClassSettingLookup {
   categorySource?: 'auto' | 'manual';
   fixedFiveDays?: boolean;
   fixedSource?: 'auto' | 'manual';
+  /** #113：不計扣天。缺值＝未指定＝false（03 §5.2 版本界線規則第 2 點）。 */
+  skipDeduction?: boolean;
+  skipDeductionSource?: 'auto' | 'manual';
 }
 
 /**
@@ -80,6 +86,8 @@ export function resolveClassEnrollment(
       categorySource: cls.categorySource ?? 'auto',
       fixedFiveDays: cls.fixedFiveDays ?? auto.fixedFiveDays,
       fixedSource: cls.fixedSource ?? 'auto',
+      skipDeduction: cls.skipDeduction ?? false,
+      skipDeductionSource: cls.skipDeductionSource ?? 'auto',
     };
   }
 
@@ -93,5 +101,7 @@ export function resolveClassEnrollment(
     categorySource: 'auto',
     fixedFiveDays: auto.fixedFiveDays,
     fixedSource: 'auto',
+    skipDeduction: false,
+    skipDeductionSource: 'auto',
   };
 }

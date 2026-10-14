@@ -157,7 +157,9 @@ describe('UX07（修訂）：ScheduleGrid 對未知／空白星期的呈現', ()
     expect(html).toMatch(/role="alert"[^>]*data-calculate-error/);
     expect(html).toContain('無法計算重疊與扣除天數');
     expect(html).toContain('不代表沒有衝堂');
-    const calcCells = (trOf(html, '測試班').match(/<td[\s\S]*?<\/td>/g) ?? []).slice(5, 9);
+    // #113：班級欄位由 8 欄增至 9 欄（多出「不計扣天」），計算欄因此要 slice(6, 10)
+    // 而不是 slice(5, 9)——否則會把星期欄當成計算欄，測到的是錯的欄位。
+    const calcCells = (trOf(html, '測試班').match(/<td[\s\S]*?<\/td>/g) ?? []).slice(6, 10);
     for (const cell of calcCells) {
       expect(cell).toContain('—');
       expect(cell).not.toMatch(/>0</);
@@ -251,6 +253,14 @@ describe('ClassDeductionsPanel：整班優先序（未知／不完整＞已計�
     ['inactive', 'inactive', 'inactive'],
     ['shared_window', 'shared_window', 'shared_window'],
     ['inactive', 'no_overlap', 'inactive'],
+    // #113：不計扣天與「已計算」同層級且優先於「無重疊」，但兩者同 rank 時保留安親側（第一引數）
+    ['no_deduction', 'no_overlap', 'no_deduction'],
+    ['no_overlap', 'no_deduction', 'no_deduction'],
+    ['no_deduction', 'calculated', 'no_deduction'],
+    ['calculated', 'no_deduction', 'calculated'],
+    // 不可信狀態仍優先於「不計扣天」，不可被它掩蓋
+    ['no_deduction', 'unknown_weekday', 'unknown_weekday'],
+    ['no_deduction', 'incomplete', 'incomplete'],
   ];
   it.each(cases)('(%s, %s) → %s', (anqin, tutoring, expected) => {
     // 以真實 preview 為底，只覆寫兩側狀態以驗證 UI consumer 的獨立組合；不引用未存在的新 helper。
@@ -274,6 +284,7 @@ describe('ClassDeductionsPanel：整班優先序（未知／不完整＞已計�
     const labels: Record<CareStatus, string> = {
       calculated: '已計算',
       no_overlap: '無重疊',
+      no_deduction: '不計扣天',
       unknown_weekday: '需確認',
       missing_time: '待補',
       incomplete: '待補',

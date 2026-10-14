@@ -78,6 +78,13 @@ export const ClassSettingSchema = z.object({
   categorySource: z.enum(['auto', 'manual']).optional(),
   fixedFiveDays: z.boolean().optional(),
   fixedSource: z.enum(['auto', 'manual']).optional(),
+  /**
+   * #113：不計扣天。與類別／固定 5 天同一套「值＋來源」慣例。
+   * 沒有班名自動偵測規則：缺欄位＝未指定＝讀取時視為不計扣天關閉（03 §5.2 規則第 2 點），
+   * 因此舊快照讀取時不必回寫即可得到正確有效值。
+   */
+  skipDeduction: z.boolean().optional(),
+  skipDeductionSource: z.enum(['auto', 'manual']).optional(),
 });
 
 export type ClassSetting = z.infer<typeof ClassSettingSchema>;
@@ -192,18 +199,24 @@ function groupGridRowsToClasses<S>(
     const teacher = classRows[0]?.teacher ?? existing?.teacher ?? null;
     const active = classRows.some((r) => r.active);
 
-    // D2b 1／5（Q9）：類別與固定 5 天的**手動**設定隨班保留（整班改名時由呼叫端把來源改名後的
-    // existingClasses 傳入，這裡只負責帶欄位）。未手動（auto）的班不寫四個欄位：
+    // D2b 1／5（Q9）：類別、固定 5 天與不計扣天的**手動**設定隨班保留（整班改名時由呼叫端把來源改名後的
+    // existingClasses 傳入，這裡只負責帶欄位）。未手動（auto）的班不寫這些欄位：
     // 缺欄位＝自動偵測（03 §5.2 版本界線規則第 2 點），因此改班名會即時重新偵測，
     // 也讓舊快照（無新欄位）讀取時不必回寫即可得到正確的有效值。
     const attrs =
-      existing && (existing.categorySource === 'manual' || existing.fixedSource === 'manual')
+      existing &&
+      (existing.categorySource === 'manual' ||
+        existing.fixedSource === 'manual' ||
+        existing.skipDeductionSource === 'manual')
         ? {
             ...(existing.categorySource === 'manual' && existing.category !== undefined
               ? { category: existing.category, categorySource: existing.categorySource }
               : {}),
             ...(existing.fixedSource === 'manual'
               ? { fixedFiveDays: existing.fixedFiveDays ?? false, fixedSource: existing.fixedSource }
+              : {}),
+            ...(existing.skipDeductionSource === 'manual'
+              ? { skipDeduction: existing.skipDeduction ?? false, skipDeductionSource: existing.skipDeductionSource }
               : {}),
           }
         : {};
@@ -318,6 +331,9 @@ export interface ClassAttributeSetting {
   categorySource?: 'auto' | 'manual';
   fixedFiveDays?: boolean;
   fixedSource?: 'auto' | 'manual';
+  /** #113：不計扣天（重疊不扣天數、時段保留）。手動勾選才會生效。 */
+  skipDeduction?: boolean;
+  skipDeductionSource?: 'auto' | 'manual';
 }
 
 export interface SettingsBaseline {
@@ -376,7 +392,9 @@ export function isSettingsDirty(
         ca.category !== ba.category ||
         ca.categorySource !== ba.categorySource ||
         ca.fixedFiveDays !== ba.fixedFiveDays ||
-        ca.fixedSource !== ba.fixedSource
+        ca.fixedSource !== ba.fixedSource ||
+        ca.skipDeduction !== ba.skipDeduction ||
+        ca.skipDeductionSource !== ba.skipDeductionSource
       ) {
         return true;
       }

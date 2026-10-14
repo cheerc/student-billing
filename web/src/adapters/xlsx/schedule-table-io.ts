@@ -23,6 +23,7 @@ export const SCHEDULE_TABLE_HEADERS = [
   '班級名稱',
   '列入多科折扣',
   '天數固定5天',
+  '不計扣天',
   '帶班老師',
   '星期',
   '開始時間',
@@ -32,17 +33,21 @@ export const SCHEDULE_TABLE_HEADERS = [
 const COLUMN_CLASS_NAME = 0;
 const COLUMN_CATEGORY = 1;
 const COLUMN_FIXED_FIVE = 2;
-const COLUMN_TEACHER = 3;
-const COLUMN_WEEKDAY = 4;
-const COLUMN_START = 5;
-const COLUMN_END = 6;
+// #113：不計扣天緊接「天數固定5天」——兩者都是「扣天怎麼算」的班級設定。
+const COLUMN_SKIP_DEDUCTION = 3;
+const COLUMN_TEACHER = 4;
+const COLUMN_WEEKDAY = 5;
+const COLUMN_START = 6;
+const COLUMN_END = 7;
 
 /** 匯出／匯入檔案的工作表名（使用者可在 Excel 裡看到它，錯誤訊息也用它指位）。 */
 export const SCHEDULE_TABLE_SHEET_NAME = '課表';
 
-/** 匯出檔內「天數固定 5 天」的白話值（與畫面用語一致）。 */
+/** 匯出檔內「天數固定 5 天」與「不計扣天」的白話值（與畫面用語一致）。 */
 const FIXED_FIVE_YES = '是';
 const FIXED_FIVE_NO = '否';
+/** #113：「不計扣天」為真時的白話值；為假時沿用 FIXED_FIVE_NO（兩欄共用「是／否」語彙）。 */
+const SKIP_DEDUCTION_YES = '是';
 
 /** 折扣類別的白話標籤 → 內部值。匯出寫標籤、匯入接受標籤或內部值（方便手動編輯檔案）。 */
 const CATEGORY_BY_LABEL: Record<string, ClassCategory> = {
@@ -61,6 +66,8 @@ export interface ScheduleExportClassAttr {
   className: string;
   category: ClassCategory;
   fixedFiveDays: boolean;
+  /** #113：不計扣天。缺值＝未勾選＝false（與解析層一致，不因缺欄位而靜默視為勾選）。 */
+  skipDeduction?: boolean;
 }
 
 /** 匯入回傳的一列時段（含其班級屬性；同一班多列的屬性必須一致，由解析層驗證）。 */
@@ -72,6 +79,7 @@ export interface ScheduleImportRow {
   endTime: string;
   category: ClassCategory;
   fixedFiveDays: boolean;
+  skipDeduction: boolean;
 }
 
 /** 匯入結果：可餵給編輯器取代整份草稿的列，以及每班的屬性。 */
@@ -82,6 +90,7 @@ export interface ScheduleImportResult {
     className: string;
     category: ClassCategory;
     fixedFiveDays: boolean;
+    skipDeduction: boolean;
   }>;
 }
 
@@ -140,7 +149,7 @@ export async function buildScheduleWorkbook(
   sheet.columns = SCHEDULE_TABLE_HEADERS.map((header, i) => ({
     header,
     key: `c${i}`,
-    width: i === COLUMN_CLASS_NAME ? 28 : i === COLUMN_CATEGORY ? 16 : 14,
+    width: i === COLUMN_CLASS_NAME ? 28 : i === COLUMN_CATEGORY ? 16 : i === COLUMN_SKIP_DEDUCTION ? 12 : 14,
   }));
 
   for (const row of rows) {
@@ -150,10 +159,11 @@ export async function buildScheduleWorkbook(
       // 匯出的是**有效值**：該班若無屬性（理論上不會，編輯器一定解析得出），退回不列入折扣
       c1: CATEGORY_LABELS[attr?.category ?? 'none'],
       c2: (attr?.fixedFiveDays ?? false) ? FIXED_FIVE_YES : FIXED_FIVE_NO,
-      c3: row.teacher ?? '',
-      c4: row.weekday,
-      c5: row.startTime,
-      c6: row.endTime,
+      c3: (attr?.skipDeduction ?? false) ? SKIP_DEDUCTION_YES : FIXED_FIVE_NO,
+      c4: row.teacher ?? '',
+      c5: row.weekday,
+      c6: row.startTime,
+      c7: row.endTime,
     });
   }
 
@@ -193,12 +203,16 @@ function parseCategoryCell(value: string, location: string): ClassCategory {
   return category;
 }
 
-function parseFixedFiveCell(value: string, location: string): boolean {
+/**
+ * 「是／否」欄位解析（#113：「天數固定5天」與「不計扣天」共用同一組白話值與同一套嚴格驗證）。
+ * `columnLabel` 只用於錯誤訊息指位；不接受靜默當成「否」。
+ */
+function parseYesNoCell(value: string, location: string, columnLabel: string): boolean {
   const trimmed = value.trim();
   if (trimmed === FIXED_FIVE_YES || trimmed === 'true' || trimmed === '1') return true;
   if (trimmed === FIXED_FIVE_NO || trimmed === 'false' || trimmed === '0') return false;
   throw new ScheduleTableImportError(
-    `第 ${location} 列的「天數固定5天」請填「是」或「否」。`,
+    `第 ${location} 列的「${columnLabel}」請填「是」或「否」。`,
     location
   );
 }
@@ -250,7 +264,7 @@ export async function parseScheduleWorkbook(input: Buffer | Uint8Array): Promise
   }
 
   const rows: ScheduleImportRow[] = [];
-  const attrsByName = new Map<string, { category: ClassCategory; fixedFiveDays: boolean }>();
+  const attrsByName = new Map<string, { category: ClassCategory; fixedFiveDays: boolean; skipDeduction: boolean }>();
   const rowCount = sheet.rowCount;
 
   for (let rowNumber = 2; rowNumber <= rowCount; rowNumber++) {
@@ -259,6 +273,7 @@ export async function parseScheduleWorkbook(input: Buffer | Uint8Array): Promise
       cellText(excelRow.getCell(COLUMN_CLASS_NAME + 1).value),
       cellText(excelRow.getCell(COLUMN_CATEGORY + 1).value),
       cellText(excelRow.getCell(COLUMN_FIXED_FIVE + 1).value),
+      cellText(excelRow.getCell(COLUMN_SKIP_DEDUCTION + 1).value),
       cellText(excelRow.getCell(COLUMN_TEACHER + 1).value),
       cellText(excelRow.getCell(COLUMN_WEEKDAY + 1).value),
       cellText(excelRow.getCell(COLUMN_START + 1).value),
@@ -275,19 +290,24 @@ export async function parseScheduleWorkbook(input: Buffer | Uint8Array): Promise
     }
 
     const category = parseCategoryCell(cells[COLUMN_CATEGORY], location);
-    const fixedFiveDays = parseFixedFiveCell(cells[COLUMN_FIXED_FIVE], location);
+    const fixedFiveDays = parseYesNoCell(cells[COLUMN_FIXED_FIVE], location, '天數固定5天');
+    const skipDeduction = parseYesNoCell(cells[COLUMN_SKIP_DEDUCTION], location, '不計扣天');
 
     // 同一班的多列必須寫同一組屬性；不一致代表檔案本身矛盾，不靜默取其一
     const existing = attrsByName.get(className);
     if (existing) {
-      if (existing.category !== category || existing.fixedFiveDays !== fixedFiveDays) {
+      if (
+        existing.category !== category ||
+        existing.fixedFiveDays !== fixedFiveDays ||
+        existing.skipDeduction !== skipDeduction
+      ) {
         throw new ScheduleTableImportError(
-          `班級「${className}」在不同列填了不同的折扣類別或固定 5 天，請先讓它們一致再匯入。`,
+          `班級「${className}」在不同列填了不同的折扣類別、固定 5 天或不計扣天，請先讓它們一致再匯入。`,
           location
         );
       }
     } else {
-      attrsByName.set(className, { category, fixedFiveDays });
+      attrsByName.set(className, { category, fixedFiveDays, skipDeduction });
     }
 
     const startTime = validateTimeCell(cells[COLUMN_START], location);
@@ -307,6 +327,7 @@ export async function parseScheduleWorkbook(input: Buffer | Uint8Array): Promise
       endTime,
       category,
       fixedFiveDays,
+      skipDeduction,
     });
   }
 
@@ -320,6 +341,7 @@ export async function parseScheduleWorkbook(input: Buffer | Uint8Array): Promise
       className,
       category: a.category,
       fixedFiveDays: a.fixedFiveDays,
+      skipDeduction: a.skipDeduction,
     })),
   };
 }

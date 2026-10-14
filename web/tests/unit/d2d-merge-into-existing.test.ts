@@ -56,12 +56,12 @@ describe('D2d C: 併入既有班 Z 時以 Z 的現行設定為準（最小修）
       // Z 的既有 manual 設定（care + 固定 5 天）
       [
         '國小數學-四C',
-        { category: 'care' as const, categorySource: 'manual' as const, fixedFiveDays: true, fixedSource: 'manual' as const },
+        { category: 'care' as const, categorySource: 'manual' as const, fixedFiveDays: true, fixedSource: 'manual' as const, skipDeduction: false, skipDeductionSource: 'auto' as const },
       ],
       // X 的 manual 設定（不列入折扣、不固定）
       [
         '國小數學-四A',
-        { category: 'none' as const, categorySource: 'manual' as const, fixedFiveDays: false, fixedSource: 'manual' as const },
+        { category: 'none' as const, categorySource: 'manual' as const, fixedFiveDays: false, fixedSource: 'manual' as const, skipDeduction: false, skipDeductionSource: 'auto' as const },
       ],
     ]);
 
@@ -82,7 +82,7 @@ describe('D2d C: 併入既有班 Z 時以 Z 的現行設定為準（最小修）
     const attrs = new Map([
       [
         '國小數學-四A',
-        { category: 'none' as const, categorySource: 'manual' as const, fixedFiveDays: false, fixedSource: 'manual' as const },
+        { category: 'none' as const, categorySource: 'manual' as const, fixedFiveDays: false, fixedSource: 'manual' as const, skipDeduction: false, skipDeductionSource: 'auto' as const },
       ],
     ]);
 
@@ -102,7 +102,7 @@ describe('D2d C: 併入既有班 Z 時以 Z 的現行設定為準（最小修）
     const attrs = new Map([
       [
         '國小數學-四A',
-        { category: 'none' as const, categorySource: 'manual' as const, fixedFiveDays: true, fixedSource: 'manual' as const },
+        { category: 'none' as const, categorySource: 'manual' as const, fixedFiveDays: true, fixedSource: 'manual' as const, skipDeduction: false, skipDeductionSource: 'auto' as const },
       ],
     ]);
 
