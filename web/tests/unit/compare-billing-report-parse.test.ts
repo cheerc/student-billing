@@ -286,5 +286,57 @@ describe('帳務比對工具：報表解析契約', () => {
         expect.arrayContaining(['NOT_IN_WEB', 'EXCEL_NO_TUITION', 'UNPAIRABLE', 'TIER_UNPARSED', 'RATE_UNPARSED']),
       );
     });
+
+    /**
+     * Note 形狀測試（PR A 的證明，非內容測試）。
+     *
+     * 過去 MATCH／NOT_IN_WEB／EXCEL_NO_TUITION 只回 {tone, notes}，其餘分支多五個欄位。
+     * 消費者全靠 `?` 與 falsy 判讀才安全——這是抽取共用層時最易靜默劣化的地方：
+     * `Note` 型別若為 union，所有消費者就得永遠寫 `?`。
+     *
+     * 這裡逐一走過**全部 9 個分類**，斷言 `Object.keys` 的集合完全相同。
+     * 內容已由上方各案例的 note.notes 斷言涵蓋。
+     */
+    it('全部 9 個分類的 note 欄位集合一致（共用層的 Note 型別前提）', () => {
+      const cases: Record<string, [Record<string, unknown>[], Record<string, unknown>[]]> = {
+        MATCH: [
+          [reportStudent('合成甲', { tuition: '115國小輔導-一A[團] - 40 堂課' })],
+          [webStudent('合成甲')],
+        ],
+        DAY_DIFF: [
+          [reportStudent('合成乙', { tuition: '115國小輔導-一A[團][4_5] - 40 堂課' })],
+          [webStudent('合成乙', { anqinDays: 5, anqinDisplay: '5' })],
+        ],
+        // 報表 9 折 (9000) vs 系統無折扣 (10000) → 天數同、折扣不同
+        DISCOUNT_DIFF: [
+          [reportStudent('合成丙', { tuition: '115國小輔導-一A[團] - 40 堂課', discounts: ['x[9折] - 課程費9折'] })],
+          [webStudent('合成丙', { applicableAnqinBps: 10000 })],
+        ],
+        // 報表 4.5 天 (4500→顯示) vs 系統 5 天，且折扣 9000 vs 10000
+        BOTH_DIFF: [
+          [reportStudent('合成丁', { tuition: '115國小輔導-一A[團][4_5] - 40 堂課', discounts: ['x[9折] - 課程費9折'] })],
+          [webStudent('合成丁', { anqinDays: 5, anqinDisplay: '5', applicableAnqinBps: 10000 })],
+        ],
+        NOT_IN_WEB: [[reportStudent('合成戊')], [webStudent('合成己')]],
+        EXCEL_NO_TUITION: [[reportStudent('合成庚')], [webStudent('合成庚')]],
+        UNPAIRABLE: [[reportStudent('合成辛')], [webStudent('合成辛 (A)'), webStudent('合成辛 (B)')]],
+        TIER_UNPARSED: [
+          [reportStudent('合成壬', { tuition: '115國小輔導-一A[團][Starter] - 40 堂課' })],
+          [webStudent('合成壬 (Mia)')],
+        ],
+        RATE_UNPARSED: [
+          [reportStudent('合成癸', { tuition: '115國小輔導-一A[團] - 40 堂課', discounts: ['x[88折] - 課程費88折'], otherDiscounts: ['x[88折] - 課程費88折'] })],
+          [webStudent('合成癸', { applicableAnqinBps: 10000 })],
+        ],
+      };
+
+      const expectedKeys = ['dupIssues', 'homework', 'mismatches', 'notes', 'tags', 'tone', 'withdrawal'].sort();
+
+      for (const [status, [report, web]] of Object.entries(cases)) {
+        const rec = runOne(report, web);
+        expect(rec.statusCategory, `案例 ${status} 未走到預期分類`).toBe(status);
+        expect(Object.keys(rec.note).sort(), `分類 ${status} 的 note 欄位集合不一致`).toEqual(expectedKeys);
+      }
+    });
   });
 });

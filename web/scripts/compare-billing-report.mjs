@@ -236,69 +236,86 @@ function buildNotes({ statusCategory, excel, web, careCategory }) {
   const mismatches = (web.tierComparisons || []).filter(c => c.status === 'mismatch');
   const dupIssues = (web.issues || []).filter(i => i.code === 'DUPLICATE_SUBJECT_ENROLLMENT');
 
+  /**
+   * 所有回傳點一律經此收斂，確保 Note 的欄位集合固定。
+   *
+   * 過去 MATCH／NOT_IN_WEB／EXCEL_NO_TUITION 只回 {tone, notes}，其餘多五個欄位，
+   * 消費者全靠 `?` 與 falsy 判讀才安全。共用層的 `Note` 型別要求各分支形狀一致，
+   * 否則會退化成 union，所有消費者都得永遠寫 `?`。
+   *
+   * 這是**行為等價**的重構：這三個分支缺漏的五個欄位，其所有消費者
+   * （renderInsightGroups 的 `r.note.mismatches?.length > 0` 等、renderRow 的
+   * `r.note.notes` / `r.note.tone`）在 undefined 與空陣列／false 下結果相同。
+   */
+  const finish = (partial) => ({
+    tone: 'warn',
+    notes: [],
+    tags,
+    homework: false,
+    withdrawal: false,
+    dupIssues,
+    mismatches,
+    ...partial,
+  });
+
   if (statusCategory === 'MATCH') {
     const extras = [...excel.extraDiscounts, ...excel.otherItems];
-    return {
+    return finish({
       tone: 'match',
       notes: [
         `報表 ${excel.daysLabel} 天／${bpsToLabel(excel.rateBps)} 與網頁一致。`,
         ...(extras.length ? [`報表另有其他項目（不影響課程費比對）：${extras.join('、')}。`] : []),
       ],
-    };
+    });
   }
 
   // 報表級距無法解析：成因是報表格式，不是名單或課表變動（review F-NEW-1）
   if (statusCategory === 'TIER_UNPARSED') {
-    return {
-      tone: 'warn',
+    return finish({
       notes: [
         `報表有學費明細「${excel.className}」，但其中級距修飾不是產品認得的格式（${excel.daysRaw}），故無法取得天數。`,
         `此為報表格式問題，非名單或課表變動；請人工確認該班別應為幾天。`,
         `網頁端 ${careCategory} 天數為 ${web.daysLabel}。`,
       ],
-      tags, homework: false, withdrawal: false, dupIssues, mismatches,
-    };
+    });
   }
   // 報表折扣格式無法解析：不可宣稱一致（review F-NEW-4）
   if (statusCategory === 'RATE_UNPARSED') {
-    return {
-      tone: 'warn',
+    return finish({
       notes: [
         `報表折扣明細含產品端不認得的「課程費」格式（${excel.extraDiscounts.join('、')}）。`,
         `天數一致（${excel.daysLabel}），但折扣率無法確定，不可視為完全一致；請人工確認。`,
       ],
-      tags, homework: !!homeworkToken, withdrawal: !!withdrawal, dupIssues, mismatches,
-    };
+      homework: !!homeworkToken, withdrawal: !!withdrawal,
+    });
   }
   if (statusCategory === 'UNPAIRABLE') {
     // 不可斷言成因：可能是報表與名單同名多人、或姓名寫法差異。交人工以人員代碼核對（review F1）
-    return {
-      tone: 'warn',
+    return finish({
       notes: [
         `報表有此學生帳單，但無法與名單唯一配對（${web.asOfDate} 名單可能有同名或姓名寫法差異）。`,
         '請改以人員代碼核對，不要直接判定為離班。',
       ],
-      tags, homework: false, withdrawal: false, dupIssues, mismatches,
-    };
+    });
   }
   if (statusCategory === 'NOT_IN_WEB') {
     const items = [...excel.extraDiscounts, ...excel.otherItems];
-    return {
+    return finish({
       tone: 'neutral',
       notes: [
         `報表有帳單，但 ${web.asOfDate} 名單已無此學生（期中離班或退費）。`,
         ...(items.length ? [`帳單項目：${items.join('、')}。`] : []),
       ],
-    };
+    });
   }
   if (statusCategory === 'EXCEL_NO_TUITION') {
     const items = [...excel.extraDiscounts, ...excel.otherItems];
-    return {
+    return finish({
       tone: 'neutral',
       notes: [
         `報表無正式學費項${items.length ? `，僅有：${items.join('、')}` : ''}；網頁端 ${careCategory} 天數為 ${web.daysLabel}。`,
       ],
-    };
+    });
   }
 
   // 天數差異：先找資料裡可佐證的成因
@@ -338,7 +355,7 @@ function buildNotes({ statusCategory, excel, web, careCategory }) {
     if (excel.rateParseStatus === 'unknown') {
       notes.push(`報表折扣明細含無法解析的「課程費」格式（${excel.extraDiscounts.join('、')}），此差異源自報表格式變更，非標籤差異；請人工確認。`);
       notes.push(`報表目前讀為 ${bpsToLabel(excel.rateBps)} vs 網頁 ${bpsToLabel(web.rateBps)}。`);
-      return { tone: 'warn', notes, tags, homework: !!homeworkToken, withdrawal: !!withdrawal, dupIssues, mismatches };
+      return finish({ notes, homework: !!homeworkToken, withdrawal: !!withdrawal });
     }
     if (careTokens.length === 0) {
       notes.push(`${web.asOfDate} 名單已無國小輔導班級，網頁端無適用折扣率可比對。`);
@@ -362,15 +379,7 @@ function buildNotes({ statusCategory, excel, web, careCategory }) {
     notes.push(`報表 ${excel.daysLabel} 天／${bpsToLabel(excel.rateBps)} vs 網頁 ${web.daysLabel}／${bpsToLabel(web.rateBps)}，差異可能來自名單或課表異動。`);
   }
 
-  return {
-    tone: 'warn',
-    notes,
-    tags,
-    homework: !!homeworkToken,
-    withdrawal: !!withdrawal,
-    dupIssues,
-    mismatches,
-  };
+  return finish({ notes, homework: !!homeworkToken, withdrawal: !!withdrawal });
 }
 
 // ---------------------------------------------------------------- 比對主流程
