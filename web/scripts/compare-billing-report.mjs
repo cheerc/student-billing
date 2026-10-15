@@ -15,6 +15,9 @@ import fs from 'fs';
 import path from 'path';
 import os from 'os';
 import { fileURLToPath } from 'url';
+// 直接複用產品領域層的班名／級距解析，避免在工具側複寫一份而與產品漂移（review F-NEW-2）。
+// Node 24 原生支援 .mjs import .ts，故不需 tsx 或建置步驟。
+import { parseSingleClassToken } from '../src/domain/students/token-parser.ts';
 
 const SHEET_NAME = '班級營收狀況';
 
@@ -56,18 +59,16 @@ function bpsToLabel(bps) {
 }
 
 /**
- * 已知週收費級距，與產品端 web/src/domain/students/token-parser.ts 的 KNOWN_TIERS_MAP 同源。
- * 不在表內者不可當作全週 5 天：產品端對未知修飾回 erpBillingTier=null + needs_review，
- * 此處若默默回 5，等於替產品斷言它刻意不斷言的數值（review F2）。
+ * 學費明細 → 週收費天數。
+ *
+ * 級距解讀**直接複用產品解析器** `parseSingleClassToken`，不在此複寫一份。
+ * 理由（review F-NEW-2）：本檔先前自建 KNOWN_TIERS 白名單並漏掉 `[5]`，
+ * 且只挑數字開頭的修飾，導致 `[Starter]` 這類未知修飾被默默當成全週 5 天——
+ * 而產品端對未知修飾明確回 erpBillingTier=null + needs_review。複寫即漂移，
+ * 故刪除複寫版本，只保留產品輸出到「報表顯示文字」的轉譯。
+ *
+ * Node 24 原生支援 `import './x.ts'`，故 .mjs 可直接引用 TS 領域層，無需建置步驟。
  */
-const KNOWN_TIERS = new Map([
-  ['3', 3],
-  ['3_5', 3.5],
-  ['4', 4],
-  ['4_5', 4.5],
-]);
-
-/** 學費明細 → 週收費天數。級距由班名方括號修飾推得；無級距修飾視為全週 5 天。 */
 export function parseTuition(detail) {
   if (!detail) {
     return { days: null, daysRaw: '無學費項', className: null, isHomework: false, sessions: null, tierStatus: 'none' };
@@ -76,55 +77,52 @@ export function parseTuition(detail) {
   const className = (head || '').trim();
   const sessionMatch = (tail || '').match(/(\d+)\s*堂課/);
   const sessions = sessionMatch ? parseInt(sessionMatch[1], 10) : null;
-  const isHomework = className.includes('寫功課');
-  if (isHomework) {
-    return { days: 5, daysRaw: '寫功課(5天)', className, isHomework, sessions, tierStatus: 'homework' };
+
+  // 寫功課依規則不列入折扣計算，且固定 5 天（02 §8 R13／R14、§9.4 Q7-A）
+  if (className.includes('寫功課')) {
+    return { days: 5, daysRaw: '寫功課(5天)', className, isHomework: true, sessions, tierStatus: 'homework' };
   }
 
-  // 取出所有方括號修飾；[團] 與年級標記（四年級）不是級距
-  const modifiers = [...className.matchAll(/\[([^\]]+)\]/g)].map(m => m[1]);
-  const tierCandidates = modifiers.filter(m => /^\d/.test(m));
+  const parsed = parseSingleClassToken(className);
+  const tierStatus = parsed.tierParseStatus;
+  const days = parsed.erpBillingTier;
 
-  if (tierCandidates.length === 0) {
-    return { days: 5, daysRaw: '5', className, isHomework, sessions, tierStatus: 'full_week' };
+  let daysRaw;
+  if (days === null) {
+    // 產品端刻意不給值（未知修飾 / 不適用）。此處不得代為猜 5。
+    daysRaw = tierStatus === 'unavailable' ? `無法解析級距(${parsed.erpBillingTierRaw ?? '未知修飾'})` : '無級距值';
+  } else if (tierStatus === 'defaulted') {
+    daysRaw = '5'; // 無後綴，產品端 defaulted 為 5
+  } else {
+    daysRaw = String(days);
   }
-  const known = tierCandidates.map(m => KNOWN_TIERS.get(m)).filter(d => d !== undefined);
-  if (known.length === tierCandidates.length) {
-    // 同時出現多個已知級距屬資料矛盾，不猜，交由呼叫端標示無法解析
-    if (known.length > 1) {
-      return { days: null, daysRaw: `級距矛盾(${tierCandidates.join('/')})`, className, isHomework, sessions, tierStatus: 'ambiguous' };
-    }
-    return { days: known[0], daysRaw: String(known[0]), className, isHomework, sessions, tierStatus: 'parsed' };
-  }
-  // 有數字開頭的修飾卻不在已知級距表內（如 [2]、[6]、[特殊數字]）
-  return {
-    days: null,
-    daysRaw: `無法解析級距(${tierCandidates.join('/')})`,
-    className,
-    isHomework,
-    sessions,
-    tierStatus: 'unknown',
-  };
+
+  return { days, daysRaw, className, isHomework: false, sessions, tierStatus };
 }
 
 export function parseDiscounts(details) {
   let rateBps = 10000;
   let rateDetail = null;
-  let rateParseStatus = 'none';
   const extraDiscounts = [];
   for (const d of details) {
     const hit = RATE_PATTERNS.find(([re]) => re.test(d));
     if (hit) {
       rateBps = hit[1];
       rateDetail = d;
-      rateParseStatus = 'parsed';
     } else {
       extraDiscounts.push(d);
-      // 見到「課程費」字樣卻認不出數字 → 報表出現新格式，不可當成無折扣
-      if (/課程費/.test(d)) rateParseStatus = 'unknown';
     }
   }
-  return { rateBps, rateDetail, rateParseStatus, extraDiscounts };
+  // 見到「課程費」字樣卻無任何白名單命中 → 報表出現新格式，不可當成無折扣（review F-NEW-4）。
+  // 判定放在迴圈之後，讓結果與明細順序無關：
+  // 「未知格式 + 已解析格式」並存時，只要有任何一筆認不出，就維持 unknown。
+  const unparsedCourseFee = details.filter(
+    (d) => /課程費/.test(d) && !RATE_PATTERNS.some(([re]) => re.test(d)),
+  );
+  const rateParseStatus = rateDetail === null
+    ? (details.some((d) => /課程費/.test(d)) ? 'unknown' : 'none')
+    : (unparsedCourseFee.length > 0 ? 'unknown' : 'parsed');
+  return { rateBps, rateDetail, rateParseStatus, unparsedCourseFee, extraDiscounts };
 }
 
 function readReport(worksheet) {
@@ -192,7 +190,13 @@ function indexByName(students) {
   const duplicates = [];
   for (const s of students) {
     const key = normalizeName(s.name);
-    if (map.has(key)) duplicates.push(key);
+    if (map.has(key)) {
+      // 同名多人：以 set 覆蓋會靜默配對到最後一人（review F-NEW-3）。改記為歧義，
+      // 查詢時不可 unique 配對，必須要求人工以人員代碼核對。
+      duplicates.push(key);
+      map.set(key, null); // null = 該中文姓名對應多人，無法唯一配對
+      continue;
+    }
     map.set(key, s);
   }
   return { map, duplicates };
@@ -226,6 +230,29 @@ function buildNotes({ statusCategory, excel, web, careCategory }) {
     };
   }
 
+  // 報表級距無法解析：成因是報表格式，不是名單或課表變動（review F-NEW-1）
+  if (statusCategory === 'TIER_UNPARSED') {
+    return {
+      tone: 'warn',
+      notes: [
+        `報表有學費明細「${excel.className}」，但其中級距修飾不是產品認得的格式（${excel.daysRaw}），故無法取得天數。`,
+        `此為報表格式問題，非名單或課表變動；請人工確認該班別應為幾天。`,
+        `網頁端 ${careCategory} 天數為 ${web.daysLabel}。`,
+      ],
+      tags, homework: false, withdrawal: false, dupIssues, mismatches,
+    };
+  }
+  // 報表折扣格式無法解析：不可宣稱一致（review F-NEW-4）
+  if (statusCategory === 'RATE_UNPARSED') {
+    return {
+      tone: 'warn',
+      notes: [
+        `報表折扣明細含產品端不認得的「課程費」格式（${excel.extraDiscounts.join('、')}）。`,
+        `天數一致（${excel.daysLabel}），但折扣率無法確定，不可視為完全一致；請人工確認。`,
+      ],
+      tags, homework: !!homeworkToken, withdrawal: !!withdrawal, dupIssues, mismatches,
+    };
+  }
   if (statusCategory === 'UNPAIRABLE') {
     // 不可斷言成因：可能是報表與名單同名多人、或姓名寫法差異。交人工以人員代碼核對（review F1）
     return {
@@ -335,7 +362,7 @@ function buildNotes({ statusCategory, excel, web, careCategory }) {
 
 // ---------------------------------------------------------------- 比對主流程
 
-function compare(reportStudents, webStudents, asOfDate) {
+export function compare(reportStudents, webStudents, asOfDate) {
   const { map: webByName, duplicates } = indexByName(webStudents);
   const records = [];
 
@@ -362,18 +389,20 @@ function compare(reportStudents, webStudents, asOfDate) {
 
     // 查詢端必須與索引端使用同一個正規化，否則含括號英文名的學生會整批配對失敗（review F1）
     const lookupKey = normalizeName(entry.name);
-    const w = webByName.get(lookupKey);
+    const matched = webByName.get(lookupKey);
+    // undefined = 名單無此姓名（離班／退費）；null = 名單有此姓名但對應多人（review F-NEW-3）
+    const ambiguous = matched === null;
+    const w = matched ?? null;
+
     if (!w) {
-      // 名單完全沒有這個中文姓名 → 離班/退費；名單有但配對不上 → 疑似重名或姓名格式差異，不可混為一談
-      const unpairable = webStudents.some(s => normalizeName(s.name) === lookupKey);
-      const category = unpairable ? 'UNPAIRABLE' : 'NOT_IN_WEB';
+      const category = ambiguous ? 'UNPAIRABLE' : 'NOT_IN_WEB';
       records.push({
         name: entry.name,
-        personCode: '-',
+        personCode: ambiguous ? '（同名多人）' : '-',
         grade: '-',
         careCategory: '國小輔導',
         statusCategory: category,
-        statusLabel: unpairable ? '姓名無法唯一配對' : '名單已無此人',
+        statusLabel: ambiguous ? '姓名無法唯一配對' : '名單已無此人',
         excel,
         web: null,
         asOfDate,
@@ -411,15 +440,26 @@ function compare(reportStudents, webStudents, asOfDate) {
 
     let statusCategory = 'MATCH';
     let statusLabel = '完全一致';
-    if (excel.days === null) {
+    // 分界依據是「報表有沒有學費明細列」，不是枚舉 tierStatus。
+    // 報表明明有學費列卻讀不到天數時，說它「無學費項」是事實錯誤（review F-NEW-1）。
+    const hasTuitionRow = excel.className !== null && excel.className !== undefined;
+    if (!hasTuitionRow) {
       statusCategory = 'EXCEL_NO_TUITION';
       statusLabel = '報表無學費項';
+    } else if (excel.days === null) {
+      statusCategory = 'TIER_UNPARSED';
+      statusLabel = '報表級距無法解析';
     } else {
       const dayDiff = excel.days !== days;
       const discDiff = excel.rateBps !== rateBps;
       if (dayDiff && discDiff) { statusCategory = 'BOTH_DIFF'; statusLabel = '天數與折扣皆差異'; }
       else if (dayDiff) { statusCategory = 'DAY_DIFF'; statusLabel = '天數差異'; }
       else if (discDiff) { statusCategory = 'DISCOUNT_DIFF'; statusLabel = '折扣差異'; }
+      else if (excel.rateParseStatus === 'unknown') {
+        // 數字雖一致，但報表折扣格式認不出來，不可宣稱「完全一致」（review F-NEW-4）
+        statusCategory = 'RATE_UNPARSED';
+        statusLabel = '報表折扣無法解析';
+      }
     }
 
     records.push({
@@ -449,6 +489,20 @@ function compare(reportStudents, webStudents, asOfDate) {
 
 // ---------------------------------------------------------------- HTML
 
+/**
+ * 「需人工判讀、非兩邊直接比大小」的類別。
+ * 這一組必須在所有 UI 介面一致處理（badge、統計卡、歸納群組、分頁、JS 過濾），
+ * 否則新增類別時只改到一處，就會出現 undefined badge、漏計統計、點不掉的分頁
+ * （review F-NEW-3）。單一真相來源，任何地方要判斷都用這裡，不要各自列一次。
+ */
+const NEEDS_HUMAN_CATEGORIES = [
+  'NOT_IN_WEB',
+  'EXCEL_NO_TUITION',
+  'UNPAIRABLE',
+  'TIER_UNPARSED',
+  'RATE_UNPARSED',
+];
+
 /* Badge 對應系統既有意象：綠=一致、藍=級距（天數）、琥珀=折扣需確認、紅=兩者皆差、灰=名單無資料 */
 const BADGE_BY_CATEGORY = {
   MATCH: 'badge-ok',
@@ -457,7 +511,19 @@ const BADGE_BY_CATEGORY = {
   BOTH_DIFF: 'badge-withdrawal',
   NOT_IN_WEB: 'badge-class',
   EXCEL_NO_TUITION: 'badge-class',
+  UNPAIRABLE: 'badge-withdrawal',
+  TIER_UNPARSED: 'badge-warn',
+  RATE_UNPARSED: 'badge-warn',
 };
+
+/** 給 JS 端使用的分類清單，避免 HTML 與腳本各寫一份而不同步。 */
+const CATEGORY_JS = JSON.stringify({
+  needsHuman: NEEDS_HUMAN_CATEGORIES,
+  all: Object.keys(BADGE_BY_CATEGORY),
+});
+
+export const NEEDS_HUMAN = NEEDS_HUMAN_CATEGORIES;
+export const BADGES = BADGE_BY_CATEGORY;
 
 function escapeHtml(value) {
   return String(value ?? '').replace(/[&<>"']/g, c => ({
@@ -527,6 +593,18 @@ function renderInsightGroups(records) {
       hint: '寫功課依規則不列入折扣計算；若報表另給折扣，需確認依據為何種標籤或人工核准。',
     },
     {
+      key: 'unparsed',
+      title: '報表格式無法解析（不影響名單，需人工確認報表）',
+      filter: (r) => r.statusCategory === 'TIER_UNPARSED' || r.statusCategory === 'RATE_UNPARSED',
+      hint: '報表的級距或折扣寫法不在產品已認得的格式內，工具刻意不代為猜測。請人工確認報表格式，或確認是否新增了收費級距。',
+    },
+    {
+      key: 'unpairable',
+      title: '姓名無法唯一配對',
+      filter: (r) => r.statusCategory === 'UNPAIRABLE',
+      hint: '名單中有多位同名學生，工具不猜測對應到哪一位。請改以人員代碼核對。',
+    },
+    {
       key: 'notInWeb',
       title: '報表有名單已無／無學費項',
       filter: (r) => r.statusCategory === 'NOT_IN_WEB' || r.statusCategory === 'EXCEL_NO_TUITION',
@@ -561,6 +639,11 @@ function renderHtml(records, meta) {
   const bothCount = count('BOTH_DIFF');
   const notInWebCount = count('NOT_IN_WEB');
   const noTuitionCount = count('EXCEL_NO_TUITION');
+  const unpairableCount = count('UNPAIRABLE');
+  const tierUnparsedCount = count('TIER_UNPARSED');
+  const rateUnparsedCount = count('RATE_UNPARSED');
+  // 需人工判讀的總數（非直接比大小者），單獨一張卡，避免散在多張卡而看不出全貌
+  const needsHumanCount = records.filter(r => NEEDS_HUMAN_CATEGORIES.includes(r.statusCategory)).length;
   const diffCount = total - matchCount;
   const rate = total ? ((matchCount / total) * 100).toFixed(1) : '0.0';
 
@@ -968,9 +1051,9 @@ function renderHtml(records, meta) {
       <span class="stat-sub">標籤或人工特例</span>
     </div>
     <div class="stat-card">
-      <span class="stat-label">名單無此人／無學費</span>
-      <span class="stat-value is-neutral">${notInWebCount + noTuitionCount}</span>
-      <span class="stat-sub">期中離班或僅收雜費</span>
+      <span class="stat-label">需人工判讀</span>
+      <span class="stat-value is-neutral">${needsHumanCount}</span>
+      <span class="stat-sub">離班 ${notInWebCount}・無學費 ${noTuitionCount}・同名 ${unpairableCount}・格式 ${tierUnparsedCount + rateUnparsedCount}</span>
     </div>
   </div>
 
@@ -997,7 +1080,7 @@ function renderHtml(records, meta) {
     <button onclick="filterTable(this,'DAY_DIFF')">天數差異 (${dayCount})</button>
     <button onclick="filterTable(this,'DISCOUNT_DIFF')">折扣差異 (${discCount})</button>
     <button onclick="filterTable(this,'MATCH')">完全一致 (${matchCount})</button>
-    <button onclick="filterTable(this,'special')">離班／無學費 (${notInWebCount + noTuitionCount})</button>
+    <button onclick="filterTable(this,'needsHuman')">需人工判讀 (${needsHumanCount})</button>
   </div>
 
   <div class="filterbar">
@@ -1029,6 +1112,8 @@ function renderHtml(records, meta) {
   </div>
 </main>
 <script>
+  // 分類清單由 Node 端注入，與 badge／統計／歸納群組同源，不在此另寫一份
+  const CATEGORIES = ${CATEGORY_JS};
   let filter = 'all';
   function filterTable(btn, value) {
     filter = value;
@@ -1043,7 +1128,7 @@ function renderHtml(records, meta) {
       const cat = row.dataset.cat;
       const okType = filter === 'all' ? true
         : filter === 'diff' ? cat !== 'MATCH'
-        : filter === 'special' ? (cat === 'NOT_IN_WEB' || cat === 'EXCEL_NO_TUITION')
+        : filter === 'needsHuman' ? CATEGORIES.needsHuman.includes(cat)
         : cat === filter;
       const ok = okType && (!q || row.innerText.toLowerCase().includes(q));
       row.style.display = ok ? '' : 'none';
@@ -1124,6 +1209,9 @@ async function main() {
     both: count('BOTH_DIFF'),
     notInWeb: count('NOT_IN_WEB'),
     noTuition: count('EXCEL_NO_TUITION'),
+    unpairable: count('UNPAIRABLE'),
+    tierUnparsed: count('TIER_UNPARSED'),
+    rateUnparsed: count('RATE_UNPARSED'),
   });
   console.log('報告已輸出：', outputPath);
 }
