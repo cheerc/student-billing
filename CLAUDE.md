@@ -159,9 +159,9 @@
 本工具是**個人隨手使用的 side script**，供日後開新 session 時能直接取用的核對工具，**目前不屬專案交付方向的一部分**。因此：
 
 - 不視為產品功能、不列入交付範圍、不隨產品版本演進維護。
-- 維護優先度等同一般開發工具：能用、能重跑即可，不追求與產品同級別的覆蓋。防護實際只有 `tests/unit/compare-billing-report-parse.test.ts`；`tsconfig` 不涵蓋 `.mjs`（`npm run typecheck` 不會掃到本檔），而 eslint 對 `.mjs` 未啟用 `no-undef`／`no-unused-vars`，**不得**宣稱「型別或未定義變數由 lint 守護」。
-- 本檔直接複用產品領域層 `parseSingleClassToken`（級距解讀）。**不得**在工具內複寫一份班名／級距解析：複寫必然與產品漂移（review F-NEW-2 曾漏 `[5]`、並把 `[Starter]` 默默當成 5 天）。
-- 因需載入 TS 領域層，執行一律走 `npm run billing:compare`（走既有 `tsx`）；裸 `node` 無法解析產品 TS 內部的無副檔名 import。
+- 維護優先度等同一般開發工具：能用、能重跑即可，不追求與產品同級別的覆蓋。實際防護只有 `tests/unit/compare-billing-report-parse.test.ts`。**不得**宣稱「型別或未定義變數由 lint 守護」：eslint 對 `.mjs` 未啟用 `no-undef`／`no-unused-vars`，且 `tsconfig` 未開 `checkJs`，`.mjs` 內的型別錯誤不會被 `npm run typecheck` 攔下（review F-NEW-5／F-minor-4 已實測確認兩者皆放行）。
+- **不得複寫產品的班名／級距／離班解析**：級距一律取 `parseSingleClassToken`，離班標記一律取 API 已解析的 `enrollment.withdrawalDate`。複寫必然漂移——review F-NEW-2 曾漏 `[5]` 並把 `[Starter]` 默默當成 5 天；F-minor-2 又以自訂 regex 重複偵測離班而與產品錨定行尾的寫法分歧。
+- 執行一律走 `npm run billing:compare`（走既有 `tsx`）。裸 `node` 無法解析產品 TS 內部的無副檔名 import（`./types`），會 `ERR_MODULE_NOT_FOUND`。
 - 若日後確認有長期需求，經 operator 決定後**另案**檢討是否正式納入專案；在此之前維持現狀。
 
 ### 9.1 `web/scripts/compare-billing-report.mjs`

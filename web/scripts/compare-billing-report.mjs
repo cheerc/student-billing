@@ -2,12 +2,20 @@
  * 帳務比對工具：把網頁系統（米豆奶匯出 run）與米豆奶財務報表 XLSX 逐生比對，
  * 產出 HTML 差異報告（預設輸出到 ~/Downloads/，檔案不會進 Git）。
  *
- * 用法：
- *   node scripts/compare-billing-report.mjs --xlsx <財務報表.xlsx> [--out <報告.html>] [--base http://127.0.0.1:3000]
+ * 用法（**必須走 npm 入口，不可直接用 node 跑**）：
+ *   cd web
+ *   npm run billing:compare -- --xlsx <財務報表.xlsx> [--out <報告.html>] [--base http://127.0.0.1:3000]
+ *
+ * 為何需要 npm 入口：本檔 import 產品領域層的 TS，而 token-parser.ts 內部使用
+ * 無副檔名 import（'./types'），Node 的 ESM resolver 無法解析，裸 node 會
+ * ERR_MODULE_NOT_FOUND。npm 入口走既有 tsx，可正確解析（review F-minor-1）。
  *
  * 設計原則：
  *   - 不在本檔案內寫死任何學生姓名或個資；差異原因一律由資料推導（見 buildNotes）。
  *   - 報表與名單存在時間差，差異不預設任何一邊正確；僅標示可由資料佐證的可能成因。
+ *   - **不在此複寫產品的班名／級距／離班解析**，一律取 API 或產品解析器已解析好的值。
+ *     複寫必然漂移（review F-NEW-2 曾漏 [5]、把 [Starter] 默默當成 5 天；
+ *     review F-minor-2 曾以自訂 regex 重複偵測離班標記而與產品寫法分歧）。
  *   - 依 CLAUDE.md §4，所有 npm/node 指令需在 web/ 目錄內執行。
  */
 import ExcelJS from 'exceljs';
@@ -15,8 +23,6 @@ import fs from 'fs';
 import path from 'path';
 import os from 'os';
 import { fileURLToPath } from 'url';
-// 直接複用產品領域層的班名／級距解析，避免在工具側複寫一份而與產品漂移（review F-NEW-2）。
-// Node 24 原生支援 .mjs import .ts，故不需 tsx 或建置步驟。
 import { parseSingleClassToken } from '../src/domain/students/token-parser.ts';
 
 const SHEET_NAME = '班級營收狀況';
@@ -215,7 +221,8 @@ function buildNotes({ statusCategory, excel, web, careCategory }) {
   const homeworkToken = tokens.find(t => t.includes('寫功課'));
   const careTokens = tokens.filter(t => t.includes('國小輔導'));
   const otherTokens = tokens.filter(t => !t.includes('國小輔導') && !t.includes('寫功課') && !t.includes('交通車'));
-  const withdrawal = tokens.find(t => /\(\d{4}-\d{2}-\d{2}離班\)/.test(t));
+  // 離班標記取自 API 已解析欄位（見 compare() 的 withdrawals），不在此重複偵測
+  const withdrawal = (web.withdrawals ?? []).find(w => w.token.includes('國小輔導')) ?? (web.withdrawals ?? [])[0];
   const mismatches = (web.tierComparisons || []).filter(c => c.status === 'mismatch');
   const dupIssues = (web.issues || []).filter(i => i.code === 'DUPLICATE_SUBJECT_ENROLLMENT');
 
@@ -287,11 +294,7 @@ function buildNotes({ statusCategory, excel, web, careCategory }) {
   // 天數差異：先找資料裡可佐證的成因
   if (statusCategory === 'DAY_DIFF' || statusCategory === 'BOTH_DIFF') {
     // 報表級距解析不出來時不可歸因於班級異動：真正成因是報表格式，不是名單變了（review F2）
-    if (excel.tierStatus === 'unknown' || excel.tierStatus === 'ambiguous') {
-      notes.push(`報表班名「${excel.className}」的級距無法解析（${excel.daysLabel}），此差異源自報表格式，非名單或課表變動；請人工確認後再行調整。`);
-      notes.push(`報表 ${excel.daysLabel} vs 網頁 ${web.daysLabel}。`);
-      return { tone: 'warn', notes, tags, homework: !!homeworkToken, withdrawal: !!withdrawal, dupIssues, mismatches };
-    }
+    // （原此處另比 unknown／ambiguous 兩個自創值，delegation 後已不可能出現，屬殘留死碼，已移除）
     // 報表開單班名 vs 名單現況班名：不同即為帳務期間內的班級／級距異動
     if (excel.className && careTokens.length) {
       const stillListed = careTokens.some(t => excel.className.includes(t.replace(/\s*\(.*?\)\s*$/, '')));
@@ -306,7 +309,7 @@ function buildNotes({ statusCategory, excel, web, careCategory }) {
       notes.push(`同時報名多個國小輔導班（${careTokens.join('、')}），級距不一致。`);
     }
     if (withdrawal) {
-      notes.push(`含離班標記班級：${withdrawal}，帳務期間內可能已換班。`);
+      notes.push(`含離班標記班級：${withdrawal.token}（${withdrawal.date} 離班），帳務期間內可能已換班。`);
     }
     if (mismatches.length > 0) {
       for (const m of mismatches) {
@@ -433,6 +436,9 @@ export function compare(reportStudents, webStudents, asOfDate) {
       hasExtraFlag: care?.hasExtraFlag ?? false,
       declaredTier: (w.enrollments.find(e => e.baseName?.includes('國小輔導')) || {}).erpBillingTier ?? null,
       tokens: w.enrollments.map(e => e.rawToken),
+      // 離班標記直接取 API 已解析好的欄位，不在本檔用 regex 重新偵測
+      // （review F-minor-2：自訂 regex 與產品錨定行尾的寫法分歧，且屬重複實作）
+      withdrawals: w.enrollments.filter(e => e.withdrawalDate).map(e => ({ token: e.rawToken, date: e.withdrawalDate })),
       tierComparisons: w.tierComparisons || [],
       issues: w.issues || [],
       rawTags: w.trace?.rawTags || '',
@@ -1148,7 +1154,7 @@ function renderHtml(records, meta) {
 async function main() {
   const args = parseArgs(process.argv.slice(2));
   if (args.help || !args.xlsx) {
-    console.log('用法：node scripts/compare-billing-report.mjs --xlsx <財務報表.xlsx> [--out <報告.html>] [--base http://127.0.0.1:3000]');
+    console.log('用法：npm run billing:compare -- --xlsx <財務報表.xlsx> [--out <報告.html>] [--base http://127.0.0.1:3000]');
     process.exit(args.help ? 0 : 1);
   }
   if (!fs.existsSync(args.xlsx)) throw new Error(`找不到報表檔：${args.xlsx}`);
