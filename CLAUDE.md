@@ -234,9 +234,12 @@ operator 已裁示本節工具為**產品外的離線輔助工具**，`§1` 之�
 
 產品端 `applicableRateForClass` 對 **v3 run** 有兩條路徑：以 `run_class_categories` 快照判斷班級類別與固定 5 天旗標，缺快照才退回名稱映射。但 `GET /api/v1/runs/{id}` **未暴露 `classCategories` 欄位**（已實測），因此兩台工具直接讀 `applicableEnglishBps`／`applicableMathBps` 等欄位，等於**繞過了快照路徑**。
 
-影響有限：`fixed_five_days` 自動偵測只對「寫功課」與「美安」為 true（`class-category.ts`），兒童美語與國小數學的自動值一律是 `false`，除非維護者手動改過。因此在未手動覆寫的情況下，名稱映射與快照的結果一致。
+影響有限，但**分歧面比只看固定 5 天更寬**：
 
-**本節不修正此繞過**，僅記錄：若日後有人手動為美語／數學班設定了不同的類別或固定 5 天旗標，兩台工具的讀數將與畫面顯示不同。修正方向是讓 `GET /api/v1/runs/{id}` 一併回傳 `classCategories`，工具改走 `applicableRateForClass` 的正式路徑。
+- `run_class_categories.fixed_five_days` 自動偵測只對「寫功課」與「美安」為 true（`class-category.ts`），兒童美語與國小數學的自動值一律 `false`。
+- 但 `run_class_categories.category`（班級類別：care／math／english）**同樣可被維護者手動覆寫**。因此不只改固定 5 天旗標會造成偏離，**手動改分類也會**讓工具讀數與畫面不同——例如把某個兒童美語班手動改為 `care`，工具仍會讀 `applicableEnglishBps`，而畫面會依 `care` 走安親／課輔分支。
+
+**本節不修正此繞過**，僅記錄：若日後有人手動改過任何班級的類別或固定 5 天旗標，兩台工具的讀數將與畫面顯示不同。修正方向是讓 `GET /api/v1/runs/{id}` 一併回傳 `classCategories`，工具改走 `applicableRateForClass` 的正式路徑。
 
 ### 9.4 檔案產出與樣式
 
