@@ -10,12 +10,22 @@
  * 無副檔名 import（'./types'），Node 的 ESM resolver 無法解析，裸 node 會
  * ERR_MODULE_NOT_FOUND。npm 入口走既有 tsx，可正確解析（review F-minor-1）。
  *
+ * ## 本檔與 scripts/shared/ 的分界
+ *
+ * 共用層放的是「兩個工具都一樣、且不含國小輔導知識」的東西：報表欄位位置、
+ * 姓名正規化、唯讀 API 呼叫、差異分類的宣告與推導、HTML 外殼與樣式。
+ *
+ * 留在本檔的是 100% 國小輔導的業務判斷：級距如何解讀成天數、寫功課的規則適用、
+ * 哪些名單欄位是安親／課輔、差異說明怎麼措辭。
+ *
+ * 唯一的例外是 `parseTuition`：它雖然被放在共用層之外，但裡面呼叫的是產品端的
+ * `parseSingleClassToken`，**不得**在此複寫一份級距解析（review F-NEW-2 曾漏 `[5]`、
+ * 把 `[Starter]` 默默當成 5 天）。共用層沒有產品領域層的依賴，因此這個函式
+ * 必須留在工具端——這是刻意的邊界，不是遺漏。
+ *
  * 設計原則：
  *   - 不在本檔案內寫死任何學生姓名或個資；差異原因一律由資料推導（見 buildNotes）。
  *   - 報表與名單存在時間差，差異不預設任何一邊正確；僅標示可由資料佐證的可能成因。
- *   - **不在此複寫產品的班名／級距／離班解析**，一律取 API 或產品解析器已解析好的值。
- *     複寫必然漂移（review F-NEW-2 曾漏 [5]、把 [Starter] 默默當成 5 天；
- *     review F-minor-2 曾以自訂 regex 重複偵測離班標記而與產品寫法分歧）。
  *   - 依 CLAUDE.md §4，所有 npm/node 指令需在 web/ 目錄內執行。
  */
 import ExcelJS from 'exceljs';
@@ -25,7 +35,64 @@ import os from 'os';
 import { fileURLToPath } from 'url';
 import { parseSingleClassToken } from '../src/domain/students/token-parser.ts';
 
+import { parseDiscounts, bpsToLabel, readReport } from './shared/report-xlsx.ts';
+import { fetchRunStudents, fetchRun } from './shared/roster-api.ts';
+import { normalizeName, indexByName } from './shared/name-matching.ts';
+import { defineCategories, formatCategorySummary } from './shared/category-registry.ts';
+import { renderShell, escapeHtml } from './shared/report-shell.ts';
+import { assertProjectRoot, assertOutputOutsideProject } from './shared/project-guard.ts';
+
 const SHEET_NAME = '班級營收狀況';
+
+/** 米豆奶財務報表的科目名稱：學費明細與折扣明細分屬不同科目列。 */
+const REPORT_SUBJECTS = { tuition: '學費', discount: '折扣' };
+
+/**
+ * 差異分類的**單一真相來源**（CLAUDE.md §9.2）。
+ *
+ * 過去新增一個分類要同時改六處（needsHuman 清單、badge 對照、statusLabel、
+ * 分頁按鈕、歸納群組 filter、主控台統計），漏改任何一處都不會報錯，
+ * 只會讓報告的某個介面漏掉該分類——review 中實際發生過。
+ *
+ * 現在 badge 對照、label、分頁按鈕、需人工判讀清單、頁面腳本的分類清單，
+ * 與主控台統計的欄位集合與鍵名，全部由 `defineCategories` 推導。
+ *
+ * **尚未推導、仍在本檔手寫兩份的**（刻意留到下一個工具）：
+ *   - renderHtml 的統計卡：九個 `count('CATEGORY')` 字面值；
+ *   - INSIGHT_GROUPS 的 filter：各自直接比 statusCategory。
+ * 兩者都仍需新增分類時同步修改，而漏改都不會報錯。本檔的 insightGroup 欄位
+ * 目前**只被測試讀取**，尚未接上這兩個介面——它存在的目的只是讓「新增分類時
+ * 必須宣告歸納意圖」在型別與測試層先成立，接線留待 PR C。
+ *
+ * badge 沿用系統既有意象：綠=一致、藍=級距（天數）、琥珀=折扣需確認、
+ * 紅=兩者皆差、灰=名單無資料。
+ */
+const CATEGORIES = defineCategories([
+  { id: 'MATCH', label: '完全一致', summaryKey: 'match', badge: 'badge-ok', needsHuman: false, tab: 'MATCH', tabOrder: 30, insightGroup: 'none' },
+  { id: 'DAY_DIFF', label: '天數差異', summaryKey: 'day', badge: 'badge-tier', needsHuman: false, tab: 'DAY_DIFF', tabOrder: 10, insightGroup: 'mismatch' },
+  { id: 'DISCOUNT_DIFF', label: '折扣差異', summaryKey: 'discount', badge: 'badge-warn', needsHuman: false, tab: 'DISCOUNT_DIFF', tabOrder: 20, insightGroup: 'none' },
+  { id: 'BOTH_DIFF', label: '天數與折扣皆差異', summaryKey: 'both', badge: 'badge-withdrawal', needsHuman: false, insightGroup: 'mismatch' },
+  { id: 'NOT_IN_WEB', label: '名單已無此人', summaryKey: 'notInWeb', badge: 'badge-class', needsHuman: true, insightGroup: 'notInWeb' },
+  { id: 'EXCEL_NO_TUITION', label: '報表無學費項', summaryKey: 'noTuition', badge: 'badge-class', needsHuman: true, insightGroup: 'notInWeb' },
+  { id: 'UNPAIRABLE', label: '姓名無法唯一配對', summaryKey: 'unpairable', badge: 'badge-withdrawal', needsHuman: true, insightGroup: 'unpairable' },
+  { id: 'TIER_UNPARSED', label: '報表級距無法解析', summaryKey: 'tierUnparsed', badge: 'badge-warn', needsHuman: true, insightGroup: 'unparsed' },
+  { id: 'RATE_UNPARSED', label: '報表折扣無法解析', summaryKey: 'rateUnparsed', badge: 'badge-warn', needsHuman: true, insightGroup: 'unparsed' },
+]);
+
+/** 分類 id → 中文 label。由 defineCategories 推導，不另列一份。 */
+const STATUS_LABEL = CATEGORIES.labels;
+
+/** 分類 id → CSS badge class。由 defineCategories 推導，不另列一份。 */
+const BADGE_BY_CATEGORY = CATEGORIES.badges;
+
+/** 需人工判讀（非兩邊直接比大小）的分類清單。由 defineCategories 推導。 */
+const NEEDS_HUMAN_CATEGORIES = CATEGORIES.needsHuman;
+
+const CATEGORY_JS = CATEGORIES.categoryJs;
+
+/** 保留舊的匯出名稱，供既有測試與日後的工具沿用。 */
+export const NEEDS_HUMAN = NEEDS_HUMAN_CATEGORIES;
+export const BADGES = BADGE_BY_CATEGORY;
 
 // ---------------------------------------------------------------- CLI
 
@@ -43,26 +110,6 @@ function parseArgs(argv) {
 }
 
 // ---------------------------------------------------------------- Excel 解析
-
-/**
- * 折扣明細 → bps（10000 = 無折扣）。只認「課程費 NN折」為課程適用率；其餘視為獨立優惠項。
- * rateParseStatus：'parsed' 認得格式、'none' 全是獨立優惠項、'unknown' 見到課程費字樣卻認不出數字。
- * unknown 必須與「確定無折扣」區分：前者是報表格式變了，不能當成沒折扣（review F3）。
- */
-const RATE_PATTERNS = [
-  [/課程費\s*95\s*折/, 9500],
-  [/課程費\s*9\s*折/, 9000],
-  [/課程費\s*85\s*折/, 8500],
-  [/課程費\s*8\s*折/, 8000],
-  [/課程費\s*7\s*折/, 7000],
-];
-
-function bpsToLabel(bps) {
-  if (bps === null || bps === undefined) return '-';
-  if (bps === 10000) return '無折扣 (100%)';
-  const zhe = (bps / 1000).toFixed(1).replace(/\.0$/, '');
-  return `${zhe}折 (${bps / 100}%)`;
-}
 
 /**
  * 學費明細 → 週收費天數。
@@ -106,117 +153,7 @@ export function parseTuition(detail) {
   return { days, daysRaw, className, isHomework: false, sessions, tierStatus };
 }
 
-export function parseDiscounts(details) {
-  let rateBps = 10000;
-  let rateDetail = null;
-  const extraDiscounts = [];
-  for (const d of details) {
-    const hit = RATE_PATTERNS.find(([re]) => re.test(d));
-    if (hit) {
-      rateBps = hit[1];
-      rateDetail = d;
-    } else {
-      extraDiscounts.push(d);
-    }
-  }
-  // 見到「課程費」字樣卻無任何白名單命中 → 報表出現新格式，不可當成無折扣（review F-NEW-4）。
-  // 判定放在迴圈之後，讓結果與明細順序無關：
-  // 「未知格式 + 已解析格式」並存時，只要有任何一筆認不出，就維持 unknown。
-  const unparsedCourseFee = details.filter(
-    (d) => /課程費/.test(d) && !RATE_PATTERNS.some(([re]) => re.test(d)),
-  );
-  const rateParseStatus = rateDetail === null
-    ? (details.some((d) => /課程費/.test(d)) ? 'unknown' : 'none')
-    : (unparsedCourseFee.length > 0 ? 'unknown' : 'parsed');
-  return { rateBps, rateDetail, rateParseStatus, unparsedCourseFee, extraDiscounts };
-}
-
-function readReport(worksheet) {
-  const students = new Map();
-  worksheet.eachRow((row, rowNumber) => {
-    if (rowNumber === 1) return;
-    const name = row.getCell(1).text?.trim();
-    if (!name) return;
-    const entry = students.get(name) || {
-      name, tuition: null, discounts: [], other: [], otherDiscounts: [],
-      billNo: null, billDate: null, billStatus: null,
-    };
-    const detail = row.getCell(4).text?.trim();
-    const subject = row.getCell(7).text?.trim();
-    entry.billNo ??= row.getCell(2).text?.trim();
-    entry.billDate ??= row.getCell(3).text?.trim();
-    entry.billStatus ??= row.getCell(8).text?.trim();
-    if (subject === '學費') entry.tuition = detail;
-    else if (subject === '折扣') {
-      entry.discounts.push(detail);
-      // 折扣科目內，未被「課程費 NN折」認列者（如普測優惠、訂金）為額外獨立折扣項
-      if (detail && !RATE_PATTERNS.some(([re]) => re.test(detail))) entry.otherDiscounts.push(detail);
-    } else entry.other.push(detail);
-    students.set(name, entry);
-  });
-  return students;
-}
-
-// ---------------------------------------------------------------- Web API
-
-async function fetchRunStudents(base) {
-  // 連不上時原始錯誤只有 "fetch failed"，對首次使用本工具的 agent 毫無診斷價值。
-  // 改成明確指出「伺服器沒開」這個最常見原因（review F-minor-a）。
-  let infoRes;
-  try {
-    infoRes = await fetch(`${base}/api/v1/runs/current`);
-  } catch {
-    throw new Error(
-      `無法連線到 ${base}。請先啟動本機伺服器：cd web && npm run dev\n` +
-      `（本工具唯讀讀取本機 API，伺服器未啟動時無法取得名單資料。）`,
-    );
-  }
-  const info = await infoRes.json();
-  const runId = info.activeRunId || info.run?.id;
-  if (!runId) throw new Error('找不到 active run，請先在網頁建立匯出並執行計算。');
-
-  const students = [];
-  let cursor = null;
-  while (true) {
-    let url = `${base}/api/v1/runs/${runId}/students?limit=200`;
-    if (cursor) url += `&cursor=${encodeURIComponent(cursor)}`;
-    const res = await fetch(url);
-    if (!res.ok) throw new Error(`查詢學生失敗 (${res.status}): ${JSON.stringify(await res.json())}`);
-    const data = await res.json();
-    students.push(...data.items);
-    if (!data.nextCursor) break;
-    cursor = data.nextCursor;
-  }
-  return { runId, students };
-}
-
-/**
- * 配對鍵：去掉括號英文名後的中文姓名。
- * 兩邊都必須過同一個正規化，否則索引端去括號、查詢端用原文會整批配對失敗，
- * 且失敗會被誤標成「名單已無此人」（review F1）。
- */
-export function normalizeName(name) {
-  // 同時接受半形與全形括號：名單由本工具產生（半形），報表來自外部系統，可能為全形
-  return String(name ?? '').replace(/\s*[（(][^）)]*[）)]\s*/g, '').trim();
-}
-
-/** 以正規化後的中文姓名建立索引；回報重名以免誤配。 */
-function indexByName(students) {
-  const map = new Map();
-  const duplicates = [];
-  for (const s of students) {
-    const key = normalizeName(s.name);
-    if (map.has(key)) {
-      // 同名多人：以 set 覆蓋會靜默配對到最後一人（review F-NEW-3）。改記為歧義，
-      // 查詢時不可 unique 配對，必須要求人工以人員代碼核對。
-      duplicates.push(key);
-      map.set(key, null); // null = 該中文姓名對應多人，無法唯一配對
-      continue;
-    }
-    map.set(key, s);
-  }
-  return { map, duplicates };
-}
+export { parseDiscounts, normalizeName };
 
 // ---------------------------------------------------------------- 差異原因推導
 
@@ -248,6 +185,9 @@ function buildNotes({ statusCategory, excel, web, careCategory }) {
    * 這類真實學生資料，`MATCH` 的學生會被拉進「天數差異的最可能來源」等群組——
    * 分類計數不變（MATCH 仍是 MATCH）但報告內容改變，屬靜默的行為破壞。
    * 因此預設一律為 `[]`／`false`；需要帶資料的分支必須顯式傳入。
+   *
+   * `tags` 目前的消費者是零：這裡填入是為了維持欄位集合固定（少一個欄位就會
+   * 讓 Note 型別退化為 union）。它不影響任何渲染輸出。
    */
   const finish = (partial) => ({
     tone: 'warn',
@@ -434,7 +374,7 @@ export function compare(reportStudents, webStudents, asOfDate) {
         grade: '-',
         careCategory: '國小輔導',
         statusCategory: category,
-        statusLabel: ambiguous ? '姓名無法唯一配對' : '名單已無此人',
+        statusLabel: STATUS_LABEL[category],
         excel,
         web: null,
         asOfDate,
@@ -474,28 +414,26 @@ export function compare(reportStudents, webStudents, asOfDate) {
     };
 
     let statusCategory = 'MATCH';
-    let statusLabel = '完全一致';
     // 分界依據是「報表有沒有學費明細列」，不是枚舉 tierStatus。
     // 報表明明有學費列卻讀不到天數時，說它「無學費項」是事實錯誤（review F-NEW-1）。
     const hasTuitionRow = excel.className !== null && excel.className !== undefined;
     if (!hasTuitionRow) {
       statusCategory = 'EXCEL_NO_TUITION';
-      statusLabel = '報表無學費項';
     } else if (excel.days === null) {
       statusCategory = 'TIER_UNPARSED';
-      statusLabel = '報表級距無法解析';
     } else {
       const dayDiff = excel.days !== days;
       const discDiff = excel.rateBps !== rateBps;
-      if (dayDiff && discDiff) { statusCategory = 'BOTH_DIFF'; statusLabel = '天數與折扣皆差異'; }
-      else if (dayDiff) { statusCategory = 'DAY_DIFF'; statusLabel = '天數差異'; }
-      else if (discDiff) { statusCategory = 'DISCOUNT_DIFF'; statusLabel = '折扣差異'; }
+      if (dayDiff && discDiff) statusCategory = 'BOTH_DIFF';
+      else if (dayDiff) statusCategory = 'DAY_DIFF';
+      else if (discDiff) statusCategory = 'DISCOUNT_DIFF';
       else if (excel.rateParseStatus === 'unknown') {
         // 數字雖一致，但報表折扣格式認不出來，不可宣稱「完全一致」（review F-NEW-4）
         statusCategory = 'RATE_UNPARSED';
-        statusLabel = '報表折扣無法解析';
       }
     }
+    // statusLabel 一律由 defineCategories 的 label 推導，新增分類不會漏掉
+    const statusLabel = STATUS_LABEL[statusCategory];
 
     records.push({
       name: entry.name,
@@ -525,45 +463,79 @@ export function compare(reportStudents, webStudents, asOfDate) {
 // ---------------------------------------------------------------- HTML
 
 /**
- * 「需人工判讀、非兩邊直接比大小」的類別。
- * 這一組必須在所有 UI 介面一致處理（badge、統計卡、歸納群組、分頁、JS 過濾），
- * 否則新增類別時只改到一處，就會出現 undefined badge、漏計統計、點不掉的分頁
- * （review F-NEW-3）。單一真相來源，任何地方要判斷都用這裡，不要各自列一次。
+ * 差異歸納群組。
+ *
+ * 群組的**內容**是國小輔導專屬的判斷（哪些旗標構成值得人工確認的成因），
+ * 故留在本檔。
+ *
+ * 注意：每個群組的 filter 目前**直接比 statusCategory 字面值**，沒有讀取
+ * `CATEGORIES.groupOf`。也就是說「哪個分類歸哪個群組」在本檔被寫了兩份
+ * （specs 的 insightGroup 與這裡的 filter），兩份不同步時不會有任何錯誤。
+ * `groupOf` 目前只有測試在讀。接線屬於下一個工具（PR C）的工作，
+ * 本 PR 不動它，以免在沒有第二個真實使用者的情況下先猜錯介面。
  */
-const NEEDS_HUMAN_CATEGORIES = [
-  'NOT_IN_WEB',
-  'EXCEL_NO_TUITION',
-  'UNPAIRABLE',
-  'TIER_UNPARSED',
-  'RATE_UNPARSED',
+const INSIGHT_GROUPS = [
+  {
+    key: 'mismatch',
+    title: 'ERP 登記級距與計算值不一致（天數差異的最可能來源）',
+    filter: (r) => r.note.mismatches?.length > 0,
+    hint: '系統依課表扣除衝堂重疊天數，ERP 登記級距與報表開立未反映此扣天。請確認米豆奶登記級距是否需更正，或課表時段是否有誤。',
+  },
+  {
+    key: 'duplicate',
+    title: '名單重複報名同類別班級',
+    filter: (r) => r.note.dupIssues?.length > 0,
+    hint: '同一學生同時存在多個同類別班級（常見於換班未清舊班）。依 D17 原則不由公式自動修正，實際開單交由人工判斷。',
+  },
+  {
+    key: 'withdrawal',
+    title: '含離班標記班級',
+    filter: (r) => r.note.withdrawal,
+    hint: '帳務期間內可能已換班或離班，報表與名單時間差造成差異。',
+  },
+  {
+    key: 'homework',
+    title: '寫功課折扣認定差異',
+    filter: (r) => r.note.homework,
+    hint: '寫功課依規則不列入折扣計算；若報表另給折扣，需確認依據為何種標籤或人工核准。',
+  },
+  {
+    key: 'unparsed',
+    title: '報表格式無法解析（不影響名單，需人工確認報表）',
+    filter: (r) => r.statusCategory === 'TIER_UNPARSED' || r.statusCategory === 'RATE_UNPARSED',
+    hint: '報表的級距或折扣寫法不在產品已認得的格式內，工具刻意不代為猜測。請人工確認報表格式，或確認是否新增了收費級距。',
+  },
+  {
+    key: 'unpairable',
+    title: '姓名無法唯一配對',
+    filter: (r) => r.statusCategory === 'UNPAIRABLE',
+    hint: '名單中有多位同名學生，工具不猜測對應到哪一位。請改以人員代碼核對。',
+  },
+  {
+    key: 'notInWeb',
+    title: '報表有名單已無／無學費項',
+    filter: (r) => r.statusCategory === 'NOT_IN_WEB' || r.statusCategory === 'EXCEL_NO_TUITION',
+    hint: '期中離班、退費，或當期僅收雜費而無正式學費項。',
+  },
 ];
 
-/* Badge 對應系統既有意象：綠=一致、藍=級距（天數）、琥珀=折扣需確認、紅=兩者皆差、灰=名單無資料 */
-const BADGE_BY_CATEGORY = {
-  MATCH: 'badge-ok',
-  DAY_DIFF: 'badge-tier',
-  DISCOUNT_DIFF: 'badge-warn',
-  BOTH_DIFF: 'badge-withdrawal',
-  NOT_IN_WEB: 'badge-class',
-  EXCEL_NO_TUITION: 'badge-class',
-  UNPAIRABLE: 'badge-withdrawal',
-  TIER_UNPARSED: 'badge-warn',
-  RATE_UNPARSED: 'badge-warn',
-};
-
-/** 給 JS 端使用的分類清單，避免 HTML 與腳本各寫一份而不同步。 */
-const CATEGORY_JS = JSON.stringify({
-  needsHuman: NEEDS_HUMAN_CATEGORIES,
-  all: Object.keys(BADGE_BY_CATEGORY),
-});
-
-export const NEEDS_HUMAN = NEEDS_HUMAN_CATEGORIES;
-export const BADGES = BADGE_BY_CATEGORY;
-
-function escapeHtml(value) {
-  return String(value ?? '').replace(/[&<>"']/g, c => ({
-    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
-  }[c]));
+function renderInsightGroups(records) {
+  return INSIGHT_GROUPS
+    .map((g) => {
+      const hits = records.filter(g.filter);
+      if (!hits.length) return '';
+      const list = hits
+        .map(r => `<li><strong>${escapeHtml(r.name)}</strong>（${escapeHtml(r.personCode)}）：${escapeHtml(r.note.notes.join('；'))}</li>`)
+        .join('');
+      // 需人工判讀者用琥珀（alert-warning），單純資訊用中性（alert-neutral）
+      const variant = g.key === 'notInWeb' ? 'alert-neutral' : 'alert-warning';
+      return `<div class="alert ${variant}">
+  <strong>${escapeHtml(g.title)}（${hits.length} 筆）</strong>
+  <ul>${list}</ul>
+  <p class="hint">${escapeHtml(g.hint)}</p>
+</div>`;
+    })
+    .join('');
 }
 
 function renderRow(r, idx) {
@@ -601,70 +573,6 @@ function renderRow(r, idx) {
   </tr>`;
 }
 
-function renderInsightGroups(records) {
-  const groups = [
-    {
-      key: 'mismatch',
-      title: 'ERP 登記級距與計算值不一致（天數差異的最可能來源）',
-      filter: (r) => r.note.mismatches?.length > 0,
-      hint: '系統依課表扣除衝堂重疊天數，ERP 登記級距與報表開立未反映此扣天。請確認米豆奶登記級距是否需更正，或課表時段是否有誤。',
-    },
-    {
-      key: 'duplicate',
-      title: '名單重複報名同類別班級',
-      filter: (r) => r.note.dupIssues?.length > 0,
-      hint: '同一學生同時存在多個同類別班級（常見於換班未清舊班）。依 D17 原則不由公式自動修正，實際開單交由人工判斷。',
-    },
-    {
-      key: 'withdrawal',
-      title: '含離班標記班級',
-      filter: (r) => r.note.withdrawal,
-      hint: '帳務期間內可能已換班或離班，報表與名單時間差造成差異。',
-    },
-    {
-      key: 'homework',
-      title: '寫功課折扣認定差異',
-      filter: (r) => r.note.homework,
-      hint: '寫功課依規則不列入折扣計算；若報表另給折扣，需確認依據為何種標籤或人工核准。',
-    },
-    {
-      key: 'unparsed',
-      title: '報表格式無法解析（不影響名單，需人工確認報表）',
-      filter: (r) => r.statusCategory === 'TIER_UNPARSED' || r.statusCategory === 'RATE_UNPARSED',
-      hint: '報表的級距或折扣寫法不在產品已認得的格式內，工具刻意不代為猜測。請人工確認報表格式，或確認是否新增了收費級距。',
-    },
-    {
-      key: 'unpairable',
-      title: '姓名無法唯一配對',
-      filter: (r) => r.statusCategory === 'UNPAIRABLE',
-      hint: '名單中有多位同名學生，工具不猜測對應到哪一位。請改以人員代碼核對。',
-    },
-    {
-      key: 'notInWeb',
-      title: '報表有名單已無／無學費項',
-      filter: (r) => r.statusCategory === 'NOT_IN_WEB' || r.statusCategory === 'EXCEL_NO_TUITION',
-      hint: '期中離班、退費，或當期僅收雜費而無正式學費項。',
-    },
-  ];
-
-  return groups
-    .map((g) => {
-      const hits = records.filter(g.filter);
-      if (!hits.length) return '';
-      const list = hits
-        .map(r => `<li><strong>${escapeHtml(r.name)}</strong>（${escapeHtml(r.personCode)}）：${escapeHtml(r.note.notes.join('；'))}</li>`)
-        .join('');
-      // 需人工判讀者用琥珀（alert-warning），單純資訊用中性（alert-neutral）
-      const variant = g.key === 'notInWeb' ? 'alert-neutral' : 'alert-warning';
-      return `<div class="alert ${variant}">
-  <strong>${escapeHtml(g.title)}（${hits.length} 筆）</strong>
-  <ul>${list}</ul>
-  <p class="hint">${escapeHtml(g.hint)}</p>
-</div>`;
-    })
-    .join('');
-}
-
 function renderHtml(records, meta) {
   const total = records.length;
   const count = (cat) => records.filter(r => r.statusCategory === cat).length;
@@ -682,500 +590,63 @@ function renderHtml(records, meta) {
   const diffCount = total - matchCount;
   const rate = total ? ((matchCount / total) * 100).toFixed(1) : '0.0';
 
-  return `<!DOCTYPE html>
-<html lang="zh-TW">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="color-scheme" content="light">
-<title>國小輔導收費核對與財務報表比對報告</title>
-<style>
-/* Token 與元件版型取自 web/src/app/globals.css，維持與系統一致的視覺語言。
-   報告為單檔離線輸出，故在此沿用同一組變數與 class，不改動系統樣式。 */
-  :root {
-    --bg-primary: #f8fafc;
-    --bg-card: #ffffff;
-    --text-primary: #0f172a;
-    --text-secondary: #475569;
-    --text-muted: #64748b;
-    --border-color: #e2e8f0;
-    --primary-color: #2563eb;
-    --primary-hover: #1d4ed8;
-    --badge-bg: #eff6ff;
-    --badge-text: #1d4ed8;
-    --code-bg: #f1f5f9;
-    --success-bg: #ecfdf5;
-    --success-text: #065f46;
-    --warning-bg: #fffbeb;
-    --warning-text: #92400e;
-    --danger-bg: #fef2f2;
-    --danger-text: #991b1b;
-    --font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-  }
+  // 兩個槽位（同時差異警告、名單重名警告）分開傳入，即使為空也各佔一行——
+  // 這是原樣板的既有輸出，見 report-shell.ts 的 extraInsights 說明。
+  const bothWarning = bothCount > 0
+    ? `<div class="alert alert-warning"><strong>天數與折扣同時差異（${bothCount} 筆）</strong>：需同時確認班級異動與標籤異動。</div>`
+    : '';
 
-  * { box-sizing: border-box; margin: 0; padding: 0; }
+  // 分頁按鈕的**清單**來自 defineCategories（新增帶 tab 的分類即自動出現按鈕），
+  // 這裡只補上計數文字。顯示順序由 tabOrder 決定：先看天數、再看折扣、最後才看一致。
+  const tabs = CATEGORIES.tabs.map(t => ({ value: t.value, label: `${t.label} (${count(t.value)})` }));
 
-  body {
-    background-color: var(--bg-primary);
-    color: var(--text-primary);
-    font-family: var(--font-family);
-    line-height: 1.5;
-    min-height: 100vh;
-    /* 報告固定淺色，不隨系統深色模式翻轉（與系統一致） */
-    color-scheme: light;
-  }
-
-  .main {
-    padding: 24px;
-    max-width: 1800px;
-    margin: 0 auto;
-    width: 100%;
-  }
-
-  /* Header：沿用 .header + .logo-badge */
-  .header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    flex-wrap: wrap;
-    gap: 12px;
-    padding-bottom: 16px;
-    border-bottom: 1px solid var(--border-color);
-    margin-bottom: 20px;
-  }
-
-  .header-title { display: flex; align-items: center; gap: 12px; }
-  .header-title h1 { font-size: 1.25rem; font-weight: 700; }
-
-  .logo-badge {
-    background-color: var(--badge-bg);
-    color: var(--badge-text);
-    font-size: 0.75rem;
-    font-weight: 700;
-    padding: 2px 8px;
-    border-radius: 9999px;
-    border: 1px solid #bfdbfe;
-  }
-
-  .report-desc {
-    color: var(--text-secondary);
-    font-size: 0.875rem;
-    margin-bottom: 16px;
-    max-width: 900px;
-  }
-
-  /* Meta panel：沿用 .meta-panel / .meta-item */
-  .meta-panel {
-    background-color: var(--bg-card);
-    border: 1px solid var(--border-color);
-    border-radius: 8px;
-    padding: 16px;
-    margin-bottom: 24px;
-    font-size: 0.8125rem;
-    display: flex;
-    flex-wrap: wrap;
-    gap: 16px 32px;
-  }
-
-  .meta-item { display: flex; flex-direction: column; }
-
-  .meta-item-label {
-    color: var(--text-muted);
-    font-weight: 500;
-    margin-bottom: 2px;
-  }
-
-  .meta-item-val {
-    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-    color: var(--text-primary);
-    font-weight: 600;
-  }
-
-  /* Stats：沿用 .stats-grid / .stat-card */
-  .stats-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-    gap: 16px;
-    margin-bottom: 24px;
-  }
-
-  .stat-card {
-    background-color: var(--bg-card);
-    border: 1px solid var(--border-color);
-    border-radius: 8px;
-    padding: 16px;
-    display: flex;
-    flex-direction: column;
-    box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.04);
-  }
-
-  .stat-label {
-    font-size: 0.8125rem;
-    color: var(--text-muted);
-    font-weight: 500;
-    margin-bottom: 4px;
-  }
-
-  .stat-value { font-size: 1.75rem; font-weight: 700; color: var(--text-primary); }
-
-  .stat-value.is-match { color: var(--success-text); }
-  .stat-value.is-diff { color: var(--warning-text); }
-  .stat-value.is-neutral { color: var(--text-muted); }
-
-  .stat-sub { font-size: 0.75rem; color: var(--text-secondary); margin-top: 4px; }
-
-  /* 差異歸納：沿用 .alert 語意（琥珀=需確認、灰=資訊） */
-  .insight-group { margin-bottom: 8px; }
-  .insight-group h2 { font-size: 1rem; font-weight: 600; margin-bottom: 10px; }
-
-  .alert {
-    padding: 12px 16px;
-    border-radius: 6px;
-    font-size: 0.875rem;
-    margin-bottom: 12px;
-  }
-
-  .alert-warning {
-    background-color: var(--warning-bg);
-    color: var(--warning-text);
-    border: 1px solid #fde68a;
-  }
-
-  .alert-neutral {
-    background-color: var(--bg-card);
-    color: var(--text-secondary);
-    border: 1px solid var(--border-color);
-  }
-
-  .alert ul { margin: 8px 0 0; padding-left: 20px; }
-  .alert li { margin-bottom: 4px; }
-  .alert .hint { color: var(--text-muted); font-size: 0.75rem; margin-top: 8px; }
-
-  /* Tabs：沿用系統底線式（非藥丸式） */
-  .tabs {
-    display: flex;
-    gap: 20px;
-    border-bottom: 1px solid var(--border-color);
-    margin-bottom: 16px;
-    flex-wrap: wrap;
-  }
-
-  .tabs button {
-    padding: 10px 4px;
-    border: 0;
-    border-radius: 0;
-    background: transparent;
-    color: var(--text-muted);
-    font-weight: 600;
-    font-size: 14px;
-    cursor: pointer;
-    border-bottom: 2px solid transparent;
-    transition: all 0.15s ease;
-  }
-
-  .tabs button:hover { color: var(--text-primary); }
-
-  .tabs button.selected {
-    color: var(--primary-color);
-    border-bottom: 2px solid var(--primary-color);
-  }
-
-  .filterbar {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 12px;
-    align-items: center;
-    margin-bottom: 16px;
-  }
-
-  input.search {
-    min-height: 32px;
-    padding: 7px 10px;
-    border: 1px solid var(--border-color);
-    border-radius: 6px;
-    font-size: 0.8125rem;
-    width: 260px;
-    outline: none;
-    background-color: var(--bg-card);
-    color: var(--text-primary);
-  }
-
-  input.search:focus { border-color: var(--primary-color); }
-
-  .scope-hint { margin-left: auto; font-size: 12px; color: var(--text-muted); }
-
-  /* Table：沿用 .table-container + .data-table（含黏性表頭與姓名欄） */
-  .table-container {
-    background-color: var(--bg-card);
-    border: 1px solid var(--border-color);
-    border-radius: 8px;
-    overflow: hidden;
-    box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.05);
-  }
-
-  .table-scroll { overflow: auto; max-height: 70vh; }
-
-  .data-table {
-    width: 100%;
-    border-collapse: collapse;
-    text-align: left;
-    font-size: 0.8125rem;
-    min-width: 1560px;
-  }
-
-  .data-table th {
-    background-color: #f8fafc;
-    color: var(--text-muted);
-    font-weight: 600;
-    padding: 10px 12px;
-    border-bottom: 1px solid var(--border-color);
-    white-space: nowrap;
-    position: sticky;
-    top: 0;
-    z-index: 1;
-  }
-
-  .data-table td {
-    padding: 10px 12px;
-    border-bottom: 1px solid var(--border-color);
-    color: var(--text-primary);
-    vertical-align: top;
-  }
-
-  .data-table tbody tr:hover { background-color: #f8fafc; }
-  .data-table tbody tr.row-diff td { background-color: var(--warning-bg); }
-  .data-table tbody tr.row-diff:hover td { background-color: #fef9c3; }
-
-  .data-table .number { text-align: right; font-variant-numeric: tabular-nums; }
-
-  .data-table .sticky-name {
-    position: sticky;
-    left: 0;
-    z-index: 1;
-    background: #fff;
-    min-width: 96px;
-  }
-
-  /* 凍結欄的表頭交會格：z-index 抬高到 sticky 姓名欄之上，並沿用表頭底色
-     （.sticky-name 的 #fff 特異度高於 th 的 #f8fafc，此處補回以免單獨發白） */
-  .data-table th.sticky-name {
-    z-index: 3;
-    background-color: #f8fafc;
-  }
-
-  .data-table tbody tr:hover .sticky-name { background: #fafcff; }
-  .data-table tbody tr.row-diff .sticky-name { background-color: var(--warning-bg); }
-
-  /* Badges：沿用系統既有配色語意（綠=ok、藍=tier、琥珀=warn、紅=withdrawal、灰=class） */
-  .badge {
-    display: inline-block;
-    font-size: 0.75rem;
-    font-weight: 600;
-    padding: 2px 6px;
-    border-radius: 4px;
-    white-space: nowrap;
-  }
-
-  .badge-ok { background-color: var(--success-bg); color: var(--success-text); }
-  .badge-tier { background-color: #e0f2fe; color: #0369a1; border: 1px solid #bae6fd; }
-  .badge-warn { background-color: var(--warning-bg); color: var(--warning-text); }
-  .badge-withdrawal { background-color: #fee2e2; color: #991b1b; border: 1px solid #fca5a5; }
-  .badge-class { background-color: #f1f5f9; color: #334155; border: 1px solid #cbd5e1; }
-
-  .diff-box {
-    background-color: var(--danger-bg);
-    color: var(--danger-text);
-    padding: 2px 6px;
-    border-radius: 4px;
-    font-weight: 700;
-    display: inline-block;
-  }
-
-  .match-box { color: var(--success-text); font-weight: 600; }
-
-  .class-tag {
-    font-size: 11px;
-    background-color: var(--code-bg);
-    color: var(--text-secondary);
-    padding: 1px 6px;
-    border-radius: 4px;
-    display: inline-block;
-    margin: 1px 2px 1px 0;
-  }
-
-  .note-text {
-    font-size: 0.75rem;
-    color: var(--text-secondary);
-    min-width: 260px;
-    line-height: 1.5;
-  }
-
-  .note-text.is-warn { color: var(--warning-text); }
-  .muted { color: var(--text-muted); }
-
-  @media (max-width: 800px) {
-    .main { padding: 16px; }
-  }
-</style>
-</head>
-<body>
-<main class="main">
-  <header class="header">
-    <div class="header-title">
-      <h1>國小輔導收費核對與財務報表比對報告</h1>
-      <span class="logo-badge">帳務實質比對</span>
-    </div>
-  </header>
-
-  <p class="report-desc">
-    以每一學生為單位，比對「國小輔導」（含安親、課輔、寫功課）之每週收費天數與適用折扣。
-    比對目的為找出差異並標示可能成因，不預設任一資料來源為正確。
-  </p>
-
-  <div class="meta-panel">
-    <div class="meta-item">
-      <span class="meta-item-label">網頁系統名單</span>
-      <span class="meta-item-val">${escapeHtml(meta.asOfDate)} 米豆奶匯出</span>
-    </div>
-    <div class="meta-item">
-      <span class="meta-item-label">Run</span>
-      <span class="meta-item-val">${escapeHtml(meta.runId)}</span>
-    </div>
-    <div class="meta-item">
-      <span class="meta-item-label">帳務來源</span>
-      <span class="meta-item-val">${escapeHtml(path.basename(meta.xlsxPath))}</span>
-    </div>
-    <div class="meta-item">
-      <span class="meta-item-label">規則策略</span>
-      <span class="meta-item-val">${escapeHtml(meta.ruleSetVersion)} / ${escapeHtml(meta.numericPolicy)}</span>
-    </div>
-    <div class="meta-item">
-      <span class="meta-item-label">報表工作表</span>
-      <span class="meta-item-val">${escapeHtml(SHEET_NAME)}</span>
-    </div>
-    <div class="meta-item">
-      <span class="meta-item-label">核定發單日</span>
-      <span class="meta-item-val">${escapeHtml(meta.billAnchorDate)}</span>
-    </div>
-  </div>
-
-  <div class="stats-grid">
-    <div class="stat-card">
-      <span class="stat-label">報表學生總數</span>
-      <span class="stat-value">${total}</span>
-      <span class="stat-sub">有輔導帳單或相關項目</span>
-    </div>
-    <div class="stat-card">
-      <span class="stat-label">天數與折扣一致</span>
-      <span class="stat-value is-match">${matchCount}</span>
-      <span class="stat-sub">${rate}%</span>
-    </div>
-    <div class="stat-card">
-      <span class="stat-label">差異筆數</span>
-      <span class="stat-value is-diff">${diffCount}</span>
-      <span class="stat-sub">含離班／無學費項</span>
-    </div>
-    <div class="stat-card">
-      <span class="stat-label">天數差異</span>
-      <span class="stat-value">${dayCount}</span>
-      <span class="stat-sub">級距或衝堂扣天</span>
-    </div>
-    <div class="stat-card">
-      <span class="stat-label">折扣差異</span>
-      <span class="stat-value is-diff">${discCount}</span>
-      <span class="stat-sub">標籤或人工特例</span>
-    </div>
-    <div class="stat-card">
-      <span class="stat-label">需人工判讀</span>
-      <span class="stat-value is-neutral">${needsHumanCount}</span>
-      <span class="stat-sub">離班 ${notInWebCount}・無學費 ${noTuitionCount}・同名 ${unpairableCount}・格式 ${tierUnparsedCount + rateUnparsedCount}</span>
-    </div>
-  </div>
-
-  <section class="insight-group">
-    <h2>差異成因歸納（由資料推導）</h2>
-    ${renderInsightGroups(records) || '<p class="hint">無差異項目。</p>'}
-    ${
-      bothCount > 0
-        ? `<div class="alert alert-warning"><strong>天數與折扣同時差異（${bothCount} 筆）</strong>：需同時確認班級異動與標籤異動。</div>`
-        : ''
-    }
-    ${
-      meta.duplicateNames.length
-        ? `<div class="alert alert-neutral"><strong>比對警告：名單重名（${meta.duplicateNames.length} 筆）</strong>：${meta.duplicateNames
-            .map(escapeHtml)
-            .join('、')}，以姓名比對可能誤配，請改以人員代碼核對。</div>`
-        : ''
-    }
-  </section>
-
-  <div class="tabs">
-    <button class="selected" onclick="filterTable(this,'all')">全部 (${total})</button>
-    <button onclick="filterTable(this,'diff')">僅差異 (${diffCount})</button>
-    <button onclick="filterTable(this,'DAY_DIFF')">天數差異 (${dayCount})</button>
-    <button onclick="filterTable(this,'DISCOUNT_DIFF')">折扣差異 (${discCount})</button>
-    <button onclick="filterTable(this,'MATCH')">完全一致 (${matchCount})</button>
-    <button onclick="filterTable(this,'needsHuman')">需人工判讀 (${needsHumanCount})</button>
-  </div>
-
-  <div class="filterbar">
-    <input type="text" id="q" class="search" placeholder="搜尋姓名／代碼／班級／說明">
-    <span class="scope-hint" id="rowHint">顯示 ${total} 筆</span>
-  </div>
-
-  <div class="table-container">
-    <div class="table-scroll">
-      <table id="cmp" class="data-table">
-        <thead><tr>
-          <th class="number">#</th>
-          <th class="sticky-name">姓名</th>
-          <th>人員代碼</th>
-          <th>年級</th>
-          <th>課程類別</th>
-          <th>比對結果</th>
-          <th>報表天數</th>
-          <th>網頁天數</th>
-          <th>報表折扣</th>
-          <th>網頁折扣</th>
-          <th>報表開單項目</th>
-          <th>名單報名班級</th>
-          <th>差異說明與可能成因</th>
-        </tr></thead>
-        <tbody>${records.map(renderRow).join('')}</tbody>
-      </table>
-    </div>
-  </div>
-</main>
-<script>
-  // 分類清單由 Node 端注入，與 badge／統計／歸納群組同源，不在此另寫一份
-  const CATEGORIES = ${CATEGORY_JS};
-  let filter = 'all';
-  function filterTable(btn, value) {
-    filter = value;
-    document.querySelectorAll('.tabs button').forEach(b => b.classList.remove('selected'));
-    btn.classList.add('selected');
-    applyFilters();
-  }
-  function applyFilters() {
-    const q = document.getElementById('q').value.trim().toLowerCase();
-    let shown = 0;
-    document.querySelectorAll('#cmp tbody tr').forEach(row => {
-      const cat = row.dataset.cat;
-      const okType = filter === 'all' ? true
-        : filter === 'diff' ? cat !== 'MATCH'
-        : filter === 'needsHuman' ? CATEGORIES.needsHuman.includes(cat)
-        : cat === filter;
-      const ok = okType && (!q || row.innerText.toLowerCase().includes(q));
-      row.style.display = ok ? '' : 'none';
-      if (ok) shown++;
-    });
-    document.getElementById('rowHint').textContent = '顯示 ' + shown + ' 筆';
-  }
-  document.getElementById('q').addEventListener('input', applyFilters);
-</script>
-</body>
-</html>
-`;
+  return renderShell({
+    title: '國小輔導收費核對與財務報表比對報告',
+    logoBadge: '帳務實質比對',
+    description: '以每一學生為單位，比對「國小輔導」（含安親、課輔、寫功課）之每週收費天數與適用折扣。\n    比對目的為找出差異並標示可能成因，不預設任一資料來源為正確。',
+    meta: [
+      { label: '網頁系統名單', value: `${meta.asOfDate} 米豆奶匯出` },
+      { label: 'Run', value: meta.runId },
+      { label: '帳務來源', value: path.basename(meta.xlsxPath) },
+      { label: '規則策略', value: `${meta.ruleSetVersion} / ${meta.numericPolicy}` },
+      { label: '報表工作表', value: SHEET_NAME },
+      { label: '核定發單日', value: meta.billAnchorDate },
+    ],
+    stats: [
+      { label: '報表學生總數', value: total, sub: '有輔導帳單或相關項目', tone: 'plain' },
+      { label: '天數與折扣一致', value: matchCount, sub: `${rate}%`, tone: 'match' },
+      { label: '差異筆數', value: diffCount, sub: '含離班／無學費項', tone: 'diff' },
+      { label: '天數差異', value: dayCount, sub: '級距或衝堂扣天', tone: 'plain' },
+      { label: '折扣差異', value: discCount, sub: '標籤或人工特例', tone: 'diff' },
+      {
+        label: '需人工判讀', value: needsHumanCount, tone: 'neutral',
+        sub: `離班 ${notInWebCount}・無學費 ${noTuitionCount}・同名 ${unpairableCount}・格式 ${tierUnparsedCount + rateUnparsedCount}`,
+      },
+    ],
+    insightHtml: renderInsightGroups(records),
+    extraInsights: [bothWarning],
+    columns: [
+      { key: 'name', heading: '姓名', sticky: true },
+      { key: 'personCode', heading: '人員代碼' },
+      { key: 'grade', heading: '年級' },
+      { key: 'careCategory', heading: '課程類別' },
+      { key: 'status', heading: '比對結果' },
+      { key: 'excelDays', heading: '報表天數' },
+      { key: 'webDays', heading: '網頁天數' },
+      { key: 'excelRate', heading: '報表折扣' },
+      { key: 'webRate', heading: '網頁折扣' },
+      { key: 'billItems', heading: '報表開單項目' },
+      { key: 'tokens', heading: '名單報名班級' },
+      { key: 'note', heading: '差異說明與可能成因' },
+    ],
+    rowsHtml: records.map(renderRow).join(''),
+    duplicateNames: meta.duplicateNames,
+    tabs,
+    registry: CATEGORIES,
+    total,
+    diffCount,
+    needsHumanCount,
+  });
 }
 
 // ---------------------------------------------------------------- main
@@ -1194,27 +665,25 @@ async function main() {
   );
 
   // §3：報告含全體學生姓名與人員代碼，屬敏感個資，不得落在專案內（review F4）。
-  // 專案根 = web/ 的上一層；同樣擋掉 data/ 與任何 repo 內路徑。
-  const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
-  const resolvedOut = path.resolve(outputPath);
-  if (resolvedOut === projectRoot || resolvedOut.startsWith(projectRoot + path.sep)) {
-    throw new Error(
-      `報告含學生姓名與人員代碼，屬敏感個資（CLAUDE.md §3），不得輸出至專案內。\n` +
-      `拒絕路徑：${resolvedOut}\n` +
-      `請改用專案外路徑，例如：--out ~/Downloads/report.html`,
-    );
-  }
+  //
+  // 專案根必須由**本檔**算出：scripts/shared/ 比 scripts/ 深一層，若在共用層內
+  // 寫死 '..' 會算成 web/，守衛仍會擋下 web/ 內的路徑，卻放行 repo 根下其他
+  // 目錄——保護被靜默削弱且不報錯。assertProjectRoot 以哨兵檔實測此路徑，
+  // 深度算錯時啟動即失敗。
+  const projectRoot = assertProjectRoot(
+    path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..'),
+  );
+  assertOutputOutsideProject(projectRoot, outputPath);
 
   console.log('讀取報表：', args.xlsx);
   const workbook = new ExcelJS.Workbook();
   await workbook.xlsx.readFile(args.xlsx);
   const ws = workbook.getWorksheet(SHEET_NAME) || workbook.worksheets[0];
-  const reportStudents = readReport(ws);
+  const reportStudents = readReport(ws, REPORT_SUBJECTS);
 
   console.log(`讀取網頁資料：${args.base}`);
   const { runId, students } = await fetchRunStudents(args.base);
-  const infoRes = await fetch(`${args.base}/api/v1/runs/${runId}`);
-  const run = await infoRes.json();
+  const run = await fetchRun(args.base, runId);
 
   const asOfDate = run.asOfDate || '—';
   console.log(`報表學生 ${reportStudents.size} 名、名單學生 ${students.length} 名（run ${runId}, asOf ${asOfDate}）`);
@@ -1235,19 +704,14 @@ async function main() {
   fs.mkdirSync(path.dirname(outputPath), { recursive: true });
   fs.writeFileSync(outputPath, html, 'utf8');
 
+  // 分類計數由 CATEGORIES 推導：欄位集合與順序都來自 specs，新增分類自動出現在
+  // 統計中，不會漏報；鍵名走各 spec 的 summaryKey，維持既有的短別名不變。
   const count = (cat) => records.filter(r => r.statusCategory === cat).length;
-  console.log('差異統計：', {
+  const summary = formatCategorySummary(CATEGORIES, {
     total: records.length,
-    match: count('MATCH'),
-    day: count('DAY_DIFF'),
-    discount: count('DISCOUNT_DIFF'),
-    both: count('BOTH_DIFF'),
-    notInWeb: count('NOT_IN_WEB'),
-    noTuition: count('EXCEL_NO_TUITION'),
-    unpairable: count('UNPAIRABLE'),
-    tierUnparsed: count('TIER_UNPARSED'),
-    rateUnparsed: count('RATE_UNPARSED'),
+    byCategory: count,
   });
+  console.log('差異統計：', summary);
   console.log('報告已輸出：', outputPath);
 }
 
