@@ -36,3 +36,7 @@ next-env.d.ts
 .env
 .env.*
 !.env.example
+
+# 帳務比對工具的本機基準快照（內含真實報表路徑與依賴本機 dev server，
+# 僅供開發者本機重跑回歸基準，不得進入版本控制）
+web/baseline-*.mjs
