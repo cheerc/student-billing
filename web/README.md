@@ -47,7 +47,8 @@ npm run start
 | `npm run typecheck` | 執行 TypeScript 型別檢查 (`tsc --noEmit`) |
 | `npm run lint` | 執行 ESLint 程式碼品質檢查 |
 | `npm run test:e2e:isolated` | 隔離執行 Playwright E2E（另一埠、臨時 DB、不重用 3000 服務；見下方「E2E 隔離執行」） |
-| `npm run billing:compare` | 帳務比對輔助工具（side script；見下方 §4.2） |
+| `npm run billing:compare` | 帳務比對輔助工具・國小輔導（side script；見下方 §4.2） |
+| `npm run billing:compare:sessions` | 帳務比對輔助工具・按堂計價（side script；見下方 §4.3） |
 
 ---
 
@@ -72,6 +73,9 @@ web/
 │   │   ├── xlsx/            # ERP XLSX 解析與排課 Seed 讀取
 │   │   └── files/           # 本地檔案儲存與安全檢查
 ├── scripts/                 # 開發、驗收與帳務比對工具（皆不屬產品程式碼）
+│   ├── shared/              # 兩台帳務比對工具的共用層（報表解析、分類註冊、API 讀取、報告外殼、路徑守衛）
+│   ├── compare-billing-report.mjs        # billing:compare（國小輔導：級距＋折扣）
+│   └── compare-session-pricing-report.mjs # billing:compare:sessions（按堂計價：僅折扣）
 ├── tests/
 │   ├── unit/                # 領域規則單元測試
 │   ├── integration/         # 資料庫與 API 整合測試
@@ -115,6 +119,23 @@ npm run billing:compare -- --xlsx "<財務報表.xlsx>" [--out "<報告.html>"] 
 - 走 npm 入口而非 `node`：本檔直接複用產品領域層的級距解析（`parseSingleClassToken`），需 `tsx` 才能載入 TS。
 - 預設輸出 `~/Downloads/`，工具會拒絕輸出至專案內。**唯讀**：不寫入產品資料庫、不修改 Run 或計算結果。
 - 屬 side script，非專案交付的一部分；範圍邊界見根目錄 `CLAUDE.md` §9。
+
+---
+
+## 4.3 按堂計價帳務比對輔助工具（side script，產品外，手動核對用）
+
+`scripts/compare-session-pricing-report.mjs` 是 §4.2 的姊妹工具，比對**兒童美語**與**國小數學**。與 §4.2 的關鍵差異：按堂計價採**堂數 × 單價**、**沒有收費級距制度**，故本工具**僅比對適用折扣**，不設任何天數相關分類。
+
+```bash
+npm run billing:compare:sessions -- --xlsx "<財務報表.xlsx>" [--out "<報告.html>"] [--base http://127.0.0.1:3000]
+```
+
+- 前置條件、報表工作表名、輸出路徑守衛、唯讀性與 npm 入口的理由，皆同 §4.2。
+- **一名學生可能產生多筆紀錄**：報表的學費明細是一列一筆，同時修美語與數學者會有兩列，各自成筆並路由到自己的系統適用率欄位（`applicableEnglishBps`／`applicableMathBps`）。
+- **堂數與學費金額僅為顯示值**：系統端尚無對應欄位（issue #118），工具不做換算、不驗證，報告上標為「不可驗證」。若以「金額 ÷ 堂數」推出單價再比對，等於替系統斷言它並未持有的事實。
+- **報表金額欄依同名表頭定位**：欄 9 起為每班一欄（各班單價不同），必須依表頭與班名配對；不可取「第一個數字欄」。雜費、商品、車資等落在「非學費費用」欄，報告中只列為其他科目，不參與折扣比對。
+- **非標準折扣需人工確認**：期中補加收之類不含「課程費 NN折」字樣、但帶金額算式的明細（例如 `本校_扣3/9-4/29 學費 15*40=600`），兩邊折價率可能完全一致卻仍需人工核對，故獨立列為分類且**不**併入折價率。
+- 兩台工具的完整差異對照表、v3 `classCategories` 快照繞過的已知限制，見根目錄 `CLAUDE.md` §9.2／§9.3。
 
 ---
 
