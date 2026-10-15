@@ -276,7 +276,9 @@ function buildNotes({ statusCategory, excel, web, careCategory }) {
 
   // 報表級距無法解析：成因是報表格式，不是名單或課表變動（review F-NEW-1）
   if (statusCategory === 'TIER_UNPARSED') {
-    return finish({
+    // main 版此分支即帶真實 insight 旗標（review #119 第二輪 Finding 1：修正過頭）。
+    // 報表級距解析不出來，恰恰是級距異動最可能的學生，不應被排除於歸納群組之外。
+    return finishWithInsights({
       notes: [
         `報表有學費明細「${excel.className}」，但其中級距修飾不是產品認得的格式（${excel.daysRaw}），故無法取得天數。`,
         `此為報表格式問題，非名單或課表變動；請人工確認該班別應為幾天。`,
@@ -296,7 +298,10 @@ function buildNotes({ statusCategory, excel, web, careCategory }) {
   }
   if (statusCategory === 'UNPAIRABLE') {
     // 不可斷言成因：可能是報表與名單同名多人、或姓名寫法差異。交人工以人員代碼核對（review F1）
-    return finish({
+    // 帶真實旗標與 main 一致（review #119 第二輪 Finding 1）。目前渲染上無差異——
+    // compare() 傳入的 web 為裸字面量、沒有旗標可用——但保持源碼一致，
+    // 避免日後有人讓 UNPAIRABLE 帶上真實 web 資料時，行為悄悄與 main 不同。
+    return finishWithInsights({
       notes: [
         `報表有此學生帳單，但無法與名單唯一配對（${web.asOfDate} 名單可能有同名或姓名寫法差異）。`,
         '請改以人員代碼核對，不要直接判定為離班。',

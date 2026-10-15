@@ -370,15 +370,58 @@ describe('帳務比對工具：報表解析契約', () => {
       expect(rec.note.withdrawal).toBe(false);
     });
 
-    it('NOT_IN_WEB 分支同樣不得帶入 insight 旗標', () => {
+    /**
+     * NOT_IN_WEB 分支刻意**不**有值層級測試。
+     *
+     * 舊版曾有一個，但它是**無效測試**：compare() 對未配對學生傳給 buildNotes 的
+     * `web` 是裸字面量 `{ asOfDate }`，沒有 tierComparisons／issues，
+     * 因此無論 finish() 的預設值是什麼，結果都必然是 []——該測試在任何實作下都
+     * 不會失敗（review #119 第二輪 Finding 2 實測確認）。
+     *
+     * 保留此說明以免日後有人「補回」那個無效測試。
+     */
+    it('NOT_IN_WEB 分支的 web 參數本就不含旗標，故旗標必為空', () => {
+      const rec = runOne([reportStudent('合成戊')], [webStudent('合成己', {
+        tierComparisons: [{ status: 'mismatch', erpDeclaredTier: 5, computedTier: 4, rawToken: 'y' }],
+        issues: [{ code: 'DUPLICATE_SUBJECT_ENROLLMENT', category: '國小輔導' }],
+      })]);
+      expect(rec.statusCategory).toBe('NOT_IN_WEB');
+      expect(rec.note.mismatches).toEqual([]);
+      expect(rec.note.dupIssues).toEqual([]);
+      // 關鍵：這些旗標永遠為空，與 finish() 的預設值無關
+      expect(rec.web).toBeNull();
+    });
+
+    /**
+     * TIER_UNPARSED／UNPAIRABLE 的值層級覆蓋。
+     *
+     * 真實 9–10 月報表中 `tierUnparsed: 0`、`unpairable: 0`，故渲染層基準
+     * **永遠走不到這兩個分支**（零樣本問題）。這裡以單元測試補足：兩者皆需
+     * 與 main 一致地攜帶真實 insight 旗標。
+     *
+     * 背景：b4892f5 曾把 TIER_UNPARSED 誤降為空值——那正是這類分支在
+     * 基準與渲染層都看不見的「修正過頭」（review #119 第二輪 Finding 1）。
+     */
+    it('TIER_UNPARSED 應攜帶真實 insight 旗標（main 版行為，不可被修正過頭）', () => {
       const rec = runOne(
-        [reportStudent('合成戊')],
-        [webStudent('合成己', {
-          tierComparisons: [{ status: 'mismatch', erpDeclaredTier: 5, computedTier: 4, rawToken: 'y' }],
+        [reportStudent('合成壬', { tuition: '115國小輔導-一A[團][Starter] - 40 堂課' })],
+        [webStudent('合成壬 (Mia)', {
+          tierComparisons: [{ status: 'mismatch', erpDeclaredTier: 5, computedTier: 4.5, rawToken: 'w' }],
           issues: [{ code: 'DUPLICATE_SUBJECT_ENROLLMENT', category: '國小輔導' }],
         })],
       );
-      expect(rec.statusCategory).toBe('NOT_IN_WEB');
+      expect(rec.statusCategory).toBe('TIER_UNPARSED');
+      expect(rec.note.mismatches, 'TIER_UNPARSED 不得丟失 mismatches，否則該生會消失於天數差異群組').toHaveLength(1);
+      expect(rec.note.dupIssues, 'TIER_UNPARSED 不得丟失 dupIssues').toHaveLength(1);
+    });
+
+    it('UNPAIRABLE 的旗標與 main 一致（目前渲染無差異，但源碼須一致以免日後分歧）', () => {
+      const rec = runOne(
+        [reportStudent('合成辛')],
+        [webStudent('合成辛 (A)'), webStudent('合成辛 (B)')],
+      );
+      expect(rec.statusCategory).toBe('UNPAIRABLE');
+      // web 為 null，旗標必為空——但此斷言的重點是「維持 main 的結構」
       expect(rec.note.mismatches).toEqual([]);
       expect(rec.note.dupIssues).toEqual([]);
     });
