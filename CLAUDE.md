@@ -159,7 +159,9 @@
 本工具是**個人隨手使用的 side script**，供日後開新 session 時能直接取用的核對工具，**目前不屬專案交付方向的一部分**。因此：
 
 - 不視為產品功能、不列入交付範圍、不隨產品版本演進維護。
-- 維護優先度等同一般開發工具：能用、能重跑即可，不追求與產品同級別的型別與測試覆蓋（`tsconfig` 不涵蓋 `.mjs`，型別安全由 `npm run lint` 與 `tests/unit/compare-billing-report-parse.test.ts` 守護）。
+- 維護優先度等同一般開發工具：能用、能重跑即可，不追求與產品同級別的覆蓋。防護實際只有 `tests/unit/compare-billing-report-parse.test.ts`；`tsconfig` 不涵蓋 `.mjs`（`npm run typecheck` 不會掃到本檔），而 eslint 對 `.mjs` 未啟用 `no-undef`／`no-unused-vars`，**不得**宣稱「型別或未定義變數由 lint 守護」。
+- 本檔直接複用產品領域層 `parseSingleClassToken`（級距解讀）。**不得**在工具內複寫一份班名／級距解析：複寫必然與產品漂移（review F-NEW-2 曾漏 `[5]`、並把 `[Starter]` 默默當成 5 天）。
+- 因需載入 TS 領域層，執行一律走 `npm run billing:compare`（走既有 `tsx`）；裸 `node` 無法解析產品 TS 內部的無副檔名 import。
 - 若日後確認有長期需求，經 operator 決定後**另案**檢討是否正式納入專案；在此之前維持現狀。
 
 ### 9.1 `web/scripts/compare-billing-report.mjs`
@@ -168,11 +170,12 @@
 
 ```bash
 cd web
-node scripts/compare-billing-report.mjs --xlsx "<財務報表.xlsx>" [--out "<報告.html>"] [--base http://127.0.0.1:3000]
+npm run billing:compare -- --xlsx "<財務報表.xlsx>" [--out "<報告.html>"] [--base http://127.0.0.1:3000]
 ```
 
 - 前置條件：需先啟動本機伺服器（`npm run dev`）且已存在完成的 active run；報表工作表名固定為 `班級營收狀況`。
-- 預設輸出 `~/Downloads/`，**不得**輸出至專案內或納入版本控制。
+- 預設輸出 `~/Downloads/`，**不得**輸出至專案內或納入版本控制（工具會直接拒絕專案內路徑）。
+- 差異分類與 UI 一律引用 `NEEDS_HUMAN_CATEGORIES` 單一真相來源；新增分類時只改該處，不可各處各列一份。
 
 ### 9.2 範圍邊界（維持 §1 負向範圍，不得擴張）
 

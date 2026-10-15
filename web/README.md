@@ -47,6 +47,7 @@ npm run start
 | `npm run typecheck` | 執行 TypeScript 型別檢查 (`tsc --noEmit`) |
 | `npm run lint` | 執行 ESLint 程式碼品質檢查 |
 | `npm run test:e2e:isolated` | 隔離執行 Playwright E2E（另一埠、臨時 DB、不重用 3000 服務；見下方「E2E 隔離執行」） |
+| `npm run billing:compare` | 帳務比對輔助工具（side script；見下方 §4.2） |
 
 ---
 
@@ -107,11 +108,12 @@ npm run test:e2e:isolated -- tests/e2e/imports.spec.ts   # 只跑指定 spec
 `scripts/compare-billing-report.mjs` 把**米豆奶匯出的 active run** 與**米豆奶財務報表 XLSX** 逐生比對國小輔導的每週收費天數與適用折扣，產出離線 HTML 差異報告。
 
 ```bash
-node scripts/compare-billing-report.mjs --xlsx "<財務報表.xlsx>" [--out "<報告.html>"] [--base http://127.0.0.1:3000]
+npm run billing:compare -- --xlsx "<財務報表.xlsx>" [--out "<報告.html>"] [--base http://127.0.0.1:3000]
 ```
 
 - 需先啟動本機伺服器且已有完成的 active run；報表工作表名固定為 `班級營收狀況`。
-- 預設輸出 `~/Downloads/`。**唯讀**：不寫入產品資料庫、不修改 Run 或計算結果。
+- 走 npm 入口而非 `node`：本檔直接複用產品領域層的級距解析（`parseSingleClassToken`），需 `tsx` 才能載入 TS。
+- 預設輸出 `~/Downloads/`，工具會拒絕輸出至專案內。**唯讀**：不寫入產品資料庫、不修改 Run 或計算結果。
 - 屬 side script，非專案交付的一部分；範圍邊界見根目錄 `CLAUDE.md` §9。
 
 ---
