@@ -611,8 +611,12 @@ export function compare(reportStudents, webStudents, asOfDate, amountLookup = un
  * filter 各寫一份，兩份不同步時不會有任何錯誤。
  *
  * 群組的**標題與提示**仍在此手寫：那是業務判讀文字，共用層無從推導。
+ *
+ * 匯出供測試做**孤兒守衛**（見 tests/unit/compare-session-pricing-report.test.ts）：
+ * `groupOf` 拼錯時，`renderInsightGroups` 會把該分類的記錄**同時從所有群組中丟棄**
+ * ——不報錯、不計數、不留痕跡。沒有這個守衛，那正是「看起來有歸納、實際少一筆」。
  */
-const INSIGHT_GROUPS = [
+export const INSIGHT_GROUPS = [
   {
     key: 'nonStandard',
     title: '非標準折扣明細（需人工確認，工具不代為併入折價率）',
@@ -729,7 +733,7 @@ function renderHtml(records, meta) {
       { label: '報表工作表', value: SHEET_NAME },
       { label: '核定發單日', value: meta.billAnchorDate },
       { label: '報表金額欄位', value: meta.amountColumns },
-      { label: '已知限制', value: '直接讀 applicable* 欄位，未走 v3 classCategories 快照（#118 相關，詳見 CLAUDE.md §9.3）' },
+      { label: '已知限制', value: '直接讀 applicable* 欄位，未走 v3 classCategories 快照（手動改類別亦會偏離畫面，見 CLAUDE.md §9.3）' },
     ],
     stats: [
       { label: '報科學費筆數', value: total, sub: '每筆學費列一筆；雙科學生會有兩筆', tone: 'plain' },
@@ -794,7 +798,7 @@ function collectTuitionAmounts(worksheet) {
     if (!className) return;
     if (!amountByKey.has(name)) {
       // 同名學生可能有多筆學費列，key 需含班名以免互相覆蓋
-      amountByKey.set(`${name} ${className}`, parseAmountColumns(columnIndex, row, className));
+      amountByKey.set(`${name}\u0000${className}`, parseAmountColumns(columnIndex, row, className));
     }
     if (!classHeadings.includes(className)) classHeadings.push(className);
   });
@@ -803,7 +807,7 @@ function collectTuitionAmounts(worksheet) {
     columnIndex,
     amountByKey,
     classHeadings,
-    getAmount: (name, className) => amountByKey.get(`${name} ${className}`)
+    getAmount: (name, className) => amountByKey.get(`${name}\u0000${className}`)
       ?? { tuitionAmount: null, amountColumnHeading: null, amountRoute: 'none' },
   };
 }

@@ -7,6 +7,7 @@ import {
   routeRateField,
   compare,
   SESSION_CATEGORY_REGISTRY,
+  INSIGHT_GROUPS,
   BADGES as SESSION_BADGES,
   NEEDS_HUMAN as SESSION_NEEDS_HUMAN,
   SESSION_RATE_CATEGORIES,
@@ -244,7 +245,9 @@ describe('按堂計價帳務比對工具：報表解析契約', () => {
     it('不可用 id.toLowerCase() 推導欄位名（會得到 appliableenglishbps）', () => {
       for (const r of [routeRateField('兒童美語-A[團]', student), routeRateField('國小數學-A[團]', student)]) {
         expect(r.field).toBeDefined();
-        if (r.field) expect(r.field).toBe(r.field.toLowerCase() ? r.field : r.field);
+        // 唯一有效的覆蓋是下面兩條：它們會在欄位名被拼錯時轉紅。
+        // （此處原本另有一行 `if (r.field) expect(r.field).toBe(r.field.toLowerCase() ? r.field : r.field)`，
+        // 三元兩分支皆回傳 r.field，斷言恆真、永遠不會失敗——review M-1 已移除。）
         if (r.category === 'english') expect(r.field).toBe('applicableEnglishBps');
         if (r.category === 'math') expect(r.field).toBe('applicableMathBps');
       }
@@ -557,10 +560,56 @@ describe('按堂計價帳務比對工具：報表解析契約', () => {
       }
     });
 
-    it('每個分類都宣告了 insightGroup，且歸納群組皆存在於 INSIGHT 宣告', () => {
+    it('每個分類的 insightGroup 皆為已宣告的群組，或顯式宣告 none', () => {
+      // 每個 id 的 groupOf 必須命中 INSIGHT_GROUPS 的某個 key；
+      // 宣告 'none' 者則**不得**是任何群組 key（否則它會被算進群組卻沒有群組可歸）。
+      // .mjs 不受 tsconfig checkJs 保護（CLAUDE.md §9.0），元素型別推導為 any[]，
+      // 故 map 參數必須顯式標註，否則 strict 的 noImplicitAny 會擋下。
+      const declared = new Set(INSIGHT_GROUPS.map((g: { key: string }) => g.key));
       for (const id of SESSION_RATE_CATEGORIES) {
-        expect(SESSION_CATEGORY_REGISTRY.groupOf[id], `分類 ${id} 缺 insightGroup`).toBeTruthy();
+        const g = SESSION_CATEGORY_REGISTRY.groupOf[id];
+        expect(g, `分類 ${id} 未宣告 insightGroup`).toBeTruthy();
+        if (g === 'none') {
+          expect(declared.has(g), `分類 ${id} 宣告 none，但 INSIGHT_GROUPS 內不應有名為 none 的群組`).toBe(false);
+        } else {
+          expect(declared.has(g), `分類 ${id} 的 insightGroup「${g}」不存在於 INSIGHT_GROUPS——該分類的記錄會被所有群組同時丟棄`).toBe(true);
+        }
       }
+    });
+
+    /**
+     * 孤兒守衛：`groupOf` 指向**不存在的群組 key** 時，`renderInsightGroups`
+     * 會把該分類的記錄**同時從所有群組中丟棄**——不報錯、不計數、不留痕跡。
+     *
+     * 這是 review M-6 找到的真實缺口：原守衛只斷言 `groupOf[id]` 為 truthy，
+     * 與 INSIGHT_GROUPS 的 key 完全沒有比對，故拼錯 insightGroup 時 49 項測試全綠。
+     *
+     * ## 本守衛**不**偵測什麼（誠實界定）
+     *
+     * 把某分類的 `insightGroup` 從 'unpairable' 改成 'none' **不會**被本守衛擋下，
+     * 那是合理的配置選擇（該分類確實不必進任何歸納群組），規格也只要求
+     * 「'none' 者不得是任何群組 key」，未要求它必須屬於某個群組。
+     *
+     * 但它同樣會讓該分類的記錄不出現在任何歸納區塊。因此：
+     *   - 要偵測「拼錯 key」→ 本測試（可失敗，已以 M-6 實測）。
+     *   - 要偵測「歸納區塊整組漏掉某分類」→ 需另比較**渲染後的歸納區塊**
+     *     與 records 的涵蓋率，那是本測試刻意不承諾的範圍。
+     *
+     * 測試名稱若承諾偵測不到的保證，會成為未來的假訊號（PR #119 教訓）。
+     */
+    it('孤兒 insightGroup 守衛：指向不存在的群組 key 必須被擋下', () => {
+      const declared = INSIGHT_GROUPS.map((g: { key: string }) => g.key);
+      // 守衛條件（與上方主守衛一致）：非 'none' 者必須命中已宣告的群組 key
+      const accepts = (groupOf: Record<string, string>) => {
+        const keys = new Set(declared);
+        return Object.entries(groupOf).every(([, g]) => g && (g === 'none' || keys.has(g)));
+      };
+      // 對照：正確的 registry 應被接受
+      expect(accepts(SESSION_CATEGORY_REGISTRY.groupOf as Record<string, string>), '守衛條件誤拒了正確的 registry').toBe(true);
+      // 拼錯的 key 必須被拒（這正是 M-6 的失效）
+      expect(accepts({ ...(SESSION_CATEGORY_REGISTRY.groupOf as Record<string, string>), NOT_IN_WEB: 'notInWebTypo' })).toBe(false);
+      // 未宣告的空值必須被拒
+      expect(accepts({ ...(SESSION_CATEGORY_REGISTRY.groupOf as Record<string, string>), MATCH: '' })).toBe(false);
     });
   });
 });
