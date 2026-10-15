@@ -193,7 +193,7 @@ npm run billing:compare -- --xlsx "<財務報表.xlsx>" [--out "<報告.html>"] 
 
 - 前置條件：需先啟動本機伺服器（`npm run dev`）且已存在完成的 active run；報表工作表名固定為 `班級營收狀況`。
 - 預設輸出 `~/Downloads/`，**不得**輸出至專案內或納入版本控制（工具會直接拒絕專案內路徑）。
-- 差異分類與 UI 一律引用 `NEEDS_HUMAN_CATEGORIES` 單一真相來源；新增分類時只改該處，不可各處各列一份。
+- 差異分類一律在 `scripts/compare-billing-report.mjs` 的 `defineCategories([...])` 宣告；badge、label、分頁、需人工判讀清單與主控台統計鍵名皆由其推導。新增分類時只改該處，不可各處各列一份。**例外（仍在工具端手寫、尚未接上推導）**：統計卡的 `count()` 與 `INSIGHT_GROUPS` 的 filter。
 
 ### 9.3 範圍邊界（維持 §1 負向範圍，不得擴張）
 

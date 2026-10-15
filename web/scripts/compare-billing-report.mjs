@@ -38,7 +38,7 @@ import { parseSingleClassToken } from '../src/domain/students/token-parser.ts';
 import { parseDiscounts, bpsToLabel, readReport } from './shared/report-xlsx.ts';
 import { fetchRunStudents, fetchRun } from './shared/roster-api.ts';
 import { normalizeName, indexByName } from './shared/name-matching.ts';
-import { defineCategories } from './shared/category-registry.ts';
+import { defineCategories, formatCategorySummary } from './shared/category-registry.ts';
 import { renderShell, escapeHtml } from './shared/report-shell.ts';
 import { assertProjectRoot, assertOutputOutsideProject } from './shared/project-guard.ts';
 
@@ -54,23 +54,29 @@ const REPORT_SUBJECTS = { tuition: '學費', discount: '折扣' };
  * 分頁按鈕、歸納群組 filter、主控台統計），漏改任何一處都不會報錯，
  * 只會讓報告的某個介面漏掉該分類——review 中實際發生過。
  *
- * 現在 badge 對照、label、分頁按鈕、需人工判讀清單與計數、頁面腳本的分類清單
- * 全部由 `defineCategories` 推導；歸納群組則由本檔另行提供群組定義，
- * 但「哪個分類歸哪個群組」仍來自這裡的 insightGroup 欄位。
+ * 現在 badge 對照、label、分頁按鈕、需人工判讀清單、頁面腳本的分類清單，
+ * 與主控台統計的欄位集合與鍵名，全部由 `defineCategories` 推導。
+ *
+ * **尚未推導、仍在本檔手寫兩份的**（刻意留到下一個工具）：
+ *   - renderHtml 的統計卡：九個 `count('CATEGORY')` 字面值；
+ *   - INSIGHT_GROUPS 的 filter：各自直接比 statusCategory。
+ * 兩者都仍需新增分類時同步修改，而漏改都不會報錯。本檔的 insightGroup 欄位
+ * 目前**只被測試讀取**，尚未接上這兩個介面——它存在的目的只是讓「新增分類時
+ * 必須宣告歸納意圖」在型別與測試層先成立，接線留待 PR C。
  *
  * badge 沿用系統既有意象：綠=一致、藍=級距（天數）、琥珀=折扣需確認、
  * 紅=兩者皆差、灰=名單無資料。
  */
 const CATEGORIES = defineCategories([
-  { id: 'MATCH', label: '完全一致', badge: 'badge-ok', needsHuman: false, tab: 'MATCH', tabOrder: 30, insightGroup: 'none' },
-  { id: 'DAY_DIFF', label: '天數差異', badge: 'badge-tier', needsHuman: false, tab: 'DAY_DIFF', tabOrder: 10, insightGroup: 'mismatch' },
-  { id: 'DISCOUNT_DIFF', label: '折扣差異', badge: 'badge-warn', needsHuman: false, tab: 'DISCOUNT_DIFF', tabOrder: 20, insightGroup: 'none' },
-  { id: 'BOTH_DIFF', label: '天數與折扣皆差異', badge: 'badge-withdrawal', needsHuman: false, insightGroup: 'mismatch' },
-  { id: 'NOT_IN_WEB', label: '名單已無此人', badge: 'badge-class', needsHuman: true, insightGroup: 'notInWeb' },
-  { id: 'EXCEL_NO_TUITION', label: '報表無學費項', badge: 'badge-class', needsHuman: true, insightGroup: 'notInWeb' },
-  { id: 'UNPAIRABLE', label: '姓名無法唯一配對', badge: 'badge-withdrawal', needsHuman: true, insightGroup: 'unpairable' },
-  { id: 'TIER_UNPARSED', label: '報表級距無法解析', badge: 'badge-warn', needsHuman: true, insightGroup: 'unparsed' },
-  { id: 'RATE_UNPARSED', label: '報表折扣無法解析', badge: 'badge-warn', needsHuman: true, insightGroup: 'unparsed' },
+  { id: 'MATCH', label: '完全一致', summaryKey: 'match', badge: 'badge-ok', needsHuman: false, tab: 'MATCH', tabOrder: 30, insightGroup: 'none' },
+  { id: 'DAY_DIFF', label: '天數差異', summaryKey: 'day', badge: 'badge-tier', needsHuman: false, tab: 'DAY_DIFF', tabOrder: 10, insightGroup: 'mismatch' },
+  { id: 'DISCOUNT_DIFF', label: '折扣差異', summaryKey: 'discount', badge: 'badge-warn', needsHuman: false, tab: 'DISCOUNT_DIFF', tabOrder: 20, insightGroup: 'none' },
+  { id: 'BOTH_DIFF', label: '天數與折扣皆差異', summaryKey: 'both', badge: 'badge-withdrawal', needsHuman: false, insightGroup: 'mismatch' },
+  { id: 'NOT_IN_WEB', label: '名單已無此人', summaryKey: 'notInWeb', badge: 'badge-class', needsHuman: true, insightGroup: 'notInWeb' },
+  { id: 'EXCEL_NO_TUITION', label: '報表無學費項', summaryKey: 'noTuition', badge: 'badge-class', needsHuman: true, insightGroup: 'notInWeb' },
+  { id: 'UNPAIRABLE', label: '姓名無法唯一配對', summaryKey: 'unpairable', badge: 'badge-withdrawal', needsHuman: true, insightGroup: 'unpairable' },
+  { id: 'TIER_UNPARSED', label: '報表級距無法解析', summaryKey: 'tierUnparsed', badge: 'badge-warn', needsHuman: true, insightGroup: 'unparsed' },
+  { id: 'RATE_UNPARSED', label: '報表折扣無法解析', summaryKey: 'rateUnparsed', badge: 'badge-warn', needsHuman: true, insightGroup: 'unparsed' },
 ]);
 
 /** 分類 id → 中文 label。由 defineCategories 推導，不另列一份。 */
@@ -460,8 +466,13 @@ export function compare(reportStudents, webStudents, asOfDate) {
  * 差異歸納群組。
  *
  * 群組的**內容**是國小輔導專屬的判斷（哪些旗標構成值得人工確認的成因），
- * 故留在本檔；但「哪些分類歸哪個群組」由 CATEGORIES 的 insightGroup 推導，
- * 因此新增分類時不會忘記考慮歸納（未宣告會在 defineCategories 直接拋錯）。
+ * 故留在本檔。
+ *
+ * 注意：每個群組的 filter 目前**直接比 statusCategory 字面值**，沒有讀取
+ * `CATEGORIES.groupOf`。也就是說「哪個分類歸哪個群組」在本檔被寫了兩份
+ * （specs 的 insightGroup 與這裡的 filter），兩份不同步時不會有任何錯誤。
+ * `groupOf` 目前只有測試在讀。接線屬於下一個工具（PR C）的工作，
+ * 本 PR 不動它，以免在沒有第二個真實使用者的情況下先猜錯介面。
  */
 const INSIGHT_GROUPS = [
   {
@@ -693,10 +704,13 @@ async function main() {
   fs.mkdirSync(path.dirname(outputPath), { recursive: true });
   fs.writeFileSync(outputPath, html, 'utf8');
 
-  // 分類計數由 CATEGORIES.ids 推導，新增分類自動出現在統計中，不會漏報
+  // 分類計數由 CATEGORIES 推導：欄位集合與順序都來自 specs，新增分類自動出現在
+  // 統計中，不會漏報；鍵名走各 spec 的 summaryKey，維持既有的短別名不變。
   const count = (cat) => records.filter(r => r.statusCategory === cat).length;
-  const summary = { total: records.length };
-  for (const id of CATEGORIES.ids) summary[id] = count(id);
+  const summary = formatCategorySummary(CATEGORIES, {
+    total: records.length,
+    byCategory: count,
+  });
   console.log('差異統計：', summary);
   console.log('報告已輸出：', outputPath);
 }

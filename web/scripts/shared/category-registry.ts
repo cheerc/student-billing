@@ -29,6 +29,17 @@ export interface CategorySpec {
   badge: string;
   needsHuman: boolean;
   /**
+   * 主控台統計的欄位名。
+   *
+   * 分類 id 是業務用語（DAY_DIFF），而日誌裡長期使用的是較短的別名（day）。
+   * 兩者不同名不是筆誤：日誌的鍵名是**對外契約**，改它會讓習慣 grep 舊日誌的人
+   * 找不到東西。因此別名必須在 specs 裡顯式宣告，不可從 id 推導
+   * （toLowerCase 會得到 'day_diff'，與既有的 'day' 不同）。
+   *
+   * 省略時以 id 為鍵名。
+   */
+  summaryKey?: string;
+  /**
    * 分頁按鈕用的過濾值；省略時不產出按鈕。
    *
    * 分頁的**顯示順序**由 tabOrder 決定，不用 specs 的陣列順序：specs 的順序另有
@@ -67,6 +78,8 @@ export interface CategoryRegistry {
   readonly badges: Readonly<Record<string, string>>;
   /** id → 中文顯示名稱。 */
   readonly labels: Readonly<Record<string, string>>;
+  /** id → 主控台統計的欄位名（未宣告 summaryKey 時等於 id）。 */
+  readonly summaryKeys: Readonly<Record<string, string>>;
   /** 需人工判讀的分類 id（順序即宣告順序）。 */
   readonly needsHuman: readonly string[];
   /** 分頁按鈕，依 tabOrder 排序。 */
@@ -99,6 +112,7 @@ export function defineCategories(specs: readonly CategorySpec[]): CategoryRegist
 
   const badges: Record<string, string> = {};
   const labels: Record<string, string> = {};
+  const summaryKeys: Record<string, string> = {};
   const groupOf: Record<string, string> = {};
   const needsHuman: string[] = [];
   const tabs: CategoryTab[] = [];
@@ -128,6 +142,7 @@ export function defineCategories(specs: readonly CategorySpec[]): CategoryRegist
 
     badges[spec.id] = spec.badge;
     labels[spec.id] = spec.label;
+    summaryKeys[spec.id] = spec.summaryKey ?? spec.id;
     groupOf[spec.id] = spec.insightGroup;
     if (spec.needsHuman) needsHuman.push(spec.id);
 
@@ -150,6 +165,7 @@ export function defineCategories(specs: readonly CategorySpec[]): CategoryRegist
     ids,
     badges,
     labels,
+    summaryKeys,
     needsHuman,
     tabs,
     groupOf,
@@ -158,19 +174,35 @@ export function defineCategories(specs: readonly CategorySpec[]): CategoryRegist
 }
 
 /**
- * 主控台統計的 key 與顯示順序。
+ * 主控台統計的欄位集合。
  *
- * 這裡刻意**不**讓 stats 鍵名去猜分類 id：id 是業務用語（DAY_DIFF），
- * 日誌裡長期用的是較短的別名（day）。若要從 id 推導，就得引入一張對照表，
- * 那正是本模組想消滅的第二份真相。工具端自己宣告要印哪些欄位。
+ * 鍵名取自各 spec 的 `summaryKey`（未宣告者用 id），順序即 specs 的宣告順序，
+ * `total` 置於第一。
+ *
+ * 這裡刻意**不**從 id 推導鍵名：日誌的鍵名是對外契約，`DAY_DIFF.toLowerCase()`
+ * 會得到 `day_diff`，與既有的 `day` 不同——改掉會讓習慣 grep 舊日誌的人找不到東西。
+ * 別名因此必須在 specs 裡顯式宣告。
+ *
+ * 兩個鍵撞到同一名稱時拋錯：靜默覆蓋會讓某個分類的筆數從日誌裡消失，
+ * 而分類計數在別的地方仍是對的——正是最難察覺的那種錯誤。
  */
 export function formatCategorySummary(
   registry: CategoryRegistry,
-  countByCategory: (id: string) => number,
+  counts: { total: number; byCategory: (id: string) => number },
 ): Record<string, number> {
-  const summary: Record<string, number> = { total: countByCategory('__total__') };
+  const summary: Record<string, number> = { total: counts.total };
+  // 以 Set 記錄已用鍵名，不使用 `in`——物件字面量的 `in` 也會命中繼承而來的
+  // 'constructor'、'toString' 等鍵，讓名稱湊巧撞上的分類被誤判為重複。
+  const used = new Set<string>(['total']);
   for (const id of registry.ids) {
-    summary[id.toLowerCase()] = countByCategory(id);
+    const key = registry.summaryKeys[id];
+    if (used.has(key)) {
+      throw new CategorySpecError(
+        `defineCategories：主控台統計欄位「${key}」重複（分類 ${id}）。`,
+      );
+    }
+    used.add(key);
+    summary[key] = counts.byCategory(id);
   }
   return summary;
 }

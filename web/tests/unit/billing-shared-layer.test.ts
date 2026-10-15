@@ -7,7 +7,7 @@ import { fileURLToPath } from 'url';
 import { normalizeName, indexByName } from '../../scripts/shared/name-matching';
 import { noteFlags, EMPTY_NOTE } from '../../scripts/shared/notes';
 import type { Note, NoteTierMismatch } from '../../scripts/shared/notes.ts';
-import { defineCategories, CategorySpecError } from '../../scripts/shared/category-registry';
+import { defineCategories, formatCategorySummary, CategorySpecError } from '../../scripts/shared/category-registry';
 import { assertProjectRoot, assertOutputOutsideProject } from '../../scripts/shared/project-guard';
 import { parseDiscounts, bpsToLabel, readReport, RATE_PATTERNS } from '../../scripts/shared/report-xlsx';
 import type { ExcelRowLike, WorksheetLike } from '../../scripts/shared/report-xlsx.ts';
@@ -151,15 +151,15 @@ describe('共用層：Note 形狀與旗標', () => {
  * 這裡會失敗」。若改成 import 工具端的同一份，兩邊一起錯就抓不到。
  */
 const BILLING_SPECS = [
-  { id: 'MATCH', label: '完全一致', badge: 'badge-ok', needsHuman: false, tab: 'MATCH', tabOrder: 30, insightGroup: 'none' },
-  { id: 'DAY_DIFF', label: '天數差異', badge: 'badge-tier', needsHuman: false, tab: 'DAY_DIFF', tabOrder: 10, insightGroup: 'mismatch' },
-  { id: 'DISCOUNT_DIFF', label: '折扣差異', badge: 'badge-warn', needsHuman: false, tab: 'DISCOUNT_DIFF', tabOrder: 20, insightGroup: 'none' },
-  { id: 'BOTH_DIFF', label: '天數與折扣皆差異', badge: 'badge-withdrawal', needsHuman: false, insightGroup: 'mismatch' },
-  { id: 'NOT_IN_WEB', label: '名單已無此人', badge: 'badge-class', needsHuman: true, insightGroup: 'notInWeb' },
-  { id: 'EXCEL_NO_TUITION', label: '報表無學費項', badge: 'badge-class', needsHuman: true, insightGroup: 'notInWeb' },
-  { id: 'UNPAIRABLE', label: '姓名無法唯一配對', badge: 'badge-withdrawal', needsHuman: true, insightGroup: 'unpairable' },
-  { id: 'TIER_UNPARSED', label: '報表級距無法解析', badge: 'badge-warn', needsHuman: true, insightGroup: 'unparsed' },
-  { id: 'RATE_UNPARSED', label: '報表折扣無法解析', badge: 'badge-warn', needsHuman: true, insightGroup: 'unparsed' },
+  { id: 'MATCH', label: '完全一致', summaryKey: 'match', badge: 'badge-ok', needsHuman: false, tab: 'MATCH', tabOrder: 30, insightGroup: 'none' },
+  { id: 'DAY_DIFF', label: '天數差異', summaryKey: 'day', badge: 'badge-tier', needsHuman: false, tab: 'DAY_DIFF', tabOrder: 10, insightGroup: 'mismatch' },
+  { id: 'DISCOUNT_DIFF', label: '折扣差異', summaryKey: 'discount', badge: 'badge-warn', needsHuman: false, tab: 'DISCOUNT_DIFF', tabOrder: 20, insightGroup: 'none' },
+  { id: 'BOTH_DIFF', label: '天數與折扣皆差異', summaryKey: 'both', badge: 'badge-withdrawal', needsHuman: false, insightGroup: 'mismatch' },
+  { id: 'NOT_IN_WEB', label: '名單已無此人', summaryKey: 'notInWeb', badge: 'badge-class', needsHuman: true, insightGroup: 'notInWeb' },
+  { id: 'EXCEL_NO_TUITION', label: '報表無學費項', summaryKey: 'noTuition', badge: 'badge-class', needsHuman: true, insightGroup: 'notInWeb' },
+  { id: 'UNPAIRABLE', label: '姓名無法唯一配對', summaryKey: 'unpairable', badge: 'badge-withdrawal', needsHuman: true, insightGroup: 'unpairable' },
+  { id: 'TIER_UNPARSED', label: '報表級距無法解析', summaryKey: 'tierUnparsed', badge: 'badge-warn', needsHuman: true, insightGroup: 'unparsed' },
+  { id: 'RATE_UNPARSED', label: '報表折扣無法解析', summaryKey: 'rateUnparsed', badge: 'badge-warn', needsHuman: true, insightGroup: 'unparsed' },
 ];
 
 describe('共用層：defineCategories 的衍生與不變式', () => {
@@ -498,6 +498,106 @@ describe('共用層：報表科目解析', () => {
       expect(e.discounts).toEqual(['課程費9折']);
       expect(m.size).toBe(1);
     });
+  });
+});
+
+/**
+ * 主控台統計的鍵名是**對外契約**。
+ *
+ * 這組測試守的是一個實際發生過的回歸：PR #120 初版讓 main() 自己迴圈印
+ * `CATEGORIES.ids`，鍵名從 `match: 184` 變成 `MATCH: 184`。數值與順序都對，
+ * HTML 也完全不受影響，但任何 grep 舊日誌 `day:` 的人會突然找不到東西——
+ * 而分類計數在別處仍然正確，因此沒有任何既有檢查會失敗。
+ */
+describe('共用層：主控台統計欄位', () => {
+  /** 分類 id → 預期統計鍵名。用索引簽名讓 `reg.ids`（readonly string[]）可索引。 */
+  const keyMirror: Record<string, string> = {
+    MATCH: 'match', DAY_DIFF: 'day', DISCOUNT_DIFF: 'discount', BOTH_DIFF: 'both',
+    NOT_IN_WEB: 'notInWeb', EXCEL_NO_TUITION: 'noTuition', UNPAIRABLE: 'unpairable',
+    TIER_UNPARSED: 'tierUnparsed', RATE_UNPARSED: 'rateUnparsed',
+  };
+
+  it('鍵名取自各 spec 的 summaryKey，不是分類 id', () => {
+    const reg = defineCategories(BILLING_SPECS);
+    const summary = formatCategorySummary(reg, {
+      total: 195,
+      byCategory: (id) => ({ MATCH: 184, DAY_DIFF: 5 }[id] ?? 0),
+    });
+    expect(Object.keys(summary)).toEqual([
+      'total', 'match', 'day', 'discount', 'both',
+      'notInWeb', 'noTuition', 'unpairable', 'tierUnparsed', 'rateUnparsed',
+    ]);
+    expect(summary.match).toBe(184);
+    expect(summary.day).toBe(5);
+  });
+
+  /**
+   * id.toLowerCase() 會得到 'day_diff'，與既有的 'day' 不同。
+   * 這是「看似合理的簡化」最容易造成的破壞，故直接釘住。
+   */
+  it('不可用 id.toLowerCase() 當鍵名（會得到 day_diff 而非 day）', () => {
+    const reg = defineCategories(BILLING_SPECS);
+    const summary = formatCategorySummary(reg, { total: 1, byCategory: () => 1 });
+    expect(Object.keys(summary)).not.toContain('day_diff');
+    expect(Object.keys(summary)).toContain('day');
+    expect(Object.keys(summary)).not.toContain('DAY_DIFF'.toLowerCase());
+  });
+
+  it('total 置於第一，欄位順序即 specs 宣告順序', () => {
+    const reg = defineCategories(BILLING_SPECS);
+    const summary = formatCategorySummary(reg, { total: 7, byCategory: () => 0 });
+    expect(Object.keys(summary)[0]).toBe('total');
+    expect(summary.total).toBe(7);
+    expect(Object.keys(summary).slice(1)).toEqual([...reg.ids].map(id => reg.summaryKeys[id]));
+  });
+
+  it('未宣告 summaryKey 的 spec 以 id 為鍵名', () => {
+    const reg = defineCategories([
+      { id: 'CUSTOM', label: '自訂', badge: 'badge-ok', needsHuman: false, insightGroup: 'none' },
+    ]);
+    const summary = formatCategorySummary(reg, { total: 3, byCategory: () => 1 });
+    expect(Object.keys(summary)).toEqual(['total', 'CUSTOM']);
+  });
+
+  /**
+   * 兩個鍵撞名會讓後者覆寫前者 → 某個分類的筆數從日誌裡消失，
+   * 而分類計數在別的地方仍是對的。必須拋錯而非靜默覆蓋。
+   */
+  it('兩個 spec 的 summaryKey 撞名 → 拋錯，不可靜默覆蓋', () => {
+    const reg = defineCategories([
+      { id: 'A', label: '甲', summaryKey: 'same', badge: 'badge-ok', needsHuman: false, insightGroup: 'none' },
+      { id: 'B', label: '乙', summaryKey: 'same', badge: 'badge-warn', needsHuman: false, insightGroup: 'none' },
+    ]);
+    expect(() => formatCategorySummary(reg, { total: 0, byCategory: () => 0 }))
+      .toThrow(/統計欄位「same」重複/);
+  });
+
+  it('summaryKey 與 total 撞名 → 拋錯（否則 total 會被某個分類蓋掉）', () => {
+    const reg = defineCategories([
+      { id: 'A', label: '甲', summaryKey: 'total', badge: 'badge-ok', needsHuman: false, insightGroup: 'none' },
+    ]);
+    expect(() => formatCategorySummary(reg, { total: 9, byCategory: () => 1 }))
+      .toThrow(/統計欄位「total」重複/);
+  });
+
+  it('summaryKey 為 toString 等繼承而來的鍵名時不得誤判為重複', () => {
+    // 物件字面量的 `in` 也會命中 Object.prototype 上的鍵，會造成誤判；
+    // 實作改用 Set 記錄已用鍵名。
+    const reg = defineCategories([
+      { id: 'A', label: '甲', summaryKey: 'toString', badge: 'badge-ok', needsHuman: false, insightGroup: 'none' },
+      { id: 'B', label: '乙', summaryKey: 'constructor', badge: 'badge-warn', needsHuman: false, insightGroup: 'none' },
+    ]);
+    const summary = formatCategorySummary(reg, { total: 0, byCategory: () => 0 });
+    expect(Object.keys(summary)).toEqual(['total', 'toString', 'constructor']);
+  });
+
+  it('summaryKeys 索引可由 id 查出，且缺宣告時等於 id', () => {
+    const reg = defineCategories(BILLING_SPECS);
+    for (const id of reg.ids) expect(reg.summaryKeys[id]).toBe(keyMirror[id]);
+    const bare = defineCategories([
+      { id: 'X', label: '甲', badge: 'badge-ok', needsHuman: false, insightGroup: 'none' },
+    ]);
+    expect(bare.summaryKeys['X']).toBe('X');
   });
 });
 
