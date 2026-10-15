@@ -20,7 +20,8 @@
     "test:e2e:isolated": "tsx scripts/e2e-isolated.ts",
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
-    "test:perf:recompute-isolated": "tsx scripts/perf-recompute-isolated.ts"
+    "test:perf:recompute-isolated": "tsx scripts/perf-recompute-isolated.ts",
+    "billing:compare": "tsx scripts/compare-billing-report.mjs"
   },
   "dependencies": {
     "better-sqlite3": "^13.0.3",

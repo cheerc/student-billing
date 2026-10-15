@@ -47,6 +47,7 @@ npm run start
 | `npm run typecheck` | 執行 TypeScript 型別檢查 (`tsc --noEmit`) |
 | `npm run lint` | 執行 ESLint 程式碼品質檢查 |
 | `npm run test:e2e:isolated` | 隔離執行 Playwright E2E（另一埠、臨時 DB、不重用 3000 服務；見下方「E2E 隔離執行」） |
+| `npm run billing:compare` | 帳務比對輔助工具（side script；見下方 §4.2） |
 
 ---
 
@@ -70,6 +71,7 @@ web/
 │   │   ├── sqlite/          # SQLite 資料庫連線、Transaction 與 Migration 機制
 │   │   ├── xlsx/            # ERP XLSX 解析與排課 Seed 讀取
 │   │   └── files/           # 本地檔案儲存與安全檢查
+├── scripts/                 # 開發、驗收與帳務比對工具（皆不屬產品程式碼）
 ├── tests/
 │   ├── unit/                # 領域規則單元測試
 │   ├── integration/         # 資料庫與 API 整合測試
@@ -98,6 +100,21 @@ npm run test:e2e:isolated -- tests/e2e/imports.spec.ts   # 只跑指定 spec
 - `DATABASE_PATH` 指向系統臨時目錄下的獨立 sqlite，結束即刪；守衛（`scripts/e2e-isolation.ts`）會拒絕 3000 埠、預設資料庫與專案 `data/` 目錄。
 - 只使用 `tests/fixtures/` 的合成／匿名資料；E2E spec 不得引用資料庫檔或 `data/`（`tests/unit/e2e-specs-no-real-db.test.ts` 守衛）。
 - 與 `next dev` 共用 `.next/` 目錄：若你在同一個工作樹已開著 `npm run dev`，隔離 server 會因 Next 的目錄鎖而失敗（安全失敗，不會重用你的服務）。
+
+---
+
+## 4.2 帳務比對輔助工具（side script，產品外，手動核對用）
+
+`scripts/compare-billing-report.mjs` 把**米豆奶匯出的 active run** 與**米豆奶財務報表 XLSX** 逐生比對國小輔導的每週收費天數與適用折扣，產出離線 HTML 差異報告。
+
+```bash
+npm run billing:compare -- --xlsx "<財務報表.xlsx>" [--out "<報告.html>"] [--base http://127.0.0.1:3000]
+```
+
+- 需先啟動本機伺服器且已有完成的 active run；報表工作表名固定為 `班級營收狀況`。
+- 走 npm 入口而非 `node`：本檔直接複用產品領域層的級距解析（`parseSingleClassToken`），需 `tsx` 才能載入 TS。
+- 預設輸出 `~/Downloads/`，工具會拒絕輸出至專案內。**唯讀**：不寫入產品資料庫、不修改 Run 或計算結果。
+- 屬 side script，非專案交付的一部分；範圍邊界見根目錄 `CLAUDE.md` §9。
 
 ---
 
