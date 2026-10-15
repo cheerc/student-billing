@@ -160,7 +160,17 @@ function readReport(worksheet) {
 // ---------------------------------------------------------------- Web API
 
 async function fetchRunStudents(base) {
-  const infoRes = await fetch(`${base}/api/v1/runs/current`);
+  // 連不上時原始錯誤只有 "fetch failed"，對首次使用本工具的 agent 毫無診斷價值。
+  // 改成明確指出「伺服器沒開」這個最常見原因（review F-minor-a）。
+  let infoRes;
+  try {
+    infoRes = await fetch(`${base}/api/v1/runs/current`);
+  } catch {
+    throw new Error(
+      `無法連線到 ${base}。請先啟動本機伺服器：cd web && npm run dev\n` +
+      `（本工具唯讀讀取本機 API，伺服器未啟動時無法取得名單資料。）`,
+    );
+  }
   const info = await infoRes.json();
   const runId = info.activeRunId || info.run?.id;
   if (!runId) throw new Error('找不到 active run，請先在網頁建立匯出並執行計算。');
