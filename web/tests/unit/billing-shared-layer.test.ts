@@ -228,39 +228,40 @@ describe('共用層：defineCategories 的衍生與不變式', () => {
    */
   it('spec 缺 badge → 拋錯，不可產出 undefined', () => {
     expect(() => defineCategories([
-      { id: 'DAY_DIFF', label: '天數差異', needsHuman: false, tab: 'DAY_DIFF', insightGroup: 'none' } as never,
+      { id: 'DAY_DIFF', label: '天數差異', summaryKey: 'day', needsHuman: false, tab: 'DAY_DIFF', insightGroup: 'none' } as never,
     ])).toThrow(CategorySpecError);
     expect(() => defineCategories([
-      { id: 'DAY_DIFF', label: '天數差異', needsHuman: false, tab: 'DAY_DIFF', insightGroup: 'none' } as never,
+      { id: 'DAY_DIFF', label: '天數差異', summaryKey: 'day', needsHuman: false, tab: 'DAY_DIFF', insightGroup: 'none' } as never,
     ])).toThrow(/缺少 badge/);
   });
 
   it('spec 缺 label → 拋錯（報告會顯示空白）', () => {
     expect(() => defineCategories([
-      { id: 'DAY_DIFF', badge: 'badge-tier', needsHuman: false, insightGroup: 'none' } as never,
+      // label 刻意留空：本測試就是驗證缺 label 會被擋下
+      { id: 'DAY_DIFF', badge: 'badge-tier', summaryKey: 'day', needsHuman: false, insightGroup: 'none' } as never,
     ])).toThrow(/缺少 label/);
   });
 
   it('未宣告 insightGroup → 拋錯，強迫撰寫者當下決定（含填 none）', () => {
     expect(() => defineCategories([
-      { id: 'DAY_DIFF', label: '天數差異', badge: 'badge-tier', needsHuman: false } as never,
+      { id: 'DAY_DIFF', label: '天數差異', badge: 'badge-tier', summaryKey: 'day', needsHuman: false } as never,
     ])).toThrow(/insightGroup/);
     expect(() => defineCategories([
-      { id: 'DAY_DIFF', label: '天數差異', badge: 'badge-tier', needsHuman: false, insightGroup: '' } as never,
+      { id: 'DAY_DIFF', label: '天數差異', badge: 'badge-tier', summaryKey: 'day', needsHuman: false, insightGroup: '' } as never,
     ])).toThrow(/insightGroup/);
   });
 
   it('id 重複 → 拋錯，不可讓後者靜默覆蓋前者的 badge', () => {
     expect(() => defineCategories([
-      { id: 'X', label: '甲', badge: 'badge-ok', needsHuman: false, insightGroup: 'none' },
-      { id: 'X', label: '乙', badge: 'badge-warn', needsHuman: false, insightGroup: 'none' },
+      { id: 'X', label: '甲', summaryKey: 'x', badge: 'badge-ok', needsHuman: false, insightGroup: 'none' },
+      { id: 'X', label: '乙', summaryKey: 'y', badge: 'badge-warn', needsHuman: false, insightGroup: 'none' },
     ])).toThrow(/id 重複/);
   });
 
   it('分頁值重複 → 拋錯（兩個按鈕會過濾到同一組）', () => {
     expect(() => defineCategories([
-      { id: 'X', label: '甲', badge: 'badge-ok', needsHuman: false, tab: 'SAME', insightGroup: 'none' },
-      { id: 'Y', label: '乙', badge: 'badge-warn', needsHuman: false, tab: 'SAME', insightGroup: 'none' },
+      { id: 'X', label: '甲', summaryKey: 'x', badge: 'badge-ok', needsHuman: false, tab: 'SAME', insightGroup: 'none' },
+      { id: 'Y', label: '乙', summaryKey: 'y', badge: 'badge-warn', needsHuman: false, tab: 'SAME', insightGroup: 'none' },
     ])).toThrow(/與另一個按鈕重複/);
   });
 
@@ -551,12 +552,39 @@ describe('共用層：主控台統計欄位', () => {
     expect(Object.keys(summary).slice(1)).toEqual([...reg.ids].map(id => reg.summaryKeys[id]));
   });
 
-  it('未宣告 summaryKey 的 spec 以 id 為鍵名', () => {
-    const reg = defineCategories([
-      { id: 'CUSTOM', label: '自訂', badge: 'badge-ok', needsHuman: false, insightGroup: 'none' },
-    ]);
-    const summary = formatCategorySummary(reg, { total: 3, byCategory: () => 1 });
-    expect(Object.keys(summary)).toEqual(['total', 'CUSTOM']);
+  /**
+   * summaryKey 必填：省略時必須拋錯，不可退回用 id。
+   *
+   * 這個 fallback 曾是真實缺陷：把 BOTH_DIFF 的 summaryKey 刪掉，工具照跑、
+   * 印出 `BOTH_DIFF: 0` 而非 `both: 0`，HTML 完全不受影響，完整測試套件全綠，
+   * exit code 0。統計鍵名是對外契約，而分類計數在別處仍然正確——
+   * 所以沒有任何以計數或 HTML 為基礎的檢查會發現。
+   */
+  it('未宣告 summaryKey → 註冊時即拋錯，不可退回用 id', () => {
+    expect(() => defineCategories([
+      { id: 'BOTH_DIFF', label: '兩者皆差', badge: 'badge-withdrawal', needsHuman: false, insightGroup: 'none' } as never,
+    ])).toThrow(/未宣告 summaryKey/);
+    expect(() => defineCategories([
+      { id: 'BOTH_DIFF', label: '兩者皆差', summaryKey: '', badge: 'badge-withdrawal', needsHuman: false, insightGroup: 'none' } as never,
+    ])).toThrow(/未宣告 summaryKey/);
+  });
+
+  it('summaryKey 缺漏的錯誤訊息要點名分類與後果', () => {
+    expect(() => defineCategories([
+      { id: 'BOTH_DIFF', label: '兩者皆差', badge: 'badge-withdrawal', needsHuman: false, insightGroup: 'none' } as never,
+    ])).toThrow(/BOTH_DIFF/);
+    expect(() => defineCategories([
+      { id: 'BOTH_DIFF', label: '兩者皆差', badge: 'badge-withdrawal', needsHuman: false, insightGroup: 'none' } as never,
+    ])).toThrow(/對外契約/);
+  });
+
+  it('工具端九個分類都宣告了 summaryKey，鍵名與 main 的短別名一致', () => {
+    // 直接讀工具端實際使用的 registry，避免只測本檔的鏡像
+    const reg = defineCategories(BILLING_SPECS);
+    for (const id of reg.ids) {
+      expect(reg.summaryKeys[id], `分類 ${id} 缺 summaryKey 或鍵名不符`).toBe(keyMirror[id]);
+      expect(reg.summaryKeys[id], `分類 ${id} 的統計鍵名不得等於 id`).not.toBe(id);
+    }
   });
 
   /**
@@ -591,13 +619,13 @@ describe('共用層：主控台統計欄位', () => {
     expect(Object.keys(summary)).toEqual(['total', 'toString', 'constructor']);
   });
 
-  it('summaryKeys 索引可由 id 查出，且缺宣告時等於 id', () => {
+  it('summaryKeys 索引可由 id 查出，且值即宣告的 summaryKey', () => {
     const reg = defineCategories(BILLING_SPECS);
     for (const id of reg.ids) expect(reg.summaryKeys[id]).toBe(keyMirror[id]);
     const bare = defineCategories([
-      { id: 'X', label: '甲', badge: 'badge-ok', needsHuman: false, insightGroup: 'none' },
+      { id: 'X', label: '甲', summaryKey: 'x', badge: 'badge-ok', needsHuman: false, insightGroup: 'none' },
     ]);
-    expect(bare.summaryKeys['X']).toBe('X');
+    expect(bare.summaryKeys['X']).toBe('x');
   });
 });
 
