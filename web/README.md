@@ -102,7 +102,7 @@ npm run test:e2e:isolated -- tests/e2e/imports.spec.ts   # 只跑指定 spec
 
 ---
 
-## 4.2 帳務比對輔助工具（產品外，手動核對用）
+## 4.2 帳務比對輔助工具（side script，產品外，手動核對用）
 
 `scripts/compare-billing-report.mjs` 把**米豆奶匯出的 active run** 與**米豆奶財務報表 XLSX** 逐生比對國小輔導的每週收費天數與適用折扣，產出離線 HTML 差異報告。
 
@@ -112,7 +112,7 @@ node scripts/compare-billing-report.mjs --xlsx "<財務報表.xlsx>" [--out "<�
 
 - 需先啟動本機伺服器且已有完成的 active run；報表工作表名固定為 `班級營收狀況`。
 - 預設輸出 `~/Downloads/`。**唯讀**：不寫入產品資料庫、不修改 Run 或計算結果。
-- 屬產品外的離線輔助工具，非產品能力；範圍邊界見根目錄 `CLAUDE.md` §9.2。
+- 屬 side script，非專案交付的一部分；範圍邊界見根目錄 `CLAUDE.md` §9。
 
 ---
 

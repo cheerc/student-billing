@@ -154,6 +154,14 @@
 
 ## 9. 帳務比對輔助工具 (Billing Reconciliation Tool)
 
+### 9.0 定位：side script，非專案組件
+
+本工具是**個人隨手使用的 side script**，供日後開新 session 時能直接取用的核對工具，**目前不屬專案交付方向的一部分**。因此：
+
+- 不視為產品功能、不列入交付範圍、不隨產品版本演進維護。
+- 維護優先度等同一般開發工具：能用、能重跑即可，不追求與產品同級別的型別與測試覆蓋（`tsconfig` 不涵蓋 `.mjs`，型別安全由 `npm run lint` 與 `tests/unit/compare-billing-report-parse.test.ts` 守護）。
+- 若日後確認有長期需求，經 operator 決定後**另案**檢討是否正式納入專案；在此之前維持現狀。
+
 ### 9.1 `web/scripts/compare-billing-report.mjs`
 
 將**米豆奶匯出的 active run** 與**米豆奶財務報表 XLSX** 逐生比對「國小輔導（安親／課輔／寫功課）之每週收費天數與適用折扣」，產出離線 HTML 差異報告，供人工核對實質帳務。
