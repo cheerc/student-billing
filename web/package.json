@@ -21,7 +21,8 @@
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
     "test:perf:recompute-isolated": "tsx scripts/perf-recompute-isolated.ts",
-    "billing:compare": "tsx scripts/compare-billing-report.mjs"
+    "billing:compare": "tsx scripts/compare-billing-report.mjs",
+    "billing:compare:sessions": "tsx scripts/compare-session-pricing-report.mjs"
   },
   "dependencies": {
     "better-sqlite3": "^13.0.3",

@@ -141,29 +141,46 @@ export interface WorksheetLike {
 }
 
 export interface ExcelRowLike {
-  getCell(n: number): { text: CellText };
+  /**
+   * `value` 為 ExcelJS 的原始值（金額欄位為 `number`），`text` 為格式化字串。
+   *
+   * 金額欄位必須讀 `value`：報表裡的金額是數字，而 `text` 依 ExcelJS 的格式
+   * 轉成字串。宣告為 optional 是為了讓只提供 `{ text }` 的最小測試替身仍符合本介面。
+   */
+  getCell(n: number): { text: CellText; value?: unknown };
+}
+
+/** 走訪工作表時逐列累積的內部形狀（尚未對外）。 */
+interface CollectedEntry {
+  name: string;
+  /** 同一學生的**全部**學費明細列，依報表列順序。 */
+  tuitionRows: CellText[];
+  discounts: CellText[];
+  otherDiscounts: CellText[];
+  other: CellText[];
+  billNo: ReportField;
+  billDate: ReportField;
+  billStatus: ReportField;
 }
 
 /**
- * 讀取報表工作表 → 以姓名為鍵的學生彙整表。
+ * 走訪工作表並依科目累積。
  *
- * 欄位位置（1=姓名、2=單號、3=日期、4=明細、7=科目、8=狀態）是米豆奶
- * 財務報表的固定版面，非本專案可自由更動的格式。
- *
- * 同名多列以**先出現者**為準（`??=`），不覆寫先取得的帳單欄位；
- * 學費與折扣則累加，因為同一名學生可能在不同科目列各有一筆。
+ * 抽成內部函式的原因：`readReport` 的學費欄是**單一字串**（後者覆寫前者），
+ * 而按堂計價的報表可能同時列出同一名學生的美語與數學兩筆學費。兩種讀法必須
+ * 走同一趟、同一組欄位位置，否則科目分派與欄位索引會有兩份實作而漂移。
  */
-export function readReport(
+function collectEntries(
   worksheet: WorksheetLike,
   subjects: ReportSubjects,
-): Map<string, ReportStudentEntry> {
-  const students = new Map<string, ReportStudentEntry>();
+): Map<string, CollectedEntry> {
+  const students = new Map<string, CollectedEntry>();
   worksheet.eachRow((row, rowNumber) => {
     if (rowNumber === 1) return; // 第 1 列為表頭
     const name = row.getCell(1).text?.trim();
     if (!name) return;
-    const entry: ReportStudentEntry = students.get(name) ?? {
-      name, tuition: null, discounts: [], other: [], otherDiscounts: [],
+    const entry: CollectedEntry = students.get(name) ?? {
+      name, tuitionRows: [], discounts: [], otherDiscounts: [], other: [],
       billNo: null, billDate: null, billStatus: null,
     };
     const detail = row.getCell(4).text?.trim();
@@ -172,7 +189,7 @@ export function readReport(
     entry.billDate ??= row.getCell(3).text?.trim();
     entry.billStatus ??= row.getCell(8).text?.trim();
     if (subject === subjects.tuition) {
-      entry.tuition = detail;
+      entry.tuitionRows.push(detail);
     } else if (subject === subjects.discount) {
       entry.discounts.push(detail);
       // 折扣科目內，未被「課程費 NN折」認列者（如普測優惠、訂金）為額外獨立折扣項
@@ -182,5 +199,69 @@ export function readReport(
     }
     students.set(name, entry);
   });
+  return students;
+}
+
+/**
+ * 一名學生在報表中的**全部**學費列。
+ *
+ * `ReportStudentEntry.tuition` 是單一字串，足以表達國小輔導「一名學生一門課」的
+ * 版面。但按堂計價的報表可能同時列出該生的美語與數學兩筆學費，單一字串會
+ * **靜默丟掉其中一筆**：被丟掉的那筆不會讓任何欄位變空，只會讓該生的第二門課
+ * 在報告裡根本不存在。故另提供陣列形狀。
+ */
+export interface MultiTuitionReportEntry {
+  name: string;
+  /** 全部學費明細列，依報表列順序（單一學費者長度為 1）。 */
+  tuitionRows: CellText[];
+  discounts: CellText[];
+  otherDiscounts: CellText[];
+  other: CellText[];
+  billNo: ReportField;
+  billDate: ReportField;
+  billStatus: ReportField;
+}
+
+/**
+ * `readReport` 的陣列學費版本；科目分派與欄位位置與 `readReport` 完全相同。
+ *
+ * 存在的理由只有一個：`readReport` 的單一字串學費欄無法表達同一名學生同時擁有
+ * 美語與數學兩筆學費。刻意**不改變** `readReport` 的既有語意（其「後者覆寫前者」
+ * 已被測試釘住），而是另以同一次走訪提供陣列形狀。
+ */
+export function readMultiTuitionReport(
+  worksheet: WorksheetLike,
+  subjects: ReportSubjects,
+): Map<string, MultiTuitionReportEntry> {
+  return collectEntries(worksheet, subjects);
+}
+
+/**
+ * 讀取報表工作表 → 以姓名為鍵的學生彙整表。
+ *
+ * 欄位位置（1=姓名、2=單號、3=日期、4=明細、7=科目、8=狀態）是米豆奶
+ * 財務報表的固定版面，非本專案可自由更動的格式。
+ *
+ * 同名多列以**先出現者**為準（`??=`），不覆寫先取得的帳單欄位；
+ * 學費取**最後一筆**學費列（後者覆寫前者，原有語意），折扣則累加，
+ * 因為同一名學生可能在不同科目列各有一筆。
+ */
+export function readReport(
+  worksheet: WorksheetLike,
+  subjects: ReportSubjects,
+): Map<string, ReportStudentEntry> {
+  const students = new Map<string, ReportStudentEntry>();
+  for (const [key, e] of collectEntries(worksheet, subjects)) {
+    students.set(key, {
+      name: e.name,
+      tuition: e.tuitionRows.length ? e.tuitionRows[e.tuitionRows.length - 1] : null,
+      discounts: e.discounts,
+      other: e.other,
+      otherDiscounts: e.otherDiscounts,
+      billNo: e.billNo,
+      billDate: e.billDate,
+      billStatus: e.billStatus,
+    });
+  }
   return students;
 }

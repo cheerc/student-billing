@@ -18,7 +18,7 @@
 - 本地最小唯讀 API 供查詢指定 Run 之計算結果。
 
 ### P1 負向範圍 (Negative Scope - 絕對禁止在 P1 實作)
-- 不匯入財務報表、不自動對帳、不計算應收帳款金額。（此為**產品功能**之限制。另有 §9 的產品外離線輔助工具 `billing:compare`，可手動產出差異報告供人工核對帳務——它不是產品功能，見 §9.0）
+- 不匯入財務報表、不自動對帳、不計算應收帳款金額。（此為**產品功能**之限制。另有 §9 的產品外離線輔助工具 `billing:compare`（國小輔導）與 `billing:compare:sessions`（按堂計價），可手動產出差異報告供人工核對帳務——它們不是產品功能，見 §9.0）
 - 不直連 ERP 系統、不自動開單。
 - 不實作使用者登入、RBAC 權限管理、Firestore、雲端部署 (Vercel) 或 Tunnel。
 - 不輸出點名表模板、不實作 A4 報表列印（此屬 P3 範圍，見 `specs/05-attendance-templates.md`）。
@@ -152,16 +152,16 @@
 
 ---
 
-## 9. 帳務比對輔助工具 (Billing Reconciliation Tool)
+## 9. 帳務比對輔助工具 (Billing Reconciliation Tools)
 
 ### 9.0 定位：side script，非專案組件
 
-本工具是**個人隨手使用的 side script**，供日後開新 session 時能直接取用的核對工具，**目前不屬專案交付方向的一部分**。因此：
+本節的兩台工具（`billing:compare`、`billing:compare:sessions`）都是**個人隨手使用的 side script**，供日後開新 session 時能直接取用的核對工具，**目前不屬專案交付方向的一部分**。因此：
 
 - 不視為產品功能、不列入交付範圍、不隨產品版本演進維護。
-- 維護優先度等同一般開發工具：能用、能重跑即可，不追求與產品同級別的覆蓋。實際防護只有 `tests/unit/compare-billing-report-parse.test.ts`。**不得**宣稱「型別或未定義變數由 lint 守護」：eslint 對 `.mjs` 未啟用 `no-undef`／`no-unused-vars`，且 `tsconfig` 未開 `checkJs`，`.mjs` 內的型別錯誤不會被 `npm run typecheck` 攔下（review F-NEW-5／F-minor-4 已實測確認兩者皆放行）。
-- **不得複寫產品的班名／級距／離班解析**：級距一律取 `parseSingleClassToken`，離班標記一律取 API 已解析的 `enrollment.withdrawalDate`。複寫必然漂移——review F-NEW-2 曾漏 `[5]` 並把 `[Starter]` 默默當成 5 天；F-minor-2 又以自訂 regex 重複偵測離班而與產品錨定行尾的寫法分歧。
-- 執行一律走 `npm run billing:compare`（走既有 `tsx`）。裸 `node` 無法解析產品 TS 內部的無副檔名 import（`./types`），會 `ERR_MODULE_NOT_FOUND`。
+- 維護優先度等同一般開發工具：能用、能重跑即可，不追求與產品同級別的覆蓋。實際防護只有 `tests/unit/compare-billing-report-parse.test.ts` 與 `tests/unit/compare-session-pricing-report.test.ts`。**不得**宣稱「型別或未定義變數由 lint 守護」：eslint 對 `.mjs` 未啟用 `no-undef`／`no-unused-vars`，且 `tsconfig` 未開 `checkJs`，`.mjs` 內的型別錯誤不會被 `npm run typecheck` 攔下（review F-NEW-5／F-minor-4 已實測確認兩者皆放行）。
+- **不得複寫產品的班名／級距／離班解析**：級距一律取 `parseSingleClassToken`，班別類別一律取 `rateCategoryOfClass`，離班標記一律取 API 已解析的 `enrollment.withdrawalDate`。複寫必然漂移——review F-NEW-2 曾漏 `[5]` 並把 `[Starter]` 默默當成 5 天；F-minor-2 又以自訂 regex 重複偵測離班而與產品錨定行尾的寫法分歧。按堂計價工具的「折扣分派到哪一門課」同樣取 `parseSingleClassToken` 的 `baseName`（去方括號修飾），不自寫剝方括號的 regex。
+- 執行一律走 `npm run billing:compare` 或 `npm run billing:compare:sessions`（走既有 `tsx`）。裸 `node` 無法解析產品 TS 內部的無副檔名 import（`./types`），會 `ERR_MODULE_NOT_FOUND`。
 - 若日後確認有長期需求，經 operator 決定後**另案**檢討是否正式納入專案；在此之前維持現狀。
 
 ### 9.1 什麼時候該想到用這台工具
@@ -172,12 +172,18 @@
 - 手上有一份米豆奶匯出的**財務報表 XLSX**，想知道與計算結果差在哪。
 - 問「某個班／某個學生的天數或折扣對不對」「報表跟我們算的不一樣」。
 - 要做期中／期末核對、發單前核對、月中核對。
+- **問的是美語或數學的折扣**（該生不在國小輔導的級距制度內）→ 改用 `billing:compare:sessions`。
+
+**先問哪一台**：使用者通常只說「幫我對帳」而不指定科目。判斷依據是報表上開課的是哪一類班——**國小輔導（安親／課輔／寫功課）走 `billing:compare`，兒童美語／國小數學走 `billing:compare:sessions`**。若不確定，兩台都跑（皆為唯讀，互不影響）。
 
 **使用方式**（使用者通常不需知道指令，只要把報表路徑給出即可）：
 
 ```bash
 cd web
+# 國小輔導（級距＋折扣）
 npm run billing:compare -- --xlsx "<財務報表.xlsx>" [--out "<報告.html>"] [--base http://127.0.0.1:3000]
+# 兒童美語／國小數學（僅折扣）
+npm run billing:compare:sessions -- --xlsx "<財務報表.xlsx>" [--out "<報告.html>"] [--base http://127.0.0.1:3000]
 ```
 
 **跑之前必須先確認兩件事**（缺任一項工具會失敗，細節見 §9.2）：
@@ -189,20 +195,48 @@ npm run billing:compare -- --xlsx "<財務報表.xlsx>" [--out "<報告.html>"] 
 
 ### 9.2 工具細節
 
-將**米豆奶匯出的 active run** 與**米豆奶財務報表 XLSX** 逐生比對「國小輔導（安親／課輔／寫功課）之每週收費天數與適用折扣」，產出離線 HTML 差異報告，供人工核對實質帳務。
+#### 兩台工具的差異
+
+| 面向 | `billing:compare`（國小輔導） | `billing:compare:sessions`（按堂計價） |
+|---|---|---|
+| 比對科目 | 國小輔導（安親／課輔／寫功課） | 兒童美語、國小數學 |
+| 計價方式 | 每週收費**級距**（週收費天數） | **堂數 × 單價**，無級距制度 |
+| 比對欄位 | 週收費天數 ＋ 適用折扣 | **僅適用折扣** |
+| 天數差異分類 | 有（`DAY_DIFF`／`BOTH_DIFF`／`TIER_UNPARSED`） | **不存在，不設該分類** |
+| 一名學生 → 紀錄數 | 一筆 | **每筆學費列一筆**（雙科學生兩筆） |
+| 報表金額欄 | 不需要 | 需要：欄 9.. 為**每班一欄**，依同名表頭定位 |
+| 額外歸納 | 級距不符、重複報名、離班、寫功課 | 非標準折扣（期中補加收）、班級未分類、系統無適用值 |
+
+#### 共通
 
 - 前置條件：需先啟動本機伺服器（`npm run dev`）且已存在完成的 active run；報表工作表名固定為 `班級營收狀況`。
 - 預設輸出 `~/Downloads/`，**不得**輸出至專案內或納入版本控制（工具會直接拒絕專案內路徑）。
-- 差異分類一律在 `scripts/compare-billing-report.mjs` 的 `defineCategories([...])` 宣告；badge、label、分頁、需人工判讀清單與主控台統計鍵名皆由其推導。新增分類時只改該處，不可各處各列一份。**例外（仍在工具端手寫、尚未接上推導）**：統計卡的 `count()` 與 `INSIGHT_GROUPS` 的 filter。
+- 差異分類一律在各自工具的 `defineCategories([...])` 宣告；badge、label、分頁、需人工判讀清單與主控台統計鍵名皆由其推導。新增分類時只改該處，不可各處各列一份。**機制共用、資料各列**：兩台的分類內容本就不同，那是資料而非重複實作。
+
+#### 兩台工具仍需在工具端手寫的表面（尚未接上推導）
+
+- **國小輔導工具**（`compare-billing-report.mjs`）：統計卡的 `count()` 與 `INSIGHT_GROUPS` 的 filter 仍直接比 `statusCategory` 字面值，`insightGroup` 欄位目前只被測試讀取。
+- **按堂計價工具**（`compare-session-pricing-report.mjs`）：`INSIGHT_GROUPS` 的**分組成員已改由 `CATEGORIES.groupOf` 推導**（群組的標題與提示仍手寫，那是業務判讀文字）。但統計卡仍是多個 `count('CATEGORY')` 字面值。
+
+> 為何不一次接完：統計卡要決定「哪些分類值得獨立一張卡」，這是**閱讀優先序的判斷**，共用層無從推導；而兩台工具的卡片構成意圖不同。在只有兩個真實使用者的情況下先把機制做對（分組成員已推導），卡片選擇留待日後確有需求再接，避免先猜錯形狀。群組的**內容**（哪些分類屬於「需人工確認」）已由 `needsHuman` 與 `groupOf` 表達，不是漏接。
 
 ### 9.3 範圍邊界（維持 §1 負向範圍，不得擴張）
 
-operator 已裁示此工具為**產品外的離線輔助工具**，`§1` 之「不匯入財務報表、不自動對帳」**維持不變**。具體界線：
+operator 已裁示本節工具為**產品外的離線輔助工具**，`§1` 之「不匯入財務報表、不自動對帳」**維持不變**。具體界線：
 
 - **唯讀**：只讀取報表檔與本機 API，不寫入產品資料庫、不修改任何 Run 或計算結果。
 - **非產品能力**：不屬產品功能，不得據此規劃自動對帳、報表匯入或雲端部署。
 - **人工判讀**：報表與名單存在時間差（發單日 vs 匯出日），差異不預設任一來源為正確；成因標註僅列資料可佐證者，最終正確性由人工判定（延續 D17）。
 - **不寫死個資**：script 內不得硬編碼任何學生姓名或人員代碼；差異說明一律由資料推導（詳見 `buildNotes`）。
+- **不計算金額**：按堂計價工具**不比對堂數、單價與學費金額**。系統端尚無對應欄位（issue #118），工具若以「金額 ÷ 堂數」推出單價再拿去比對，等於替系統斷言它並未持有的事實，屬 §9.0 禁止的「代為猜測」。兩欄僅作顯示值並標註不可驗證。
+
+#### 已知限制：v3 run 的 `classCategories` 快照繞過
+
+產品端 `applicableRateForClass` 對 **v3 run** 有兩條路徑：以 `run_class_categories` 快照判斷班級類別與固定 5 天旗標，缺快照才退回名稱映射。但 `GET /api/v1/runs/{id}` **未暴露 `classCategories` 欄位**（已實測），因此兩台工具直接讀 `applicableEnglishBps`／`applicableMathBps` 等欄位，等於**繞過了快照路徑**。
+
+影響有限：`fixed_five_days` 自動偵測只對「寫功課」與「美安」為 true（`class-category.ts`），兒童美語與國小數學的自動值一律是 `false`，除非維護者手動改過。因此在未手動覆寫的情況下，名稱映射與快照的結果一致。
+
+**本節不修正此繞過**，僅記錄：若日後有人手動為美語／數學班設定了不同的類別或固定 5 天旗標，兩台工具的讀數將與畫面顯示不同。修正方向是讓 `GET /api/v1/runs/{id}` 一併回傳 `classCategories`，工具改走 `applicableRateForClass` 的正式路徑。
 
 ### 9.4 檔案產出與樣式
 
