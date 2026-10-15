@@ -338,5 +338,60 @@ describe('帳務比對工具：報表解析契約', () => {
         expect(Object.keys(rec.note).sort(), `分類 ${status} 的 note 欄位集合不一致`).toEqual(expectedKeys);
       }
     });
+
+    /**
+     * Note 值層級測試（review #119 Finding 1 的回歸防護）。
+     *
+     * 形狀測試只看 `Object.keys`，而既有 fixture 的 `tierComparisons`／`issues` 皆為空，
+     * 因此「預設值是空陣列」與「預設值是該學生的真實資料」無法區分——形狀測試
+     * 在錯誤實作下仍會通過。
+     *
+     * 實際曾發生的 bug：`finish()` 把 `dupIssues`／`mismatches` 設為**衍生資料**而非空值，
+     * 導致 MATCH 的學生被拉進「天數差異的最可能來源」歸納群組。分類計數完全不變
+     * （MATCH 仍是 MATCH），只有渲染結果改變。
+     *
+     * 本測試直接斷言：無論分類為何，只有「該分支原本就帶旗標」的情況才應有值。
+     */
+    it('MATCH 分支不得帶入 insight 旗標，即使名單學生確實有 mismatch/dupIssue', () => {
+      const student = webStudent('合成丁', {
+        tierComparisons: [{ status: 'mismatch', erpDeclaredTier: 5, computedTier: 4.5, rawToken: 'x' }],
+        issues: [{ code: 'DUPLICATE_SUBJECT_ENROLLMENT', category: '國小輔導' }],
+      });
+      const rec = runOne(
+        [reportStudent('合成丁', { tuition: '115國小輔導-一A[團] - 40 堂課' })],
+        [student],
+      );
+
+      expect(rec.statusCategory).toBe('MATCH');
+      // 這三行是本測試的核心：MATCH 不得因 finish() 的預設值而被餵進歸納群組
+      expect(rec.note.mismatches, 'MATCH 學生的 mismatches 應為空（否則會誤入天數差異群組）').toEqual([]);
+      expect(rec.note.dupIssues, 'MATCH 學生的 dupIssues 應為空（否則會誤入重複報名群組）').toEqual([]);
+      expect(rec.note.homework).toBe(false);
+      expect(rec.note.withdrawal).toBe(false);
+    });
+
+    it('NOT_IN_WEB 分支同樣不得帶入 insight 旗標', () => {
+      const rec = runOne(
+        [reportStudent('合成戊')],
+        [webStudent('合成己', {
+          tierComparisons: [{ status: 'mismatch', erpDeclaredTier: 5, computedTier: 4, rawToken: 'y' }],
+          issues: [{ code: 'DUPLICATE_SUBJECT_ENROLLMENT', category: '國小輔導' }],
+        })],
+      );
+      expect(rec.statusCategory).toBe('NOT_IN_WEB');
+      expect(rec.note.mismatches).toEqual([]);
+      expect(rec.note.dupIssues).toEqual([]);
+    });
+
+    it('確實需要餵旗標的分支仍帶著真實資料（防止修正過頭）', () => {
+      const rec = runOne(
+        [reportStudent('合成乙', { tuition: '115國小輔導-一A[團][4_5] - 40 堂課' })],
+        [webStudent('合成乙', {
+          tierComparisons: [{ status: 'mismatch', erpDeclaredTier: 5, computedTier: 4.5, rawToken: 'z' }],
+        })],
+      );
+      expect(rec.statusCategory).toBe('DAY_DIFF');
+      expect(rec.note.mismatches, 'DAY_DIFF 分支應保留真實 mismatches，否則歸納群組會漏人').toHaveLength(1);
+    });
   });
 });

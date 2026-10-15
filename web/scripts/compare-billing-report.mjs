@@ -243,9 +243,11 @@ function buildNotes({ statusCategory, excel, web, careCategory }) {
    * 消費者全靠 `?` 與 falsy 判讀才安全。共用層的 `Note` 型別要求各分支形狀一致，
    * 否則會退化成 union，所有消費者都得永遠寫 `?`。
    *
-   * 這是**行為等價**的重構：這三個分支缺漏的五個欄位，其所有消費者
-   * （renderInsightGroups 的 `r.note.mismatches?.length > 0` 等、renderRow 的
-   * `r.note.notes` / `r.note.tone`）在 undefined 與空陣列／false 下結果相同。
+   * **預設值必須是空值，不是衍生資料。** 這三個分支原本不帶 tag 旗標，
+   * 判讀結果為 falsy → 不進任何歸納群組。若預設填入 `dupIssues`／`mismatches`
+   * 這類真實學生資料，`MATCH` 的學生會被拉進「天數差異的最可能來源」等群組——
+   * 分類計數不變（MATCH 仍是 MATCH）但報告內容改變，屬靜默的行為破壞。
+   * 因此預設一律為 `[]`／`false`；需要帶資料的分支必須顯式傳入。
    */
   const finish = (partial) => ({
     tone: 'warn',
@@ -253,10 +255,13 @@ function buildNotes({ statusCategory, excel, web, careCategory }) {
     tags,
     homework: false,
     withdrawal: false,
-    dupIssues,
-    mismatches,
+    dupIssues: [],
+    mismatches: [],
     ...partial,
   });
+
+  /** 帶真實 insight 旗標的分支用此，明示「這裡確實要餵資料進歸納群組」。 */
+  const finishWithInsights = (partial) => finish({ dupIssues, mismatches, ...partial });
 
   if (statusCategory === 'MATCH') {
     const extras = [...excel.extraDiscounts, ...excel.otherItems];
@@ -281,7 +286,7 @@ function buildNotes({ statusCategory, excel, web, careCategory }) {
   }
   // 報表折扣格式無法解析：不可宣稱一致（review F-NEW-4）
   if (statusCategory === 'RATE_UNPARSED') {
-    return finish({
+    return finishWithInsights({
       notes: [
         `報表折扣明細含產品端不認得的「課程費」格式（${excel.extraDiscounts.join('、')}）。`,
         `天數一致（${excel.daysLabel}），但折扣率無法確定，不可視為完全一致；請人工確認。`,
@@ -355,7 +360,7 @@ function buildNotes({ statusCategory, excel, web, careCategory }) {
     if (excel.rateParseStatus === 'unknown') {
       notes.push(`報表折扣明細含無法解析的「課程費」格式（${excel.extraDiscounts.join('、')}），此差異源自報表格式變更，非標籤差異；請人工確認。`);
       notes.push(`報表目前讀為 ${bpsToLabel(excel.rateBps)} vs 網頁 ${bpsToLabel(web.rateBps)}。`);
-      return finish({ notes, homework: !!homeworkToken, withdrawal: !!withdrawal });
+      return finishWithInsights({ notes, homework: !!homeworkToken, withdrawal: !!withdrawal });
     }
     if (careTokens.length === 0) {
       notes.push(`${web.asOfDate} 名單已無國小輔導班級，網頁端無適用折扣率可比對。`);
@@ -379,7 +384,7 @@ function buildNotes({ statusCategory, excel, web, careCategory }) {
     notes.push(`報表 ${excel.daysLabel} 天／${bpsToLabel(excel.rateBps)} vs 網頁 ${web.daysLabel}／${bpsToLabel(web.rateBps)}，差異可能來自名單或課表異動。`);
   }
 
-  return finish({ notes, homework: !!homeworkToken, withdrawal: !!withdrawal });
+  return finishWithInsights({ notes, homework: !!homeworkToken, withdrawal: !!withdrawal });
 }
 
 // ---------------------------------------------------------------- 比對主流程
