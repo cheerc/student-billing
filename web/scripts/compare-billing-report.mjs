@@ -14,6 +14,7 @@ import ExcelJS from 'exceljs';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
+import { fileURLToPath } from 'url';
 
 const SHEET_NAME = '班級營收狀況';
 
@@ -34,13 +35,17 @@ function parseArgs(argv) {
 
 // ---------------------------------------------------------------- Excel 解析
 
-/** 折扣明細 → bps（10000 = 無折扣）。只認「課程費 NN折」為課程適用率；其餘視為獨立優惠項。 */
+/**
+ * 折扣明細 → bps（10000 = 無折扣）。只認「課程費 NN折」為課程適用率；其餘視為獨立優惠項。
+ * rateParseStatus：'parsed' 認得格式、'none' 全是獨立優惠項、'unknown' 見到課程費字樣卻認不出數字。
+ * unknown 必須與「確定無折扣」區分：前者是報表格式變了，不能當成沒折扣（review F3）。
+ */
 const RATE_PATTERNS = [
-  [/課程費(95)折/, 9500],
-  [/課程費(9)折/, 9000],
-  [/課程費(85)折/, 8500],
-  [/課程費(8)折/, 8000],
-  [/課程費(7)折/, 7000],
+  [/課程費\s*95\s*折/, 9500],
+  [/課程費\s*9\s*折/, 9000],
+  [/課程費\s*85\s*折/, 8500],
+  [/課程費\s*8\s*折/, 8000],
+  [/課程費\s*7\s*折/, 7000],
 ];
 
 function bpsToLabel(bps) {
@@ -50,37 +55,76 @@ function bpsToLabel(bps) {
   return `${zhe}折 (${bps / 100}%)`;
 }
 
-/** 學費明細 → 週收費天數。級距由班名方括號修飾推得：無標記視為全週 5 天。 */
-function parseTuition(detail) {
-  if (!detail) return { days: null, daysRaw: '無學費項', className: null, isHomework: false, sessions: null };
+/**
+ * 已知週收費級距，與產品端 web/src/domain/students/token-parser.ts 的 KNOWN_TIERS_MAP 同源。
+ * 不在表內者不可當作全週 5 天：產品端對未知修飾回 erpBillingTier=null + needs_review，
+ * 此處若默默回 5，等於替產品斷言它刻意不斷言的數值（review F2）。
+ */
+const KNOWN_TIERS = new Map([
+  ['3', 3],
+  ['3_5', 3.5],
+  ['4', 4],
+  ['4_5', 4.5],
+]);
+
+/** 學費明細 → 週收費天數。級距由班名方括號修飾推得；無級距修飾視為全週 5 天。 */
+export function parseTuition(detail) {
+  if (!detail) {
+    return { days: null, daysRaw: '無學費項', className: null, isHomework: false, sessions: null, tierStatus: 'none' };
+  }
   const [head, tail] = detail.split(' - ');
   const className = (head || '').trim();
   const sessionMatch = (tail || '').match(/(\d+)\s*堂課/);
   const sessions = sessionMatch ? parseInt(sessionMatch[1], 10) : null;
   const isHomework = className.includes('寫功課');
-  if (isHomework) return { days: 5, daysRaw: '寫功課(5天)', className, isHomework, sessions };
-  const tierMatch = className.match(/\[(\d(?:_\d)?)\]/);
-  if (tierMatch) {
-    const days = parseFloat(tierMatch[1].replace('_', '.'));
-    return { days, daysRaw: String(days), className, isHomework, sessions };
+  if (isHomework) {
+    return { days: 5, daysRaw: '寫功課(5天)', className, isHomework, sessions, tierStatus: 'homework' };
   }
-  return { days: 5, daysRaw: '5', className, isHomework, sessions };
+
+  // 取出所有方括號修飾；[團] 與年級標記（四年級）不是級距
+  const modifiers = [...className.matchAll(/\[([^\]]+)\]/g)].map(m => m[1]);
+  const tierCandidates = modifiers.filter(m => /^\d/.test(m));
+
+  if (tierCandidates.length === 0) {
+    return { days: 5, daysRaw: '5', className, isHomework, sessions, tierStatus: 'full_week' };
+  }
+  const known = tierCandidates.map(m => KNOWN_TIERS.get(m)).filter(d => d !== undefined);
+  if (known.length === tierCandidates.length) {
+    // 同時出現多個已知級距屬資料矛盾，不猜，交由呼叫端標示無法解析
+    if (known.length > 1) {
+      return { days: null, daysRaw: `級距矛盾(${tierCandidates.join('/')})`, className, isHomework, sessions, tierStatus: 'ambiguous' };
+    }
+    return { days: known[0], daysRaw: String(known[0]), className, isHomework, sessions, tierStatus: 'parsed' };
+  }
+  // 有數字開頭的修飾卻不在已知級距表內（如 [2]、[6]、[特殊數字]）
+  return {
+    days: null,
+    daysRaw: `無法解析級距(${tierCandidates.join('/')})`,
+    className,
+    isHomework,
+    sessions,
+    tierStatus: 'unknown',
+  };
 }
 
-function parseDiscounts(details) {
+export function parseDiscounts(details) {
   let rateBps = 10000;
   let rateDetail = null;
+  let rateParseStatus = 'none';
   const extraDiscounts = [];
   for (const d of details) {
     const hit = RATE_PATTERNS.find(([re]) => re.test(d));
     if (hit) {
       rateBps = hit[1];
       rateDetail = d;
+      rateParseStatus = 'parsed';
     } else {
       extraDiscounts.push(d);
+      // 見到「課程費」字樣卻認不出數字 → 報表出現新格式，不可當成無折扣
+      if (/課程費/.test(d)) rateParseStatus = 'unknown';
     }
   }
-  return { rateBps, rateDetail, extraDiscounts };
+  return { rateBps, rateDetail, rateParseStatus, extraDiscounts };
 }
 
 function readReport(worksheet) {
@@ -132,12 +176,22 @@ async function fetchRunStudents(base) {
   return { runId, students };
 }
 
-/** 以中文姓名比對（去掉括號英文名）；回報重名以免誤配。 */
+/**
+ * 配對鍵：去掉括號英文名後的中文姓名。
+ * 兩邊都必須過同一個正規化，否則索引端去括號、查詢端用原文會整批配對失敗，
+ * 且失敗會被誤標成「名單已無此人」（review F1）。
+ */
+export function normalizeName(name) {
+  // 同時接受半形與全形括號：名單由本工具產生（半形），報表來自外部系統，可能為全形
+  return String(name ?? '').replace(/\s*[（(][^）)]*[）)]\s*/g, '').trim();
+}
+
+/** 以正規化後的中文姓名建立索引；回報重名以免誤配。 */
 function indexByName(students) {
   const map = new Map();
   const duplicates = [];
   for (const s of students) {
-    const key = s.name.replace(/\s*\([^)]*\)\s*/g, '').trim();
+    const key = normalizeName(s.name);
     if (map.has(key)) duplicates.push(key);
     map.set(key, s);
   }
@@ -172,6 +226,17 @@ function buildNotes({ statusCategory, excel, web, careCategory }) {
     };
   }
 
+  if (statusCategory === 'UNPAIRABLE') {
+    // 不可斷言成因：可能是報表與名單同名多人、或姓名寫法差異。交人工以人員代碼核對（review F1）
+    return {
+      tone: 'warn',
+      notes: [
+        `報表有此學生帳單，但無法與名單唯一配對（${web.asOfDate} 名單可能有同名或姓名寫法差異）。`,
+        '請改以人員代碼核對，不要直接判定為離班。',
+      ],
+      tags, homework: false, withdrawal: false, dupIssues, mismatches,
+    };
+  }
   if (statusCategory === 'NOT_IN_WEB') {
     const items = [...excel.extraDiscounts, ...excel.otherItems];
     return {
@@ -194,6 +259,12 @@ function buildNotes({ statusCategory, excel, web, careCategory }) {
 
   // 天數差異：先找資料裡可佐證的成因
   if (statusCategory === 'DAY_DIFF' || statusCategory === 'BOTH_DIFF') {
+    // 報表級距解析不出來時不可歸因於班級異動：真正成因是報表格式，不是名單變了（review F2）
+    if (excel.tierStatus === 'unknown' || excel.tierStatus === 'ambiguous') {
+      notes.push(`報表班名「${excel.className}」的級距無法解析（${excel.daysLabel}），此差異源自報表格式，非名單或課表變動；請人工確認後再行調整。`);
+      notes.push(`報表 ${excel.daysLabel} vs 網頁 ${web.daysLabel}。`);
+      return { tone: 'warn', notes, tags, homework: !!homeworkToken, withdrawal: !!withdrawal, dupIssues, mismatches };
+    }
     // 報表開單班名 vs 名單現況班名：不同即為帳務期間內的班級／級距異動
     if (excel.className && careTokens.length) {
       const stillListed = careTokens.some(t => excel.className.includes(t.replace(/\s*\(.*?\)\s*$/, '')));
@@ -223,6 +294,12 @@ function buildNotes({ statusCategory, excel, web, careCategory }) {
 
   // 折扣差異
   if (statusCategory === 'DISCOUNT_DIFF' || statusCategory === 'BOTH_DIFF') {
+    // 報表折扣格式認不出來時，不可把差異歸因於標籤：真正成因是報表格式（review F3）
+    if (excel.rateParseStatus === 'unknown') {
+      notes.push(`報表折扣明細含無法解析的「課程費」格式（${excel.extraDiscounts.join('、')}），此差異源自報表格式變更，非標籤差異；請人工確認。`);
+      notes.push(`報表目前讀為 ${bpsToLabel(excel.rateBps)} vs 網頁 ${bpsToLabel(web.rateBps)}。`);
+      return { tone: 'warn', notes, tags, homework: !!homeworkToken, withdrawal: !!withdrawal, dupIssues, mismatches };
+    }
     if (careTokens.length === 0) {
       notes.push(`${web.asOfDate} 名單已無國小輔導班級，網頁端無適用折扣率可比對。`);
     }
@@ -272,6 +349,8 @@ function compare(reportStudents, webStudents, asOfDate) {
       sessions: tuition.sessions,
       rateBps: discount.rateBps,
       rateDetail: discount.rateDetail,
+      tierStatus: tuition.tierStatus,
+      rateParseStatus: discount.rateParseStatus,
       // 折扣科目內非「課程費 NN折」的獨立優惠項（普測優惠、訂金等）
       extraDiscounts: entry.otherDiscounts,
       // 雜費、車資、學費退費等其他會計科目項目，與課程費折扣無關
@@ -281,19 +360,24 @@ function compare(reportStudents, webStudents, asOfDate) {
       billStatus: entry.billStatus,
     };
 
-    const w = webByName.get(entry.name);
+    // 查詢端必須與索引端使用同一個正規化，否則含括號英文名的學生會整批配對失敗（review F1）
+    const lookupKey = normalizeName(entry.name);
+    const w = webByName.get(lookupKey);
     if (!w) {
+      // 名單完全沒有這個中文姓名 → 離班/退費；名單有但配對不上 → 疑似重名或姓名格式差異，不可混為一談
+      const unpairable = webStudents.some(s => normalizeName(s.name) === lookupKey);
+      const category = unpairable ? 'UNPAIRABLE' : 'NOT_IN_WEB';
       records.push({
         name: entry.name,
         personCode: '-',
         grade: '-',
         careCategory: '國小輔導',
-        statusCategory: 'NOT_IN_WEB',
-        statusLabel: '名單已無此人',
+        statusCategory: category,
+        statusLabel: unpairable ? '姓名無法唯一配對' : '名單已無此人',
         excel,
         web: null,
         asOfDate,
-        note: buildNotes({ statusCategory: 'NOT_IN_WEB', excel, web: { asOfDate }, careCategory: '國小輔導' }),
+        note: buildNotes({ statusCategory: category, excel, web: { asOfDate }, careCategory: '國小輔導' }),
       });
       continue;
     }
@@ -989,6 +1073,18 @@ async function main() {
     `帳務比對_${path.basename(args.xlsx, path.extname(args.xlsx))}.html`,
   );
 
+  // §3：報告含全體學生姓名與人員代碼，屬敏感個資，不得落在專案內（review F4）。
+  // 專案根 = web/ 的上一層；同樣擋掉 data/ 與任何 repo 內路徑。
+  const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
+  const resolvedOut = path.resolve(outputPath);
+  if (resolvedOut === projectRoot || resolvedOut.startsWith(projectRoot + path.sep)) {
+    throw new Error(
+      `報告含學生姓名與人員代碼，屬敏感個資（CLAUDE.md §3），不得輸出至專案內。\n` +
+      `拒絕路徑：${resolvedOut}\n` +
+      `請改用專案外路徑，例如：--out ~/Downloads/report.html`,
+    );
+  }
+
   console.log('讀取報表：', args.xlsx);
   const workbook = new ExcelJS.Workbook();
   await workbook.xlsx.readFile(args.xlsx);
@@ -1032,7 +1128,10 @@ async function main() {
   console.log('報告已輸出：', outputPath);
 }
 
-main().catch((err) => {
-  console.error('比對失敗：', err.message);
-  process.exit(1);
-});
+// 僅在直接執行時才跑；測試以 import 引入純函式時不得觸發比對流程
+if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(fileURLToPath(import.meta.url))) {
+  main().catch((err) => {
+    console.error('比對失敗：', err.message);
+    process.exit(1);
+  });
+}
