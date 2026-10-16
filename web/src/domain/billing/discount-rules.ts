@@ -155,19 +155,38 @@ export function calculateBaseDiscountBps(
  * - 課輔 (R14): 寫功課為 10000；其他 basic (無園內生額外優惠)。
  * - 美語/數學 (R15): basicRate。
  * - 加強班/國語文 (R15): not_configured (null)。
+ *
+ * #124（operator 裁示）：寫功課班也可能帶「特殊折扣 NN折」，因此
+ * **特殊折扣優先於「寫功課固定 100%」**。`hasSpecialDiscount` 為真時，
+ * 寫功課/美安的 10000 覆蓋不套用，改依各課程型態的一般規則處理 basicRate。
+ *
+ * 優先序依據（specs/02）：
+ * - §5 R07（特殊折扣標籤解析）與 §6 R10（特殊折扣直接覆蓋一般規則）**早於**
+ *   §8 R13／R14（寫功課適用率 1）。
+ * - §9.4 Q7-A 的「適用率皆為 100%」指該**班級自身**不適用一般折扣規則
+ *   （不列入比較、固定 5 天下限），與學生基本折扣是否被覆蓋是兩件事；
+ *   學生自帶的特殊折扣不在此覆蓋範圍內。
+ *
+ * `hasSpecialDiscount` 由呼叫點依**規則軌道**決定：正式軌（erp-tag-v1/v2/v3）
+ * 依標籤欄的 R07 結果傳入；診斷軌 `excel-v260922-compat` 刻意保留原 Excel 公式
+ * （CLAUDE.md §2 雙軌制度），固定傳 false。
  */
 export function calculateApplicableRate(
   courseType: 'anqin' | 'tutoring' | 'english' | 'math' | 'enrichment' | 'chinese',
   baseDiscountBps: number | null,
   isInternalStudent: boolean,
-  hasHomeworkOrMeian: boolean
+  hasHomeworkOrMeian: boolean,
+  hasSpecialDiscount: boolean
 ): number | null {
   if (baseDiscountBps === null) {
     return null;
   }
 
+  // #124：特殊折扣有值時不套用寫功課/美安的 10000 覆蓋。
+  const homeworkOverwriteApplies = hasHomeworkOrMeian && !hasSpecialDiscount;
+
   if (courseType === 'anqin') {
-    if (hasHomeworkOrMeian) {
+    if (homeworkOverwriteApplies) {
       return 10000;
     }
     if (isInternalStudent) {
@@ -177,7 +196,7 @@ export function calculateApplicableRate(
   }
 
   if (courseType === 'tutoring') {
-    if (hasHomeworkOrMeian) {
+    if (homeworkOverwriteApplies) {
       return 10000;
     }
     return baseDiscountBps;

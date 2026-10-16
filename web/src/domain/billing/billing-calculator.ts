@@ -486,6 +486,9 @@ export function calculateStudentBilling(
   });
 
   // 5. 計算各課程適用折扣 (R13–R15)
+  // #124：特殊折扣優先於寫功課固定 100%（operator 裁示）。診斷軌 excel-v260922-compat
+  // 刻意保留原 Excel 公式，因此固定傳 false（CLAUDE.md §2 雙軌制度）。
+  const hasSpecialDiscount = !isCompat && tagDiscounts.specialDiscount !== null;
   // 無報名學生（subjectCount === null）各課程適用率為 null（U39；適用率「—」維持）
   const applicableRates =
     subjectCount === null
@@ -498,12 +501,12 @@ export function calculateStudentBilling(
           chinese: null,
         }
       : {
-          anqin: calculateApplicableRate('anqin', baseDiscountBps, tagDiscounts.internalStudent, hasHomeworkOrMeian),
-          tutoring: calculateApplicableRate('tutoring', baseDiscountBps, tagDiscounts.internalStudent, hasHomeworkOrMeian),
-          english: calculateApplicableRate('english', baseDiscountBps, tagDiscounts.internalStudent, hasHomeworkOrMeian),
-          math: calculateApplicableRate('math', baseDiscountBps, tagDiscounts.internalStudent, hasHomeworkOrMeian),
-          enrichment: calculateApplicableRate('enrichment', baseDiscountBps, tagDiscounts.internalStudent, hasHomeworkOrMeian),
-          chinese: calculateApplicableRate('chinese', baseDiscountBps, tagDiscounts.internalStudent, hasHomeworkOrMeian),
+          anqin: calculateApplicableRate('anqin', baseDiscountBps, tagDiscounts.internalStudent, hasHomeworkOrMeian, hasSpecialDiscount),
+          tutoring: calculateApplicableRate('tutoring', baseDiscountBps, tagDiscounts.internalStudent, hasHomeworkOrMeian, hasSpecialDiscount),
+          english: calculateApplicableRate('english', baseDiscountBps, tagDiscounts.internalStudent, hasHomeworkOrMeian, hasSpecialDiscount),
+          math: calculateApplicableRate('math', baseDiscountBps, tagDiscounts.internalStudent, hasHomeworkOrMeian, hasSpecialDiscount),
+          enrichment: calculateApplicableRate('enrichment', baseDiscountBps, tagDiscounts.internalStudent, hasHomeworkOrMeian, hasSpecialDiscount),
+          chinese: calculateApplicableRate('chinese', baseDiscountBps, tagDiscounts.internalStudent, hasHomeworkOrMeian, hasSpecialDiscount),
         };
 
   // 6. 級距比較 (Tier Comparisons, U43, U47)
