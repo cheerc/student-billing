@@ -137,7 +137,9 @@ async function start(port: number) {
   const saveMarker = () => fs.writeFileSync(path.join(state, MARKER), JSON.stringify(session), { mode: 0o600 });
   saveMarker();
   console.log('SESSION ' + JSON.stringify(session));
-  const env: NodeJS.ProcessEnv = { ...process.env, NODE_ENV: 'production', DATABASE_PATH: session.database, NEXT_TELEMETRY_DISABLED: '1' };
+  // ACCEPTANCE_ENV 只給 T1 workspace 的 build 用（見 next.config.ts）：T1 需要能起
+  // production server，不驗證型別。條件式設定，產品 build 不受影響。
+  const env: NodeJS.ProcessEnv = { ...process.env, NODE_ENV: 'production', DATABASE_PATH: session.database, NEXT_TELEMETRY_DISABLED: '1', ACCEPTANCE_ENV: '1' };
   const jobs = new Set<ChildProcess>();
   const expectedExit = new WeakSet<ChildProcess>();
   let next: ChildProcess | null = null;

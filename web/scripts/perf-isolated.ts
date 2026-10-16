@@ -21,7 +21,12 @@ async function main(): Promise<void> {
   const stop = () => { interrupted = true; child?.kill('SIGTERM'); };
   process.once('SIGINT', stop);
   process.once('SIGTERM', stop);
-  const env: NodeJS.ProcessEnv = { ...process.env, NODE_ENV: 'production', DATABASE_PATH: databasePath, NEXT_TELEMETRY_DISABLED: '1' };
+  // ACCEPTANCE_ENV: undefined 是刻意的免疫，不是多餘的欄位——本檔會 spawn `next build`
+  // 與 Playwright，兩者都**不該**跳過型別檢查。若只寫 `{ ...process.env }`，呼叫者的
+  // shell 若帶著 ACCEPTANCE_ENV=1 就會被繼承進來，讓閘控在效能量測路徑開啟（只有
+  // scripts/acceptance-env.ts 才應該設定它）。顯式 undefined 讓 Node 省略整個變數
+  // （實測：子行程 `"X" in process.env` 為 false，而非拿到字串 "undefined"）。
+  const env: NodeJS.ProcessEnv = { ...process.env, NODE_ENV: 'production', DATABASE_PATH: databasePath, NEXT_TELEMETRY_DISABLED: '1', ACCEPTANCE_ENV: undefined };
   const run = (argv: string[], commandEnv = env) => new Promise<void>((resolve, reject) => {
     if (interrupted) return reject(new Error('效能量測已中止'));
     child = spawn(process.execPath, argv, { env: commandEnv, stdio: 'inherit', timeout: 180_000 });
