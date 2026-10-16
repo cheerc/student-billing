@@ -40,3 +40,7 @@ next-env.d.ts
 # 帳務比對工具的本機基準快照（內含真實報表路徑與依賴本機 dev server，
 # 僅供開發者本機重跑回歸基準，不得進入版本控制）
 web/baseline-*.mjs
+
+# 帳務比對工具的班級判斷探測腳本（.claude/skills/billing-reconcile 的步驟，
+# 會被讀入真實報表路徑；一次性用途，用完即刪，不得進入版本控制）
+web/probe-classes.mjs
