@@ -55,7 +55,8 @@ console.log([...byHead.entries()].map(([k, v]) => `${k} (${v})`).join('\n'));
 ```
 
 ```bash
-cd /Users/cheerc/Projects/student-billing/web && npx tsx probe-classes.mjs "<報表.xlsx>"
+cd web            # 若已在專案根；若在別處請先 cd 到專案根
+npx tsx probe-classes.mjs "<報表.xlsx>"
 ```
 
 實測輸出：
@@ -95,7 +96,7 @@ cd /Users/cheerc/Projects/student-billing/web && npx tsx probe-classes.mjs "<報
 （CLAUDE.md §4）。
 
 ```bash
-cd /Users/cheerc/Projects/student-billing/web
+cd web            # 從專案根執行（CLAUDE.md §4：所有 npm 指令在 web/ 內）
 
 # 國小輔導（級距 ＋ 折扣）：比對每週收費天數與適用折扣
 npm run billing:compare -- --xlsx "<財務報表.xlsx>" [--out "<報告.html>"] [--base http://127.0.0.1:3000]
