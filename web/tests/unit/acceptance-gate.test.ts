@@ -97,7 +97,28 @@ interface BuildResult {
   /** build 是否以 exit 0 結束 —— 這是判斷閘控是否放行型別錯誤的唯一依據。 */
   ok: boolean;
   output: string;
+  /**
+   * 逾時是**獨立狀態**，不可併入 ok=false。
+   *
+   * 若逾時也回傳 { ok: false }，負向 case 的「exit 不為 0」斷言會把它誤判為通過 ——
+   * 那等於重新引入上一輪被 reviewer 打回的那種空洞斷言。逾時必須讓測試明確失敗，
+   * 並說明是逾時而非型別錯誤。
+   */
+  timedOut?: boolean;
+  /** output 是否已截斷（超過 OUTPUT_LIMIT），讓診斷知道看到的不是全部。 */
+  truncated?: boolean;
 }
+
+/** build 逾時上限。實測正常 build 需 10–26 秒，180s 有充分餘裕。 */
+const BUILD_TIMEOUT_MS = 180_000;
+
+/**
+ * output 上限，對應舊版 execFileSync 的 maxBuffer（16MB）。
+ *
+ * 改用 spawn 後必須自己重新建立上限，否則四個 case 各持一份完整 build log，
+ * CI runner 記憶體較小時是真實風險。
+ */
+const OUTPUT_LIMIT = 16 * 1024 * 1024;
 
 /**
  * 非同步跑 build。
@@ -115,17 +136,71 @@ function build(workspace: string, env: NodeJS.ProcessEnv): Promise<BuildResult> 
       env,
       stdio: ['ignore', 'pipe', 'pipe'],
     });
+
     let stdout = '';
-    child.stdout.on('data', (chunk: Buffer) => { stdout += chunk.toString(); });
-    child.stderr.on('data', (chunk: Buffer) => { stdout += chunk.toString(); });
-    child.on('close', (code) => resolve({ ok: code === 0, output: stdout }));
-    child.on('error', (error) => resolve({ ok: false, output: `${stdout}\n${error.message}` }));
+    let truncated = false;
+    const append = (chunk: Buffer) => {
+      const next = stdout + chunk.toString();
+      if (next.length <= OUTPUT_LIMIT) {
+        stdout = next;
+        return;
+      }
+      // 保留**頭尾兩段**，不只留頭：TS 診斷在建置早期出現，但 Turbopack 的進度輸出
+      // 可能很多，而帶行號的診斷行可能落在輸出的中段 —— 只留頭部會讓
+      // /TS\d+/ 斷言失效，而那正是這個測試用來區分「型別錯誤被擋」與「build 因無關
+      // 原因失敗」的唯一訊號。
+      const half = Math.floor(OUTPUT_LIMIT / 2);
+      stdout = `${next.slice(0, half)}\n...[輸出已截斷，保留頭尾各 ${half} 字元]...\n${next.slice(-half)}`;
+      truncated = true;
+    };
+
+    const timer = setTimeout(() => {
+      // 先殺再等退出，不可 timeout 一到就直接 settle —— 否則 child 還在跑而 Promise
+      // 已回傳，那會留下佔用 CPU 的行程，並讓「逾時」與「build 失敗」在結果上同形。
+      child.kill('SIGTERM');
+      const grace = setTimeout(() => child.kill('SIGKILL'), 5_000);
+      child.once('close', () => {
+        clearTimeout(grace);
+        clearTimeout(timer);
+        resolve({ ok: false, output: stdout, timedOut: true, truncated });
+      });
+    }, BUILD_TIMEOUT_MS);
+
+    child.stdout.on('data', append);
+    child.stderr.on('data', append);
+    child.on('close', (code) => {
+      clearTimeout(timer);
+      resolve({ ok: code === 0, output: stdout, truncated });
+    });
+    child.on('error', (error) => {
+      clearTimeout(timer);
+      resolve({ ok: false, output: `${stdout}\n${error.message}`, truncated });
+    });
   });
+}
+
+/**
+ * 逾時必須讓斷言明確失敗並說明是逾時。
+ *
+ * 沒有這道閘，逾時回傳的 ok:false 會被「exit 不為 0」的斷言當成通過 —— build 因為
+ * 沒跑完而失敗，與 build 因型別錯誤而失敗，在結果上無法區分。
+ */
+function assertNotTimedOut(result: BuildResult) {
+  expect(result.timedOut, 'build 逾時（180s）——這不是型別錯誤的結果，測試環境有問題').toBeUndefined();
 }
 
 /** 失敗時附上 build 輸出尾段 —— 只為讓診斷可讀，不參與判定。 */
 function tail(result: BuildResult) {
-  return `\n--- build 輸出（判定依據是 exit code，這裡僅供診斷）---\n${result.output.slice(-1200)}`;
+  const parts = [`\n--- build 輸出（判定依據是 exit code，這裡僅供診斷）---`];
+  // 四種失敗要能從訊息裡分出來，否則排查時會把「build 沒跑到那裡」誤讀成
+  // 「沒有型別診斷」—— 一個正確但誤導的失敗訊息會浪費下一輪時間。
+  if (result.timedOut) parts.push('[結果] 逾時終止：build 未跑完，不代表型別檢查擋下了什麼');
+  else if (result.ok) parts.push('[結果] build 成功：閘控放行了型別錯誤');
+  else if (/TS\d+/.test(result.output)) parts.push('[結果] build 失敗且含 TS 診斷：型別錯誤被擋下');
+  else parts.push('[結果] build 失敗但無 TS 診斷：失敗原因與型別無關（語法錯誤或缺依賴）');
+  if (result.truncated) parts.push('[注意] output 超過上限，已保留頭尾兩段');
+  parts.push(result.output.slice(-1200));
+  return parts.join('\n');
 }
 
 describe('#130：T1 型別檢查豁免必須兩條件同時成立', () => {
@@ -144,6 +219,7 @@ describe('#130：T1 型別檢查豁免必須兩條件同時成立', () => {
     const env = { ...process.env };
     delete env.ACCEPTANCE_ENV;
     const result = await build(workspace, env);
+    assertNotTimedOut(result);
     expect(result.ok, `無 ACCEPTANCE_ENV 時不得豁免，型別錯誤必須擋下 build${tail(result)}`).toBe(false);
     expect(result.output, '失敗必須來自型別診斷（TS####），否則可能只是 build 因無關原因失敗').toMatch(/TS\d+/);
   }, 200_000);
@@ -157,6 +233,7 @@ describe('#130：T1 型別檢查豁免必須兩條件同時成立', () => {
     // cwd = <root>/state/web，相鄰上一層是 <root>/state/；marker 放在 <root>/。
     const workspace = fixture(path.join(root, 'state', 'web'), { marker: true, markerDepth: 2 });
     const result = await build(workspace, { ...process.env, ACCEPTANCE_ENV: '1' });
+    assertNotTimedOut(result);
     expect(result.ok, `marker 不在相鄰上一層時不得豁免 —— 條件 2 必須嚴格限定 dirname(cwd)${tail(result)}`).toBe(false);
     expect(result.output, '失敗必須來自型別診斷（TS####）').toMatch(/TS\d+/);
   }, 200_000);
@@ -166,6 +243,7 @@ describe('#130：T1 型別檢查豁免必須兩條件同時成立', () => {
     const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'sb130-nomarker-')));
     const workspace = fixture(path.join(root, 'state', 'web'), { marker: false });
     const result = await build(workspace, { ...process.env, ACCEPTANCE_ENV: '1' });
+    assertNotTimedOut(result);
     expect(result.ok, `缺少 marker 時不得豁免（繼承逃逸情境），型別錯誤必須擋下 build${tail(result)}`).toBe(false);
     expect(result.output, '失敗必須來自型別診斷（TS####），否則可能只是 build 因無關原因失敗').toMatch(/TS\d+/);
   }, 200_000);
