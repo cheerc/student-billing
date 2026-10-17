@@ -131,7 +131,7 @@
 - Reviewer 必須在隔離的唯讀 worktree 中審查指定的 exact HEAD commit。
 - 審查報告裁決僅能為 `VERIFIED`、`REJECTED` 或 `UNVERIFIED`。
 - `VERIFIED` 與 `REJECTED` 必須包含 `### Evidence` 區塊，具體列出執行命令 (`ran:`) 與程式碼引文 (`cited:`)。
-- 規格文件與架構指引變更（Instruction-surface）依 `reviewing-instruction-surface` 標準審查。
+- 規格文件與架構指引變更（Instruction-surface）依 `reviewing-instruction-surface` 標準審查。**該標準為外部權威文本**，位於本機 `/Users/cheerc/agend-customization/skills/general/reviewing-instruction-surface/SKILL.md`（屬受版控之外部 repo `cheerc/agend-customization`，不在本 repo 樹內）；取不到時先確認該 repo 是否存在與同步，並在 `### Evidence` 明寫處置。
 
 ---
 
