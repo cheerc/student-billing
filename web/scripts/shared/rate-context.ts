@@ -21,11 +21,65 @@
  */
 
 import type { ApplicableRateContext, RunClassCategorySnapshot } from '../../src/application/applicable-rate.ts';
+// 值匯入不能帶 `.ts`（TS5097 只在 `import type` 上放行）；不帶副檔名與 scripts/*.ts 一致，tsx 可解析。
+import { ruleSetCapabilities } from '../../src/domain/billing/rule-set';
 
 /** API `/runs/{id}` 回應中本工具需要的部分。 */
 export interface RunSnapshotPayload {
   isV3Run: boolean;
   classCategories: RunClassCategorySnapshot[] | null;
+}
+
+/**
+ * 這個 run 是否「以類別快照計費」（issue #140 第 2 項）。
+ *
+ * 判定**一律取產品端** `ruleSetCapabilities(version).categoryBasedBilling`，
+ * 與載入層（`runs-repository.ts`）同一套判準（CLAUDE.md §9.0 複寫禁令）。
+ *
+ * ## 為什麼不能寫 `ruleSetVersion === 'erp-tag-v3'`
+ *
+ * `specs/03 §5.3.1` 禁止字面版本比較：行為差異必須走能力旗標。字面比較在
+ * **新增 v4 且同具 `categoryBasedBilling` 時會靜默漏判**——工具不會警告、
+ * 也不會報錯，只是從此不再提醒「這個 run 本該有快照卻沒帶」。
+ * 這個旗標是產品的單一定義處，v4 註冊時自動跟上。
+ */
+export function runUsesClassCategorySnapshot(ruleSetVersion: string | null | undefined): boolean {
+  if (!ruleSetVersion) return false;
+  return ruleSetCapabilities(ruleSetVersion).categoryBasedBilling;
+}
+
+/** 工具端 `main()` 收到的最小 run 形狀（`RunInfoLike` 的子集，見 `roster-api.ts`）。 */
+export interface RunSnapshotSource {
+  ruleSetVersion?: string | null;
+  classCategories?: RunClassCategorySnapshot[] | null;
+}
+
+/**
+ * 由 API 的 run 回應建出工具端唯一的快照入口；不該有快照（或 API 沒帶）時回 `undefined`。
+ *
+ * **兩台工具都必須經由本函式取得快照**，不得各自寫一次
+ * `run?.classCategories ? { isV3Run: true, … } : undefined`——那正是讓「接線失效」
+ * 無處可測的原因（issue #140 第 1 項）。
+ *
+ * 判定用「有沒有拿到陣列」而非能力旗標：`[]`（v3 但零快照列）**必須**產生 context，
+ * 否則讀模型會退回名稱映射，正是 03 §5.3.4 明文禁止的猜測。`[]` 在 JS 為真值，
+ * 這裡以 `Array.isArray` 明示，避免日後被改成 `!run.classCategories` 而靜默反轉語意。
+ */
+export function buildRunSnapshotContext(run: RunSnapshotSource | null | undefined): RunSnapshotPayload | undefined {
+  if (!run || !Array.isArray(run.classCategories)) return undefined;
+  return { isV3Run: true, classCategories: run.classCategories };
+}
+
+/**
+ * 該不該警告「這個 run 本該有快照，API 卻沒帶」（issue #140 第 2 項）。
+ *
+ * 條件前半是**能力判定**（本該有），後半是**實際有無**（卻沒有）。
+ * 兩者都在本函式內，工具端只呼叫這一個判斷，不再各自字面比較版本。
+ */
+export function shouldWarnMissingSnapshot(run: RunSnapshotSource | null | undefined): boolean {
+  return (
+    runUsesClassCategorySnapshot(run?.ruleSetVersion) && buildRunSnapshotContext(run) === undefined
+  );
 }
 
 /**

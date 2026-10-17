@@ -38,7 +38,7 @@ import { applicableRateForClass } from '../src/application/applicable-rate.ts';
 
 import { parseDiscounts, bpsToLabel, readReport } from './shared/report-xlsx.ts';
 import { fetchRunStudents, fetchRun } from './shared/roster-api.ts';
-import { toApplicableRateContext } from './shared/rate-context.ts';
+import { toApplicableRateContext, buildRunSnapshotContext, shouldWarnMissingSnapshot } from './shared/rate-context.ts';
 import { normalizeName, indexByName } from './shared/name-matching.ts';
 import { defineCategories, formatCategorySummary } from './shared/category-registry.ts';
 import { renderShell, escapeHtml } from './shared/report-shell.ts';
@@ -758,9 +758,11 @@ async function main() {
   console.log(`報表學生 ${reportStudents.size} 名、名單學生 ${students.length} 名（run ${runId}, asOf ${asOfDate}）`);
 
   // issue #122：v3 run 帶上類別快照，適用率走產品讀模型的快照分支，與畫面同源。
-  const rateContext = run?.classCategories ? { isV3Run: true, classCategories: run.classCategories } : undefined;
-  if (!rateContext && run.ruleSetVersion === 'erp-tag-v3') {
-    console.warn('警告：此 run 為 v3 但 API 未回傳 classCategories，將退回名稱映射，讀數可能與畫面不同（issue #122）。');
+  // issue #140：一律經由 `buildRunSnapshotContext` 這個單一入口——不在此自行判空，
+  // 否則「這行做對了」沒有任何測試盯得住（單元測試恆以顯式參數傳入 rateContext）。
+  const rateContext = buildRunSnapshotContext(run);
+  if (shouldWarnMissingSnapshot(run)) {
+    console.warn('警告：此 run 依規則集應有類別快照，API 卻未回傳 classCategories，將退回名稱映射，讀數可能與畫面不同（issue #122）。');
   }
 
   const { records, duplicates } = compare(reportStudents, students, asOfDate, rateContext);
