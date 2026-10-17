@@ -52,12 +52,12 @@ cd web
 npx tsx scripts/acceptance-env.ts --port 3300
 ```
 
-輸出兩行開頭的結構化資料（供後續指令使用）：
+輸出兩行開頭的結構化資料（供後續指令使用）。**`token` 是明文，且只在這兩行出現**；磁碟上的 marker 存的是它的 sha256（issue #131）：
 
 ```
 SESSION {"kind":"student-billing-acceptance","token":"…","head":"<sha>","port":3300,"state":"/…/sb-acceptance-XXXX","database":"/…/app.sqlite","workspace":"/…/web","url":"http://127.0.0.1:3300", …}
 READY  {"…同上…"}
-控制：npx tsx scripts/acceptance-env.ts --restart|--reset|--stop --state /…/sb-acceptance-XXXX
+控制：npx tsx scripts/acceptance-env.ts --restart|--reset|--stop --state /…/sb-acceptance-XXXX（需 ACCEPTANCE_TOKEN=<上面印出的 token>）
 ```
 
 首次啟動需數十秒（production build）；之後 `--restart` 不重建，只重啟服務。
@@ -70,7 +70,7 @@ READY  {"…同上…"}
 ✓ Running next.config.ts took 22ms
 READY {"kind":"student-billing-acceptance","token":"d645…","source":"/private/tmp/clean-clone-e/web","head":"416ce4a…","port":3300,
        "state":"/…/T/sb-acceptance-4y3lo5","database":"/…/app.sqlite","workspace":"/…/web","url":"http://127.0.0.1:3300","stopped":false}
-控制：npx tsx scripts/acceptance-env.ts --restart|--reset|--stop --state /…/T/sb-acceptance-4y3lo5
+控制：npx tsx scripts/acceptance-env.ts --restart|--reset|--stop --state /…/T/sb-acceptance-4y3lo5（需 ACCEPTANCE_TOKEN=<上面印出的 token>）
 ```
 
 `--stop` 的實際回應與清理結果：
@@ -82,14 +82,17 @@ READY {"kind":"student-billing-acceptance","token":"d645…","source":"/private/
 ```
 
 ```bash
-npx tsx scripts/acceptance-env.ts --restart --state <state>   # 停止後用同一份 DB 再啟動
-npx tsx scripts/acceptance-env.ts --reset  --state <state>   # 清空 DB 重來
-npx tsx scripts/acceptance-env.ts --stop    --state <state>   # 停止；DB 與 marker 保留
+ACCEPTANCE_TOKEN=<啟動時 SESSION／READY 印出的 token> \
+  npx tsx scripts/acceptance-env.ts --restart --state <state>   # 停止後用同一份 DB 再啟動
+ACCEPTANCE_TOKEN=<同上> npx tsx scripts/acceptance-env.ts --reset  --state <state>   # 清空 DB 重來
+ACCEPTANCE_TOKEN=<同上> npx tsx scripts/acceptance-env.ts --stop    --state <state>   # 停止；DB 與 marker 保留
 ```
+
+明文 token 只在啟動那次輸出的 `SESSION`／`READY` 出現（該次 terminal）；控制指令另以環境變數帶入，生命週期隨 shell 結束。**刻意不接受 `--token` 參數**：命令列參數會出現在同使用者的 `ps` 輸出。
 
 - `--restart`／`--reset`／`--stop` 必須附啟動時印出的原始 state 目錄；目錄是 symlink、marker 不符（不同 checkout／不同埠／不是本工具建立）一律拒絕，不啟動也不終止任何服務。
 - 拒絕 operator 的 3000 與已占用埠（不終止他人服務）。
-- 控制通道是 state 目錄內的 unix socket（0600）；marker 記錄 checkout realpath、session token、port 與 HEAD。
+- 控制通道是 state 目錄內的 unix socket（0600）；marker 記錄 checkout realpath、**session token 的 sha256**、port 與 HEAD（issue #131：marker 不再持有可直接控制端點的憑證）。
 - 停止時只保留 DB 與 marker（build workspace 會被刪除，避免 tmp 堆積）；`--reset` 只刪該 session 的 `app.sqlite`／`-wal`／`-shm`。
 - 停止／退出前會等待自己的子程序結束（TERM→5s→KILL，只作用於自己建立的 process group）。
 
