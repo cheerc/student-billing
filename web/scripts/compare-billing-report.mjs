@@ -436,18 +436,21 @@ export function compare(reportStudents, webStudents, asOfDate, rateContext = und
     const days = isAnqin ? w.anqinDays : (isTutoring ? w.tutoringDays : null);
     const daysLabel = (isAnqin ? w.anqinDisplay : (isTutoring ? w.tutoringDisplay : null)) ?? '無適用值';
 
-    // issue #122：v3 run 的適用率一律走產品端 `applicableRateForClass` 的快照分支，
+    // issue #122：v3 run 的適用率走產品端 `applicableRateForClass` 的快照分支，
     // 與畫面同源。不可自行挑 `applicableAnqinBps`／`applicableTutoringBps`——那正是
     // 繞過快照的舊行為，遇到手動覆寫類別或固定 5 天的班會與畫面分歧且不報錯。
     //
-    // v1／v2 沒有快照概念，維持原本的「依年級取安親／課輔側」欄位選擇**逐字不變**：
-    // 該路徑在名冊已無輔導班（`careClassNameOf` 為空）時仍會顯示適用率，若改走
-    // `applicableRateForClass` 的空班名會變成「無法判定」，那是未經裁決的行為變更。
+    // **但有輔導班報名才走快照**：報表以科目（學費）取列，會出現只有美語／數學
+    // 報名、卻因年級落在課輔側而進到本報告的學生（實測 37 列中有 11 列如此）。
+    // 這些學生名冊裡**沒有國小輔導班**，也就沒有「本班」可言，快照查無此班會得到
+    // 「無法判定」而把原本顯示的適用率整欄變成 `-`——那是在本修正範圍外減少資訊。
+    // 故無輔導班者維持既有「依年級取安親／課輔側」，不新增猜測（這裡沒有班名可用）。
     const careClassName = careClassNameOf(w);
-    const applicable = rateContext
+    const useSnapshot = !!rateContext && careClassName !== '';
+    const applicable = useSnapshot
       ? applicableRateForClass(careClassName, { grade, ...RATE_INPUT_FIELDS(w) }, toApplicableRateContext(rateContext))
       : null;
-    const rateBps = rateContext
+    const rateBps = useSnapshot
       ? (applicable.status === 'configured' ? applicable.bps : null)
       : (isAnqin ? w.applicableAnqinBps : (isTutoring ? w.applicableTutoringBps : null));
 
@@ -457,7 +460,7 @@ export function compare(reportStudents, webStudents, asOfDate, rateContext = und
       days,
       daysLabel,
       rateBps,
-      rateNotConfigured: rateContext ? applicable.status === 'not_configured' : false,
+      rateNotConfigured: useSnapshot && applicable.status === 'not_configured',
       asOfDate,
       baseDiscountBps: w.baseDiscountBps,
       subjectCount: w.subjectCount,

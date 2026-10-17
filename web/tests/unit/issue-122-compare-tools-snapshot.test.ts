@@ -217,6 +217,27 @@ describe('issue #122：國小輔導工具（billing:compare）的 v3 快照路�
     expect(records[0]!.web!.rateBps).toBe(8888);
     expect(records[0]!.statusCategory).not.toBe('WEB_RATE_NOT_CONFIGURED');
   });
+
+  /**
+   * 在正式資料上實測到的回歸（37 列中 11 列受影響）：
+   *
+   * 報表以科目取列，會出現只有美語／數學報名、卻因年級落在課輔側而進到本報告的
+   * 學生。他們名冊裡**沒有國小輔導班**，快照查無此班會得到「無法判定」，若照走
+   * 就會把原本顯示的適用率整欄變成 `-`——在本修正範圍外減少資訊。
+   *
+   * 故 v3 但無輔導班者仍維持既有「依年級取安親／課輔側」，與 v1／v2 一致。
+   */
+  it('v3 但該生名冊無輔導班：仍維持既有讀數，不得變成無法判定', () => {
+    const noCareEnrollment = { ...careStudent, enrollments: [] };
+    const snapshots = [{ base_name: '國小輔導-三年級', category: 'care', fixed_five_days: 0 }];
+    const { records } = compareBilling(careReport(), [noCareEnrollment], '2026-10-01', {
+      isV3Run: true,
+      classCategories: snapshots,
+    });
+
+    expect(records[0]!.web!.rateBps).toBe(8888);
+    expect(records[0]!.statusCategory).not.toBe('WEB_RATE_NOT_CONFIGURED');
+  });
 });
 
 describe('issue #122：國小輔導工具既有簽章不變', () => {
