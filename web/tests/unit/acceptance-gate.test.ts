@@ -46,9 +46,19 @@ function fixture(workspace: string, opts: { marker: boolean; env: boolean }) {
   );
   fs.mkdirSync(path.join(workspace, 'app'), { recursive: true });
   fs.writeFileSync(path.join(workspace, 'app/page.tsx'), 'export default function P() { return <div>probe</div>; }\n');
-  // 不可用 symlink：Turbopack 會 panic「Symlink ... points out of the filesystem root」
-  // （CLAUDE.md §8）。用 APFS clone 共用依賴 —— 這正是本專案既有的 worktree 準備手法。
-  execFileSync('cp', ['-Rc', path.join(web, 'node_modules'), path.join(workspace, 'node_modules')]);
+  // 不用 symlink：Turbopack 會 panic「Symlink ... points out of the filesystem root」
+  // （CLAUDE.md §8）。
+  //
+  // 複製方式依平台分流：macOS 用 `cp -Rc`（APFS clone，CLAUDE.md §8 記載的手段，實測
+  // 531MB 約 8 秒），Linux 用 `cp -R`。**僅為資源準備手段差異，兩者皆執行後續相同的
+  // 真實 `next build`，故閘控行為在兩個平台都被驗證。**
+  //
+  // 不採 fallback（先試 -Rc 失敗再改 -R）：fallback 在 CI 每次都會先失敗一次並輸出
+  // `cp: invalid option -- 'c'`，讓未來讀 CI log 的人每次都要重新判斷那是預期還是新問題。
+  // 也不採 fs.cpSync：跨平台但沒有 clone 加速，531MB 會變成完整複製；而它的
+  // `{ clone: true }` 選項實測報 ERR_FS_CP_EINVAL（Node 不支援該選項）。
+  const cloneFlag = process.platform === 'darwin' ? '-Rc' : '-R';
+  execFileSync('cp', [cloneFlag, path.join(web, 'node_modules'), path.join(workspace, 'node_modules')]);
   if (opts.marker) fs.writeFileSync(path.join(path.dirname(workspace), 'acceptance-session.json'), '{"kind":"student-billing-acceptance"}');
   return workspace;
 }
