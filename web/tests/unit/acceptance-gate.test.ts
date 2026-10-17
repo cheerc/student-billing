@@ -11,26 +11,43 @@ import { execFileSync } from 'child_process';
  * 就會意外開啟 —— 而跳過型別檢查是會讓真實型別錯誤溜過的 gate。本測試存在的理由
  * 就是讓那個回歸變紅。
  *
+ * ## 判準為什麼是 exit code，不是輸出字串
+ *
+ * 三個 case 都注入**同一個真實型別錯誤**（`TYPE_ERROR_PROBE`），再以 build 的
+ * exit code 判斷閘控是否放行：
+ *
+ * | 條件 | build | 意義 |
+ * |---|---|---|
+ * | 閘控關閉（應擋） | exit ≠ 0 | 型別錯誤確實被擋下 |
+ * | 閘控開啟（應放行） | exit = 0 | 型別錯誤確實被靜默放行 |
+ *
+ * 早期版本以「輸出是否含 `Skipping validation of types`」為判準，那是**空洞斷言**：
+ * build 因語法錯誤、缺依賴或任何其他原因失敗時輸出裡同樣沒有該字串，負向 case 照樣
+ * 綠。exit code 是二元且互斥的答案，不會被無關的失敗模式偽裝成通過。
+ * 輸出字串只留作失敗訊息，不再作為斷言依據。
+ *
+ * 三個 case 用同一份注入，於是同一個型別錯誤在三種條件下得到三種結果 —— 那才是完整
+ * 的證明，也讓它們互為對照。
+ *
  * 兩條 mutation 都必須能被抓到（已實測）：
- *   - 移除條件 1（ACCEPTANCE_ENV）→ 「兩者皆具才開啟」變紅
- *   - 移除條件 2（marker 存在）→ 「僅條件 1 時必須關閉」變紅
+ *   - 移除條件 1（ACCEPTANCE_ENV）→ 正面 case 紅（型別錯誤不再被放行）
+ *   - 移除條件 2（marker 存在）→ 負向 case 紅（繼承逃逸時被誤放行）
  *
  * 本測試**不**涵蓋「marker 存在但內容錯誤」：marker 的 JSON 內容不參與判斷，
  * 測試名稱不得承諾它偵測不到的東西。
- *
- * 判定方式刻意用「真的跑 next build」而非靜態比對程式碼文字：靜態比對只能證明
- * 字串在檔案裡，證明不了閘控真的生效，而這正是 #105 記下的教訓（只看錯誤訊息第一
- * 行就下結論）。build 輸出是這裡唯一可觀察的裁判。
  */
 const web = path.resolve(__dirname, '../..');
 
+/** 真實的型別錯誤：字串賦給 number，tsc 必報 TS2322。 */
+const TYPE_ERROR_PROBE = 'export const __typeErrProbe: number = "not a number";\n';
+
 /**
- * 在暫存目錄組一個可 build 的最小 Next 專案，回傳其 next.config.ts 路徑。
+ * 在暫存目錄組一個可 build 的最小 Next 專案，回傳其路徑。
  *
  * 用真實檔案系統而非純字串推導：`process.cwd()` 與 marker 的相對位置關係是本測試
  * 的核心前提，用臨時目錄實跑才能證明條件 2 的行為符合預期。
  */
-function fixture(workspace: string, opts: { marker: boolean; env: boolean }) {
+function fixture(workspace: string, opts: { marker: boolean }) {
   fs.mkdirSync(workspace, { recursive: true });
   // next.config.ts 複製真實檔案 —— 測的是實際會跑的那份，不是複製品
   fs.copyFileSync(path.join(web, 'next.config.ts'), path.join(workspace, 'next.config.ts'));
@@ -46,6 +63,11 @@ function fixture(workspace: string, opts: { marker: boolean; env: boolean }) {
   );
   fs.mkdirSync(path.join(workspace, 'app'), { recursive: true });
   fs.writeFileSync(path.join(workspace, 'app/page.tsx'), 'export default function P() { return <div>probe</div>; }\n');
+  // 探針放進 lib/：tsc 的 include（`**/*.ts`）會讀它，但 Turbopack 不會編譯它 ——
+  // 放進 app/ 會讓編譯階段就先失敗（Ecmascript file had an error），那會讓三個 case
+  // 都紅，且失敗原因不是型別錯誤，等於測不到閘控。
+  fs.mkdirSync(path.join(workspace, 'lib'), { recursive: true });
+  fs.writeFileSync(path.join(workspace, 'lib/type-probe.ts'), TYPE_ERROR_PROBE);
   // 不用 symlink：Turbopack 會 panic「Symlink ... points out of the filesystem root」
   // （CLAUDE.md §8）。
   //
@@ -63,7 +85,13 @@ function fixture(workspace: string, opts: { marker: boolean; env: boolean }) {
   return workspace;
 }
 
-function build(workspace: string, env: NodeJS.ProcessEnv) {
+interface BuildResult {
+  /** build 是否以 exit 0 結束 —— 這是判斷閘控是否放行型別錯誤的唯一依據。 */
+  ok: boolean;
+  output: string;
+}
+
+function build(workspace: string, env: NodeJS.ProcessEnv): BuildResult {
   try {
     const stdout = execFileSync(process.execPath, [path.join(workspace, 'node_modules/next/dist/bin/next'), 'build'], {
       cwd: workspace,
@@ -73,43 +101,44 @@ function build(workspace: string, env: NodeJS.ProcessEnv) {
       stdio: ['ignore', 'pipe', 'pipe'],
       maxBuffer: 1 << 24,
     });
-    // 閘控開啟與否的證據在 stdout 裡 —— build 成功不代表輸出是空的。
     return { ok: true, output: stdout };
   } catch (error) {
-    const e = error as { stdout?: string; stderr?: string };
+    const e = error as { stdout?: string; stderr?: string; status?: number };
     return { ok: false, output: `${e.stdout ?? ''}\n${e.stderr ?? ''}` };
   }
 }
 
-/** build 是否跳過了型別檢查 —— 這才是閘控是否開啟的可觀察結果。 */
-function skippedTypecheck(output: string) {
-  return /Skipping validation of types/.test(output);
+/** 失敗時附上 build 輸出尾段 —— 只為讓診斷可讀，不參與判定。 */
+function tail(result: BuildResult) {
+  return `\n--- build 輸出（判定依據是 exit code，這裡僅供診斷）---\n${result.output.slice(-1200)}`;
 }
 
 describe('#130：T1 型別檢查豁免必須兩條件同時成立', () => {
-  it('無 ACCEPTANCE_ENV 時不豁免，即使 marker 存在於上一層', () => {
+  it('兩條件同時成立時放行：注入的型別錯誤不擋 build（exit 0）', () => {
+    const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'sb130-both-')));
+    const workspace = fixture(path.join(root, 'state', 'web'), { marker: true });
+    const result = build(workspace, { ...process.env, ACCEPTANCE_ENV: '1' });
+    // T1 路徑：閘控開啟 → 真實型別錯誤被靜默放行。
+    expect(result.ok, `T1 路徑（env + marker）應跳過型別檢查，型別錯誤不應擋下 build${tail(result)}`).toBe(true);
+  }, 200_000);
+
+  it('無 ACCEPTANCE_ENV 時不豁免：注入的型別錯誤擋下 build（exit ≠ 0）', () => {
     const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'sb130-none-')));
-    const workspace = fixture(path.join(root, 'state', 'web'), { marker: true, env: false });
+    // marker 刻意存在：證明即使結構條件成立，缺 env 也不豁免。
+    const workspace = fixture(path.join(root, 'state', 'web'), { marker: true });
     const env = { ...process.env };
     delete env.ACCEPTANCE_ENV;
     const result = build(workspace, env);
-    expect(skippedTypecheck(result.output), '無 ACCEPTANCE_ENV 時不得跳過型別檢查').toBe(false);
+    expect(result.ok, `無 ACCEPTANCE_ENV 時不得豁免，型別錯誤必須擋下 build${tail(result)}`).toBe(false);
+    expect(result.output, '失敗必須來自型別診斷（TS####），否則可能只是 build 因無關原因失敗').toMatch(/TS\d+/);
   }, 200_000);
 
-  it('有 ACCEPTANCE_ENV 但上一層無 marker 時不豁免（繼承逃逸情境）', () => {
+  it('有 ACCEPTANCE_ENV 但上一層無 marker 時不豁免：注入的型別錯誤擋下 build（exit ≠ 0）', () => {
     // 這條是核心：只靠條件 1 會被繼承開啟；marker 條件才是真正關住它的那道閘。
     const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'sb130-nomarker-')));
-    const workspace = fixture(path.join(root, 'state', 'web'), { marker: false, env: true });
-    const env = { ...process.env, ACCEPTANCE_ENV: '1' };
-    const result = build(workspace, env);
-    expect(skippedTypecheck(result.output), '缺少 marker 時不得跳過型別檢查').toBe(false);
-  }, 200_000);
-
-  it('兩條件同時成立時才豁免', () => {
-    const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'sb130-both-')));
-    const workspace = fixture(path.join(root, 'state', 'web'), { marker: true, env: true });
-    const env = { ...process.env, ACCEPTANCE_ENV: '1' };
-    const result = build(workspace, env);
-    expect(skippedTypecheck(result.output), 'T1 路徑（env + marker）應跳過型別檢查').toBe(true);
+    const workspace = fixture(path.join(root, 'state', 'web'), { marker: false });
+    const result = build(workspace, { ...process.env, ACCEPTANCE_ENV: '1' });
+    expect(result.ok, `缺少 marker 時不得豁免（繼承逃逸情境），型別錯誤必須擋下 build${tail(result)}`).toBe(false);
+    expect(result.output, '失敗必須來自型別診斷（TS####），否則可能只是 build 因無關原因失敗').toMatch(/TS\d+/);
   }, 200_000);
 });
