@@ -4,7 +4,7 @@ import path from 'path';
 import http from 'http';
 import net from 'net';
 import { spawn, execFileSync, type ChildProcess } from 'child_process';
-import { randomUUID } from 'crypto';
+import { createHash, randomUUID } from 'crypto';
 import { assertIsolatedE2eTarget } from './e2e-isolation';
 
 /**
@@ -18,6 +18,16 @@ const MARKER = 'acceptance-session.json';
 type Action = 'restart' | 'reset' | 'stop';
 interface Session {
   kind: 'student-billing-acceptance';
+  /**
+   * **sha256(明文 token) 的 hex，不是 token 本身**（issue #131）。
+   *
+   * 本檔會在 T1 存活期間持續留在磁碟上（`:139` 啟動時寫、`:183` stop 時刻意重寫），
+   * 而它先前存的是可直接餵進控制端點的明文 token —— 任何同使用者行程讀到這個檔就能
+   * 對 session 下 `reset`。現在檔內只留雜湊，比對是 `sha256(輸入) === 本欄位`。
+   *
+   * 明文只經由啟動時的 stdout（`SESSION {...}`／`READY {...}`）流過，那是它自己所屬
+   * 那次啟動的 terminal，不落磁碟。
+   */
   token: string;
   source: string;
   head: string;
@@ -29,11 +39,25 @@ interface Session {
   stopped: boolean;
 }
 
+const hashToken = (token: string) => createHash('sha256').update(token).digest('hex');
+
+/**
+ * 控制端點授權。
+ *
+ * 比對的是雜湊而非明文（#131 —— 明文已不存在於磁碟，無從比對）。用固定長度的 hex
+ * 比字串，不涉使用者輸入的長度，故無時序側通道可言。
+ */
+function authorize(input: { action?: Action; token?: string }, tokenHash: string): boolean {
+  if (!input.action || !['restart', 'reset', 'stop'].includes(input.action)) return false;
+  return typeof input.token === 'string' && hashToken(input.token) === tokenHash;
+}
+
 function parseArgs() {
   const args = process.argv.slice(2);
   let port = 3300;
   let state: string | undefined;
   let action: Action | undefined;
+  let token: string | undefined;
   for (let index = 0; index < args.length; index++) {
     const flag = args[index];
     if (flag === '--help') return { help: true, port };
@@ -43,7 +67,24 @@ function parseArgs() {
     else throw new Error('用法：--port <埠>，或 --restart／--reset／--stop --state <SESSION目錄>');
   }
   if (Boolean(action) !== Boolean(state)) throw new Error('控制操作必須附 --state <啟動時印出的SESSION目錄>；新啟動不要帶 --state');
-  return { help: false, port, action, state };
+  if (action && state) token = plaintextToken();
+  return { help: false, port, action, state, token };
+}
+
+/**
+ * 控制指令要用的明文 token。
+ *
+ * 刻意**不**放行 `--token`：命令列參數會出現在同使用者的 `ps` 輸出，而這條路徑存在的
+ * 理由就是收緊「憑證可被同使用者行程取得」。取環境變數 `ACCEPTANCE_TOKEN`，它的生命
+ * 週期隨 shell 結束，不像檔案需要記得刪；也不從 state 目錄反推 —— 那等於把同一件事
+ * 再寫回磁碟一次。
+ *
+ * 取不到值時回 undefined，由 `control()` 在跑完 marker 識別檢查之後才報錯：錯的
+ * SESSION 目錄要看到識別錯誤（含 stopped 語意），不是先被「缺 token」蓋掉。
+ */
+function plaintextToken(): string | undefined {
+  const token = process.env.ACCEPTANCE_TOKEN;
+  return token && token.length > 0 ? token : undefined;
 }
 
 function readSession(statePath: string): Session {
@@ -53,22 +94,29 @@ function readSession(statePath: string): Session {
   let session: Session;
   try { session = JSON.parse(fs.readFileSync(path.join(state, MARKER), 'utf8')); }
   catch { throw new Error('沒有有效 marker；請重新執行 start 建立隔離環境，不能 reset／停止未知服務'); }
+  // token 欄位現為 sha256 hex（#131）。格式檢查仍在此把關：形狀不符的 marker 一律拒絕，
+  // 不由後續的雜湊比對去承擔「這是不是本工具寫的」——比對失敗本來就回 403，但這裡擋下的
+  // 是「連讀都不該當成一個 session」的檔。舊制（明文 UUID）的 marker 因此一併被拒，
+  // 需重新 start；理由見 readSession 的呼叫端。
   if (session.kind !== 'student-billing-acceptance' || session.source !== SOURCE || session.state !== state
     || session.database !== path.join(state, 'app.sqlite') || session.workspace !== path.join(state, 'web')
-    || !/^[0-9a-f-]{36}$/.test(session.token) || !/^[0-9a-f]{40,64}$/.test(session.head)) {
+    || !/^[0-9a-f]{64}$/.test(session.token) || !/^[0-9a-f]{40,64}$/.test(session.head)) {
     throw new Error('marker 識別不符；請從同一 checkout 使用正確 SESSION 目錄');
   }
   assertIsolatedE2eTarget({ databasePath: session.database, port: session.port });
   return session;
 }
 
-async function control(action: Action, state: string) {
+async function control(action: Action, state: string, plaintextToken: string | undefined) {
   const session = readSession(state);
   if (session.stopped) {
     if (action === 'stop') return console.log(`已停止：${session.database}；port ${session.port}`);
     throw new Error('此 SESSION 已停止；請重新 start 建立新環境。restart／reset 在前景啟動程序仍運行時使用');
   }
-  const body = JSON.stringify({ action, token: session.token });
+  // 明文 token 只可能來自啟動時印出的那兩行，因此自然取得；marker 的 token 是雜湊，
+  // 拿它來控制必定 403（#131 的測試就量這一條）。不必為此設計新的憑證通道。
+  if (!plaintextToken) throw new Error('控制需要啟動時印出的 token；請設定 ACCEPTANCE_TOKEN，或直接在啟動該 session 的 terminal 執行本指令');
+  const body = JSON.stringify({ action, token: plaintextToken });
   await new Promise<void>((resolve, reject) => {
     const request = http.request({ socketPath: path.join(session.state, 'control.sock'), path: '/control', method: 'POST', agent: false,
       headers: { 'content-type': 'application/json', 'content-length': Buffer.byteLength(body), connection: 'close' } }, (response) => {
@@ -76,7 +124,7 @@ async function control(action: Action, state: string) {
       response.on('data', (chunk) => { text += chunk; });
       response.on('end', () => {
         if (response.statusCode !== 200) return reject(new Error(text));
-        console.log(text);
+        console.log(text);   // 端點回的是 {"ok":true,...}，本來就不含 token（#131 沒有改動回傳形狀）
         resolve();
       });
     });
@@ -126,17 +174,22 @@ async function start(port: number) {
   await assertFreePort(port);
   const state = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'sb-acceptance-')));
   fs.chmodSync(state, 0o700);
+  // 明文 token 只活在這個行程的記憶體與 stdout（#131）：寫進磁碟的是它的雜湊。
+  const token = randomUUID();
   const session: Session = {
-    kind: 'student-billing-acceptance', token: randomUUID(), source: SOURCE,
+    kind: 'student-billing-acceptance', token: hashToken(token), source: SOURCE,
     head: execFileSync('git', ['rev-parse', 'HEAD'], { cwd: SOURCE, encoding: 'utf8' }).trim(),
     port, state, database: path.join(state, 'app.sqlite'), workspace: path.join(state, 'web'),
     url: `http://127.0.0.1:${port}`, stopped: false,
   };
   assertIsolatedE2eTarget({ databasePath: session.database, port });
   fs.mkdirSync(session.workspace);
+  // marker 寫的是 session（含雜湊）；印出來的是**明文**，兩者刻意不同 ——
+  // 使用者的控制指令靠 `SESSION {...}` 的 token 欄位，而那個欄位只在這裡出現一次。
+  const announce = (label = 'SESSION') => console.log(`${label} ` + JSON.stringify({ ...session, token }));
   const saveMarker = () => fs.writeFileSync(path.join(state, MARKER), JSON.stringify(session), { mode: 0o600 });
   saveMarker();
-  console.log('SESSION ' + JSON.stringify(session));
+  announce();
   // ACCEPTANCE_ENV 只給 T1 workspace 的 build 用（見 next.config.ts）：T1 需要能起
   // production server，不驗證型別。條件式設定，產品 build 不受影響。
   const env: NodeJS.ProcessEnv = { ...process.env, NODE_ENV: 'production', DATABASE_PATH: session.database, NEXT_TELEMETRY_DISABLED: '1', ACCEPTANCE_ENV: '1' };
@@ -242,7 +295,8 @@ async function start(port: number) {
       request.on('end', async () => {
         let input: { action?: Action; token?: string };
         try { input = JSON.parse(body); } catch { response.writeHead(400).end('請提供合法JSON'); return; }
-        if (input.token !== session.token || !input.action || !['restart', 'reset', 'stop'].includes(input.action)) {
+        // input.action 的白名單移到 authorize()（#131），此處只留結果。
+        if (!authorize(input, session.token)) {
           response.writeHead(403).end('SESSION 識別不符'); return;
         }
         if (busy || stopping) { response.writeHead(409).end('正在操作，請等目前控制完成後再執行'); return; }
@@ -269,8 +323,10 @@ async function start(port: number) {
     const socket = path.join(state, 'control.sock');
     await new Promise<void>((resolve, reject) => { server!.once('error', reject); server!.listen(socket, () => resolve()); });
     fs.chmodSync(socket, 0o600);
-    console.log('READY ' + JSON.stringify(session));
-    console.log(`控制：npx tsx scripts/acceptance-env.ts --restart|--reset|--stop --state ${state}`);
+    // 同樣印明文（見上方 announce 的理由）；marker 在磁碟上仍是雜湊。
+    // 行首必須維持 `READY `（`SESSION` 同理）：兩行都是既有自動化與測試的解析契約。
+    announce('READY');
+    console.log(`控制：npx tsx scripts/acceptance-env.ts --restart|--reset|--stop --state ${state}（需 ACCEPTANCE_TOKEN=<上面印出的 token>）`);
   } catch (error) {
     process.exitCode = stopping ? 0 : 1;
     console.error(error instanceof Error ? error.message : String(error));
@@ -280,8 +336,8 @@ async function start(port: number) {
 
 async function main() {
   const options = parseArgs();
-  if (options.help) return console.log('start：npx tsx scripts/acceptance-env.ts [--port 3300]\n控制：--restart／--reset／--stop --state <SESSION目錄>');
-  if (options.action && options.state) await control(options.action, options.state);
+  if (options.help) return console.log('start：npx tsx scripts/acceptance-env.ts [--port 3300]\n控制：ACCEPTANCE_TOKEN=<啟動時印出的 token> npx tsx scripts/acceptance-env.ts --restart／--reset／--stop --state <SESSION目錄>');
+  if (options.action && options.state) await control(options.action, options.state, options.token);
   else await start(options.port);
 }
 main().catch((error: unknown) => { console.error(error instanceof Error ? error.message : String(error)); process.exitCode = 1; });

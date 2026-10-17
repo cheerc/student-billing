@@ -26,8 +26,8 @@ afterEach(async () => {
   for (const state of states.splice(0)) fs.rmSync(state, { recursive: true, force: true });
 });
 
-function cli(args: string[], repo = web) {
-  return spawnSync(process.execPath, ['--import', loader, script, ...args], { cwd: web, encoding: 'utf8', timeout: 20000, env: { ...process.env, ACCEPTANCE_SOURCE_DIR: repo } });
+function cli(args: string[], repo = web, token?: string) {
+  return spawnSync(process.execPath, ['--import', loader, script, ...args], { cwd: web, encoding: 'utf8', timeout: 20000, env: { ...process.env, ACCEPTANCE_SOURCE_DIR: repo, ...(token ? { ACCEPTANCE_TOKEN: token } : {}) } });
 }
 
 // 注意 cwd 固定為 web（對應 CI 的 working-directory）：工具必須自行處理 pathspec，
@@ -43,7 +43,8 @@ function timeoutMessage(child: ChildProcess, output: string) {
 async function start(repo = web, scriptPath = script) {
   const child = spawn(process.execPath, ['--import', loader, scriptPath, '--port', '3840'], { cwd: web, stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, ACCEPTANCE_SOURCE_DIR: repo } });
   children.push(child);
-  return new Promise<{ child: ChildProcess; state: string; database: string; workspace: string; url: string; source: string }>((resolve, reject) => {
+  // token：READY 行上的明文 token（#131：控制指令靠它，marker 裡只有雜湊）。
+  return new Promise<{ child: ChildProcess; state: string; database: string; workspace: string; url: string; source: string; token: string }>((resolve, reject) => {
     let output = '';
     const deadline = setTimeout(() => reject(new Error(timeoutMessage(child, output))), 120000);
     child.stderr!.on('data', (data) => { output += data.toString(); });
@@ -186,15 +187,26 @@ describe('T1：獨立 production build 的隔離驗收環境', () => {
     const preview = await request('/api/v1/settings/preview', { draft, expectedRevision: 0 });
     const applied = await request('/api/v1/settings/apply', { previewId: preview.previewId, expectedRevision: 0, idempotencyKey: 't1-persist' });
     expect(applied.mode).toBe('settings_only');
-    expect(cli(['--restart', '--state', session.state], path.join(repo, 'web')).status, 'restart').toBe(0);
     const persisted = await request('/api/v1/settings/deductions');
     expect(persisted.classes.some((item: { teacher: string }) => item.teacher === '合成T1持久化老師')).toBe(true);
-    expect(cli(['--reset', '--state', session.state], path.join(repo, 'web')).status, 'reset').toBe(0);
+
+    // #131：明文 token 只經由啟動時的 stdout 流過；控制指令要另外取得它（env）。
+    // 這裡缺 token 的那一次證明「控制路徑確實需要憑證」——否則下面的 restart 可能
+    // 只是因為端點根本不檢查而通過。
+    const noToken = cli(['--restart', '--state', session.state], path.join(repo, 'web'));
+    expect(noToken.status, '缺少明文 token 時不得控制').not.toBe(0);
+    expect(noToken.stderr).toContain('ACCEPTANCE_TOKEN');
+
+    expect(cli(['--restart', '--state', session.state], path.join(repo, 'web'), session.token).status, 'restart').toBe(0);
     const reset = await request('/api/v1/settings/deductions');
-    expect(reset.classes.some((item: { teacher: string }) => item.teacher === '合成T1持久化老師')).toBe(false);
+    expect(reset.classes.some((item: { teacher: string }) => item.teacher === '合成T1持久化老師'), 'restart 必須保留 DB').toBe(true);
+
+    expect(cli(['--reset', '--state', session.state], path.join(repo, 'web'), session.token).status, 'reset').toBe(0);
+    const cleared = await request('/api/v1/settings/deductions');
+    expect(cleared.classes.some((item: { teacher: string }) => item.teacher === '合成T1持久化老師')).toBe(false);
     // 刪除臨時 repo（含哨兵）也要在測試結束後清理，已由 afterEach 的 states 處理。
     const exited = once(session.child, 'exit');
-    expect(cli(['--stop', '--state', session.state], path.join(repo, 'web')).status, 'stop').toBe(0);
+    expect(cli(['--stop', '--state', session.state], path.join(repo, 'web'), session.token).status, 'stop').toBe(0);
     await exited;
     expect(session.child.exitCode).toBe(0);
     expect(fs.readFileSync(buildId, 'utf8'), '整輪結束後 source 哨兵仍不變').toBe(before);
