@@ -163,13 +163,20 @@ const OUTPUT_LIMIT = 16 * 1024 * 1024;
  *
  * 抽成純函式有兩個原因：
  *
- * 1. 正確性 —— child 被訊號殺掉時 exit code 恰為 0，若只判 code===0 就會把逾時誤記為
- *    成功。這是整段判斷裡最容易出錯的地方，值得能獨立驗證。
+ * 1. 正確性 —— 只看 exit code 研判逾時是錯的。child 被 SIGTERM 殺掉時 `code` 是
+ *    **null**（實測：真實 next build 未註冊 SIGTERM handler，逾時路徑得到
+ *    code=null、signal='SIGTERM'）；`code === 0` 只在 child **自己攔截訊號並
+ *    `exit(0)`** 時才成立。兩者的差別讓「逾時」必須由獨立旗標記錄，不能從 code 推。
  * 2. 可測性 —— failsafe 那條路徑需要「close 事件遲遲不來」。真實環境下造不出來
  *    （實測：SIGTERM 後 close 就觸發；SIGKILL 後也觸發；保留 stdout pipe 寫入端也一樣），
  *    所以它只能透過這個函式驗證，而不能靠真的把 child 弄到不回應訊號。
+ *
+ * 簽章刻意只收兩個參數。`truncated` 曾出現在這裡，但函式主體從未讀取它、回傳型別
+ * 也不含它（結果物件是在呼叫處自行接上的）。留著會讓讀簽章的人以為要傳進去才會
+ * 生效，寫出 `classifyBuildResult(code, timedOut, true)` 這種「以為在接線」的呼叫
+ * —— 那與傳錯 `timeoutObserved` 是同一類誤解，而這個函式正是用來防接錯線的。
  */
-export function classifyBuildResult(code: number | null, timeoutObserved: boolean, truncated = false): Pick<BuildResult, 'ok' | 'timedOut'> {
+export function classifyBuildResult(code: number | null, timeoutObserved: boolean): Pick<BuildResult, 'ok' | 'timedOut'> {
   if (timeoutObserved) return { ok: false, timedOut: true };
   return { ok: code === 0, timedOut: undefined };
 }
@@ -327,31 +334,38 @@ describe('#130：T1 型別檢查豁免必須兩條件同時成立', () => {
 /**
  * 逾時旗標的決策邏輯 —— 獨立於「哪個 close 監聽器先跑到」。
  *
- * 這組測試存在的理由：child 被訊號殺掉時 exit code 恰為 0，若只判 code === 0，
- * 逾時會被誤記為成功。而「逾時發生過」原本綁在監聽器註冊順序上（外層 on 先註冊，
+ * 這組測試存在的理由：「逾時發生過」原本綁在監聽器註冊順序上（外層 on 先註冊，
  * 先 settle，結果物件沒有 timedOut），於是 assertNotTimedOut 在最常見的逾時路徑上
- * 失效 —— 那是這個缺陷能活到第五輪的原因。
+ * 失效 —— 那是這個缺陷能活到第五輪的原因。而逾時本身無法由 exit code 推出：
+ * child 被 SIGTERM 殺掉時 code 是 null，不是 0（實測：真實 next build 未註冊
+ * SIGTERM handler）；code===0 只出現在 child 自行攔截訊號並 exit(0) 的情況。
  *
  * failsafe 那條路徑需要「close 遲遲不來」，真實環境造不出來（實測：SIGTERM 後 close
  * 觸發、SIGKILL 後也觸發、保留 stdout pipe 寫入端也一樣），所以那一段只能透過
  * settle() 的結果形狀來驗證，不能靠真的把 child 弄到不回應訊號。
  */
 describe('#130：build 結果的逾時旗標不得依賴監聽器註冊順序', () => {
+  // 用 toStrictEqual 而非 toEqual：後者忽略值為 undefined 的屬性（等同缺鍵），
+  // 於是「不帶逾時旗標」這句宣告會比斷言寬 —— 斷言其實允許該鍵存在但為 undefined。
+  // toStrictEqual 才真的檢查鍵不存在，與 it() 名稱所述一致。
   it('正常結束（exit 0）不帶逾時旗標', () => {
-    expect(classifyBuildResult(0, false)).toEqual({ ok: true, timedOut: undefined });
+    expect(classifyBuildResult(0, false)).toStrictEqual({ ok: true, timedOut: undefined });
   });
 
   it('正常結束但失敗（exit 非 0）不帶逾時旗標', () => {
-    expect(classifyBuildResult(1, false)).toEqual({ ok: false, timedOut: undefined });
+    expect(classifyBuildResult(1, false)).toStrictEqual({ ok: false, timedOut: undefined });
   });
 
-  it('逾時且 exit code 恰為 0（被訊號殺掉時就是這樣）必須判為失敗並帶逾時旗標', () => {
-    // 這一條就是第五輪缺陷的核心：只看 code 會把逾時誤記為成功。
-    expect(classifyBuildResult(0, true)).toEqual({ ok: false, timedOut: true });
+  it('逾時且 exit code 恰為 0 時，逾時旗標必須勝出', () => {
+    // 這一條驗的是「兩者衝突時誰贏」：旗標與 code 一起看的時候，逾時優先。
+    // code=0 在這裡是**人為輸入**，不是真實逾時路徑會出現的值 —— 真實路徑是
+    // code=null（下一條測的就是它）。之所以還是要測 0，是因為 child 若自行
+    // 攔截訊號並 exit(0)，只看 code 就會把逾時誤記為成功。
+    expect(classifyBuildResult(0, true)).toStrictEqual({ ok: false, timedOut: true });
   });
 
   it('逾時且被訊號終止（exit code 為 null）同樣帶逾時旗標', () => {
-    expect(classifyBuildResult(null, true)).toEqual({ ok: false, timedOut: true });
+    expect(classifyBuildResult(null, true)).toStrictEqual({ ok: false, timedOut: true });
   });
 });
 
@@ -363,13 +377,21 @@ describe('#130：build 結果的逾時旗標不得依賴監聽器註冊順序', 
  * 「build 真的會用它」。這裡直接觀察 build() 在逾時後回傳的結果形狀來補上。
  */
 describe('#130：build() 在逾時後必須帶上逾時旗標', () => {
-  it('逾時結束的 build 回傳 timedOut:true（即使 exit code 恰為 0）', async () => {
+  it('逾時結束的 build 回傳 timedOut:true', async () => {
     // 用長睡 stub + 極短逾時，逼出真正的逾時路徑。驗的是 build() 的實際結果，
     // 不是某個被抽出來的純函式。
+    //
+    // 這條走的是 code=null 的訊號終止路徑（實測 stub 逾時後為
+    // code=null、signal='SIGTERM'），不是「恰為 0」那條 —— 名稱不宣稱它測不到的
+    // 分支；code=0 與旗標衝突的情形由純函式那組專門覆蓋。
     const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'sb130-flag-')));
     const workspace = path.join(root, 'state', 'web');
     fs.mkdirSync(workspace, { recursive: true });
-    fs.symlinkSync(path.join(web, 'node_modules'), path.join(workspace, 'node_modules'), 'dir');
+    // 這裡不需要 node_modules：buildStub 走的是 `argv: ['-e', ...]`，spawn 的是 node
+    // 本身（`-e` 是 node 的 eval 選項），不會執行 `next/dist/bin/next`。原本這裡有
+    // 一個指向 web/node_modules 的 symlink，但沒有任何東西讀取它 —— 真實 T1 workspace
+    // 的父層 state/ 也沒有 node_modules，那個 symlink 在真實路徑上同樣解析不到目標。
+    // 留著會讓後續讀者以為它防了某件事，而它什麼都沒做。
     const result = await buildStub(workspace);
     expect(result.timedOut, '逾時後的結果必須帶 timedOut:true，否則 assertNotTimedOut 會失效').toBe(true);
     expect(result.failsafe, 'stub 會正常回應 SIGTERM，應走 close 路徑而非 failsafe').toBeUndefined();
