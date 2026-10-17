@@ -1,0 +1,400 @@
+import { describe, expect, it } from 'vitest';
+import fs from 'fs';
+import os from 'os';
+import path from 'path';
+import { execFileSync, spawn } from 'child_process';
+
+/**
+ * #130 守門測試：next.config.ts 的 T1 型別檢查豁免必須是**兩個條件同時成立**。
+ *
+ * 閘控一旦被改成單條件（只認 ACCEPTANCE_ENV），T1 的 env 物件被同源腳本繼承時
+ * 就會意外開啟 —— 而跳過型別檢查是會讓真實型別錯誤溜過的 gate。本測試存在的理由
+ * 就是讓那個回歸變紅。
+ *
+ * ## 判準為什麼是 exit code，不是輸出字串
+ *
+ * 三個 case 都注入**同一個真實型別錯誤**（`TYPE_ERROR_PROBE`），再以 build 的
+ * exit code 判斷閘控是否放行：
+ *
+ * | 條件 | build | 意義 |
+ * |---|---|---|
+ * | 閘控關閉（應擋） | exit ≠ 0 | 型別錯誤確實被擋下 |
+ * | 閘控開啟（應放行） | exit = 0 | 型別錯誤確實被靜默放行 |
+ *
+ * 早期版本以「輸出是否含 `Skipping validation of types`」為判準，那是**空洞斷言**：
+ * build 因語法錯誤、缺依賴或任何其他原因失敗時輸出裡同樣沒有該字串，負向 case 照樣
+ * 綠。exit code 是二元且互斥的答案，不會被無關的失敗模式偽裝成通過。
+ * 輸出字串只留作失敗訊息，不再作為斷言依據。
+ *
+ * 三個 case 用同一份注入，於是同一個型別錯誤在三種條件下得到三種結果 —— 那才是完整
+ * 的證明，也讓它們互為對照。
+ *
+ * 兩條 mutation 都必須能被抓到（已實測）：
+ *   - 移除條件 1（ACCEPTANCE_ENV）→ 正面 case 紅（型別錯誤不再被放行）
+ *   - 移除條件 2（marker 存在）→ 負向 case 紅（繼承逃逸時被誤放行）
+ *
+ * 本測試**不**涵蓋「marker 存在但內容錯誤」：marker 的 JSON 內容不參與判斷，
+ * 測試名稱不得承諾它偵測不到的東西。
+ */
+const web = path.resolve(__dirname, '../..');
+
+/** 真實的型別錯誤：字串賦給 number，tsc 必報 TS2322。 */
+const TYPE_ERROR_PROBE = 'export const __typeErrProbe: number = "not a number";\n';
+
+/**
+ * 在暫存目錄組一個可 build 的最小 Next 專案，回傳其路徑。
+ *
+ * 用真實檔案系統而非純字串推導：`process.cwd()` 與 marker 的相對位置關係是本測試
+ * 的核心前提，用臨時目錄實跑才能證明條件 2 的行為符合預期。
+ */
+function fixture(workspace: string, opts: { marker: boolean; markerDepth?: number }) {
+  fs.mkdirSync(workspace, { recursive: true });
+  // next.config.ts 複製真實檔案 —— 測的是實際會跑的那份，不是複製品
+  fs.copyFileSync(path.join(web, 'next.config.ts'), path.join(workspace, 'next.config.ts'));
+  fs.writeFileSync(
+    path.join(workspace, 'package.json'),
+    JSON.stringify({ name: 'gate-fixture', version: '1.0.0', private: true }),
+  );
+  fs.writeFileSync(
+    path.join(workspace, 'tsconfig.json'),
+    JSON.stringify({
+      compilerOptions: { target: 'ES2020', module: 'esnext', moduleResolution: 'bundler', strict: true, noEmit: true, skipLibCheck: true },
+    }),
+  );
+  fs.mkdirSync(path.join(workspace, 'app'), { recursive: true });
+  fs.writeFileSync(path.join(workspace, 'app/page.tsx'), 'export default function P() { return <div>probe</div>; }\n');
+  // 探針放進 lib/：tsc 的 include（`**/*.ts`）會讀它，但 Turbopack 不會編譯它 ——
+  // 放進 app/ 會讓編譯階段就先失敗（Ecmascript file had an error），那會讓三個 case
+  // 都紅，且失敗原因不是型別錯誤，等於測不到閘控。
+  fs.mkdirSync(path.join(workspace, 'lib'), { recursive: true });
+  fs.writeFileSync(path.join(workspace, 'lib/type-probe.ts'), TYPE_ERROR_PROBE);
+  // 不用 symlink：Turbopack 會 panic「Symlink ... points out of the filesystem root」
+  // （CLAUDE.md §8）。
+  //
+  // 複製方式依平台分流：macOS 用 `cp -Rc`（APFS clone，CLAUDE.md §8 記載的手段，實測
+  // 531MB 約 8 秒），Linux 用 `cp -R`。**僅為資源準備手段差異，兩者皆執行後續相同的
+  // 真實 `next build`，故閘控行為在兩個平台都被驗證。**
+  //
+  // 不採 fallback（先試 -Rc 失敗再改 -R）：fallback 在 CI 每次都會先失敗一次並輸出
+  // `cp: invalid option -- 'c'`，讓未來讀 CI log 的人每次都要重新判斷那是預期還是新問題。
+  // 也不採 fs.cpSync：跨平台但沒有 clone 加速，531MB 會變成完整複製；而它的
+  // `{ clone: true }` 選項實測報 ERR_FS_CP_EINVAL（Node 不支援該選項）。
+  const cloneFlag = process.platform === 'darwin' ? '-Rc' : '-R';
+  execFileSync('cp', [cloneFlag, path.join(web, 'node_modules'), path.join(workspace, 'node_modules')]);
+  if (opts.marker) {
+    // markerDepth=1（預設）寫在相鄰上一層，也就是 T1 真實的 state/ 對 state/web/ 關係。
+    // markerDepth=2 往上多一層，用來區分「嚴格 dirname(cwd)」與「任意祖先層級搜尋」——
+    // 後者會在這種 fixture 上誤判通過。
+    const markerDir = opts.markerDepth === 2
+      ? path.dirname(path.dirname(workspace))
+      : path.dirname(workspace);
+    fs.writeFileSync(path.join(markerDir, 'acceptance-session.json'), '{"kind":"student-billing-acceptance"}');
+  }
+  return workspace;
+}
+
+
+/** 以長睡 stub 觸發 build() 的逾時路徑，用於觀察結果形狀。 */
+function buildStub(workspace: string) {
+  return build(workspace, { ...process.env, ACCEPTANCE_ENV: '1' },
+    { argv: ['-e', 'setTimeout(()=>{}, 600000)'], timeoutMs: 1_500 });
+}
+
+interface BuildResult {
+  /** build 是否以 exit 0 結束 —— 這是判斷閘控是否放行型別錯誤的唯一依據。 */
+  ok: boolean;
+  output: string;
+  /**
+   * 逾時是**獨立狀態**，不可併入 ok=false。
+   *
+   * 若逾時也回傳 { ok: false }，負向 case 的「exit 不為 0」斷言會把它誤判為通過 ——
+   * 那等於重新引入上一輪被 reviewer 打回的那種空洞斷言。逾時必須讓測試明確失敗，
+   * 並說明是逾時而非型別錯誤。
+   */
+  timedOut?: boolean;
+  /** output 是否已截斷（超過 OUTPUT_LIMIT），讓診斷知道看到的不是全部。 */
+  truncated?: boolean;
+  /**
+   * 是否由 SETTLE_FAILSAFE 強制 settle —— 代表「等待機制本身失效」（SIGKILL 後
+   * 仍收不到 close），診斷上比 build 逾時更嚴重：child 可能仍在背景執行。
+   */
+  failsafe?: boolean;
+}
+
+/**
+ * build 逾時上限。實測正常 build 需約 10 秒／case，150s 仍有約 14 倍餘裕。
+ *
+ * 刻意不設 180s：最壞時間線是「逾時 → SIGTERM → 5s → SIGKILL → 等 close」，
+ * 而 close 還包含 stdio stream 關閉的延遲，最壞 settle 會逼近 case 自身的
+ * 200_000ms vitest timeout。兩個逾時同時到期時 vitest 殺的是 worker，child 仍會
+ * 留在背景 —— 那正是本函式要防的情況，不該由它自己觸發。150s 讓兩者之間保有
+ * 明確餘裕。
+ */
+const BUILD_TIMEOUT_MS = 150_000;
+
+/**
+ * SIGKILL 後仍收不到 close 的強制 settle 終極保險。
+ *
+ * 只送 SIGKILL 而 child 不回應時（事件迴圈死結、stdio pipe 未關），close 永不觸發
+ * → Promise 永不 settle → 該 case 只能吃滿 vitest 的 200s timeout，且 child 仍在
+ * 背景跑。這道 failsafe 保證無論 child 是否配合，Promise 都會在有界時間內 settle。
+ */
+const SETTLE_FAILSAFE_MS = 15_000;
+
+/**
+ * output 上限，對應舊版 execFileSync 的 maxBuffer（16MB）。
+ *
+ * 改用 spawn 後必須自己重新建立上限，否則四個 case 各持一份完整 build log，
+ * CI runner 記憶體較小時是真實風險。
+ */
+const OUTPUT_LIMIT = 16 * 1024 * 1024;
+
+/**
+ * 非同步跑 build。
+ *
+ * 用 spawn 而非 execFileSync：同步版本會把 worker 主執行緒整段阻塞住，最長可達
+ * 數十秒（實測每個 case 10–26 秒），期間 worker 無法回應 vitest 的 RPC 心跳，
+ * 會冒出 `[vitest-worker]: Timeout calling "onTaskUpdate"` 的 unhandled error。
+ * 那個錯誤不影響斷言結果，但會讓測試輸出出現與被測行為無關的紅字 —— 那是噪音，
+ * 掩蓋真正該看的失敗訊息。
+ */
+/**
+ * 由「exit code」與「是否曾逾時」推導結果形狀。
+ *
+ * 抽成純函式有兩個原因：
+ *
+ * 1. 正確性 —— 只看 exit code 研判逾時是錯的。child 被 SIGTERM 殺掉時 `code` 是
+ *    **null**（實測：真實 next build 未註冊 SIGTERM handler，逾時路徑得到
+ *    code=null、signal='SIGTERM'）；`code === 0` 只在 child **自己攔截訊號並
+ *    `exit(0)`** 時才成立。兩者的差別讓「逾時」必須由獨立旗標記錄，不能從 code 推。
+ * 2. 可測性 —— failsafe 那條路徑需要「close 事件遲遲不來」。真實環境下造不出來
+ *    （實測：SIGTERM 後 close 就觸發；SIGKILL 後也觸發；保留 stdout pipe 寫入端也一樣），
+ *    所以它只能透過這個函式驗證，而不能靠真的把 child 弄到不回應訊號。
+ *
+ * 簽章刻意只收兩個參數。`truncated` 曾出現在這裡，但函式主體從未讀取它、回傳型別
+ * 也不含它（結果物件是在呼叫處自行接上的）。留著會讓讀簽章的人以為要傳進去才會
+ * 生效，寫出 `classifyBuildResult(code, timedOut, true)` 這種「以為在接線」的呼叫
+ * —— 那與傳錯 `timeoutObserved` 是同一類誤解，而這個函式正是用來防接錯線的。
+ */
+export function classifyBuildResult(code: number | null, timeoutObserved: boolean): Pick<BuildResult, 'ok' | 'timedOut'> {
+  if (timeoutObserved) return { ok: false, timedOut: true };
+  return { ok: code === 0, timedOut: undefined };
+}
+
+function build(workspace: string, env: NodeJS.ProcessEnv, override?: { argv?: string[]; timeoutMs?: number }): Promise<BuildResult> {
+  return new Promise((resolve) => {
+    const child = spawn(process.execPath, override?.argv ?? [path.join(workspace, 'node_modules/next/dist/bin/next'), 'build'], {
+      cwd: workspace,
+      env,
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+
+    let stdout = '';
+    let truncated = false;
+    const append = (chunk: Buffer) => {
+      const next = stdout + chunk.toString();
+      if (next.length <= OUTPUT_LIMIT) {
+        stdout = next;
+        return;
+      }
+      // 保留**頭尾兩段**，不只留頭：TS 診斷在建置早期出現，但 Turbopack 的進度輸出
+      // 可能很多，而帶行號的診斷行可能落在輸出的中段 —— 只留頭部會讓
+      // /TS\d+/ 斷言失效，而那正是這個測試用來區分「型別錯誤被擋」與「build 因無關
+      // 原因失敗」的唯一訊號。
+      const half = Math.floor(OUTPUT_LIMIT / 2);
+      stdout = `${next.slice(0, half)}\n...[輸出已截斷，保留頭尾各 ${half} 字元]...\n${next.slice(-half)}`;
+      truncated = true;
+    };
+
+    // 計時器集中管理：settle() 必須清得到全部計時器，而其中 lives 在逾時回呼內
+    // （failsafe 的生命週期綁定「已送出 SIGKILL」這個事件，不能從 Promise 建立時起算）。
+    const timers = new Set<NodeJS.Timeout>();
+    const later = (fn: () => void, ms: number) => {
+      const handle = setTimeout(() => { timers.delete(handle); fn(); }, ms);
+      timers.add(handle);
+      return handle;
+    };
+
+    let settled = false;
+    /** 所有 settle 路徑都必須經過這裡，確保計時器一定被清掉。 */
+    const settle = (result: BuildResult) => {
+      if (settled) return;
+      settled = true;
+      for (const handle of timers) clearTimeout(handle);
+      timers.clear();
+      resolve(result);
+    };
+
+    // 「逾時發生過」必須獨立於「哪個 close 監聽器先跑到」來記錄。
+    //
+    // 外層的 child.on('close') 在 Promise 建立時就註冊，早於逾時回呼裡才註冊的
+    // child.once('close')；child 死亡時外層先觸發，先 settle 掉，結果物件就沒有
+    // timedOut —— 於是 assertNotTimedOut 這個閘在最常見的逾時路徑上失效，而逾時
+    // 恰恰最容易發生在 CI 已經很吃力的時候。用共享旗標記錄「有沒有逾時過」，
+    // 結果形狀就不再依賴監聽器註冊順序。
+    let timeoutObserved = false;
+
+    const timer = later(() => {
+      timeoutObserved = true;
+      // 先殺再等退出，不可 timeout 一到就直接 settle —— 否則 child 還在跑而 Promise
+      // 已回傳，那會留下佔用 CPU 的行程，並讓「逾時」與「build 失敗」在結果上同形。
+      child.kill('SIGTERM');
+      later(() => child.kill('SIGKILL'), 5_000);
+      // 從**送出 SIGKILL 的這一刻**起算，不是從 Promise 建立時起算 —— 否則
+      // failsafe 會在 build 還沒逾時時就先觸發，settle() 清掉逾時計時器，child 永遠
+      // 收不到 kill，反而製造出這段程式碼要防的孤兒行程。
+      later(() => {
+        settle({ ok: false, output: stdout, timedOut: true, truncated, failsafe: true });
+      }, SETTLE_FAILSAFE_MS);
+    }, override?.timeoutMs ?? BUILD_TIMEOUT_MS);
+    void timer;
+
+    child.stdout.on('data', append);
+    child.stderr.on('data', append);
+    child.on('close', (code) => {
+      const verdict = classifyBuildResult(code, timeoutObserved);
+      settle({ ...verdict, output: stdout, truncated });
+    });
+    child.on('error', (error) => settle({ ok: false, output: `${stdout}\n${error.message}`, truncated }));
+  });
+}
+
+/**
+ * 逾時必須讓斷言明確失敗並說明是逾時。
+ *
+ * 沒有這道閘，逾時回傳的 ok:false 會被「exit 不為 0」的斷言當成通過 —— build 因為
+ * 沒跑完而失敗，與 build 因型別錯誤而失敗，在結果上無法區分。
+ */
+function assertNotTimedOut(result: BuildResult) {
+  expect(result.failsafe, '等待機制失效：SIGKILL 後收不到 close，build 子行程可能仍在背景執行。這是測試基礎設施的問題，不是型別檢查的結果').toBeUndefined();
+  expect(result.timedOut, 'build 逾時——這不是型別錯誤的結果，測試環境有問題').toBeUndefined();
+}
+
+/** 失敗時附上 build 輸出尾段 —— 只為讓診斷可讀，不參與判定。 */
+function tail(result: BuildResult) {
+  const parts = [`\n--- build 輸出（判定依據是 exit code，這裡僅供診斷）---`];
+  // 四種失敗要能從訊息裡分出來，否則排查時會把「build 沒跑到那裡」誤讀成
+  // 「沒有型別診斷」—— 一個正確但誤導的失敗訊息會浪費下一輪時間。
+  if (result.failsafe) parts.push('[結果] 逾時且等待機制失效：SIGKILL 後收不到 close，已由 failsafe 強制 settle；child 可能仍在背景執行');
+  else if (result.timedOut) parts.push('[結果] 逾時終止：build 未跑完，不代表型別檢查擋下了什麼');
+  else if (result.ok) parts.push('[結果] build 成功：閘控放行了型別錯誤');
+  else if (/TS\d+/.test(result.output)) parts.push('[結果] build 失敗且含 TS 診斷：型別錯誤被擋下');
+  else parts.push('[結果] build 失敗但無 TS 診斷：失敗原因與型別無關（語法錯誤或缺依賴）');
+  if (result.truncated) parts.push('[注意] output 超過上限，已保留頭尾兩段');
+  parts.push(result.output.slice(-1200));
+  return parts.join('\n');
+}
+
+describe('#130：T1 型別檢查豁免必須兩條件同時成立', () => {
+  it('兩條件同時成立時放行：注入的型別錯誤不擋 build（exit 0）', async () => {
+    const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'sb130-both-')));
+    const workspace = fixture(path.join(root, 'state', 'web'), { marker: true });
+    const result = await build(workspace, { ...process.env, ACCEPTANCE_ENV: '1' });
+    // T1 路徑：閘控開啟 → 真實型別錯誤被靜默放行。
+    expect(result.ok, `T1 路徑（env + marker）應跳過型別檢查，型別錯誤不應擋下 build${tail(result)}`).toBe(true);
+  }, 200_000);
+
+  it('無 ACCEPTANCE_ENV 時不豁免：注入的型別錯誤擋下 build（exit ≠ 0）', async () => {
+    const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'sb130-none-')));
+    // marker 刻意存在：證明即使結構條件成立，缺 env 也不豁免。
+    const workspace = fixture(path.join(root, 'state', 'web'), { marker: true });
+    const env = { ...process.env };
+    delete env.ACCEPTANCE_ENV;
+    const result = await build(workspace, env);
+    assertNotTimedOut(result);
+    expect(result.ok, `無 ACCEPTANCE_ENV 時不得豁免，型別錯誤必須擋下 build${tail(result)}`).toBe(false);
+    expect(result.output, '失敗必須來自型別診斷（TS####），否則可能只是 build 因無關原因失敗').toMatch(/TS\d+/);
+  }, 200_000);
+
+  it('marker 在更上層但非相鄰上一層時不豁免（守住 dirname 的嚴格性）', async () => {
+    // 這個 case 存在的理由：`path.dirname(cwd)` 與「向上逐層搜尋 marker」在三個基本
+    // fixture 上行為完全相同（marker 都在相鄰上一層），所以前三個 case 分不出來 ——
+    // 實測把條件 2 改成 ancestor walk 時它們全綠。這個 fixture 把 marker 往上多挪一層，
+    // 兩種實作才會產生不同結果。
+    const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'sb130-deep-')));
+    // cwd = <root>/state/web，相鄰上一層是 <root>/state/；marker 放在 <root>/。
+    const workspace = fixture(path.join(root, 'state', 'web'), { marker: true, markerDepth: 2 });
+    const result = await build(workspace, { ...process.env, ACCEPTANCE_ENV: '1' });
+    assertNotTimedOut(result);
+    expect(result.ok, `marker 不在相鄰上一層時不得豁免 —— 條件 2 必須嚴格限定 dirname(cwd)${tail(result)}`).toBe(false);
+    expect(result.output, '失敗必須來自型別診斷（TS####）').toMatch(/TS\d+/);
+  }, 200_000);
+
+  it('有 ACCEPTANCE_ENV 但上一層無 marker 時不豁免：注入的型別錯誤擋下 build（exit ≠ 0）', async () => {
+    // 這條是核心：只靠條件 1 會被繼承開啟；marker 條件才是真正關住它的那道閘。
+    const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'sb130-nomarker-')));
+    const workspace = fixture(path.join(root, 'state', 'web'), { marker: false });
+    const result = await build(workspace, { ...process.env, ACCEPTANCE_ENV: '1' });
+    assertNotTimedOut(result);
+    expect(result.ok, `缺少 marker 時不得豁免（繼承逃逸情境），型別錯誤必須擋下 build${tail(result)}`).toBe(false);
+    expect(result.output, '失敗必須來自型別診斷（TS####），否則可能只是 build 因無關原因失敗').toMatch(/TS\d+/);
+  }, 200_000);
+});
+
+/**
+ * 逾時旗標的決策邏輯 —— 獨立於「哪個 close 監聽器先跑到」。
+ *
+ * 這組測試存在的理由：「逾時發生過」原本綁在監聽器註冊順序上（外層 on 先註冊，
+ * 先 settle，結果物件沒有 timedOut），於是 assertNotTimedOut 在最常見的逾時路徑上
+ * 失效 —— 那是這個缺陷能活到第五輪的原因。而逾時本身無法由 exit code 推出：
+ * child 被 SIGTERM 殺掉時 code 是 null，不是 0（實測：真實 next build 未註冊
+ * SIGTERM handler）；code===0 只出現在 child 自行攔截訊號並 exit(0) 的情況。
+ *
+ * failsafe 那條路徑需要「close 遲遲不來」，真實環境造不出來（實測：SIGTERM 後 close
+ * 觸發、SIGKILL 後也觸發、保留 stdout pipe 寫入端也一樣），所以那一段只能透過
+ * settle() 的結果形狀來驗證，不能靠真的把 child 弄到不回應訊號。
+ */
+describe('#130：build 結果的逾時旗標不得依賴監聽器註冊順序', () => {
+  // 用 toStrictEqual 而非 toEqual：後者忽略值為 undefined 的屬性（等同缺鍵），
+  // 於是「不帶逾時旗標」這句宣告會比斷言寬 —— 斷言其實允許該鍵存在但為 undefined。
+  // toStrictEqual 才真的檢查鍵不存在，與 it() 名稱所述一致。
+  it('正常結束（exit 0）不帶逾時旗標', () => {
+    expect(classifyBuildResult(0, false)).toStrictEqual({ ok: true, timedOut: undefined });
+  });
+
+  it('正常結束但失敗（exit 非 0）不帶逾時旗標', () => {
+    expect(classifyBuildResult(1, false)).toStrictEqual({ ok: false, timedOut: undefined });
+  });
+
+  it('逾時且 exit code 恰為 0 時，逾時旗標必須勝出', () => {
+    // 這一條驗的是「兩者衝突時誰贏」：旗標與 code 一起看的時候，逾時優先。
+    // code=0 在這裡是**人為輸入**，不是真實逾時路徑會出現的值 —— 真實路徑是
+    // code=null（下一條測的就是它）。之所以還是要測 0，是因為 child 若自行
+    // 攔截訊號並 exit(0)，只看 code 就會把逾時誤記為成功。
+    expect(classifyBuildResult(0, true)).toStrictEqual({ ok: false, timedOut: true });
+  });
+
+  it('逾時且被訊號終止（exit code 為 null）同樣帶逾時旗標', () => {
+    expect(classifyBuildResult(null, true)).toStrictEqual({ ok: false, timedOut: true });
+  });
+});
+
+/**
+ * 逾時回呼必須真的把「曾逾時」記進去，並傳給結果分類。
+ *
+ * 上一組測試只驗 classifyBuildResult 本身，實測發現：把呼叫處改成
+ * classifyBuildResult(code, false) 時，那一組仍然全綠 —— 純函式的正確性不等於
+ * 「build 真的會用它」。這裡直接觀察 build() 在逾時後回傳的結果形狀來補上。
+ */
+describe('#130：build() 在逾時後必須帶上逾時旗標', () => {
+  it('逾時結束的 build 回傳 timedOut:true', async () => {
+    // 用長睡 stub + 極短逾時，逼出真正的逾時路徑。驗的是 build() 的實際結果，
+    // 不是某個被抽出來的純函式。
+    //
+    // 這條走的是 code=null 的訊號終止路徑（實測 stub 逾時後為
+    // code=null、signal='SIGTERM'），不是「恰為 0」那條 —— 名稱不宣稱它測不到的
+    // 分支；code=0 與旗標衝突的情形由純函式那組專門覆蓋。
+    const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'sb130-flag-')));
+    const workspace = path.join(root, 'state', 'web');
+    fs.mkdirSync(workspace, { recursive: true });
+    // 這裡不需要 node_modules：buildStub 走的是 `argv: ['-e', ...]`，spawn 的是 node
+    // 本身（`-e` 是 node 的 eval 選項），不會執行 `next/dist/bin/next`。原本這裡有
+    // 一個指向 web/node_modules 的 symlink，但沒有任何東西讀取它 —— 真實 T1 workspace
+    // 的父層 state/ 也沒有 node_modules，那個 symlink 在真實路徑上同樣解析不到目標。
+    // 留著會讓後續讀者以為它防了某件事，而它什麼都沒做。
+    const result = await buildStub(workspace);
+    expect(result.timedOut, '逾時後的結果必須帶 timedOut:true，否則 assertNotTimedOut 會失效').toBe(true);
+    expect(result.failsafe, 'stub 會正常回應 SIGTERM，應走 close 路徑而非 failsafe').toBeUndefined();
+    expect(result.ok, '逾時不可被誤記為成功').toBe(false);
+  }, 60_000);
+});

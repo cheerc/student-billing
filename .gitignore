@@ -44,3 +44,10 @@ web/baseline-*.mjs
 # 帳務比對工具的班級判斷探測腳本（.claude/skills/billing-reconcile 的步驟，
 # 會被讀入真實報表路徑；一次性用途，用完即刪，不得進入版本控制）
 web/probe-classes.mjs
+
+# T1 驗收 session marker。內含 restart／reset／stop 控制 socket 的授權 token，
+# 依 CLAUDE.md §3 屬憑證，不得進入版本控制。
+# 正常情況下它只出現在 os.tmpdir() 的 sb-acceptance-* 之下；列在這裡讓
+# 「這個檔名只可能出現在 T1 暫存目錄」成為有忽略規則支撐的性質，而非巧合 ——
+# 閘控（next.config.ts）正是以「上一層有此 marker」判定 T1 路徑。
+acceptance-session.json
