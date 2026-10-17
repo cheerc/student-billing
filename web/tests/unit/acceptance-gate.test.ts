@@ -93,6 +93,13 @@ function fixture(workspace: string, opts: { marker: boolean; markerDepth?: numbe
   return workspace;
 }
 
+
+/** 以長睡 stub 觸發 build() 的逾時路徑，用於觀察結果形狀。 */
+function buildStub(workspace: string) {
+  return build(workspace, { ...process.env, ACCEPTANCE_ENV: '1' },
+    { argv: ['-e', 'setTimeout(()=>{}, 600000)'], timeoutMs: 1_500 });
+}
+
 interface BuildResult {
   /** build 是否以 exit 0 結束 —— 這是判斷閘控是否放行型別錯誤的唯一依據。 */
   ok: boolean;
@@ -151,9 +158,25 @@ const OUTPUT_LIMIT = 16 * 1024 * 1024;
  * 那個錯誤不影響斷言結果，但會讓測試輸出出現與被測行為無關的紅字 —— 那是噪音，
  * 掩蓋真正該看的失敗訊息。
  */
-function build(workspace: string, env: NodeJS.ProcessEnv): Promise<BuildResult> {
+/**
+ * 由「exit code」與「是否曾逾時」推導結果形狀。
+ *
+ * 抽成純函式有兩個原因：
+ *
+ * 1. 正確性 —— child 被訊號殺掉時 exit code 恰為 0，若只判 code===0 就會把逾時誤記為
+ *    成功。這是整段判斷裡最容易出錯的地方，值得能獨立驗證。
+ * 2. 可測性 —— failsafe 那條路徑需要「close 事件遲遲不來」。真實環境下造不出來
+ *    （實測：SIGTERM 後 close 就觸發；SIGKILL 後也觸發；保留 stdout pipe 寫入端也一樣），
+ *    所以它只能透過這個函式驗證，而不能靠真的把 child 弄到不回應訊號。
+ */
+export function classifyBuildResult(code: number | null, timeoutObserved: boolean, truncated = false): Pick<BuildResult, 'ok' | 'timedOut'> {
+  if (timeoutObserved) return { ok: false, timedOut: true };
+  return { ok: code === 0, timedOut: undefined };
+}
+
+function build(workspace: string, env: NodeJS.ProcessEnv, override?: { argv?: string[]; timeoutMs?: number }): Promise<BuildResult> {
   return new Promise((resolve) => {
-    const child = spawn(process.execPath, [path.join(workspace, 'node_modules/next/dist/bin/next'), 'build'], {
+    const child = spawn(process.execPath, override?.argv ?? [path.join(workspace, 'node_modules/next/dist/bin/next'), 'build'], {
       cwd: workspace,
       env,
       stdio: ['ignore', 'pipe', 'pipe'],
@@ -195,7 +218,17 @@ function build(workspace: string, env: NodeJS.ProcessEnv): Promise<BuildResult> 
       resolve(result);
     };
 
+    // 「逾時發生過」必須獨立於「哪個 close 監聽器先跑到」來記錄。
+    //
+    // 外層的 child.on('close') 在 Promise 建立時就註冊，早於逾時回呼裡才註冊的
+    // child.once('close')；child 死亡時外層先觸發，先 settle 掉，結果物件就沒有
+    // timedOut —— 於是 assertNotTimedOut 這個閘在最常見的逾時路徑上失效，而逾時
+    // 恰恰最容易發生在 CI 已經很吃力的時候。用共享旗標記錄「有沒有逾時過」，
+    // 結果形狀就不再依賴監聽器註冊順序。
+    let timeoutObserved = false;
+
     const timer = later(() => {
+      timeoutObserved = true;
       // 先殺再等退出，不可 timeout 一到就直接 settle —— 否則 child 還在跑而 Promise
       // 已回傳，那會留下佔用 CPU 的行程，並讓「逾時」與「build 失敗」在結果上同形。
       child.kill('SIGTERM');
@@ -206,15 +239,15 @@ function build(workspace: string, env: NodeJS.ProcessEnv): Promise<BuildResult> 
       later(() => {
         settle({ ok: false, output: stdout, timedOut: true, truncated, failsafe: true });
       }, SETTLE_FAILSAFE_MS);
-      child.once('close', () => {
-        settle({ ok: false, output: stdout, timedOut: true, truncated });
-      });
-    }, BUILD_TIMEOUT_MS);
+    }, override?.timeoutMs ?? BUILD_TIMEOUT_MS);
     void timer;
 
     child.stdout.on('data', append);
     child.stderr.on('data', append);
-    child.on('close', (code) => settle({ ok: code === 0, output: stdout, truncated }));
+    child.on('close', (code) => {
+      const verdict = classifyBuildResult(code, timeoutObserved);
+      settle({ ...verdict, output: stdout, truncated });
+    });
     child.on('error', (error) => settle({ ok: false, output: `${stdout}\n${error.message}`, truncated }));
   });
 }
@@ -289,4 +322,57 @@ describe('#130：T1 型別檢查豁免必須兩條件同時成立', () => {
     expect(result.ok, `缺少 marker 時不得豁免（繼承逃逸情境），型別錯誤必須擋下 build${tail(result)}`).toBe(false);
     expect(result.output, '失敗必須來自型別診斷（TS####），否則可能只是 build 因無關原因失敗').toMatch(/TS\d+/);
   }, 200_000);
+});
+
+/**
+ * 逾時旗標的決策邏輯 —— 獨立於「哪個 close 監聽器先跑到」。
+ *
+ * 這組測試存在的理由：child 被訊號殺掉時 exit code 恰為 0，若只判 code === 0，
+ * 逾時會被誤記為成功。而「逾時發生過」原本綁在監聽器註冊順序上（外層 on 先註冊，
+ * 先 settle，結果物件沒有 timedOut），於是 assertNotTimedOut 在最常見的逾時路徑上
+ * 失效 —— 那是這個缺陷能活到第五輪的原因。
+ *
+ * failsafe 那條路徑需要「close 遲遲不來」，真實環境造不出來（實測：SIGTERM 後 close
+ * 觸發、SIGKILL 後也觸發、保留 stdout pipe 寫入端也一樣），所以那一段只能透過
+ * settle() 的結果形狀來驗證，不能靠真的把 child 弄到不回應訊號。
+ */
+describe('#130：build 結果的逾時旗標不得依賴監聽器註冊順序', () => {
+  it('正常結束（exit 0）不帶逾時旗標', () => {
+    expect(classifyBuildResult(0, false)).toEqual({ ok: true, timedOut: undefined });
+  });
+
+  it('正常結束但失敗（exit 非 0）不帶逾時旗標', () => {
+    expect(classifyBuildResult(1, false)).toEqual({ ok: false, timedOut: undefined });
+  });
+
+  it('逾時且 exit code 恰為 0（被訊號殺掉時就是這樣）必須判為失敗並帶逾時旗標', () => {
+    // 這一條就是第五輪缺陷的核心：只看 code 會把逾時誤記為成功。
+    expect(classifyBuildResult(0, true)).toEqual({ ok: false, timedOut: true });
+  });
+
+  it('逾時且被訊號終止（exit code 為 null）同樣帶逾時旗標', () => {
+    expect(classifyBuildResult(null, true)).toEqual({ ok: false, timedOut: true });
+  });
+});
+
+/**
+ * 逾時回呼必須真的把「曾逾時」記進去，並傳給結果分類。
+ *
+ * 上一組測試只驗 classifyBuildResult 本身，實測發現：把呼叫處改成
+ * classifyBuildResult(code, false) 時，那一組仍然全綠 —— 純函式的正確性不等於
+ * 「build 真的會用它」。這裡直接觀察 build() 在逾時後回傳的結果形狀來補上。
+ */
+describe('#130：build() 在逾時後必須帶上逾時旗標', () => {
+  it('逾時結束的 build 回傳 timedOut:true（即使 exit code 恰為 0）', async () => {
+    // 用長睡 stub + 極短逾時，逼出真正的逾時路徑。驗的是 build() 的實際結果，
+    // 不是某個被抽出來的純函式。
+    const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'sb130-flag-')));
+    const workspace = path.join(root, 'state', 'web');
+    fs.mkdirSync(workspace, { recursive: true });
+    fs.symlinkSync(path.join(web, 'node_modules'), path.join(workspace, 'node_modules'), 'dir');
+    const result = await buildStub(workspace);
+    expect(result.timedOut, '逾時後的結果必須帶 timedOut:true，否則 assertNotTimedOut 會失效').toBe(true);
+    expect(result.failsafe, 'stub 會正常回應 SIGTERM，應走 close 路徑而非 failsafe').toBeUndefined();
+    expect(result.ok, '逾時不可被誤記為成功').toBe(false);
+  }, 60_000);
 });
