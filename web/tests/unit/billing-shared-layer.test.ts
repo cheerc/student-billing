@@ -160,6 +160,7 @@ const BILLING_SPECS = [
   { id: 'UNPAIRABLE', label: '姓名無法唯一配對', summaryKey: 'unpairable', badge: 'badge-withdrawal', needsHuman: true, insightGroup: 'unpairable' },
   { id: 'TIER_UNPARSED', label: '報表級距無法解析', summaryKey: 'tierUnparsed', badge: 'badge-warn', needsHuman: true, insightGroup: 'unparsed' },
   { id: 'RATE_UNPARSED', label: '報表折扣無法解析', summaryKey: 'rateUnparsed', badge: 'badge-warn', needsHuman: true, insightGroup: 'unparsed' },
+  { id: 'WEB_RATE_NOT_CONFIGURED', label: '系統無適用折扣值', summaryKey: 'webRateNotConfigured', badge: 'badge-withdrawal', needsHuman: true, tab: 'WEB_RATE_NOT_CONFIGURED', tabOrder: 16, insightGroup: 'unparsed' },
 ];
 
 describe('共用層：defineCategories 的衍生與不變式', () => {
@@ -176,7 +177,7 @@ describe('共用層：defineCategories 的衍生與不變式', () => {
   it('needsHuman 只包含宣告為 true 的分類，且順序即宣告順序', () => {
     const reg = defineCategories(BILLING_SPECS);
     expect(reg.needsHuman).toEqual([
-      'NOT_IN_WEB', 'EXCEL_NO_TUITION', 'UNPAIRABLE', 'TIER_UNPARSED', 'RATE_UNPARSED',
+      'NOT_IN_WEB', 'EXCEL_NO_TUITION', 'UNPAIRABLE', 'TIER_UNPARSED', 'RATE_UNPARSED', 'WEB_RATE_NOT_CONFIGURED',
     ]);
     // 反向：非 needsHuman 者不得出現
     for (const id of reg.ids) {
@@ -205,12 +206,12 @@ describe('共用層：defineCategories 的衍生與不變式', () => {
     }
     // 本組宣告中實際使用的群組 key 都應有人認領，避免留下孤兒群組
     const used = new Set(reg.tabs.map(t => t.value));
-    expect(used.size).toBe(3);
+    expect(used.size).toBe(4);
   });
 
   it('分頁按鈕依 tabOrder 排序，且未指定者排在最後', () => {
     const reg = defineCategories(BILLING_SPECS);
-    expect(reg.tabs.map(t => t.value)).toEqual(['DAY_DIFF', 'DISCOUNT_DIFF', 'MATCH']);
+    expect(reg.tabs.map(t => t.value)).toEqual(['DAY_DIFF', 'WEB_RATE_NOT_CONFIGURED', 'DISCOUNT_DIFF', 'MATCH']);
   });
 
   it('categoryJs 與 badges／needsHuman 同源，注入頁面腳本不會與 UI 不同步', () => {
@@ -516,6 +517,7 @@ describe('共用層：主控台統計欄位', () => {
     MATCH: 'match', DAY_DIFF: 'day', DISCOUNT_DIFF: 'discount', BOTH_DIFF: 'both',
     NOT_IN_WEB: 'notInWeb', EXCEL_NO_TUITION: 'noTuition', UNPAIRABLE: 'unpairable',
     TIER_UNPARSED: 'tierUnparsed', RATE_UNPARSED: 'rateUnparsed',
+    WEB_RATE_NOT_CONFIGURED: 'webRateNotConfigured',
   };
 
   it('鍵名取自各 spec 的 summaryKey，不是分類 id', () => {
@@ -526,7 +528,7 @@ describe('共用層：主控台統計欄位', () => {
     });
     expect(Object.keys(summary)).toEqual([
       'total', 'match', 'day', 'discount', 'both',
-      'notInWeb', 'noTuition', 'unpairable', 'tierUnparsed', 'rateUnparsed',
+      'notInWeb', 'noTuition', 'unpairable', 'tierUnparsed', 'rateUnparsed', 'webRateNotConfigured',
     ]);
     expect(summary.match).toBe(184);
     expect(summary.day).toBe(5);

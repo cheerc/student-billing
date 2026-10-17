@@ -35,12 +35,13 @@ import path from 'path';
 import os from 'os';
 import { fileURLToPath } from 'url';
 
-import { rateCategoryOfClass } from '../src/application/applicable-rate.ts';
+import { rateCategoryOfClass, applicableRateForClass } from '../src/application/applicable-rate.ts';
 import { parseSingleClassToken } from '../src/domain/students/token-parser.ts';
 
 import { parseDiscounts, bpsToLabel, readMultiTuitionReport } from './shared/report-xlsx.ts';
 import { fetchRunStudents, fetchRun } from './shared/roster-api.ts';
 import { normalizeName, indexByName } from './shared/name-matching.ts';
+import { toApplicableRateContext, snapshotRowFor } from './shared/rate-context.ts';
 import { defineCategories, formatCategorySummary } from './shared/category-registry.ts';
 import { renderShell, escapeHtml } from './shared/report-shell.ts';
 import { assertProjectRoot, assertOutputOutsideProject } from './shared/project-guard.ts';
@@ -265,6 +266,10 @@ const RATE_FIELD_BY_CATEGORY = {
 /**
  * 把班名路由到該學生的系統適用率。
  *
+ * **本函式只服務 v1／v2 run**（名稱映射路徑）。v3 run 走快照，由
+ * `resolveApplicableRate`（見下）轉交產品端 `applicableRateForClass`，
+ * 不經這裡——否則手動覆寫類別的班別會與畫面分歧（issue #122）。
+ *
  * @param className 報表上的班名
  * @param student   名單學生（提供四個 applicable*Bps 欄位）
  */
@@ -274,6 +279,59 @@ export function routeRateField(className, student) {
   const field = RATE_FIELD_BY_CATEGORY[category] ?? null;
   const bps = field ? (student?.[field] ?? null) : null;
   return { category, field, bps };
+}
+
+/**
+ * 「未接快照」的顯式常數（issue #122）。
+ *
+ * 不讓呼叫端省略參數就默默落回名稱映射：v3 run 的呼叫端必須明示
+ * `{ isV3Run: true, classCategories }`，否則這裡得到的是這個常數——
+ * 一眼看得出來「這條路徑沒有快照」，而不是一個看起來很正常的 `undefined`。
+ */
+export const LEGACY_PRE_ISSUE122_CONTEXT = Object.freeze({ isV3Run: false, classCategories: null });
+
+/**
+ * 本筆學費應比對的系統適用率。
+ *
+ * **單一入口**：v3 run 一律走產品端 `applicableRateForClass` 的快照分支
+ * （03 §5.3.4：快照優先、缺該班快照時嚴禁以當前班名猜測），v1／v2 才走
+ * 名稱映射的 `routeRateField`。CLAUDE.md §9.0：判定邏輯一律取產品函式，
+ * 本檔不自寫一份「快照怎麼查、category 怎麼比」的對照表。
+ *
+ * `context` 的形狀沿用 API 回應（`run.classCategories`），**不在此轉型**：
+ * 快照是 `fixed_five_days` 為數字 0/1 的底線命名物件，產品讀模型判 `=== 1`，
+ * 轉成布林會讓「固定 5 天 → 100%」靜默失效。
+ *
+ * @param className 報表上的班名（**名冊名**，快照的 `base_name` 存的就是它；
+ *                  呼叫端須先以 `baseClassName` 去修飾，本函式不做班名正規化）
+ * @param student   名單學生
+ * @param context   `{ isV3Run, classCategories }`；省略＝視為未接快照（v1／v2）
+ */
+export function resolveApplicableRate(className, student, context) {
+  const ctx = context ?? LEGACY_PRE_ISSUE122_CONTEXT;
+
+  if (ctx.isV3Run) {
+    // 快照的查詢與「找不到算什麼」一律走共用層的轉接，兩台工具同源（§9.0）。
+    const rate = applicableRateForClass(className, student ?? {}, toApplicableRateContext(ctx));
+    const snapshot = snapshotRowFor(ctx, className);
+    return {
+      status: rate.status,
+      bps: rate.status === 'configured' ? rate.bps : null,
+      // 類別一律以快照為準（無快照即無法判定，不退回班名推導）。
+      // 呼叫端據此分派「輔導班 → 另一台工具」與「未分類 → 需人工歸類」。
+      category: snapshot ? snapshot.category : null,
+      fromSnapshot: true,
+    };
+  }
+
+  const routed = routeRateField(className, student);
+  // 名稱映射沒有「未配置」狀態：v2 一直是以 null 表示「此側無適用值」。
+  return {
+    status: routed.category === null ? 'unclassified' : 'configured',
+    bps: routed.bps,
+    category: routed.category,
+    fromSnapshot: false,
+  };
 }
 
 /** 類別的中文顯示名（用於表格欄位與說明）。 */
@@ -345,6 +403,17 @@ function buildNotes({ statusCategory, excel, web }) {
   }
 
   if (statusCategory === 'WEB_RATE_NOT_CONFIGURED') {
+    if (web?.rateFromSnapshot) {
+      // issue #122：這是最容易被誤讀成一筆正常帳的情形——系統對這班沒有任何
+      // 快照列的依據，而報表仍開了單。明文說出「無法判定」與下一步，不猜。
+      return finish({
+        tone: 'warn',
+        notes: [
+          `系統這一版 run 沒有班級「${excel.className ?? '-'}」的類別快照，無法判定適用折扣（03 §5.3.4：不以當前班名猜測）。`,
+          `報表目前讀為 ${bpsToLabel(excel.rateBps)}，請人工確認該班是否應存在於本次名單後再開單。`,
+        ],
+      });
+    }
     return finish({
       tone: 'neutral',
       notes: [
@@ -432,8 +501,12 @@ function buildNotes({ statusCategory, excel, web }) {
  * @param amountLookup   可選：`{ getAmount(name, className) }`。學費金額必須在
  *                       讀表階段就依班名解析（比對邏輯拿不到儲存格），故由呼叫端
  *                       預先解析後以「姓名＋班名」為鍵查回；省略則金額皆為 null。
+ * @param rateContext    可選：`{ isV3Run, classCategories }`，形狀即 API 的
+ *                       `/runs/{id}` 回應。**v3 run 必須傳入**，否則適用率會落回
+ *                       名稱映射而與畫面分歧（issue #122）。省略＝v1／v2 語意。
+ * @param {{ isV3Run: boolean, classCategories: ReadonlyArray<{ base_name: string, category: string, fixed_five_days: number }> | null } | undefined} [rateContext]
  */
-export function compare(reportStudents, webStudents, asOfDate, amountLookup = undefined) {
+export function compare(reportStudents, webStudents, asOfDate, amountLookup = undefined, rateContext = undefined) {
   const { map: webByName, duplicates } = indexByName(webStudents);
   const records = [];
 
@@ -483,14 +556,17 @@ export function compare(reportStudents, webStudents, asOfDate, amountLookup = un
 
     for (const tuitionDetail of entry.tuitionRows) {
       const tuition = parseSessionTuition(tuitionDetail);
-      const routed = routeRateField(tuition.className ?? '', w);
+      // 快照的 base_name 存的是**名冊班名**，故查快照前先以產品端 `parseSingleClassToken`
+      // 去修飾（不自寫剝方括號，§9.0）。此處同時供折扣分派使用，只算一次。
+      const scopedClassName = tuition.className ? baseClassName(tuition.className) : '';
+      const routed = resolveApplicableRate(scopedClassName, w, rateContext);
       const rateCategoryLabel = routed.category ? CATEGORY_LABEL[routed.category] ?? routed.category : '—';
+      const routedField = routed.category ? (RATE_FIELD_BY_CATEGORY[routed.category] ?? null) : null;
 
       // 折扣依**本筆學費的班**分派：報表的折扣列在班名尾端掛著折價率或用途標記
       // （`…[W9][9.5折]`），去掉標記後即可與學費列的班名對應。
       // 雙科學生若不分派，另一門課的折扣會被算到這門課上，且只會顯示為
       // 「折扣差異」，成因被靜默歸錯——報表與系統兩邊都對，只有歸納錯了。
-      const scopedClassName = tuition.className ? baseClassName(tuition.className) : '';
       const scopedDetails = entry.discounts.filter(
         (d) => typeof d === 'string' && baseClassName((d || '').split(' - ')[0].trim()) === scopedClassName,
       );
@@ -543,8 +619,9 @@ export function compare(reportStudents, webStudents, asOfDate, amountLookup = un
 
       const web = {
         rateBps: routed.bps,
-        rateField: routed.field,
+        rateField: routedField,
         rateCategory: routed.category,
+        rateFromSnapshot: routed.fromSnapshot,
         asOfDate,
         baseDiscountBps: w.baseDiscountBps ?? null,
         rawTags: w.trace?.rawTags || '',
@@ -552,12 +629,18 @@ export function compare(reportStudents, webStudents, asOfDate, amountLookup = un
       };
 
       let statusCategory;
-      if (routed.category === null) {
+      if (routed.status === 'not_configured') {
+        // v3 run 缺該班快照（或該生的適用側無法判定）→ 03 §5.3.4：嚴禁以當前
+        // 班名猜測。**不可靜默略過、也不可落回「無折扣」**——那會讓一筆無法
+        // 判定的學費看起來像是一筆正常的帳（CLAUDE.md D17：顯眼標記不一致處）。
+        statusCategory = 'WEB_RATE_NOT_CONFIGURED';
+      } else if (routed.category === null) {
         // 班級不屬美語／數學 → 需人工歸類。**不可靜默略過**：略過會讓這筆學費
         // 在報告裡完全消失，而學生的帳單仍然存在。
         statusCategory = 'UNKNOWN_CLASS';
       } else if (routed.category === 'care') {
         // 國小輔導班不屬本工具範圍（非「無法判定」而是「確知屬另一個工具」）。
+        // 快照手動覆寫成 care 也走這裡——與畫面顯示同一判斷。
         statusCategory = 'UNKNOWN_CLASS';
       } else if (routed.bps === null) {
         statusCategory = 'WEB_RATE_NOT_CONFIGURED';
@@ -733,7 +816,10 @@ function renderHtml(records, meta) {
       { label: '報表工作表', value: SHEET_NAME },
       { label: '核定發單日', value: meta.billAnchorDate },
       { label: '報表金額欄位', value: meta.amountColumns },
-      { label: '已知限制', value: '直接讀 applicable* 欄位，未走 v3 classCategories 快照（手動改類別亦會偏離畫面，見 CLAUDE.md §9.3）' },
+      {
+        label: '類別快照',
+        value: meta.rateSource,
+      },
     ],
     stats: [
       { label: '報科學費筆數', value: total, sub: '每筆學費列一筆；雙科學生會有兩筆', tone: 'plain' },
@@ -849,9 +935,16 @@ async function main() {
   const asOfDate = run.asOfDate || '—';
   console.log(`報表學生 ${reportStudents.size} 名、名單學生 ${students.length} 名（run ${runId}, asOf ${asOfDate}）`);
 
+  // issue #122：v3 run 一律帶上類別快照，讓適用率走產品讀模型的快照分支，
+  // 與畫面顯示同源。`undefined`（v1／v2）代表該 run 沒有快照概念。
+  const rateContext = run?.classCategories ? { isV3Run: true, classCategories: run.classCategories } : undefined;
+  if (!rateContext && run.ruleSetVersion === 'erp-tag-v3') {
+    console.warn('警告：此 run 為 v3 但 API 未回傳 classCategories，將退回名稱映射，讀數可能與畫面不同（issue #122）。');
+  }
+
   const { records, duplicates } = compare(reportStudents, students, asOfDate, {
     getAmount: (name, className) => amounts.getAmount(name, className),
-  });
+  }, rateContext);
 
   const billDates = [...reportStudents.values()].map(s => s.billDate).filter(Boolean).sort();
   const html = renderHtml(records, {
@@ -860,6 +953,9 @@ async function main() {
     xlsxPath: args.xlsx,
     ruleSetVersion: run.ruleSetVersion || '—',
     numericPolicy: run.numericPolicy || '—',
+    rateSource: rateContext
+      ? `v3 類別快照（${rateContext.classCategories.length} 班，與畫面同源）`
+      : '非 v3 run：依當前班名映射',
     billAnchorDate: billDates[Math.floor(billDates.length / 2)] || '—',
     duplicateNames: duplicates,
     amountColumns: amounts.classHeadings.length
