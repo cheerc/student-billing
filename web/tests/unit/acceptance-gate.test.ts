@@ -107,10 +107,32 @@ interface BuildResult {
   timedOut?: boolean;
   /** output 是否已截斷（超過 OUTPUT_LIMIT），讓診斷知道看到的不是全部。 */
   truncated?: boolean;
+  /**
+   * 是否由 SETTLE_FAILSAFE 強制 settle —— 代表「等待機制本身失效」（SIGKILL 後
+   * 仍收不到 close），診斷上比 build 逾時更嚴重：child 可能仍在背景執行。
+   */
+  failsafe?: boolean;
 }
 
-/** build 逾時上限。實測正常 build 需 10–26 秒，180s 有充分餘裕。 */
-const BUILD_TIMEOUT_MS = 180_000;
+/**
+ * build 逾時上限。實測正常 build 需約 10 秒／case，150s 仍有約 14 倍餘裕。
+ *
+ * 刻意不設 180s：最壞時間線是「逾時 → SIGTERM → 5s → SIGKILL → 等 close」，
+ * 而 close 還包含 stdio stream 關閉的延遲，最壞 settle 會逼近 case 自身的
+ * 200_000ms vitest timeout。兩個逾時同時到期時 vitest 殺的是 worker，child 仍會
+ * 留在背景 —— 那正是本函式要防的情況，不該由它自己觸發。150s 讓兩者之間保有
+ * 明確餘裕。
+ */
+const BUILD_TIMEOUT_MS = 150_000;
+
+/**
+ * SIGKILL 後仍收不到 close 的強制 settle 終極保險。
+ *
+ * 只送 SIGKILL 而 child 不回應時（事件迴圈死結、stdio pipe 未關），close 永不觸發
+ * → Promise 永不 settle → 該 case 只能吃滿 vitest 的 200s timeout，且 child 仍在
+ * 背景跑。這道 failsafe 保證無論 child 是否配合，Promise 都會在有界時間內 settle。
+ */
+const SETTLE_FAILSAFE_MS = 15_000;
 
 /**
  * output 上限，對應舊版 execFileSync 的 maxBuffer（16MB）。
@@ -154,6 +176,16 @@ function build(workspace: string, env: NodeJS.ProcessEnv): Promise<BuildResult> 
       truncated = true;
     };
 
+    let settled = false;
+    /** 所有 settle 路徑都必須經過這裡，確保計時器一定被清掉。 */
+    const settle = (result: BuildResult) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      clearTimeout(failsafe);
+      resolve(result);
+    };
+
     const timer = setTimeout(() => {
       // 先殺再等退出，不可 timeout 一到就直接 settle —— 否則 child 還在跑而 Promise
       // 已回傳，那會留下佔用 CPU 的行程，並讓「逾時」與「build 失敗」在結果上同形。
@@ -161,21 +193,21 @@ function build(workspace: string, env: NodeJS.ProcessEnv): Promise<BuildResult> 
       const grace = setTimeout(() => child.kill('SIGKILL'), 5_000);
       child.once('close', () => {
         clearTimeout(grace);
-        clearTimeout(timer);
-        resolve({ ok: false, output: stdout, timedOut: true, truncated });
+        settle({ ok: false, output: stdout, timedOut: true, truncated });
       });
     }, BUILD_TIMEOUT_MS);
 
+    // 逾時路徑的終極保險：SIGKILL 後仍收不到 close（事件迴圈死結、stdio pipe 未關）
+    // 時，Promise 仍必須在有界時間內 settle，否則只剩 vitest 的 200s timeout 能收拾，
+    // 而那會殺 worker、留下 child。
+    const failsafe = setTimeout(() => {
+      settle({ ok: false, output: stdout, timedOut: true, truncated, failsafe: true });
+    }, SETTLE_FAILSAFE_MS);
+
     child.stdout.on('data', append);
     child.stderr.on('data', append);
-    child.on('close', (code) => {
-      clearTimeout(timer);
-      resolve({ ok: code === 0, output: stdout, truncated });
-    });
-    child.on('error', (error) => {
-      clearTimeout(timer);
-      resolve({ ok: false, output: `${stdout}\n${error.message}`, truncated });
-    });
+    child.on('close', (code) => settle({ ok: code === 0, output: stdout, truncated }));
+    child.on('error', (error) => settle({ ok: false, output: `${stdout}\n${error.message}`, truncated }));
   });
 }
 
@@ -186,7 +218,8 @@ function build(workspace: string, env: NodeJS.ProcessEnv): Promise<BuildResult> 
  * 沒跑完而失敗，與 build 因型別錯誤而失敗，在結果上無法區分。
  */
 function assertNotTimedOut(result: BuildResult) {
-  expect(result.timedOut, 'build 逾時（180s）——這不是型別錯誤的結果，測試環境有問題').toBeUndefined();
+  expect(result.failsafe, '等待機制失效：SIGKILL 後收不到 close，build 子行程可能仍在背景執行。這是測試基礎設施的問題，不是型別檢查的結果').toBeUndefined();
+  expect(result.timedOut, 'build 逾時——這不是型別錯誤的結果，測試環境有問題').toBeUndefined();
 }
 
 /** 失敗時附上 build 輸出尾段 —— 只為讓診斷可讀，不參與判定。 */
@@ -194,7 +227,8 @@ function tail(result: BuildResult) {
   const parts = [`\n--- build 輸出（判定依據是 exit code，這裡僅供診斷）---`];
   // 四種失敗要能從訊息裡分出來，否則排查時會把「build 沒跑到那裡」誤讀成
   // 「沒有型別診斷」—— 一個正確但誤導的失敗訊息會浪費下一輪時間。
-  if (result.timedOut) parts.push('[結果] 逾時終止：build 未跑完，不代表型別檢查擋下了什麼');
+  if (result.failsafe) parts.push('[結果] 逾時且等待機制失效：SIGKILL 後收不到 close，已由 failsafe 強制 settle；child 可能仍在背景執行');
+  else if (result.timedOut) parts.push('[結果] 逾時終止：build 未跑完，不代表型別檢查擋下了什麼');
   else if (result.ok) parts.push('[結果] build 成功：閘控放行了型別錯誤');
   else if (/TS\d+/.test(result.output)) parts.push('[結果] build 失敗且含 TS 診斷：型別錯誤被擋下');
   else parts.push('[結果] build 失敗但無 TS 診斷：失敗原因與型別無關（語法錯誤或缺依賴）');
