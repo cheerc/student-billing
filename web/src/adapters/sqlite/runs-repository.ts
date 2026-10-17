@@ -1,4 +1,6 @@
 import Database from 'better-sqlite3';
+import { loadRunClassCategories, type RunClassCategorySnapshot } from '@/application/applicable-rate';
+import { ruleSetCapabilities } from '@/domain/billing/rule-set';
 
 export interface CalculationRunRecord {
   id: string;
@@ -11,6 +13,18 @@ export interface CalculationRunRecord {
   issueCounts: Record<string, number>;
   totalStudents: number;
   createdAt: string;
+  /**
+   * 該 run 的類別快照（03 §5.3.4；issue #122）。
+   *
+   * 三態，語意互不相同，**不可互相取代**：
+   *  - `undefined`：此 run 沒有快照概念（v1／v2）→ 讀模型走當前班名映射。
+   *  - `[]`：是 v3 run，但沒有任何快照列 → 讀模型一律 `not_configured`（嚴禁以班名猜測）。
+   *  - 有值：v3 run 的實際採用類別，讀模型以快照為準。
+   *
+   * 形狀即 `RunClassCategorySnapshot`（底線命名、`fixed_five_days` 為數字 0/1）——
+   * 與 `applicableRateForClass` 的輸入同形，消費端不得自行轉型。
+   */
+  classCategories?: RunClassCategorySnapshot[];
 }
 
 export interface StudentCalculationRecord {
@@ -152,7 +166,7 @@ export function getCalculationRun(
   const row = db.prepare('SELECT * FROM calculation_runs WHERE id = ?').get(runId) as any;
   if (!row) return null;
 
-  return {
+  const record: CalculationRunRecord = {
     id: row.id,
     importId: row.import_id,
     scheduleVersionId: row.schedule_version_id,
@@ -164,6 +178,19 @@ export function getCalculationRun(
     totalStudents: row.total_students,
     createdAt: row.created_at,
   };
+
+  // issue #122：v3 run 的類別快照必須由**載入層**帶出，而非各 route 自行補查。
+  // 只在這裡載入，`GET /api/v1/runs/{id}`、`/api/v1/runs/current`、`/api/v1/classes`
+  // 等所有消費端才不會各自補一次而漂移。
+  //
+  // 判定用能力旗標而非字面比較（03 §5.3.1 禁止 `=== 'erp-tag-v3'`）：
+  // v3 但零列必須是 `[]`，否則讀模型會退回當前班名映射，
+  // 正是 03 §5.3.4 明文禁止的猜測。v1／v2 沒有快照概念，維持 `undefined`。
+  if (ruleSetCapabilities(record.ruleSetVersion).categoryBasedBilling) {
+    record.classCategories = loadRunClassCategories(db, runId);
+  }
+
+  return record;
 }
 
 export function getCurrentActiveRun(

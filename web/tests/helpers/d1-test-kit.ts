@@ -192,7 +192,8 @@ export function saveRun(
   importId: string,
   scheduleVersionId: string,
   createdAt: string,
-  ruleSetVersion = 'erp-tag-v2'
+  ruleSetVersion = 'erp-tag-v2',
+  classCategories?: Parameters<typeof saveCalculationRun>[3]
 ) {
   saveCalculationRun(
     db,
@@ -208,6 +209,7 @@ export function saveRun(
       totalStudents: 0,
       createdAt,
     },
-    []
+    [],
+    classCategories
   );
 }

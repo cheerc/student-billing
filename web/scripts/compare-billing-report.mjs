@@ -34,9 +34,11 @@ import path from 'path';
 import os from 'os';
 import { fileURLToPath } from 'url';
 import { parseSingleClassToken } from '../src/domain/students/token-parser.ts';
+import { applicableRateForClass } from '../src/application/applicable-rate.ts';
 
 import { parseDiscounts, bpsToLabel, readReport } from './shared/report-xlsx.ts';
 import { fetchRunStudents, fetchRun } from './shared/roster-api.ts';
+import { toApplicableRateContext } from './shared/rate-context.ts';
 import { normalizeName, indexByName } from './shared/name-matching.ts';
 import { defineCategories, formatCategorySummary } from './shared/category-registry.ts';
 import { renderShell, escapeHtml } from './shared/report-shell.ts';
@@ -77,6 +79,9 @@ const CATEGORIES = defineCategories([
   { id: 'UNPAIRABLE', label: '姓名無法唯一配對', summaryKey: 'unpairable', badge: 'badge-withdrawal', needsHuman: true, insightGroup: 'unpairable' },
   { id: 'TIER_UNPARSED', label: '報表級距無法解析', summaryKey: 'tierUnparsed', badge: 'badge-warn', needsHuman: true, insightGroup: 'unparsed' },
   { id: 'RATE_UNPARSED', label: '報表折扣無法解析', summaryKey: 'rateUnparsed', badge: 'badge-warn', needsHuman: true, insightGroup: 'unparsed' },
+  // issue #122：v3 run 沒有該班快照（或該生無法判定適用側）時，適用率是「無法判定」。
+  // 不可與 RATE_UNPARSED 共用：後者說的是報表格式認不出來，成因與處置都不同。
+  { id: 'WEB_RATE_NOT_CONFIGURED', label: '系統無適用折扣值', summaryKey: 'webRateNotConfigured', badge: 'badge-withdrawal', needsHuman: true, tab: 'WEB_RATE_NOT_CONFIGURED', tabOrder: 16, insightGroup: 'unparsed' },
 ]);
 
 /** 分類 id → 中文 label。由 defineCategories 推導，不另列一份。 */
@@ -227,6 +232,16 @@ function buildNotes({ statusCategory, excel, web, careCategory }) {
     });
   }
   // 報表折扣格式無法解析：不可宣稱一致（review F-NEW-4）
+  if (statusCategory === 'WEB_RATE_NOT_CONFIGURED') {
+    return finish({
+      tone: 'warn',
+      notes: [
+        '系統這一版 run 沒有這名學生所屬輔導班的類別快照，無法判定本班適用折扣（03 §5.3.4：不以當前班名猜測）。',
+        `報表目前讀為 ${bpsToLabel(excel.rateBps)}；請人工確認該班是否應存在於本次名單，再決定如何開單。`,
+      ],
+    });
+  }
+
   if (statusCategory === 'RATE_UNPARSED') {
     return finishWithInsights({
       notes: [
@@ -334,7 +349,37 @@ function buildNotes({ statusCategory, excel, web, careCategory }) {
 
 // ---------------------------------------------------------------- 比對主流程
 
-export function compare(reportStudents, webStudents, asOfDate) {
+/**
+ * 本工具適用的「班名」：名冊報名中的國小輔導班（去修飾後的名冊班名）。
+ *
+ * 快照的 `base_name` 存的就是名冊班名，故必須取 `enrollments[].baseName`，
+ * 不可拿報表上的班名（含 `[團][4]` 等修飾，查不到快照）。
+ * 查無輔導班時退回空字串：空字串不會命中任何快照，v3 下即為「無法判定」，
+ * 這比挑一個看起來合理的班名安全（03 §5.3.4：嚴禁猜測）。
+ */
+function careClassNameOf(student) {
+  const care = (student.enrollments ?? []).find((e) => e.baseName?.includes('國小輔導'));
+  return care?.baseName ?? '';
+}
+
+/** 學生層適用率欄位（`applicableRateForClass` 的輸入）。只挑欄位，不做計算。 */
+function RATE_INPUT_FIELDS(s) {
+  return {
+    applicableAnqinBps: s.applicableAnqinBps,
+    applicableTutoringBps: s.applicableTutoringBps,
+    applicableMathBps: s.applicableMathBps,
+    applicableEnglishBps: s.applicableEnglishBps,
+  };
+}
+
+/**
+ * 比對主流程。
+ *
+ * @param {{ isV3Run: boolean, classCategories: ReadonlyArray<{ base_name: string, category: string, fixed_five_days: number }> | null } | undefined} [rateContext]
+ *        v3 run 的類別快照（形狀即 API `/runs/{id}` 回應）。**v3 run 必須傳入**，
+ *        否則適用率會以當前班名推導而與畫面分歧（issue #122）。省略＝v1／v2 語意。
+ */
+export function compare(reportStudents, webStudents, asOfDate, rateContext = undefined) {
   const { map: webByName, duplicates } = indexByName(webStudents);
   const records = [];
 
@@ -390,13 +435,32 @@ export function compare(reportStudents, webStudents, asOfDate) {
 
     const days = isAnqin ? w.anqinDays : (isTutoring ? w.tutoringDays : null);
     const daysLabel = (isAnqin ? w.anqinDisplay : (isTutoring ? w.tutoringDisplay : null)) ?? '無適用值';
-    const rateBps = isAnqin ? w.applicableAnqinBps : (isTutoring ? w.applicableTutoringBps : null);
+
+    // issue #122：v3 run 的適用率走產品端 `applicableRateForClass` 的快照分支，
+    // 與畫面同源。不可自行挑 `applicableAnqinBps`／`applicableTutoringBps`——那正是
+    // 繞過快照的舊行為，遇到手動覆寫類別或固定 5 天的班會與畫面分歧且不報錯。
+    //
+    // **但有輔導班報名才走快照**：報表以科目（學費）取列，會出現只有美語／數學
+    // 報名、卻因年級落在課輔側而進到本報告的學生（實測 37 列中有 11 列如此）。
+    // 這些學生名冊裡**沒有國小輔導班**，也就沒有「本班」可言，快照查無此班會得到
+    // 「無法判定」而把原本顯示的適用率整欄變成 `-`——那是在本修正範圍外減少資訊。
+    // 故無輔導班者維持既有「依年級取安親／課輔側」，不新增猜測（這裡沒有班名可用）。
+    const careClassName = careClassNameOf(w);
+    const useSnapshot = !!rateContext && careClassName !== '';
+    const applicable = useSnapshot
+      ? applicableRateForClass(careClassName, { grade, ...RATE_INPUT_FIELDS(w) }, toApplicableRateContext(rateContext))
+      : null;
+    const rateBps = useSnapshot
+      ? (applicable.status === 'configured' ? applicable.bps : null)
+      : (isAnqin ? w.applicableAnqinBps : (isTutoring ? w.applicableTutoringBps : null));
+
     const care = isAnqin ? w.trace?.careDays?.anqin : (isTutoring ? w.trace?.careDays?.tutoring : null);
 
     const web = {
       days,
       daysLabel,
       rateBps,
+      rateNotConfigured: useSnapshot && applicable.status === 'not_configured',
       asOfDate,
       baseDiscountBps: w.baseDiscountBps,
       subjectCount: w.subjectCount,
@@ -421,6 +485,11 @@ export function compare(reportStudents, webStudents, asOfDate) {
       statusCategory = 'EXCEL_NO_TUITION';
     } else if (excel.days === null) {
       statusCategory = 'TIER_UNPARSED';
+    } else if (web.rateNotConfigured) {
+      // issue #122／D17：v3 run 缺該班快照 → 系統端無從判定，**不可靜默落成
+      // 「無折扣」**（那會讓一筆無法判定的帳看起來像一筆正常折扣的帳）。
+      // 獨立分類並列在需人工判讀，且不與報表格式問題混為一談。
+      statusCategory = 'WEB_RATE_NOT_CONFIGURED';
     } else {
       const dayDiff = excel.days !== days;
       const discDiff = excel.rateBps !== rateBps;
@@ -688,7 +757,13 @@ async function main() {
   const asOfDate = run.asOfDate || '—';
   console.log(`報表學生 ${reportStudents.size} 名、名單學生 ${students.length} 名（run ${runId}, asOf ${asOfDate}）`);
 
-  const { records, duplicates } = compare(reportStudents, students, asOfDate);
+  // issue #122：v3 run 帶上類別快照，適用率走產品讀模型的快照分支，與畫面同源。
+  const rateContext = run?.classCategories ? { isV3Run: true, classCategories: run.classCategories } : undefined;
+  if (!rateContext && run.ruleSetVersion === 'erp-tag-v3') {
+    console.warn('警告：此 run 為 v3 但 API 未回傳 classCategories，將退回名稱映射，讀數可能與畫面不同（issue #122）。');
+  }
+
+  const { records, duplicates } = compare(reportStudents, students, asOfDate, rateContext);
 
   const billDates = [...reportStudents.values()].map(s => s.billDate).filter(Boolean).sort();
   const html = renderHtml(records, {

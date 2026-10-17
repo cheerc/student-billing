@@ -328,6 +328,12 @@ run 的設定快照＝`run.scheduleVersionId`：`seed-v250922`（該 run 沒有�
 - 讀模型 `applicableRateForClass` 於查詢 v3 run 時讀取該 run 之快照：
   - 固定 5 天之班級（即使類別為 none，如寫功課）之本班適用折扣顯示 100%（10000 bps）而非「未設定」（Q7-A）。
   - 若 v3 run 缺失快照，回傳 `not_configured`（無法判定），嚴禁以當前班名猜測。
+- **API 契約（issue #122）**：`GET /api/v1/runs/{runId}` 與 `GET /api/v1/runs/current` 的回應（後者為 `run` 欄位）**必須**包含該 run 的類別快照，欄位名 `classCategories`：
+  - **形狀即 `RunClassCategorySnapshot`**：`{ base_name, category, fixed_five_days }`，**底線命名**且 `fixed_five_days` 為**數字 0／1**。不得改名為駝峰、不得轉為布林——讀模型判 `fixed_five_days === 1`，形狀改變會讓「固定 5 天 → 100%」靜默失效。
+  - **三態語意互斥，不可互相取代**：`undefined`＝此 run 沒有快照概念（v1／v2，走名稱映射）；`[]`＝v3 run 但查無任何快照列（一律 `not_configured`）；有值＝v3 run 的實際採用類別。
+  - 判定「是否為 v3」一律走能力旗標（§5.3.1 禁止字面版本比較），**不得**以「查得到列與否」推導，否則 v3 的零列會退化成 `undefined` 而讓讀模型錯誤地退回名稱映射。
+  - 快照由**載入層**（`getCalculationRun`）帶出，非各 route 自行補查：`/runs/{id}`、`/runs/current`、`/classes` 等消費端共用同一份讀模型，避免各補一次而漂移。
+  - 消費端（含 `web/scripts/` 下的帳務比對工具）一律將此快照傳入 `applicableRateForClass`，**不得**直接讀 `applicableEnglishBps`／`applicableMathBps` 等學生層欄位自行推導班級類別。
 
 #### 5.3.5 診斷標籤兩段式分解
 - `calculate-run` 對 v3 run 同時計算 formal(v3)、shadow(v2) 與 compat：

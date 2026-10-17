@@ -239,16 +239,20 @@ operator 已裁示本節工具為**產品外的離線輔助工具**，`§1` 之�
 - **不寫死個資**：script 內不得硬編碼任何學生姓名或人員代碼；差異說明一律由資料推導（詳見 `buildNotes`）。
 - **不計算金額**：按堂計價工具**不比對堂數、單價與學費金額**。系統端尚無對應欄位（issue #118），工具若以「金額 ÷ 堂數」推出單價再拿去比對，等於替系統斷言它並未持有的事實，屬 §9.0 禁止的「代為猜測」。兩欄僅作顯示值並標註不可驗證。
 
-#### 已知限制：v3 run 的 `classCategories` 快照繞過
+#### v3 run 的 `classCategories` 快照（issue #122 已修正）
 
-產品端 `applicableRateForClass` 對 **v3 run** 有兩條路徑：以 `run_class_categories` 快照判斷班級類別與固定 5 天旗標，缺快照才退回名稱映射。但 `GET /api/v1/runs/{id}` **未暴露 `classCategories` 欄位**（已實測），因此兩台工具直接讀 `applicableEnglishBps`／`applicableMathBps` 等欄位，等於**繞過了快照路徑**。
+產品端 `applicableRateForClass` 對 **v3 run** 走**快照優先**的路徑：以 `run_class_categories` 的快照判斷班級類別與固定 5 天旗標；**v3 且缺該班快照時回 `not_configured`（無法判定），不退回名稱映射**——名稱映射僅用於 `isV3Run === false` 的 v1／v2。此處嚴禁以當前班名猜測（03 §5.3.4）。
 
-影響有限，但**分歧面比只看固定 5 天更寬**：
+**原缺陷（已修）**：`GET /api/v1/runs/{id}` 未回傳 `classCategories`，兩台工具因此直接讀 `applicableEnglishBps`／`applicableMathBps` 等學生層欄位，等於**以當前班名重新推導**班級類別，繞過了快照。當快照與名稱映射不一致時，工具讀數會與畫面不同，且**不會產生任何錯誤**。
+
+**分歧面有兩個欄位，不只固定 5 天**：
 
 - `run_class_categories.fixed_five_days` 自動偵測只對「寫功課」與「美安」為 true（`class-category.ts`），兒童美語與國小數學的自動值一律 `false`。
-- 但 `run_class_categories.category`（班級類別：care／math／english）**同樣可被維護者手動覆寫**。因此不只改固定 5 天旗標會造成偏離，**手動改分類也會**讓工具讀數與畫面不同——例如把某個兒童美語班手動改為 `care`，工具仍會讀 `applicableEnglishBps`，而畫面會依 `care` 走安親／課輔分支。
+- `run_class_categories.category`（班級類別：care／math／english）**同樣可被維護者手動覆寫**。因此不只改固定 5 天旗標會造成偏離，**手動改分類也會**——例如把某個兒童美語班手動改為 `care`，舊行為的工具仍會讀 `applicableEnglishBps`，而畫面會依 `care` 走安親／課輔分支。
 
-**本節不修正此繞過**，僅記錄：若日後有人手動改過任何班級的類別或固定 5 天旗標，兩台工具的讀數將與畫面顯示不同。修正方向是讓 `GET /api/v1/runs/{id}` 一併回傳 `classCategories`，工具改走 `applicableRateForClass` 的正式路徑。
+**修正內容**：`getCalculationRun` 載入層一併帶出該 run 的 `classCategories`（`/runs/{id}`、`/runs/current`、`/classes` 兩條以上路徑共用同一讀模型），兩台工具改為把快照傳入 `applicableRateForClass` 的正式路徑。快照形狀契約（底線命名、`fixed_five_days` 為數字 0／1、`undefined` 與 `[]` 語意分離）見 03 §5.3.4。
+
+**工具端在無法判定時不得靜默**：拿到 `not_configured` 時，兩台工具一律標為需人工判讀的獨立分類（顯示為「無法判定」），**不落回「無折扣」、也不略過該筆**（D17：顯眼標記不一致處）。
 
 ### 9.4 檔案產出與樣式
 
