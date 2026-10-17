@@ -176,33 +176,41 @@ function build(workspace: string, env: NodeJS.ProcessEnv): Promise<BuildResult> 
       truncated = true;
     };
 
+    // 計時器集中管理：settle() 必須清得到全部計時器，而其中 lives 在逾時回呼內
+    // （failsafe 的生命週期綁定「已送出 SIGKILL」這個事件，不能從 Promise 建立時起算）。
+    const timers = new Set<NodeJS.Timeout>();
+    const later = (fn: () => void, ms: number) => {
+      const handle = setTimeout(() => { timers.delete(handle); fn(); }, ms);
+      timers.add(handle);
+      return handle;
+    };
+
     let settled = false;
     /** 所有 settle 路徑都必須經過這裡，確保計時器一定被清掉。 */
     const settle = (result: BuildResult) => {
       if (settled) return;
       settled = true;
-      clearTimeout(timer);
-      clearTimeout(failsafe);
+      for (const handle of timers) clearTimeout(handle);
+      timers.clear();
       resolve(result);
     };
 
-    const timer = setTimeout(() => {
+    const timer = later(() => {
       // 先殺再等退出，不可 timeout 一到就直接 settle —— 否則 child 還在跑而 Promise
       // 已回傳，那會留下佔用 CPU 的行程，並讓「逾時」與「build 失敗」在結果上同形。
       child.kill('SIGTERM');
-      const grace = setTimeout(() => child.kill('SIGKILL'), 5_000);
+      later(() => child.kill('SIGKILL'), 5_000);
+      // 從**送出 SIGKILL 的這一刻**起算，不是從 Promise 建立時起算 —— 否則
+      // failsafe 會在 build 還沒逾時時就先觸發，settle() 清掉逾時計時器，child 永遠
+      // 收不到 kill，反而製造出這段程式碼要防的孤兒行程。
+      later(() => {
+        settle({ ok: false, output: stdout, timedOut: true, truncated, failsafe: true });
+      }, SETTLE_FAILSAFE_MS);
       child.once('close', () => {
-        clearTimeout(grace);
         settle({ ok: false, output: stdout, timedOut: true, truncated });
       });
     }, BUILD_TIMEOUT_MS);
-
-    // 逾時路徑的終極保險：SIGKILL 後仍收不到 close（事件迴圈死結、stdio pipe 未關）
-    // 時，Promise 仍必須在有界時間內 settle，否則只剩 vitest 的 200s timeout 能收拾，
-    // 而那會殺 worker、留下 child。
-    const failsafe = setTimeout(() => {
-      settle({ ok: false, output: stdout, timedOut: true, truncated, failsafe: true });
-    }, SETTLE_FAILSAFE_MS);
+    void timer;
 
     child.stdout.on('data', append);
     child.stderr.on('data', append);
