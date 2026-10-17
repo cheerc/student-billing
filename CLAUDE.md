@@ -139,7 +139,16 @@
 
 - **測試先行 (TDD)**：所有功能修改必須先建立重現問題或驗證規格之失敗測試 (RED)，實作完成後達到通過 (GREEN)。
 - **Gate 工具與結果核實**：新 worktree 執行 gate 前，先確認 `web/node_modules` 存在且 TypeScript／Vitest 版本輸出符合工具身份；缺依賴時不得把 `npx` 的 exit code 0 當成通過。Gate 報告附實際執行的 test 數；未執行測試明確標示，不以空殼結果交付。
-- **node 依賴不可 symlink**：新 worktree 需要 `node_modules` 時，只能 `npm ci`（約 1 分鐘），或以 `cp -Rc` 由既有副本共用（APFS clone；不可用 `-a`，不可用 `--symbolic-link`）。若 symlink 指向 filesystem root 之外的路徑，Turbopack 會 panic `Error [TurbopackInternalError]: Symlink [project]/node_modules is invalid, it points out of the filesystem root`，但 `test:e2e:isolated` 只會回 `Process from config.webServer was not able to start. Exit code: 1`，不指出真因——易誤判為測試失敗或依賴損壞而徒勞重灌。遇到 `webServer ... Exit code: 1` 且無測試失敗輸出時，先比對 `web/node_modules` 是否為 symlink，再懷疑其他原因。
+- **node 依賴不可 symlink**：新 worktree 需要 `node_modules` 時，只能 `npm ci`（約 1 分鐘），**或**以 `cp -Rc` 由既有副本共用。`cp -Rc` 的 `-c` 是 **macOS／APFS 專屬**（`clonefile(2)`，見 `man cp`；跨檔案系統或不支援 clone 的目標會自動退回完整複製），**GNU coreutils 的 `cp` 沒有這個選項**（實測 `cp: invalid option -- 'c'`）。因此：**僅限本機 APFS 上的 macOS；會在 `ubuntu-latest` 執行的測試或 script 一律不可使用**——CI 上請改用 `npm ci`（或 `cp -R`，代價是完整複製而非 clone 加速）。兩者都不可用 `-a`、不可用 `--symbolic-link`。本機 `cp -Rc` 的建議保留：它與 `npm ci` 產出的樹狀結構相同，差別只在 clone 共用區塊而非真複製，那個加速是本機開發實際需要的。
+
+  ```bash
+  # macOS／APFS：clone 加速（本機 worktree 準備）
+  cp -Rc <既有副本>/node_modules <新 worktree>/web/node_modules
+  # 跨平台（CI、任何會在 ubuntu-latest 執行的 script）：完整複製
+  cp -R  <既有副本>/node_modules <新 worktree>/web/node_modules
+  ```
+
+  若 symlink 指向 filesystem root 之外的路徑，Turbopack 會 panic `Error [TurbopackInternalError]: Symlink [project]/node_modules is invalid, it points out of the filesystem root`，但 `test:e2e:isolated` 只會回 `Process from config.webServer was not able to start. Exit code: 1`，不指出真因——易誤判為測試失敗或依賴損壞而徒勞重灌。遇到 `webServer ... Exit code: 1` 且無測試失敗輸出時，先比對 `web/node_modules` 是否為 symlink，再懷疑其他原因。
 - **禁止反向產生測試 Expected**：測試之預期結果必須依據規格獨立手算或驗證，絕對不可使用待測函式的輸出直接作為黃金標準。
   - **狹義 baseline 差異特徵化例外（operator 決策 `d-20260930131128030911-29` A 授權）**：僅允許不可變、pre-change baseline（如 D1 之 `8961c03`）之輸出資料用於鎖定重構前後業務欄位「未發生非預期改變」；此類 golden 嚴禁作算法正確性 oracle，且不得從新 HEAD 更新以掩蓋失敗；新規則／新行為／bug 修正之預期結果仍必須依規格獨立手算或外部驗證（詳細 provenance 見 `specs/04-tdd-acceptance.md` §8 UX34）。
 - **真實樣本驗證**：477 筆真實學生資料之驗證僅於本機執行，驗收報告保存於私有報告中，不納入版本控制。
