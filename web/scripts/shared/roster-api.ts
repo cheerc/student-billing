@@ -7,6 +7,8 @@
  * 兩個工具的失敗訊息就不會各寫各的而漂移。
  */
 
+import type { RunClassCategorySnapshot } from '../../src/application/applicable-rate.ts';
+
 /** 分頁上限；與 API 的 limit 契約一致。 */
 const PAGE_LIMIT = 200;
 
@@ -22,6 +24,17 @@ export interface RunInfoLike {
   asOfDate?: string | null;
   ruleSetVersion?: string | null;
   numericPolicy?: string | null;
+  /**
+   * v3 run 的班級類別快照（`GET /runs/{id}` 的回應欄位；issue #122 起由載入層曝光）。
+   *
+   * 三態語意不可混淆（03 §5.3.4）：`undefined`＝v1／v2 沒有快照概念；
+   * `[]`＝v3 但該 run 零快照列；非空＝v3 的實際類別。
+   *
+   * 工具端**不得自行判空**取用（`run.classCategories ? … : undefined` 會讓
+   * 「`[]` 必須產生 context」這條不變式無處可測，issue #140 第 1 項），
+   * 一律走 `rate-context.ts` 的 `buildRunSnapshotContext`。
+   */
+  classCategories?: RunClassCategorySnapshot[] | null;
 }
 
 export interface StudentsPageLike<T> {
