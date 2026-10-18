@@ -25,6 +25,8 @@ describe('D2a: 規則版本與能力旗標 (RuleSet & Capabilities)', () => {
     expect((caps as any).missingEnglishScheduleWarning).toBe(true);
     expect((caps as any).diagnosticsDecomposition).toBe(true);
     expect((caps as any).unmappedClassWarning).toBe(true);
+    // #147: 固定 5 天在額外扣天前套用，額外扣天扣在固定 5 天之後
+    expect((caps as any).extraDeductionAfterFloor).toBe(true);
   });
 
   it('erp-tag-v2, erp-tag-v1, excel-v260922-compat 之能力旗標維持原樣不變', () => {
@@ -34,16 +36,20 @@ describe('D2a: 規則版本與能力旗標 (RuleSet & Capabilities)', () => {
     expect(v2Caps.scheduleIncompleteOnUnknownWeekday).toBe(true);
     expect((v2Caps as any).categoryBasedBilling).toBeFalsy();
     expect((v2Caps as any).maxDeductionSelection).toBeFalsy();
+    expect((v2Caps as any).extraDeductionAfterFloor).toBeFalsy();
 
     const v1Caps = ruleSetCapabilities('erp-tag-v1');
     expect(v1Caps.sameWeekdayOnly).toBe(false);
     expect(v1Caps.unknownWeekdayWarning).toBe(false);
     expect(v1Caps.scheduleIncompleteOnUnknownWeekday).toBe(false);
+    expect((v1Caps as any).extraDeductionAfterFloor).toBeFalsy();
 
     const compatCaps = ruleSetCapabilities('excel-v260922-compat');
     expect(compatCaps.sameWeekdayOnly).toBe(false);
+    expect((compatCaps as any).extraDeductionAfterFloor).toBeFalsy();
 
     const unknownCaps = ruleSetCapabilities('unknown-version');
     expect(unknownCaps.sameWeekdayOnly).toBe(false);
+    expect((unknownCaps as any).extraDeductionAfterFloor).toBeFalsy();
   });
 });

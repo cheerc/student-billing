@@ -29,6 +29,7 @@ interface Capabilities {
   missingEnglishScheduleWarning: boolean;
   diagnosticsDecomposition: boolean;
   unmappedClassWarning: boolean;
+  extraDeductionAfterFloor: boolean;
 }
 
 describe('D1 能力旗標表（新模組 @/domain/billing/rule-set）', () => {
@@ -51,6 +52,7 @@ describe('D1 能力旗標表（新模組 @/domain/billing/rule-set）', () => {
       missingEnglishScheduleWarning: false,
       diagnosticsDecomposition: false,
       unmappedClassWarning: false,
+      extraDeductionAfterFloor: false,
     });
     for (const off of ['erp-tag-v1', 'excel-v260922-compat', 'garbage-version', '']) {
       expect(caps(off), off).toEqual({
@@ -62,6 +64,7 @@ describe('D1 能力旗標表（新模組 @/domain/billing/rule-set）', () => {
         missingEnglishScheduleWarning: false,
         diagnosticsDecomposition: false,
         unmappedClassWarning: false,
+        extraDeductionAfterFloor: false,
       });
     }
 
