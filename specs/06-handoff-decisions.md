@@ -126,3 +126,18 @@
 |---|---|---|
 |`d-20260923084544894113-3`|**student-billing：GitHub Actions 額度耗盡，採 no-CI 模式（Review VERIFIED 即准合併）**：2026-09-23 operator 於 TUI 明確指示：GitHub Actions CI 因免費額度耗盡無法派工 runner，student-billing 專案後續一律走 no-CI 模式。<br>執行原則：<br>1. 合併條件：PR 經指定 review_class (single 或 dual) 之 Reviewer 在獨立 worktree 完成全量靜態檢查、測試與 build 驗證，並出具 VERIFIED 裁決後，Lead 即可執行 release_worktree 與 repo action=merge (force=true)，force_reason 載明本授權與 Review 證據，毋須等待 GitHub CI 亦毋須逐次詢問。<br>2. 本地品質標準不降低：Implementer 提交前與 Reviewer 審查時，仍必須在本機完整執行 typecheck、lint、vitest、playwright 與 production build，並檢附完整的 Evidence (ran: 與 cited:)。|[10 §4](10-ui-workflow-redesign-plan.md)、[11 §8](11-ui-acceptance-fix-plan.md) 引用；純文件 PR 的 gate 依 11 §3「PR-0」（文件一致性），不要求產品全套測試|
 |`d-20260930101112324336-24`|**Operator 核准 PR #40 F1 方案 A：唯讀計算不阻擋取消草稿**：2026-09-30 operator 明確核准：dirty 時取消修改不受唯讀 calculate pending/start 阻擋，pointerdown/up 間開始 calculate 亦不吞掉取消；還原 baseline、dirty 清除與離頁守衛清理。確認變更／儲存維持原 calculate 與提交 gate。原問題 `d-20260930093334742097-23` 由 operator 結算完畢。|[09 §3.2](09-ui-workflow-redesign-spec.md)、[04 UX31](04-tdd-acceptance.md) 引用|
+
+### 8.1 上表的狀態註記（**非轉錄**；非 board 決策）
+
+> 本節不屬上表轉錄，亦非 operator 決策。置於此處僅為與所註記的項目相鄰。
+
+**`d-20260923084544894113-3`（no-CI 模式）的觸發條件目前不成立。**
+
+- **事實**：2026-10-17 本 session 的五支 PR（#134／#136／#137／#138／#139）**全部有 CI 執行**，`Typecheck, Lint, Test & Build` 均為 `SUCCESS`（各約 2–3 分鐘）。
+- **成因未查明**（額度重置、方案變更、或該決策自始僅反映當時狀況）。**本註記不主張任何成因。**
+- **不改寫原 row**：上表為 2026-09-23 的歷史轉錄，保留原文；本註記僅記錄其狀態已變。
+- ⚠️ **「CI 近期皆為綠」是會隨時間滑動的量，本註記刻意不記錄具體次數或最早日期**——那類數字取決於查詢視窗（`gh run list --limit N`）與查詢當下，寫成定值即不可複驗。需要時請自行重跑 `gh pr checks`。
+- **執行原則 2（本地品質標準不降低）不受影響，仍適用。**
+- 原決策的「毋須等待 GitHub CI」係**授權寬免**（允許不等 CI），非**禁止等 CI**。「CI 綠為合併前置」之規範**已由 [CLAUDE.md §6](../CLAUDE.md)（「需通過 CI 與 current-head 審查」）擁有**，本註記不重述。
+- 自架 runner 的評估不受本註記影響，見 [#111](https://github.com/cheerc/student-billing/issues/111)。
+
