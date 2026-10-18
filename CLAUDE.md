@@ -122,16 +122,15 @@
 ### 審查等級 (Review Class)
 - **`dual` 審查（雙審查人）**：
   - 適用範圍：計算核心邏輯任務（**T03** 純規則計算 R01–R18、**T04** 啟用 Run 與雙軌差異報告）。
-  - 要求：必須由**兩位不同的審查者**各自提交獨立的 `VERIFIED` 裁決。
+  - 要求：必須由**兩位不同的 Reviewer** 各自提交獨立的 `VERIFIED` 裁決。
 - **`single` 審查（單審查人）**：
   - 適用範圍：基礎架構、資料匯入、UI 介面、設定維護、工具與文件（**T00, T01, T02, T05, T06, T07, docs**）。
-  - 要求：由**一位審查者**審查並提交 `VERIFIED`。
+  - 要求：由**一位 Reviewer** 審查並提交 `VERIFIED`。
 
 ### 審查作業標準
-- 審查者必須在隔離的唯讀 worktree 中審查指定的 exact HEAD commit。
+- **Reviewer** 必須在隔離的唯讀 worktree 中審查指定的 exact HEAD commit。
 - 審查報告裁決僅能為 `VERIFIED`、`REJECTED` 或 `UNVERIFIED`。
 - `VERIFIED` 與 `REJECTED` 必須包含 `### Evidence` 區塊，具體列出執行命令 (`ran:`) 與程式碼引文 (`cited:`)。
-- 規格文件與架構指引變更（Instruction-surface）依本節通則審查。
 
 ---
 
