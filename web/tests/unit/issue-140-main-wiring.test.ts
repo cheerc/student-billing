@@ -230,7 +230,10 @@ describe('issue #140 第 1 項：`main()` 的快照接線（按堂計價工具�
     });
     const stub = path.join(tmp, 'sessions-stub-a.mjs');
     writeFetchStub(stub, runV3Body(OVERRIDDEN_ROWS), [
-      // 按堂計價工具以「該生有無國小輔導班」決定是否走快照（既有設計，見 #122）
+      // 本測試走 v3 快照路徑：`resolveApplicableRate` 只判 `ctx.isV3Run`
+      // （compare-session-pricing-report.mjs:313），**沒有**「該生有無國小輔導班」這道閘門。
+      // 名冊的 enrollment 內容因此不影響本斷言——實測把本行清成 `rosterStudent([])`
+      // 仍 5/5 綠；CARE_CLASS 只讓名冊反映真實多班學生。
       rosterStudent([ENGLISH_CLASS, CARE_CLASS]),
     ]);
 
