@@ -209,7 +209,7 @@
 
 ## 8. 審查、合併與人工驗收節點
 
-- PR-0、A、B1、B2、C：single（sb-team-reviewer）；D：dual（sb-team-reviewer＋sb-team-reviewer2）。
+- PR-0、A、B1、B2、C：single（一位審查者）；D：dual（兩位不同的審查者各出獨立的 VERIFIED）。
 - 依 no-CI 決策 `d-20260923084544894113-3`（已由 PR-0 轉錄入 [06 §8](06-handoff-decisions.md)），以本機全套結果＋exact-head VERIFIED 為合併依據。
 - 人工驗收：A、B1、B2、C 合併後請 operator 第二次人工驗收；D 合併後第三次。
 - 本 plan 經 operator 確認後，每批合併自動派下一批；遇 §7 停止條件或範圍變更才回報 operator。

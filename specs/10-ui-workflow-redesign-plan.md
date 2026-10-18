@@ -18,7 +18,7 @@
 
 順序R0→R1a→R1b→R2→R3→R4→R5；R2可先用合成read model排版，但展示一不可用假計算。每PR reviewer查相同head，修改後補測再合併。不要等全部後端寫完才展示畫面。
 
-review_class依根CLAUDE.md §7：T04（啟用Run）屬dual。R1a改動activate與apply交易，R1b改動apply交易（settings_only）、run的設定輸入語意與migration，兩者皆dual（`sb-team-reviewer`與`sb-team-reviewer2`各出VERIFIED）；R0與R2–R5屬基礎架構／UI／文件類，single。
+review_class依根CLAUDE.md §7：T04（啟用Run）屬dual。R1a改動activate與apply交易，R1b改動apply交易（settings_only）、run的設定輸入語意與migration，兩者皆dual（由兩位不同的審查者各出VERIFIED）；R0與R2–R5屬基礎架構／UI／文件類，single。
 
 ## 2. R1a／R1b實作界線
 
