@@ -305,9 +305,9 @@ describe('D2a: erp-tag-v3 班級類別計費核心與選班演算法', () => {
   });
 
   describe('3. R11 / R12 / Q7-A 固定 5 天 (天數下限 5 與適用率 100%)', () => {
-    it('固定 5 天在額外扣天之後套用: 有額外扣天也被壓回 5 天 (案例 D-12)', () => {
+    it('U58: 額外扣天在固定 5 天之後扣除 (5 - 2 = 3)，但受年級下限保底 (案例 D-12)', () => {
       // 學生年級 4，報「國小輔導-寫功課」，標籤「安課額外扣2天」
-      // rawVal = 5 - 2 = 3; 但固定 5 天 -> max(3.0, 3, 5) = 5
+      // 固定 5 天 baseVal = 5; 額外扣 2 天 -> Math.max(3.0, 5 - 2) = 3
       const student = makeStudent({
         grade: 4,
         tagsRaw: '安課額外扣2天',
@@ -315,8 +315,36 @@ describe('D2a: erp-tag-v3 班級類別計費核心與選班演算法', () => {
       });
 
       const resV3 = calculateStudentBilling(student, { ruleSetVersion: 'erp-tag-v3' as any });
-      expect(resV3.careDays.tutoring.days).toBe(5);
+      expect(resV3.careDays.tutoring.days).toBe(3);
+      expect(resV3.careDays.tutoring.displayDays).toBe('3*額');
       expect(resV3.applicableRates.tutoring).toBe(10000); // 固定 5 天適用率 100%
+    });
+
+    it('跨版本對照：同一組寫功課＋額外扣2天，v1／v2／compat 維持 5 天 (凍結)，v3 為 3 天 (修正)', () => {
+      const student = makeStudent({
+        grade: 4,
+        tagsRaw: '安課額外扣2天',
+        notesRaw: '安課額外扣2天', // compat 軌讀備註欄，formal 軌讀標籤欄
+        enrollments: [{ rawToken: '國小輔導-寫功課', baseName: '國小輔導-寫功課' }],
+      });
+
+      // 歷史版本 (v1 / v2 / compat) 凍結原 Excel 公式：被固定 5 天地板壓回 5 天
+      const resV1 = calculateStudentBilling(student, { ruleSetVersion: 'erp-tag-v1' as any });
+      expect(resV1.careDays.tutoring.days).toBe(5);
+      expect(resV1.careDays.tutoring.displayDays).toBe('5*額');
+
+      const resV2 = calculateStudentBilling(student, { ruleSetVersion: 'erp-tag-v2' });
+      expect(resV2.careDays.tutoring.days).toBe(5);
+      expect(resV2.careDays.tutoring.displayDays).toBe('5*額');
+
+      const resCompat = calculateStudentBilling(student, { ruleSetVersion: 'excel-v260922-compat' });
+      expect(resCompat.careDays.tutoring.days).toBe(5);
+      expect(resCompat.careDays.tutoring.displayDays).toBe('5*額');
+
+      // 正式軌 v3：額外扣天在固定 5 天之後扣除
+      const resV3 = calculateStudentBilling(student, { ruleSetVersion: 'erp-tag-v3' as any });
+      expect(resV3.careDays.tutoring.days).toBe(3);
+      expect(resV3.careDays.tutoring.displayDays).toBe('3*額');
     });
   });
 
