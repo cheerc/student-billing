@@ -103,7 +103,7 @@
 - **PR 與合併方式**：
   - 所有變更必須經由 GitHub Pull Request 提交。
   - 合併方式一律採 **Squash and merge**，維持 `main` 分支線性的任務交付歷史。
-  - GitHub 免費方案之 private repo 無法開啟原生 Branch Protection，所有合併由 AgEnD daemon 之 `repo merge` 關卡把關（需通過 CI 與 current-head 審查）。
+  - GitHub 免費方案之 private repo 無法開啟原生 Branch Protection，因此所有合併須經 **merge gate** 把關：**CI 通過**，且**審查裁決所指的 commit 等於要合併的 HEAD**（current-head 審查）。
 - **Attribution 規範**：
   - Git Commit Message 結尾必須包含：
     `Co-Authored-By: Claude Code <noreply@anthropic.com>`
@@ -115,23 +115,22 @@
 ## 7. 團隊角色分工與審查政策 (Roles & Code Review Policy)
 
 ### 團隊角色與職責
-- **Team Lead (`sb-team-lead`)**：負責任務拆解、派工、Review 與 CI 收斂、最終 Merge 與階段交付；不直接修改產品程式碼。
-- **Implementer (`sb-team-impl`)**：負責功能實作、TDD 測試撰寫、PR 建立與 Rework 修正。
-- **Reviewer (`sb-team-reviewer`, `sb-team-reviewer2`)**：負責獨立唯讀審查、驗證技術事實與規則落實，提出具體證據的 Verdict。
+- **Team Lead**：負責任務拆解、派工、Review 與 CI 收斂、最終 Merge 與階段交付；不直接修改產品程式碼。
+- **Implementer**：負責功能實作、TDD 測試撰寫、PR 建立與 Rework 修正。
+- **Reviewer**：負責獨立唯讀審查、驗證技術事實與規則落實，提出具體證據的 Verdict。
 
 ### 審查等級 (Review Class)
 - **`dual` 審查（雙審查人）**：
   - 適用範圍：計算核心邏輯任務（**T03** 純規則計算 R01–R18、**T04** 啟用 Run 與雙軌差異報告）。
-  - 要求：必須由 `sb-team-reviewer` 與 `sb-team-reviewer2` 雙方各自提交獨立的 `VERIFIED` 裁決。
+  - 要求：必須由**兩位不同的 Reviewer** 各自提交獨立的 `VERIFIED` 裁決。
 - **`single` 審查（單審查人）**：
   - 適用範圍：基礎架構、資料匯入、UI 介面、設定維護、工具與文件（**T00, T01, T02, T05, T06, T07, docs**）。
-  - 要求：由 `sb-team-reviewer` 審查並提交 `VERIFIED`。
+  - 要求：由**一位 Reviewer** 審查並提交 `VERIFIED`。
 
 ### 審查作業標準
-- Reviewer 必須在隔離的唯讀 worktree 中審查指定的 exact HEAD commit。
+- **Reviewer** 必須在隔離的唯讀 worktree 中審查指定的 exact HEAD commit。
 - 審查報告裁決僅能為 `VERIFIED`、`REJECTED` 或 `UNVERIFIED`。
 - `VERIFIED` 與 `REJECTED` 必須包含 `### Evidence` 區塊，具體列出執行命令 (`ran:`) 與程式碼引文 (`cited:`)。
-- 規格文件與架構指引變更（Instruction-surface）依 `reviewing-instruction-surface` 標準審查。**該標準為外部權威文本**，位於本機 `/Users/cheerc/agend-customization/skills/general/reviewing-instruction-surface/SKILL.md`（屬受版控之外部 repo `cheerc/agend-customization`，不在本 repo 樹內）；取不到時先確認該 repo 是否存在與同步，並在 `### Evidence` 明寫處置。
 
 ---
 

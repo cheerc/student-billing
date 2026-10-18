@@ -47,7 +47,7 @@
 - 03：新增 §3 B1 的多值查詢契約與「無課程」語意（API 參數、值型別、傳輸格式、單值相容）。
 - 04 §8：修訂 UX07、UX13；新增 UX25–UX33（§4）。
 - 歷史驗收更正採**追加**：在 `specs/progress/ui-redesign-acceptance.md` 新增「2026-09-30 更正」段與現況表，**不改寫 9/29 已跑過的證據**。區分「當時測試通過但覆蓋不足」（UX13：原有 E2E，但未涵蓋更多篩選與跨頁籤語意）與「實際行為未通過」（UX07：未知星期無警告）；並註記 F02 對 UX07、F05 對 UX14 本班率的完成度影響；§10 第 12 點註記 -47 已由 D34 結案。
-- README、01、10、[根 CLAUDE.md](../CLAUDE.md) §2 的過時敘述（§5）；CLAUDE.md 屬 instruction-surface，另開 agend-customization issue 追蹤。
+- README、01、10、[根 CLAUDE.md](../CLAUDE.md) §2 的過時敘述（§5）。
 - Gate：文件鏈結、條目與契約一致性檢查（決策全文、UX 編號、交叉引用）；不要求產品全套測試。
 
 ### A 判讀正確性
@@ -183,7 +183,7 @@
 |README|「本次新增 UI 設計交付，尚未修改產品介面」；閱讀順序無 09–11|改為現況並加入 09–11|PR-0|
 |01 §59、§35|班級單選、科別篩選；科別清單|§59 註明以 09／D36 為準；§35 由 D 改寫為班級類別|PR-0／D|
 |10|R0–R5 以「尚未執行」口吻|開頭加註已交付、後續見 11|PR-0|
-|根 CLAUDE.md §2|執行計畫層只列 07、10|加入 11（另開 agend-customization issue）|PR-0|
+|根 CLAUDE.md §2|執行計畫層只列 07、10|加入 11|PR-0|
 |02 R03、R09、R11、R12、R17、§末待釐清第 2 點|第一班取天、班名存在性科數、寫功課減 1、國小輔導字樣判報名|新增 erp-tag-v3 規則段；v2 原文保留並標「v2 行為」|D|
 |03（設定模型）|無班級類別與固定 5 天|補欄位、版本快照、ruleSet|D|
 |04 §3 U16、U19、U48 等|v2 單元預期|保留 v2 列，新增 v3 列|D|
@@ -209,8 +209,8 @@
 
 ## 8. 審查、合併與人工驗收節點
 
-- PR-0、A、B1、B2、C：single（sb-team-reviewer）；D：dual（sb-team-reviewer＋sb-team-reviewer2）。
-- 依 no-CI 決策 `d-20260923084544894113-3`（已由 PR-0 轉錄入 [06 §8](06-handoff-decisions.md)），以本機全套結果＋exact-head VERIFIED 為合併依據。
+- PR-0、A、B1、B2、C：single（一位審查者）；D：dual（兩位不同的審查者各出獨立的 VERIFIED）。
+- 以 CI 結果＋本機全套結果＋exact-head VERIFIED 為合併依據（合併 gate 判準見根 CLAUDE.md §6）。
 - 人工驗收：A、B1、B2、C 合併後請 operator 第二次人工驗收；D 合併後第三次。
 - 本 plan 經 operator 確認後，每批合併自動派下一批；遇 §7 停止條件或範圍變更才回報 operator。
 - **第二次人工驗收之後**：第二輪的兩項 FAIL（R2-F01、R2-F02）與三項驗收工具（T1／T2／T3）由[12 第二次人工驗收修正 Plan](12-round2-acceptance-fix-plan.md)（批次 E，review_class=single）收斂；第三次人工驗收在 D2d 與批次 E 合併後由 Lead 依 12 §4 產出清單。

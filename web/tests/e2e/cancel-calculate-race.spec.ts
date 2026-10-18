@@ -10,7 +10,7 @@ import {
 } from './helpers/c-batch';
 
 /**
- * UX31／operator d-20260930101112324336-24：唯讀 calculate 不得阻擋取消草稿。
+ * UX31：唯讀 calculate 不得阻擋取消草稿。
  * 走真實 SettingsEditor、calculate HTTP、native dialog 與 pointer 事件，不直接呼叫 resetDraft。
  * 可取消 debounce barrier 只延後原 callback；clearTimeout 會刪除 callback，不能將已取消的工作復活。
  * 原 reviewer run3 沒有 trace，本檔驗證新操作契約，不宣稱證實該次失敗的歷史原因。

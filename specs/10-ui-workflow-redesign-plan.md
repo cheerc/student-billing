@@ -18,7 +18,7 @@
 
 順序R0→R1a→R1b→R2→R3→R4→R5；R2可先用合成read model排版，但展示一不可用假計算。每PR reviewer查相同head，修改後補測再合併。不要等全部後端寫完才展示畫面。
 
-review_class依根CLAUDE.md §7：T04（啟用Run）屬dual。R1a改動activate與apply交易，R1b改動apply交易（settings_only）、run的設定輸入語意與migration，兩者皆dual（`sb-team-reviewer`與`sb-team-reviewer2`各出VERIFIED）；R0與R2–R5屬基礎架構／UI／文件類，single。
+review_class依根CLAUDE.md §7：T04（啟用Run）屬dual。R1a改動activate與apply交易，R1b改動apply交易（settings_only）、run的設定輸入語意與migration，兩者皆dual（由兩位不同的審查者各出VERIFIED）；R0與R2–R5屬基礎架構／UI／文件類，single。
 
 ## 2. R1a／R1b實作界線
 
@@ -68,7 +68,7 @@ UX01–UX24的矩陣正本在[04 §8](04-tdd-acceptance.md)，此處不再複製
 
 ## 4. 本機驗證與執行
 
-本repo採no-CI（decision d-20260923084544894113-3：GitHub Actions額度不足）。merge證據是Reviewer在獨立worktree跑的本機全量結果（typecheck、lint、vitest、playwright、production build），不是CI。現有`.github/workflows/ci.yml`只跑npm ci、typecheck、lint、test、build，無Playwright job；R5可加browser install與E2E job，但**不作gate**。
+merge證據是Reviewer在獨立worktree跑的本機全量結果（typecheck、lint、vitest、playwright、production build）與 CI（`.github/workflows/ci.yml`）。CI 現跑 npm ci、typecheck、lint、test、build 與三組 isolated 效能量測（含 `playwright install --with-deps chromium`）；**無 E2E job**；R5可加 E2E job，但**不作gate**。
 
 **E2E隔離**（R0建立；指令`npm run test:e2e:isolated`，說明見web/README §4.1）：
 
