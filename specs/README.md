@@ -39,6 +39,7 @@ UI 重設（先課表 → 匯入 → 核對）R0–R5 已交付並合併，驗�
 11. [第一次人工驗收修正 Plan](./11-ui-acceptance-fix-plan.md)：驗收修正的分批、順序、停止條件；決策全文在 [06 D34–D39](./06-handoff-decisions.md)。
 12. [第二次人工驗收修正 Plan](./12-round2-acceptance-fix-plan.md)：第二輪兩項 FAIL 的修正來源、驗收列 UX74–UX77，以及隔離驗收環境／故障注入代理／合成測試檔三項工具的指令與限制。
 13. [P1 最終複核與修正](./reviews/p1-final-verification-20260923.md)：最新契約修正、驗證範圍與啟動條件；較早review保留歷史原文。
+14. [課程類型分類與課表設定重構 Plan](./14-class-type-settings-plan.md)：課表設定改為依課程類型的分頁籤（安親課輔班／非安親課輔班）；固定 5 天旗標與課程學費折扣解耦。
 
 ## 已確認的方向
 
