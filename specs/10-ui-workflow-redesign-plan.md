@@ -68,7 +68,7 @@ UX01–UX24的矩陣正本在[04 §8](04-tdd-acceptance.md)，此處不再複製
 
 ## 4. 本機驗證與執行
 
-本repo採no-CI（decision d-20260923084544894113-3：GitHub Actions額度不足）。merge證據是Reviewer在獨立worktree跑的本機全量結果（typecheck、lint、vitest、playwright、production build），不是CI。現有`.github/workflows/ci.yml`只跑npm ci、typecheck、lint、test、build，無Playwright job；R5可加browser install與E2E job，但**不作gate**。
+merge證據是Reviewer在獨立worktree跑的本機全量結果（typecheck、lint、vitest、playwright、production build）與 CI（`.github/workflows/ci.yml`）。CI 現跑 npm ci、typecheck、lint、test、build 與三組 isolated 效能量測（含 `playwright install --with-deps chromium`）；**無 E2E job**；R5可加 E2E job，但**不作gate**。
 
 **E2E隔離**（R0建立；指令`npm run test:e2e:isolated`，說明見web/README §4.1）：
 
