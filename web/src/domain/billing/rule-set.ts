@@ -52,6 +52,8 @@ export interface RuleSetCapabilities {
   diagnosticsDecomposition: boolean;
   /** D2a / Q4-b: 未對應班標記 CLASS_NOT_MAPPED (限 care/math/english)。 */
   unmappedClassWarning: boolean;
+  /** #147: 固定 5 天在額外扣天前套用，額外扣天扣在固定 5 天之後 (但受年級下限保底)。 */
+  extraDeductionAfterFloor: boolean;
 }
 
 const NO_CAPABILITIES: RuleSetCapabilities = {
@@ -63,6 +65,7 @@ const NO_CAPABILITIES: RuleSetCapabilities = {
   missingEnglishScheduleWarning: false,
   diagnosticsDecomposition: false,
   unmappedClassWarning: false,
+  extraDeductionAfterFloor: false,
 };
 
 /**
@@ -84,8 +87,9 @@ const CAPABILITIES: Readonly<Record<string, RuleSetCapabilities>> = {
     missingEnglishScheduleWarning: false,
     diagnosticsDecomposition: false,
     unmappedClassWarning: false,
+    extraDeductionAfterFloor: false,
   },
-  // 正式軌 v3（D2）：同星期比對、類別式科數、扣天取最多、美語缺課表警告、未對應班警告、診斷標籤分解。
+  // 正式軌 v3（D2）：同星期比對、類別式科數、扣天取最多、美語缺課表警告、未對應班警告、診斷標籤分解、額外扣天在固定5天後扣除。
   'erp-tag-v3': {
     sameWeekdayOnly: true,
     unknownWeekdayWarning: true,
@@ -95,6 +99,7 @@ const CAPABILITIES: Readonly<Record<string, RuleSetCapabilities>> = {
     missingEnglishScheduleWarning: true,
     diagnosticsDecomposition: true,
     unmappedClassWarning: true,
+    extraDeductionAfterFloor: true,
   },
 };
 

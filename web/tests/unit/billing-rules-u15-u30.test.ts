@@ -100,6 +100,7 @@ describe('U15–U30: 科數、基本率、標籤優惠與安親課輔天數測�
       englishDeductionTutoring: 0,
       extraDeduction: null,
       hasHomeworkOrMeian: false,
+      extraDeductionAfterFloor: false,
     });
     expect(res.anqin.days).toBe(4);
     expect(res.anqin.status).toBe('calculated');
@@ -115,6 +116,7 @@ describe('U15–U30: 科數、基本率、標籤優惠與安親課輔天數測�
       englishDeductionTutoring: 0,
       extraDeduction: 1,
       hasHomeworkOrMeian: false,
+      extraDeductionAfterFloor: false,
     });
     // 5 - 2 - 1 = 2 < 3.5 -> 3.5
     expect(res.anqin.days).toBe(3.5);
@@ -131,6 +133,7 @@ describe('U15–U30: 科數、基本率、標籤優惠與安親課輔天數測�
       englishDeductionTutoring: -1.0,
       extraDeduction: 1,
       hasHomeworkOrMeian: false,
+      extraDeductionAfterFloor: false,
     });
     // 5 - 2.5 - 1 = 1.5 < 3 -> 3
     expect(res.tutoring.days).toBe(3);
@@ -138,8 +141,9 @@ describe('U15–U30: 科數、基本率、標籤優惠與安親課輔天數測�
     expect(res.tutoring.displayDays).toBe('3*額');
   });
 
-  it('U29: 寫功課且有衝堂和 extra → MAX 第三參數令天數 5，仍保留 *額', () => {
-    const res = calculateCareDays({
+  it('U29: 寫功課且有衝堂和 extra → 歷史軌 (false) MAX 第三參數令天數 5；新規則 (true) 為 4.5', () => {
+    // 歷史軌 (v1 / v2 / compat)
+    const resHistorical = calculateCareDays({
       grade: 1,
       mathDeductionAnqin: -0.5,
       mathDeductionTutoring: 0,
@@ -147,11 +151,28 @@ describe('U15–U30: 科數、基本率、標籤優惠與安親課輔天數測�
       englishDeductionTutoring: 0,
       extraDeduction: 0.5,
       hasHomeworkOrMeian: true, // 寫功課
+      extraDeductionAfterFloor: false,
     });
     // MAX(3.5, 5 - 0.5 - 0.5 - 0.5 = 3.5, 5) -> 5
-    expect(res.anqin.days).toBe(5);
-    expect(res.anqin.hasExtraFlag).toBe(true);
-    expect(res.anqin.displayDays).toBe('5*額');
+    expect(resHistorical.anqin.days).toBe(5);
+    expect(resHistorical.anqin.hasExtraFlag).toBe(true);
+    expect(resHistorical.anqin.displayDays).toBe('5*額');
+
+    // 正式軌 (v3 起，#147 修正)
+    const resV3 = calculateCareDays({
+      grade: 1,
+      mathDeductionAnqin: -0.5,
+      mathDeductionTutoring: 0,
+      englishDeductionAnqin: -0.5,
+      englishDeductionTutoring: 0,
+      extraDeduction: 0.5,
+      hasHomeworkOrMeian: true, // 寫功課
+      extraDeductionAfterFloor: true,
+    });
+    // baseVal = MAX(5 - 0.5 - 0.5, 5) = 5; MAX(3.5, 5 - 0.5) = 4.5
+    expect(resV3.anqin.days).toBe(4.5);
+    expect(resV3.anqin.hasExtraFlag).toBe(true);
+    expect(resV3.anqin.displayDays).toBe('4.5*額');
   });
 
   it('U30: 小一沒有安親報名，只有美語 → 原年級天數可算，enrolled=false', () => {
@@ -167,6 +188,7 @@ describe('U15–U30: 科數、基本率、標籤優惠與安親課輔天數測�
       englishDeductionTutoring: 0,
       extraDeduction: null,
       hasHomeworkOrMeian: false,
+      extraDeductionAfterFloor: false,
     });
     expect(res.anqin.days).toBe(4.5);
     expect(res.anqin.status).toBe('calculated');

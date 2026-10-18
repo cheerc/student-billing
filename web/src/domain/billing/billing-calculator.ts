@@ -483,6 +483,7 @@ export function calculateStudentBilling(
     hasHomeworkOrMeian,
     isEnrolledAnqin,
     isEnrolledTutoring,
+    extraDeductionAfterFloor: capabilities.extraDeductionAfterFloor,
   });
 
   // 5. 計算各課程適用折扣 (R13–R15)
