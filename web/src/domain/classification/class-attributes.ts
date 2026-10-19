@@ -6,16 +6,22 @@
  *  - 來源為 `manual` 時，改班名不再重新偵測；按「恢復自動」後才依**目前**班名重新偵測；
  *  - 手動值恰等於自動偵測值時仍為 `manual`（來源是使用者意圖，不因值相同而降回 auto）。
  *
- * 本模組是 domain 純函式，不依賴 DB／UI／規則版本；`detectClassCategory`／`detectFixedFiveDays`
+ * 本模組是 domain 純函式，不依賴 DB／UI／規則版本；`detectClassCategory`
  * 來自 D1 的 `class-category`，這裡只負責「已儲存值 + 班名 → 有效值」與班級生命週期的設定繼承規則。
  */
 
 import {
   ClassCategory,
   detectClassCategory,
-  detectFixedFiveDays,
 } from './class-category';
-import type { ClassSetting, ScheduleGridRow } from '@/contracts/settings';
+import {
+  type ClassType,
+  DEFAULT_CARE_CLASS_NAMES,
+  type ClassSetting,
+  type ScheduleGridRow,
+} from '@/contracts/settings';
+
+export { DEFAULT_CARE_CLASS_NAMES };
 
 /** 類別於畫面上的白話名稱（D37 1a：安親課輔班／數學班／美語班／不列入折扣）。 */
 export const CATEGORY_LABELS: Record<ClassCategory, string> = {
@@ -29,65 +35,71 @@ export type AttributeSource = 'auto' | 'manual';
 
 /** 已儲存於設定草稿的類別欄位（皆可缺；缺＝未指定，讀取時自動偵測）。 */
 export interface SavedClassAttributes {
+  classType?: ClassType;
   category?: ClassCategory;
   categorySource?: AttributeSource;
   fixedFiveDays?: boolean;
-  fixedSource?: AttributeSource;
 }
 
 /** 一個班級的「有效屬性」：值與來源一併輸出，供 draft、快照與讀模型共用。 */
 export interface EffectiveClassAttributes {
+  classType: ClassType;
   category: ClassCategory;
   categorySource: AttributeSource;
   fixedFiveDays: boolean;
-  fixedSource: AttributeSource;
 }
 
 /** 單一來源（已儲存 or 草稿）的屬性檢視；不帶 `_source` 後綴以便與 draft 欄位同名比對。 */
 export interface ClassAttributesView {
+  classType: ClassType;
   category: ClassCategory;
   categorySource: AttributeSource;
   fixedFiveDays: boolean;
-  fixedSource: AttributeSource;
 }
 
 /**
  * 有效值：已儲存欄位優先，缺值時依班名自動偵測。
- * `saved` 為 undefined 或欄位缺值時該項視為 auto（03 §5.2 版本界線規則第 2 點：欄位缺失＝自動偵測，不回寫舊快照）。
+ * specs/14 §3.1, §3.3, §3.9, §3.10：
+ * - classType：優先取 saved.classType；若無，seed 8 班或歷史 fixedFiveDays===true 為 care，其餘為 non_care
+ * - fixedFiveDays：移除 auto 偵測，所有班級預設恆為 false，無 fixedSource
  */
 export function resolveClassAttributes(
   baseName: string,
   saved?: SavedClassAttributes
 ): EffectiveClassAttributes {
+  const classType: ClassType =
+    saved?.classType ??
+    (DEFAULT_CARE_CLASS_NAMES.has(baseName) || saved?.fixedFiveDays === true
+      ? 'care'
+      : 'non_care');
   const category = saved?.category ?? detectClassCategory(baseName);
   const categorySource = saved?.categorySource ?? 'auto';
-  const fixedFiveDays = saved?.fixedFiveDays ?? detectFixedFiveDays(baseName);
-  const fixedSource = saved?.fixedSource ?? 'auto';
+  const fixedFiveDays = saved?.fixedFiveDays ?? false;
   return {
+    classType,
     category,
     categorySource,
     fixedFiveDays,
-    fixedSource,
   };
 }
 
 /** 有效值 → draft 的欄位（值與來源一併寫出，讓 hash／快照涵蓋來源）。 */
 export function toSavedClassAttributes(effective: EffectiveClassAttributes): SavedClassAttributes {
   return {
+    classType: effective.classType,
     category: effective.category,
     categorySource: effective.categorySource,
     fixedFiveDays: effective.fixedFiveDays,
-    fixedSource: effective.fixedSource,
   };
 }
 
 /** 兩個屬性檢視是否逐欄相同（合併衝突判斷用；不用 JSON 以免欄位順序影響）。 */
 export function sameClassAttributes(a: ClassAttributesView, b: ClassAttributesView): boolean {
   return (
+    a.classType === b.classType &&
     a.category === b.category &&
     a.categorySource === b.categorySource &&
-    a.fixedFiveDays === b.fixedFiveDays &&
-    a.fixedSource === b.fixedSource
+    a.fixedFiveDays === b.fixedFiveDays
   );
 }
 
@@ -228,18 +240,15 @@ export function carryAttributesOnRename(
       continue;
     }
 
-    // 兩組皆 auto → 依新名重新偵測（不帶覆蓋）
-    if (before.categorySource === 'auto' && before.fixedSource === 'auto') {
-      out.set(to, resolveClassAttributes(to));
-      continue;
-    }
+    // specs/14 §3.10：整班改名（rename）時，classType 與 fixedFiveDays 原值直接隨班帶到新班名（D40 Q9）；
+    // category 若為 manual 則隨班帶走，若為 auto 則依新班名重新偵測。
     const target = currentAttrs.get(to);
     const detected = resolveClassAttributes(to);
     out.set(to, {
+      classType: before.classType,
       category: before.categorySource === 'manual' ? before.category : (target?.category ?? detected.category),
       categorySource: before.categorySource === 'manual' ? 'manual' : (target?.categorySource ?? 'auto'),
-      fixedFiveDays: before.fixedSource === 'manual' ? before.fixedFiveDays : (target?.fixedFiveDays ?? detected.fixedFiveDays),
-      fixedSource: before.fixedSource === 'manual' ? 'manual' : (target?.fixedSource ?? 'auto'),
+      fixedFiveDays: before.fixedFiveDays,
     });
   }
   return out;

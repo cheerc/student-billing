@@ -373,7 +373,13 @@ describe('D2a: erp-tag-v3 班級類別計費核心與選班演算法', () => {
         ],
       });
 
-      const resV3 = calculateStudentBilling(student, { ruleSetVersion: 'erp-tag-v3' as any });
+      const classSettings = new Map([
+        ['國小輔導-寫功課', { category: 'none' as const, fixedFiveDays: true }],
+      ]);
+      const resV3 = calculateStudentBilling(student, {
+        ruleSetVersion: 'erp-tag-v3' as any,
+        classSettings,
+      });
       const dup = resV3.issues.find((i) => i.code === 'DUPLICATE_SUBJECT_ENROLLMENT');
       expect(dup).toBeDefined();
     });

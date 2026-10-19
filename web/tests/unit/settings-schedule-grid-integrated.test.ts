@@ -47,10 +47,10 @@ const ROWS: ScheduleGridRow[] = [
   },
 ];
 
-// #113 follow-up：不計扣天不再是班級屬性，只剩類別與固定 5 天。
+// #113 follow-up：不計扣天不再是班級屬性，只剩類別與固定 5 天；specs/14 加入 classType，移除 fixedSource。
 const ATTRS = new Map<string, ClassAttributesView>([
-  ['兒童美語-Gino', { category: 'english', categorySource: 'auto', fixedFiveDays: false, fixedSource: 'auto' }],
-  ['國小數學-一A', { category: 'math', categorySource: 'manual', fixedFiveDays: true, fixedSource: 'manual' }],
+  ['兒童美語-Gino', { classType: 'non_care', category: 'english', categorySource: 'auto', fixedFiveDays: false }],
+  ['國小數學-一A', { classType: 'non_care', category: 'math', categorySource: 'manual', fixedFiveDays: true }],
 ]);
 
 function render(overrides: Record<string, unknown> = {}): string {

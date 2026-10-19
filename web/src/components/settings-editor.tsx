@@ -15,6 +15,7 @@ import {
   SettingsBaseline,
   isSettingsDirty,
   type ClassAttributeSetting,
+  type ClassType,
 } from '@/contracts/settings';
 import { DynamicCandidate, buildDynamicCandidates, type CandidateCounts } from '@/domain/schedules/seed-manifest';
 import { CalculatePreviewResponse } from '@/application/schedule-preview';
@@ -96,18 +97,18 @@ type ReportRecoveryStage = 'retrying' | 'reload' | 'reloadPage';
 function toClassAttributeSetting(a: ClassAttributesView & { className?: string }): ClassAttributeSetting {
   return {
     className: a.className ?? '',
+    classType: a.classType,
     category: a.category,
     categorySource: a.categorySource,
     fixedFiveDays: a.fixedFiveDays,
-    fixedSource: a.fixedSource,
   };
 }
 
 /**
  * 把手動覆寫寫進 draft 的班級（存檔／預覽都用它）。
- * 只寫 manual 的欄位：未手動者不寫這些欄位，讀取時即自動判定（改班名會重新判定）。
+ * specs/14 §3.10：classType 與 fixedFiveDays 隨班保存，不再有 fixedSource。
  */
-function applyManualAttrsToClasses<T extends { baseName: string }>(
+function applyManualAttrsToClasses<T extends { baseName: string; classType?: 'care' | 'non_care' }>(
   classes: Array<T & Record<string, unknown>>,
   manualAttrs: Map<string, ClassAttributesView>
 ): Array<T & Record<string, unknown>> {
@@ -124,11 +125,12 @@ function applyManualAttrsToClasses<T extends { baseName: string }>(
     const m = manualAttrs.get(c.baseName);
     return {
       ...clean,
+      classType: m?.classType ?? c.classType,
       ...(m?.categorySource === 'manual'
         ? { category: m.category, categorySource: m.categorySource }
         : {}),
-      ...(m?.fixedSource === 'manual'
-        ? { fixedFiveDays: m.fixedFiveDays, fixedSource: m.fixedSource }
+      ...(m?.fixedFiveDays !== undefined
+        ? { fixedFiveDays: m.fixedFiveDays }
         : {}),
     };
   });
@@ -144,10 +146,10 @@ function mapsDiffer(
     const bv = b.get(k);
     if (!bv) return true;
     if (
+      av.classType !== bv.classType ||
       av.category !== bv.category ||
       av.categorySource !== bv.categorySource ||
-      av.fixedFiveDays !== bv.fixedFiveDays ||
-      av.fixedSource !== bv.fixedSource
+      av.fixedFiveDays !== bv.fixedFiveDays
     ) {
       return true;
     }
@@ -240,7 +242,7 @@ export default function SettingsEditor({
   const [manualAttrs, setManualAttrs] = useState<Map<string, ClassAttributesView>>(() => {
     const map = new Map<string, ClassAttributesView>();
     for (const c of initialDraft.classes) {
-      if (c.categorySource === 'manual' || c.fixedSource === 'manual') {
+      if (c.classType !== undefined || c.categorySource === 'manual' || c.fixedFiveDays !== undefined) {
         map.set(c.baseName, resolveClassAttributes(c.baseName, c));
       }
     }
@@ -258,7 +260,7 @@ export default function SettingsEditor({
   const [baselineManualAttrs, setBaselineManualAttrs] = useState<Map<string, ClassAttributesView>>(() => {
     const map = new Map<string, ClassAttributesView>();
     for (const c of initialDraft.classes) {
-      if (c.categorySource === 'manual' || c.fixedSource === 'manual') {
+      if (c.classType !== undefined || c.categorySource === 'manual' || c.fixedFiveDays !== undefined) {
         map.set(c.baseName, resolveClassAttributes(c.baseName, c));
       }
     }
@@ -515,7 +517,7 @@ export default function SettingsEditor({
     setManualAttrs((prev) => {
       const next = new Map(prev);
       const base = currentAttrs.get(className) ?? resolveClassAttributes(className);
-      next.set(className, { ...base, fixedFiveDays: fixed, fixedSource: 'manual' });
+      next.set(className, { ...base, fixedFiveDays: fixed });
       return next;
     });
     setPreview(null);
@@ -680,6 +682,7 @@ export default function SettingsEditor({
         rows,
         classAttrs: [...currentAttrs.entries()].map(([className, a]) => ({
           className,
+          classType: a.classType,
           category: a.category,
           fixedFiveDays: a.fixedFiveDays,
         })),
@@ -741,14 +744,15 @@ export default function SettingsEditor({
       const nextAttrs = new Map<string, ClassAttributesView>();
       for (const a of json?.classAttrs as Array<{
         className: string;
+        classType?: ClassType;
         category: ClassCategory;
         fixedFiveDays: boolean;
       }>) {
         nextAttrs.set(a.className, {
+          classType: a.classType ?? resolveClassAttributes(a.className).classType,
           category: a.category,
           categorySource: 'manual',
           fixedFiveDays: a.fixedFiveDays,
-          fixedSource: 'manual',
         });
       }
       setManualAttrs(nextAttrs);
@@ -866,7 +870,7 @@ export default function SettingsEditor({
       // 儲存成功後，已套用的手動值成為新的 baseline（此後離開與取消修改都回到這組值）
       const savedManualAttrs = new Map(
         [...effectiveManualAttrs].filter(
-          ([, a]) => a.categorySource === 'manual' || a.fixedSource === 'manual'
+          ([, a]) => a.categorySource === 'manual' || a.fixedFiveDays
         )
       );
       setManualAttrs(savedManualAttrs);
@@ -1019,11 +1023,11 @@ export default function SettingsEditor({
           <ul style={{ margin: '6px 0 0 18px' }}>
             {mergeConflicts.map((c) => (
               <li key={c.mergedName}>
-                「{c.mergedName}」由 {c.sources.join('、')} 合併而來，各班的類別與固定 5 天設定不同（
+                「{c.mergedName}」由 {c.sources.join('、')} 合併而來，各班的課程類型、類別與固定 5 天設定不同（
                 {c.sourceAttributes
                   .map(
                     (a) =>
-                      `${CATEGORY_LABELS[a.category]}／${a.fixedFiveDays ? '固定 5 天' : '不固定'}`
+                      `${a.classType === 'care' ? '安親課輔班' : '非安親課輔班'}／${CATEGORY_LABELS[a.category]}／${a.fixedFiveDays ? '固定 5 天' : '不固定'}`
                   )
                   .join('、')}
                 ）。請先選擇要保留的設定，或改回不同的班名。

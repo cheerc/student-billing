@@ -314,7 +314,7 @@ run 的設定快照＝`run.scheduleVersionId`：`seed-v250922`（該 run 沒有�
 - 禁止以字面 `=== 'erp-tag-v2'` 比較，新舊行為一律經由能力旗標分流。
 
 #### 5.3.2 班級設定草稿資料模型擴充
-- `ClassSettingSchema` 新增可選欄位：`category`（'care'|'math'|'english'|'none'）、`categorySource`（'auto'|'manual'）、`fixedFiveDays`（boolean）、`fixedSource`（'auto'|'manual'）。
+- `ClassSettingSchema` 支援班級屬性可選欄位：`classType`（'care'|'non_care'，specs/14 §3.1）、`category`（'care'|'math'|'english'|'none'）、`categorySource`（'auto'|'manual'）、`fixedFiveDays`（boolean，specs/14 §3.3 簡化為純布林，移除 fixedSource）。
 - 讀取已存舊設定 JSON 時維持 `readStoredDraft` 唯一入口不改形狀，舊快照無新欄位時在 v3 計算當下依班名自動偵測補齊，不回寫舊快照。
 - `isSettingsDirty` 支援 `baseline.classAttrs` 與 `currentAttrs` 之變更比對（F-13）。
 
@@ -344,12 +344,13 @@ run 的設定快照＝`run.scheduleVersionId`：`seed-v250922`（該 run 沒有�
 ### 5.4 班級類別設定 UI、升級確認與讀模型接線（D2b）
 
 #### 5.4.1 設定草稿的類別／固定 5 天欄位與來源
-- 每班兩項設定各自獨立：`category`（`care`／`math`／`english`／`none`）與 `fixedFiveDays`（布林），各帶 `categorySource`／`fixedSource`（`auto`／`manual`）（D37 1、Q7-A）。
-- **有效值＝已儲存欄位優先，缺值時依班名自動偵測**（`domain/classification/class-attributes` 的 `resolveClassAttributes`）。缺欄位＝未指定＝`auto`，因此：
-  - 舊快照（無新欄位）讀取當下即得到正確的有效值，**不回寫**（03 §5.2 版本界線規則第 2 點）；
-  - 改班名時未手動者即時重新偵測；手動者不變（D37 1a）。
-- 寫回 draft 時**只寫 `manual` 的欄位**（`gridRowsToClasses` 的 `groupGridRowsToClasses`）：未手動者不寫四個欄位，維持「缺欄位＝自動偵測」的語意。
-- 手動值恰等於自動偵測值時仍為 `manual`（來源是使用者意圖，不因值相同而降回 `auto`）。
+- 班級屬性包含課程類型 `classType`（`care`／`non_care`，specs/14 §3.1）、多科折扣類別 `category`（`care`／`math`／`english`／`none`，帶 `categorySource: 'auto' | 'manual'`），以及固定 5 天 `fixedFiveDays`（布林，specs/14 §3.3/§3.10 移除 auto 偵測與 fixedSource，純布林勾選框）。
+- **有效值解析**（`domain/classification/class-attributes` 的 `resolveClassAttributes`）：
+  - `classType`：已儲存值優先；未設定時依 8 個 seed `care_window` 班（或歷史已存 `fixedFiveDays: true`）預設為 `care`，其餘預設為 `non_care`。
+  - `category`：已儲存值優先；缺值時來源為 `auto` 並依班名自動偵測；手動值恰等於自動偵測值時仍為 `manual`。
+  - `fixedFiveDays`：已儲存值優先（specs/14 §3.3/§3.10 移除 fixedSource，純布林勾選框，未設定時為 false；舊規則描述留待 PR-2 隨 v4 統一修訂）。
+  - 舊快照（無新欄位）讀取當下即得到正確的有效值，**不回寫**（03 §5.2 版本界線規則第 2 點）；改班名時未手動者依新名重新解析。
+- 寫回 draft 時（`groupGridRowsToClasses`）：每班**必寫入 `classType`**；`category` 與 `categorySource` 僅在手動指定（`manual`）時寫入；`fixedFiveDays` 在有顯式設定值時（existing?.fixedFiveDays !== undefined）隨班寫入。未手動之 `category` 不寫入以維持「缺欄位＝依班名自動偵測」的語意。
 
 #### 5.4.2 班級生命週期（Q9；班名＝分組 key）
 以 `rowId` 對 baseline 追蹤（`detectClassLifecycle`，與既有 `detectSplitClasses` 同一資料結構）：
