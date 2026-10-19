@@ -23,16 +23,17 @@ function cls(baseName: string, extra: Partial<ClassSetting> = {}): ClassSetting 
 }
 
 describe('D2b 1: 設定資料模型 — 有效類別與固定 5 天（自動偵測＋手動覆寫）', () => {
-  it('無手動覆寫時有效值＝依班名自動偵測，來源為 auto', () => {
+  it('無手動覆寫時有效值＝依班名自動偵測，固定 5 天預設 false', () => {
     const r = resolveClassAttributes('國小數學-四A');
+    expect(r.classType).toBe('non_care');
     expect(r.category).toBe('math');
     expect(r.categorySource).toBe('auto');
     expect(r.fixedFiveDays).toBe(false);
-    expect(r.fixedSource).toBe('auto');
   });
 
   it('手動設定類別時有效值＝手動值，來源為 manual', () => {
     const r = resolveClassAttributes('某自創班', { category: 'care', categorySource: 'manual' });
+    expect(r.classType).toBe('non_care');
     expect(r.category).toBe('care');
     expect(r.categorySource).toBe('manual');
   });
@@ -42,19 +43,18 @@ describe('D2b 1: 設定資料模型 — 有效類別與固定 5 天（自動偵�
       category: 'english',
       categorySource: 'manual',
       fixedFiveDays: true,
-      fixedSource: 'manual',
     });
+    expect(r.classType).toBe('care'); // fixedFiveDays: true 舊草稿/手動歸入 care
     expect(r.category).toBe('english');
     expect(r.fixedFiveDays).toBe(true);
-    expect(r.fixedSource).toBe('manual');
   });
 
-  it('類別缺值但固定 5 天有值時，兩者來源各自判定', () => {
-    const r = resolveClassAttributes('國小輔導-四年級', { fixedFiveDays: true, fixedSource: 'manual' });
+  it('類別缺值但固定 5 天有值時，各自判定', () => {
+    const r = resolveClassAttributes('國小輔導-四年級', { fixedFiveDays: true });
+    expect(r.classType).toBe('care');
     expect(r.category).toBe('care');
     expect(r.categorySource).toBe('auto');
     expect(r.fixedFiveDays).toBe(true);
-    expect(r.fixedSource).toBe('manual');
   });
 
   it('手動值恰等於自動偵測值時仍為 manual（來源是使用者意圖，不自動降回 auto）', () => {
@@ -71,56 +71,56 @@ describe('D2b 1: 設定資料模型 — 有效類別與固定 5 天（自動偵�
     expect(CATEGORY_LABELS.none).toBe('不列入折扣');
   });
 
-  it('有效值輸出為 draft 的四個欄位（來源與值一併寫出，供 hash 與快照使用）', () => {
+  it('有效值輸出為 draft 的欄位（含 classType，且固定 5 天預設 false，無 fixedSource）', () => {
     const out = toSavedClassAttributes(resolveClassAttributes('國小輔導-寫功課'));
     expect(out).toEqual({
+      classType: 'non_care',
       category: 'none',
       categorySource: 'auto',
-      fixedFiveDays: true,
-      fixedSource: 'auto',
+      fixedFiveDays: false,
     });
   });
 });
 
-describe('D2b 5（Q9）: 整班改名帶走設定（含手動值）', () => {
+describe('D2b 5（Q9）: 整班改名帶走設定（含手動值與 classType）', () => {
   it('手動值隨班改名保留，來源仍為 manual', () => {
     const out = carryAttributesOnRename(
       [{ from: '新名字A', to: '新名字B' }],
-      new Map([['新名字A', { category: 'care', categorySource: 'manual', fixedFiveDays: true, fixedSource: 'manual' }]]),
-      new Map([['新名字B', { category: 'math', categorySource: 'auto', fixedFiveDays: false, fixedSource: 'auto' }]])
+      new Map([['新名字A', { classType: 'care', category: 'care', categorySource: 'manual', fixedFiveDays: true }]]),
+      new Map([['新名字B', { classType: 'non_care', category: 'math', categorySource: 'auto', fixedFiveDays: false }]])
     );
     expect(out.get('新名字B')).toEqual({
+      classType: 'care',
       category: 'care',
       categorySource: 'manual',
       fixedFiveDays: true,
-      fixedSource: 'manual',
     });
   });
 
-  it('沒有手動覆寫的班改名後依新名重新偵測', () => {
+  it('沒有手動覆寫的班改名後依新名重新偵測 category，classType 與 fixedFiveDays 隨班保留', () => {
     const out = carryAttributesOnRename(
       [{ from: '新名字A', to: '新名字B' }],
-      new Map([['新名字A', { category: 'none', categorySource: 'auto', fixedFiveDays: false, fixedSource: 'auto' }]]),
+      new Map([['新名字A', { classType: 'non_care', category: 'none', categorySource: 'auto', fixedFiveDays: false }]]),
       new Map()
     );
     // 「新名字B」自動偵測為 none（非數學班名）：此處只驗「依新名重新偵測」這件事（值與原名不同）
     expect(out.get('新名字B')).toEqual({
+      classType: 'non_care',
       category: 'none',
       categorySource: 'auto',
       fixedFiveDays: false,
-      fixedSource: 'auto',
     });
 
     const out2 = carryAttributesOnRename(
       [{ from: '新名字A', to: '國小數學-新名' }],
-      new Map([['新名字A', { category: 'none', categorySource: 'auto', fixedFiveDays: false, fixedSource: 'auto' }]]),
+      new Map([['新名字A', { classType: 'non_care', category: 'none', categorySource: 'auto', fixedFiveDays: false }]]),
       new Map()
     );
     expect(out2.get('國小數學-新名')).toEqual({
+      classType: 'non_care',
       category: 'math',
       categorySource: 'auto',
       fixedFiveDays: false,
-      fixedSource: 'auto',
     });
   });
 });
@@ -132,8 +132,8 @@ describe('D2b 5（Q9）: 同名合併且設定不同時阻擋儲存', () => {
         { mergedName: '國小數學-四', sources: ['國小數學-四A', '國小數學-四B'] },
       ],
       new Map([
-        ['國小數學-四A', { category: 'math', categorySource: 'auto', fixedFiveDays: false, fixedSource: 'auto' }],
-        ['國小數學-四B', { category: 'care', categorySource: 'manual', fixedFiveDays: true, fixedSource: 'manual' }],
+        ['國小數學-四A', { classType: 'non_care', category: 'math', categorySource: 'auto', fixedFiveDays: false }],
+        ['國小數學-四B', { classType: 'care', category: 'care', categorySource: 'manual', fixedFiveDays: true }],
       ])
     );
     expect(conflicts).toHaveLength(1);
@@ -142,7 +142,7 @@ describe('D2b 5（Q9）: 同名合併且設定不同時阻擋儲存', () => {
   });
 
   it('兩來源設定相同 → 不阻擋', () => {
-    const same = { category: 'math' as const, categorySource: 'auto' as const, fixedFiveDays: false, fixedSource: 'auto' as const };
+    const same = { classType: 'non_care' as const, category: 'math' as const, categorySource: 'auto' as const, fixedFiveDays: false };
     const conflicts = detectMergeConflicts(
       [{ mergedName: '國小數學-四', sources: ['國小數學-四A', '國小數學-四B'] }],
       new Map([
@@ -161,26 +161,26 @@ describe('D2b 1: draft ↔ 班級屬性清單轉換（單一來源）', () => {
       cls('自創班', { category: 'care', categorySource: 'manual' }),
     ]);
     expect(attrs.get('國小數學-四A')).toEqual({
+      classType: 'non_care',
       category: 'math',
       categorySource: 'auto',
       fixedFiveDays: false,
-      fixedSource: 'auto',
     });
     expect(attrs.get('自創班')).toEqual({
+      classType: 'non_care',
       category: 'care',
       categorySource: 'manual',
       fixedFiveDays: false,
-      fixedSource: 'auto',
     });
   });
 
   it('baseline 版本讀出的是「當時已儲存」的屬性，與 draft 逐欄可比較', () => {
     const base = attributesFromBaselineClasses([cls('國小數學-四A')]);
     expect(base.get('國小數學-四A')).toEqual({
+      classType: 'non_care',
       category: 'math',
       categorySource: 'auto',
       fixedFiveDays: false,
-      fixedSource: 'auto',
     });
   });
 });

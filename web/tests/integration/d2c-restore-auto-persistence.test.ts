@@ -33,7 +33,7 @@ describe('D2c 恢復自動的設定快照持久化', () => {
       runMigrations(db);
       const manual = buildSeedDraft();
       const cls = manual.classes.find((c) => c.baseName === '國小數學-四A')!;
-      Object.assign(cls, { category: 'none', categorySource: 'manual', fixedFiveDays: true, fixedSource: 'manual' });
+      Object.assign(cls, { category: 'none', categorySource: 'manual', fixedFiveDays: true });
       const save = (draft: SettingsDraft, revision: number) => {
         const preview = previewSettingsChange(db, null, { draft, expectedRevision: revision });
         return applySettingsPreview(db, {
@@ -49,14 +49,12 @@ describe('D2c 恢復自動的設定快照持久化', () => {
       delete target.category;
       delete target.categorySource;
       delete target.fixedFiveDays;
-      delete target.fixedSource;
       save(restored, first.revision);
       const latest = getLatestSettingsVersion(db)!;
       const persisted = readStoredDraft(latest.contentJson).classes.find((c) => c.baseName === cls.baseName)!;
       expect(persisted).not.toHaveProperty('category');
       expect(persisted).not.toHaveProperty('categorySource');
       expect(persisted).not.toHaveProperty('fixedFiveDays');
-      expect(persisted).not.toHaveProperty('fixedSource');
       const unchanged = db.prepare('SELECT content_json FROM settings_versions WHERE id = ?').get(old.id) as { content_json: string };
       expect(unchanged.content_json).toBe(old.contentJson);
     } finally {

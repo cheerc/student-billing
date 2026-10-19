@@ -7,7 +7,7 @@ import {
 } from '@/contracts/settings';
 
 describe('D2a: 班級設定草稿資料模型擴充與衝突判定 (Settings Contract)', () => {
-  it('ClassSettingSchema 支援 category, categorySource, fixedFiveDays, fixedSource 擴充欄位', () => {
+  it('ClassSettingSchema 支援 classType, category, categorySource, fixedFiveDays 擴充欄位（移除 fixedSource）', () => {
     const rawClass = {
       baseName: '兒童美語-初級',
       subject: '兒童美語',
@@ -16,17 +16,18 @@ describe('D2a: 班級設定草稿資料模型擴充與衝突判定 (Settings Con
       sessions: [
         { weekday: '一', startMinutes: 800, endMinutes: 900 },
       ],
+      classType: 'non_care',
       category: 'english',
       categorySource: 'manual',
       fixedFiveDays: false,
-      fixedSource: 'auto',
     };
 
     const parsed = ClassSettingSchema.parse(rawClass);
+    expect((parsed as any).classType).toBe('non_care');
     expect((parsed as any).category).toBe('english');
     expect((parsed as any).categorySource).toBe('manual');
     expect((parsed as any).fixedFiveDays).toBe(false);
-    expect((parsed as any).fixedSource).toBe('auto');
+    expect((parsed as any).fixedSource).toBeUndefined();
   });
 
   it('F-13: isSettingsDirty 支援班級層 category / fixedFiveDays 變更之 dirty 判定', () => {

@@ -639,7 +639,6 @@ describe('PR-1 §1 classSettings 接線（spike §B4：與 run 端類別解析�
       category: 'care',
       categorySource: 'manual',
       fixedFiveDays: false,
-      fixedSource: 'auto',
     };
     for (const key of ['國小數學-三A', '國小數學-三A[團]']) manual.set(key, override);
 

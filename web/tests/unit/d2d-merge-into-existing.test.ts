@@ -57,12 +57,12 @@ describe('D2d C: 併入既有班 Z 時以 Z 的現行設定為準（最小修）
       // Z 的既有 manual 設定（care + 固定 5 天）
       [
         '國小數學-四C',
-        { category: 'care' as const, categorySource: 'manual' as const, fixedFiveDays: true, fixedSource: 'manual' as const, skipDeduction: false, skipDeductionSource: 'auto' as const },
+        { classType: 'care' as const, category: 'care' as const, categorySource: 'manual' as const, fixedFiveDays: true },
       ],
       // X 的 manual 設定（不列入折扣、不固定）
       [
         '國小數學-四A',
-        { category: 'none' as const, categorySource: 'manual' as const, fixedFiveDays: false, fixedSource: 'manual' as const, skipDeduction: false, skipDeductionSource: 'auto' as const },
+        { classType: 'non_care' as const, category: 'none' as const, categorySource: 'manual' as const, fixedFiveDays: false },
       ],
     ]);
 
@@ -83,7 +83,7 @@ describe('D2d C: 併入既有班 Z 時以 Z 的現行設定為準（最小修）
     const attrs = new Map([
       [
         '國小數學-四A',
-        { category: 'none' as const, categorySource: 'manual' as const, fixedFiveDays: false, fixedSource: 'manual' as const, skipDeduction: false, skipDeductionSource: 'auto' as const },
+        { classType: 'non_care' as const, category: 'none' as const, categorySource: 'manual' as const, fixedFiveDays: false },
       ],
     ]);
 
@@ -103,15 +103,14 @@ describe('D2d C: 併入既有班 Z 時以 Z 的現行設定為準（最小修）
     const attrs = new Map([
       [
         '國小數學-四A',
-        { category: 'none' as const, categorySource: 'manual' as const, fixedFiveDays: true, fixedSource: 'manual' as const, skipDeduction: false, skipDeductionSource: 'auto' as const },
+        { classType: 'non_care' as const, category: 'none' as const, categorySource: 'manual' as const, fixedFiveDays: true },
       ],
     ]);
 
-    const out = carryAttributesOnRename([{ from: '國小數學-四A', to: '數學新班' }], new Map(), attrs);
+    const out = carryAttributesOnRename([{ from: '國小數學-四A', to: '數學新班' }], new Map(), attrs as any);
 
     expect(out.get('數學新班')?.category).toBe('none');
     expect(out.get('數學新班')?.categorySource).toBe('manual');
     expect(out.get('數學新班')?.fixedFiveDays).toBe(true);
-    expect(out.get('數學新班')?.fixedSource).toBe('manual');
   });
 });

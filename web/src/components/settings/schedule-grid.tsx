@@ -476,8 +476,7 @@ export function ScheduleGrid({
                 // #80：班級屬性（同一班的多列共用；變更時帶整個班名，由編輯器處理）
                 const attr = classAttributes?.get(className);
                 const categoryManual = attr?.categorySource === 'manual';
-                const fixedManual = attr?.fixedSource === 'manual';
-                const anyManual = categoryManual || fixedManual;
+                const anyManual = categoryManual;
                 const attrsDisabled = !classAttributes || !onSelectCategory || !onToggleFixedFiveDays;
 
                 return (

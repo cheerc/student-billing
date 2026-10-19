@@ -3,6 +3,20 @@ import seedData from '../domain/schedules/schedule-seed.json';
 import { deriveSubject } from '../domain/schedules/seed-manifest';
 import { FORMAL_RULE_SET_VERSION_LIST } from '@/domain/billing/rule-set';
 
+/**
+ * seed 內的 8 個預設安親課輔班（source=care_window）。
+ * 預設課程類型為 'care'，其餘 41 班預設為 'non_care'（specs/14 §3.9）。
+ */
+export const DEFAULT_CARE_CLASS_NAMES: ReadonlySet<string> = new Set(
+  (seedData.classes as Array<{ baseName: string; source?: string }>)
+    .filter((c) => c.source === 'care_window')
+    .map((c) => c.baseName)
+);
+
+/** 課程類型：安親課輔班（care）或非安親課輔班（non_care） */
+export const ClassTypeSchema = z.enum(['care', 'non_care']);
+export type ClassType = z.infer<typeof ClassTypeSchema>;
+
 /** 將 "HH:mm" 時間字串轉換為當日分鐘數 (0~1440) */
 export function timeStringToMinutes(timeStr: string | null | undefined): number | null {
   if (!timeStr) return null;
@@ -82,10 +96,10 @@ export const ClassSettingSchema = z.object({
   teacher: z.string().nullable().default(null),
   active: z.boolean().default(true),
   sessions: z.array(SessionSchema).default([]),
+  classType: ClassTypeSchema.optional(),
   category: z.enum(['care', 'math', 'english', 'none']).optional(),
   categorySource: z.enum(['auto', 'manual']).optional(),
   fixedFiveDays: z.boolean().optional(),
-  fixedSource: z.enum(['auto', 'manual']).optional(),
   /**
    * #113 follow-up：不計扣天已改為**逐時段**（`sessions[].skipDeduction`），不再是班級屬性。
    * 本欄保留為舊快照的相容讀取位（值一律視為無效，只被剝除、不被讀取），
@@ -215,23 +229,22 @@ function groupGridRowsToClasses<S>(
     const teacher = classRows[0]?.teacher ?? existing?.teacher ?? null;
     const active = classRows.some((r) => r.active);
 
-    // D2b 1／5（Q9）：類別與固定 5 天的**手動**設定隨班保留（整班改名時由呼叫端把來源改名後的
-    // existingClasses 傳入，這裡只負責帶欄位）。未手動（auto）的班不寫這些欄位：
-    // 缺欄位＝自動偵測（03 §5.2 版本界線規則第 2 點），因此改班名會即時重新偵測，
-    // 也讓舊快照（無新欄位）讀取時不必回寫即可得到正確的有效值。
-    // #113 follow-up：不計扣天已逐時段化，**不再**是班級屬性，因此不再隨班繼承；
-    // 舊快照的班級層旗標一律剝除（下方 spread 之後不含 skipDeduction）。
-    const attrs =
-      existing && (existing.categorySource === 'manual' || existing.fixedSource === 'manual')
-        ? {
-            ...(existing.categorySource === 'manual' && existing.category !== undefined
-              ? { category: existing.category, categorySource: existing.categorySource }
-              : {}),
-            ...(existing.fixedSource === 'manual'
-              ? { fixedFiveDays: existing.fixedFiveDays ?? false, fixedSource: existing.fixedSource }
-              : {}),
-          }
-        : {};
+    const isCare =
+      existing?.classType === 'care' ||
+      (existing?.classType === undefined &&
+        (DEFAULT_CARE_CLASS_NAMES.has(className) || existing?.fixedFiveDays === true));
+    const classType: ClassType = isCare ? 'care' : 'non_care';
+
+    // specs/14 §3.10：類別的手動設定隨班保留。未手動（auto）的班不寫這些欄位。
+    // 固定 5 天為純布林值（無 fixedSource），有設定值則隨班保留。
+    const attrs = {
+      ...(existing?.categorySource === 'manual' && existing?.category !== undefined
+        ? { category: existing.category, categorySource: existing.categorySource }
+        : {}),
+      ...(existing?.fixedFiveDays !== undefined
+        ? { fixedFiveDays: existing.fixedFiveDays }
+        : {}),
+    };
 
     classes.push({
       baseName: className,
@@ -239,6 +252,7 @@ function groupGridRowsToClasses<S>(
       teacher,
       active,
       sessions: toSessions(classRows),
+      classType,
       ...attrs,
     });
   }
@@ -340,14 +354,15 @@ export function detectSplitClasses(
   return warnings;
 }
 
-/** 班級層屬性（category／fixedFiveDays）。
- *  #113 follow-up：不計扣天已改為逐時段（`ScheduleGridRow.skipDeduction`），不再是班級屬性。 */
+/** 班級層屬性（classType／category／fixedFiveDays）。
+ *  #113 follow-up：不計扣天已改為逐時段（`ScheduleGridRow.skipDeduction`），不再是班級屬性。
+ *  specs/14 §3.10：固定 5 天為純布林值，不再有 fixedSource。新增 classType。 */
 export interface ClassAttributeSetting {
   className: string;
+  classType?: ClassType;
   category?: 'care' | 'math' | 'english' | 'none';
   categorySource?: 'auto' | 'manual';
   fixedFiveDays?: boolean;
-  fixedSource?: 'auto' | 'manual';
 }
 
 export interface SettingsBaseline {
@@ -405,10 +420,10 @@ export function isSettingsDirty(
       const ba = baseAttrMap.get(ca.className);
       if (!ba) return true;
       if (
+        ca.classType !== ba.classType ||
         ca.category !== ba.category ||
         ca.categorySource !== ba.categorySource ||
-        ca.fixedFiveDays !== ba.fixedFiveDays ||
-        ca.fixedSource !== ba.fixedSource
+        ca.fixedFiveDays !== ba.fixedFiveDays
       ) {
         return true;
       }

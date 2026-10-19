@@ -6,6 +6,7 @@ import { executeCalculationRun } from '@/application/calculate-run';
 import { applicableRateForClass, loadRunClassCategories } from '@/application/applicable-rate';
 import { saveCalculationRun } from '@/adapters/sqlite/runs-repository';
 import { buildSeedDraft, saveSettingsVersion } from '@/adapters/sqlite/settings-repository';
+import type { ClassSettingLookup } from '@/domain/classification/class-category';
 
 /**
  * D2a 移交項 N-6（PR #43 secondary review）：
@@ -93,9 +94,10 @@ describe('D2b N-6: run_class_categories 快照持久化與讀模型（完整生�
   }
 
   /** 走真實生產呼叫鏈：executeCalculationRun → saveCalculationRun。 */
-  function runV3(runId: string) {
+  function runV3(runId: string, classSettings?: Map<string, ClassSettingLookup>) {
     const res = executeCalculationRun(db, 'imp_test', runId, {
       ruleSetVersion: 'erp-tag-v3' as any,
+      classSettings,
     });
     saveCalculationRun(db, res.run, res.results, res.classCategories);
     return res;
@@ -145,7 +147,10 @@ describe('D2b N-6: run_class_categories 快照持久化與讀模型（完整生�
   });
 
   it('讀模型 (N-6): 不列入但固定 5 天的班級顯示 100%，且該斷言真的落在 fixed_five_days 分支（適用率給非 10000 值）', () => {
-    runV3('run_v3_rate');
+    const classSettings = new Map<string, ClassSettingLookup>([
+      ['國小輔導-寫功課', { category: 'none', fixedFiveDays: true }],
+    ]);
+    runV3('run_v3_rate', classSettings);
 
     // 適用率刻意使用 8888（非 10000）：若讀到 v2 名稱映射或 math/english 欄位，結果會是 8888 而非 10000，
     // 因此這個斷言能區分「真的命中 fixed_five_days 分支」與「誤命中別的分支」。
@@ -314,7 +319,6 @@ describe('D2b N-7: alias 解析與 manual 來源的快照回歸', () => {
       category: 'english',
       categorySource: 'manual',
       fixedFiveDays: false,
-      fixedSource: 'manual',
     } as any);
 
     const versionId = 'setv_manual_test';

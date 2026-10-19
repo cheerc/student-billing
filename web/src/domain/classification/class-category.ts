@@ -47,19 +47,19 @@ export interface ResolvedClassEnrollment {
   category: ClassCategory;
   categorySource: 'auto' | 'manual';
   fixedFiveDays: boolean;
-  fixedSource: 'auto' | 'manual';
 }
 
 export interface ClassSettingLookup {
+  classType?: 'care' | 'non_care';
   category?: ClassCategory;
   categorySource?: 'auto' | 'manual';
   fixedFiveDays?: boolean;
-  fixedSource?: 'auto' | 'manual';
 }
 
 /**
  * D2a: 解析學生報名班級的類別與固定 5 天屬性 (S manifest §4.2, §7, D37 3)。
  * 名冊班名有對應系統班級 -> 用該班級設定；無對應 -> 依米豆奶班名自動偵測。
+ * specs/14 §3.10：移除 fixedSource。
  */
 export function resolveClassEnrollment(
   token: { rawToken: string; baseName: string },
@@ -79,7 +79,6 @@ export function resolveClassEnrollment(
       category: cls.category ?? auto.category,
       categorySource: cls.categorySource ?? 'auto',
       fixedFiveDays: cls.fixedFiveDays ?? auto.fixedFiveDays,
-      fixedSource: cls.fixedSource ?? 'auto',
     };
   }
 
@@ -92,6 +91,5 @@ export function resolveClassEnrollment(
     category: auto.category,
     categorySource: 'auto',
     fixedFiveDays: auto.fixedFiveDays,
-    fixedSource: 'auto',
   };
 }

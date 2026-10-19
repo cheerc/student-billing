@@ -314,7 +314,7 @@ run 的設定快照＝`run.scheduleVersionId`：`seed-v250922`（該 run 沒有�
 - 禁止以字面 `=== 'erp-tag-v2'` 比較，新舊行為一律經由能力旗標分流。
 
 #### 5.3.2 班級設定草稿資料模型擴充
-- `ClassSettingSchema` 新增可選欄位：`category`（'care'|'math'|'english'|'none'）、`categorySource`（'auto'|'manual'）、`fixedFiveDays`（boolean）、`fixedSource`（'auto'|'manual'）。
+- `ClassSettingSchema` 支援班級屬性可選欄位：`classType`（'care'|'non_care'，specs/14 §3.1）、`category`（'care'|'math'|'english'|'none'）、`categorySource`（'auto'|'manual'）、`fixedFiveDays`（boolean，specs/14 §3.3 簡化為純布林，移除 fixedSource）。
 - 讀取已存舊設定 JSON 時維持 `readStoredDraft` 唯一入口不改形狀，舊快照無新欄位時在 v3 計算當下依班名自動偵測補齊，不回寫舊快照。
 - `isSettingsDirty` 支援 `baseline.classAttrs` 與 `currentAttrs` 之變更比對（F-13）。
 
@@ -344,7 +344,7 @@ run 的設定快照＝`run.scheduleVersionId`：`seed-v250922`（該 run 沒有�
 ### 5.4 班級類別設定 UI、升級確認與讀模型接線（D2b）
 
 #### 5.4.1 設定草稿的類別／固定 5 天欄位與來源
-- 每班兩項設定各自獨立：`category`（`care`／`math`／`english`／`none`）與 `fixedFiveDays`（布林），各帶 `categorySource`／`fixedSource`（`auto`／`manual`）（D37 1、Q7-A）。
+- 班級屬性包含課程類型 `classType`（`care`／`non_care`，specs/14 §3.1）、多科折扣類別 `category`（`care`／`math`／`english`／`none`，帶 `categorySource: 'auto' | 'manual'`），以及固定 5 天 `fixedFiveDays`（布林，specs/14 §3.3/§3.10 移除 auto 偵測與 fixedSource，純布林勾選框）。
 - **有效值＝已儲存欄位優先，缺值時依班名自動偵測**（`domain/classification/class-attributes` 的 `resolveClassAttributes`）。缺欄位＝未指定＝`auto`，因此：
   - 舊快照（無新欄位）讀取當下即得到正確的有效值，**不回寫**（03 §5.2 版本界線規則第 2 點）；
   - 改班名時未手動者即時重新偵測；手動者不變（D37 1a）。

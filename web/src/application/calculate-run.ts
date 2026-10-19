@@ -30,10 +30,10 @@ export function buildClassSettingMap(draft: SettingsDraft): Map<string, ClassSet
   const map = new Map<string, ClassSettingLookup>();
   for (const c of draft.classes) {
     map.set(c.baseName, {
+      classType: c.classType,
       category: c.category,
       categorySource: c.categorySource,
       fixedFiveDays: c.fixedFiveDays,
-      fixedSource: c.fixedSource,
     });
   }
   return map;
@@ -353,7 +353,7 @@ export function executeCalculationRun(
           category: resolved.category,
           fixedFiveDays: resolved.fixedFiveDays ? 1 : 0,
           mapped: resolved.mapped ? 1 : 0,
-          source: resolved.categorySource === 'manual' || resolved.fixedSource === 'manual' ? 'manual' : 'auto',
+          source: resolved.categorySource === 'manual' ? 'manual' : 'auto',
         });
       }
     }
