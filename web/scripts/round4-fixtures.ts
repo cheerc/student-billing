@@ -250,8 +250,8 @@ const CASES: Case[] = [
   },
   {
     code: 'R4_HOMEWORK',
-    tests: '寫功課＋一般輔導＋數學：v3 科數 2（不減 1）、基本 95%；固定 5 天 → 安親天數 5、安親課程率 100%、寫功課本班 100%；一年級課輔不適用',
-    acceptance: ['§6.3 寫功課', 'D37 第 2 點', 'D40 Q7'],
+    tests: '寫功課＋一般輔導＋數學：v3 科數 2（不減 1）、基本 95%；依 specs/14 §3.3 移除班名自動固定 5 天後預設為 false，無固定 5 天覆蓋，故安親收費率依 2 科（care + math）正常計算為 9500 bps；一年級課輔不適用',
+    acceptance: ['§6.3 寫功課', 'D37 第 2 點', 'D40 Q7', 'specs/14 §3.3'],
     rows: {
       baseline: { classes: [C, HW, M], grade: '一年級', tags: [] },
       variant: { classes: [C, HW, M], grade: '一年級', tags: [] },
@@ -262,11 +262,11 @@ const CASES: Case[] = [
         baseDiscountBps: 9500,
         anqinDays: 5,
         tutoringDays: null,
-        applicableAnqinBps: 10000,
-        applicableTutoringBps: 10000,
+        applicableAnqinBps: 9500,
+        applicableTutoringBps: 9500,
       },
     },
-    specRefs: ['specs/02 §9.4 固定 5 天：下限 5、安親／課輔適用率皆 100%', 'specs/02 R11／R12（年級 gate：小一只有安親）', 'specs/02 R03（v3 類別式，寫功課不計科數）'],
+    specRefs: ['specs/14 §3.3 固定 5 天預設恆為 false，移除班名自動偵測', 'specs/02 R11／R12（年級 gate：小一只有安親）', 'specs/02 R03（v3 類別式，寫功課不計科數）'],
   },
   {
     code: 'R4_UNMAPPED',
