@@ -6,7 +6,7 @@
  *  - 來源為 `manual` 時，改班名不再重新偵測；按「恢復自動」後才依**目前**班名重新偵測；
  *  - 手動值恰等於自動偵測值時仍為 `manual`（來源是使用者意圖，不因值相同而降回 auto）。
  *
- * 本模組是 domain 純函式，不依賴 DB／UI／規則版本；`detectClassCategory`／`detectFixedFiveDays`
+ * 本模組是 domain 純函式，不依賴 DB／UI／規則版本；`detectClassCategory`
  * 來自 D1 的 `class-category`，這裡只負責「已儲存值 + 班名 → 有效值」與班級生命週期的設定繼承規則。
  */
 

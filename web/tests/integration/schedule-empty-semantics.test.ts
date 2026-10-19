@@ -17,6 +17,7 @@ import {
 } from '@/adapters/sqlite/settings-repository';
 import { getCalculationRun } from '@/adapters/sqlite/runs-repository';
 import { buildSchedulePreview } from '@/application/schedule-preview';
+import { resolveFormalRuleSetVersion } from '@/application/rule-set-resolver';
 import {
   buildSeedGridRows,
   gridRowsToClasses,
@@ -83,6 +84,7 @@ describe('UX23：空時段與整班移除（09 §8.2.4 方案 A）——run 計�
 
   function runWith(draft: SettingsDraft) {
     return executeCalculationRun(db, importA, `run_b4_${Math.random().toString(36).slice(2)}`, {
+      ruleSetVersion: resolveFormalRuleSetVersion(db),
       aliasMap: draftToAliasMap(draft),
       scheduleOverride: draftToScheduleOverride(draft),
     });
@@ -129,7 +131,8 @@ describe('UX23：空時段與整班移除（09 §8.2.4 方案 A）——run 計�
     ).map((r) => r.person_code);
     expect(math1Students).toHaveLength(13);
 
-    baseline = daysOf(executeCalculationRun(db, importA, 'run_b4_baseline', {}).results);
+    const ruleSet = resolveFormalRuleSetVersion(db);
+    baseline = daysOf(executeCalculationRun(db, importA, 'run_b4_baseline', { ruleSetVersion: ruleSet }).results);
   });
 
   afterEach(() => {
@@ -208,7 +211,7 @@ describe('UX23：空時段與整班移除（09 §8.2.4 方案 A）——run 計�
   });
 
   it('尚無已儲存設定（未帶 scheduleOverride）：seed 課表路徑不變——國小數學-一 不在 seed，13 位解不到時段（SCHEDULE_NOT_FOUND 13）', () => {
-    const { run } = executeCalculationRun(db, importA, 'run_b4_seedpath', {});
+    const { run } = executeCalculationRun(db, importA, 'run_b4_seedpath', { ruleSetVersion: resolveFormalRuleSetVersion(db) });
     expect(run.issueCounts['SCHEDULE_NOT_FOUND']).toBe(13);
   });
 

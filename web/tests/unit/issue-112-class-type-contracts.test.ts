@@ -6,6 +6,7 @@ import {
   type ClassAttributesView,
   DEFAULT_CARE_CLASS_NAMES,
 } from '@/domain/classification/class-attributes';
+import { resolveClassEnrollment } from '@/domain/classification/class-category';
 import {
   ClassSettingSchema,
   isSettingsDirty,
@@ -134,6 +135,50 @@ describe('Issue #112 PR-1A: 課程類型 (classType) 資料模型與屬性重構
     it('手動指定 fixedFiveDays: true 原樣保留', () => {
       const attr = resolveClassAttributes('寫功課-一A', { fixedFiveDays: true });
       expect(attr.fixedFiveDays).toBe(true);
+    });
+
+    it('resolveClassEnrollment: 未設定或未勾選時，寫功課/美安/一般班級的 fixedFiveDays 恆為 false（消除雙軌分歧）', () => {
+      // 1. 無 classSettings（未對應或未指定）：寫功課、美安、一般班級皆為 false
+      const unmappedHw = resolveClassEnrollment({ rawToken: '寫功課', baseName: '寫功課' });
+      expect(unmappedHw.fixedFiveDays).toBe(false);
+      expect(unmappedHw.category).toBe('none');
+
+      const unmappedMeian = resolveClassEnrollment({ rawToken: '美安', baseName: '美安' });
+      expect(unmappedMeian.fixedFiveDays).toBe(false);
+
+      const unmappedCare = resolveClassEnrollment({ rawToken: '國小輔導-四年級', baseName: '國小輔導-四年級' });
+      expect(unmappedCare.fixedFiveDays).toBe(false);
+
+      // 2. 有 classSettings 但 cls.fixedFiveDays 未設定 (undefined) 或為 false
+      const classSettingMap = new Map([
+        ['國小輔導-寫功課', { category: 'none' as const }],
+        ['美安-三年級', { category: 'none' as const, fixedFiveDays: false }],
+        ['特設五天班', { fixedFiveDays: true }],
+      ]);
+
+      const mappedHw = resolveClassEnrollment(
+        { rawToken: '國小輔導-寫功課', baseName: '國小輔導-寫功課' },
+        undefined,
+        classSettingMap
+      );
+      expect(mappedHw.fixedFiveDays).toBe(false);
+
+      const mappedMeian = resolveClassEnrollment(
+        { rawToken: '美安-三年級', baseName: '美安-三年級' },
+        undefined,
+        classSettingMap
+      );
+      expect(mappedMeian.fixedFiveDays).toBe(false);
+
+      const mappedExplicit = resolveClassEnrollment(
+        { rawToken: '特設五天班', baseName: '特設五天班' },
+        undefined,
+        classSettingMap
+      );
+      expect(mappedExplicit.fixedFiveDays).toBe(true);
+
+      // 3. 雙軌一致性驗證：resolveClassEnrollment 與 resolveClassAttributes 針對寫功課的 fixedFiveDays 判定完全一致（皆為 false）
+      expect(mappedHw.fixedFiveDays).toBe(resolveClassAttributes('國小輔導-寫功課').fixedFiveDays);
     });
   });
 

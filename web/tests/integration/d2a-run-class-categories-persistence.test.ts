@@ -118,7 +118,7 @@ describe('D2b N-6: run_class_categories 快照持久化與讀模型（完整生�
     const hwRow = v3Rows.find((r) => r.base_name === '國小輔導-寫功課');
     expect(hwRow).toBeDefined();
     expect(hwRow.category).toBe('none');
-    expect(hwRow.fixed_five_days).toBe(1);
+    expect(hwRow.fixed_five_days).toBe(0);
     expect(hwRow.mapped).toBe(0);
     expect(hwRow.source).toBe('auto');
 

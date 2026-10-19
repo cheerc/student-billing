@@ -16,6 +16,7 @@ import {
   saveRun,
   saveSettings,
   saveSyntheticBatch,
+  setRunRuleSet,
   useGlobalTempDb,
 } from '../helpers/d1-test-kit';
 
@@ -127,6 +128,7 @@ describe('F-5：comparison 以 run 的設定快照重算', () => {
     const db = ctx.db();
     await saveFixtureBatch(db, 'imp_a');
     const run = activateBatch(db, 'imp_a', 'k-act');
+    setRunRuleSet(db, run.runId, 'erp-tag-v2');
     const res = await callComparison(run.runId);
     expect(res.status).toBe(200);
     const body = await res.json();

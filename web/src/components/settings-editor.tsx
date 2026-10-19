@@ -15,6 +15,7 @@ import {
   SettingsBaseline,
   isSettingsDirty,
   type ClassAttributeSetting,
+  type ClassType,
 } from '@/contracts/settings';
 import { DynamicCandidate, buildDynamicCandidates, type CandidateCounts } from '@/domain/schedules/seed-manifest';
 import { CalculatePreviewResponse } from '@/application/schedule-preview';
@@ -743,11 +744,12 @@ export default function SettingsEditor({
       const nextAttrs = new Map<string, ClassAttributesView>();
       for (const a of json?.classAttrs as Array<{
         className: string;
+        classType?: ClassType;
         category: ClassCategory;
         fixedFiveDays: boolean;
       }>) {
         nextAttrs.set(a.className, {
-          classType: resolveClassAttributes(a.className).classType,
+          classType: a.classType ?? resolveClassAttributes(a.className).classType,
           category: a.category,
           categorySource: 'manual',
           fixedFiveDays: a.fixedFiveDays,

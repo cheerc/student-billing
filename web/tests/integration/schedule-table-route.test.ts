@@ -74,7 +74,7 @@ const FIXTURE_ROWS: ScheduleGridRow[] = [
   },
 ];
 
-/** 手算的有效屬性：`detectFixedFiveDays` 只認「寫功課」與「美安」，兩班皆非 → 不固定。 */
+/** 手算的有效屬性：固定 5 天預設恆為 false，兩班皆非 → 不固定。 */
 const FIXTURE_ATTRS = [
   { className: '兒童美語-Gino', category: 'english' as const, fixedFiveDays: false },
   { className: '國小數學-一A', category: 'math' as const, fixedFiveDays: false },

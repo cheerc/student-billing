@@ -13,71 +13,68 @@ import { loadModule } from '../helpers/d1-test-kit';
  *   3. 否則，含「國小數學」→ 數學班。
  *   4. 否則，含「兒童美語」→ 美語班。
  *   5. 否則 → 不列入。
- *   固定 5 天旗標（Q7-A）：名稱含「寫功課」或「美安」，與類別獨立（美安沒有寫功課時類別仍依 2–5 判斷）。
+ *   specs/14 §3.3/§3.10：固定 5 天簡化為純布林值，移除依班名自動偵測，所有班級預設恆為 false。
  * 條列順序＝優先順序：一個名稱同時符合多個類別時，取條列在前者（安親課輔 > 數學 > 美語）。
  */
 
 interface Detection {
   detectClassCategory: (baseName: string) => 'care' | 'math' | 'english' | 'none';
-  detectFixedFiveDays: (baseName: string) => boolean;
-  detectClassAttributes: (baseName: string) => { category: 'care' | 'math' | 'english' | 'none'; fixedFiveDays: boolean };
+  detectClassAttributes: (baseName: string) => { category: 'care' | 'math' | 'english' | 'none' };
 }
 
 const MODULE = '@/domain/classification/class-category';
 
-type Row = [name: string, category: 'care' | 'math' | 'english' | 'none', fixedFiveDays: boolean, why: string];
+type Row = [name: string, category: 'care' | 'math' | 'english' | 'none', why: string];
 
 const TABLE: Row[] = [
   // 安親課輔班（規則 2）
-  ['國小輔導-四年級', 'care', false, '含「國小輔導」'],
-  ['國小輔導-一A', 'care', false, '含「國小輔導」'],
-  ['115國小輔導-四年級A', 'care', false, '含「國小輔導」（前綴年度不影響：包含式）'],
-  ['國小安親-一A', 'care', false, '含「安親」'],
-  ['國小課輔-三年級', 'care', false, '含「課輔」'],
-  ['週六課輔', 'care', false, '含「課輔」（程式內既有的週六課輔名稱）'],
-  ['安親班', 'care', false, 'Q2 包含式：含「安親」但不以「國小」開頭也算'],
+  ['國小輔導-四年級', 'care', '含「國小輔導」'],
+  ['國小輔導-一A', 'care', '含「國小輔導」'],
+  ['115國小輔導-四年級A', 'care', '含「國小輔導」（前綴年度不影響：包含式）'],
+  ['國小安親-一A', 'care', '含「安親」'],
+  ['國小課輔-三年級', 'care', '含「課輔」'],
+  ['週六課輔', 'care', '含「課輔」（程式內既有的週六課輔名稱）'],
+  ['安親班', 'care', 'Q2 包含式：含「安親」但不以「國小」開頭也算'],
   // 寫功課（規則 1）
-  ['國小輔導-寫功課', 'none', true, 'Q1：同時含「國小輔導」與「寫功課」→ 寫功課優先→不列入，固定 5 天'],
-  ['寫功課', 'none', true, '含「寫功課」'],
-  ['寫功課班-A', 'none', true, '含「寫功課」'],
-  ['國小數學-寫功課', 'none', true, '寫功課優先於數學'],
-  ['兒童美語-寫功課', 'none', true, '寫功課優先於美語'],
+  ['國小輔導-寫功課', 'none', 'Q1：同時含「國小輔導」與「寫功課」→ 寫功課優先→不列入'],
+  ['寫功課', 'none', '含「寫功課」'],
+  ['寫功課班-A', 'none', '含「寫功課」'],
+  ['國小數學-寫功課', 'none', '寫功課優先於數學'],
+  ['兒童美語-寫功課', 'none', '寫功課優先於美語'],
   // 美安（固定 5 天旗標與類別獨立）
-  ['美安', 'none', true, '只含「美安」：不屬三類、固定 5 天'],
-  ['國小輔導美安', 'care', true, '含「國小輔導」且含「美安」：類別仍是安親課輔（v2 M1 也算一科），固定 5 天'],
+  ['美安', 'none', '只含「美安」：不屬三類'],
+  ['國小輔導美安', 'care', '含「國小輔導」且含「美安」：類別仍是安親課輔（v2 M1 也算一科）'],
   // 數學班（規則 3）
-  ['國小數學-四A', 'math', false, '含「國小數學」'],
-  ['國小數學-一', 'math', false, '含「國小數學」'],
-  ['小六數學加強班', 'none', false, '不含「國小數學」（只有「數學」二字）→ 不列入'],
+  ['國小數學-四A', 'math', '含「國小數學」'],
+  ['國小數學-一', 'math', '含「國小數學」'],
+  ['小六數學加強班', 'none', '不含「國小數學」（只有「數學」二字）→ 不列入'],
   // 美語班（規則 4）
-  ['兒童美語-EA', 'english', false, '含「兒童美語」'],
-  ['美語等班', 'none', false, '不含「兒童美語」→ 不列入（deriveSubject 會把它判成兒童美語，偵測式不同）'],
+  ['兒童美語-EA', 'english', '含「兒童美語」'],
+  ['美語等班', 'none', '不含「兒童美語」→ 不列入（deriveSubject 會把它判成兒童美語，偵測式不同）'],
   // 不列入（規則 5）
-  ['交通車', 'none', false, '不屬任何類別'],
-  ['正音A班', 'none', false, '不屬任何類別'],
-  ['小六英文加強班', 'none', false, '不屬任何類別'],
-  ['', 'none', false, '空字串'],
+  ['交通車', 'none', '不屬任何類別'],
+  ['正音A班', 'none', '不屬任何類別'],
+  ['小六英文加強班', 'none', '不屬任何類別'],
+  ['', 'none', '空字串'],
   // 條列順序＝優先順序
-  ['國小輔導兒童美語', 'care', false, '安親課輔 > 美語'],
-  ['國小數學兒童美語', 'math', false, '數學 > 美語'],
-  ['國小輔導國小數學', 'care', false, '安親課輔 > 數學'],
+  ['國小輔導兒童美語', 'care', '安親課輔 > 美語'],
+  ['國小數學兒童美語', 'math', '數學 > 美語'],
+  ['國小輔導國小數學', 'care', '安親課輔 > 數學'],
 ];
 
 describe('類別自動偵測純函式（新模組 @/domain/classification/class-category）', () => {
-  it('模組存在，並匯出 detectClassCategory／detectFixedFiveDays／detectClassAttributes', async () => {
+  it('模組存在，並匯出 detectClassCategory／detectClassAttributes', async () => {
     const mod = await loadModule<Detection>(MODULE);
     expect(mod, `${MODULE} 需存在`).not.toBeNull();
     expect(typeof mod!.detectClassCategory).toBe('function');
-    expect(typeof mod!.detectFixedFiveDays).toBe('function');
     expect(typeof mod!.detectClassAttributes).toBe('function');
   });
 
-  it.each(TABLE)('「%s」→ 類別 %s、固定 5 天 %s（%s）', async (name, category, fixed) => {
+  it.each(TABLE)('「%s」→ 類別 %s（%s）', async (name, category) => {
     const mod = await loadModule<Detection>(MODULE);
     expect(mod, `${MODULE} 需存在`).not.toBeNull();
     expect(mod!.detectClassCategory(name)).toBe(category);
-    expect(mod!.detectFixedFiveDays(name)).toBe(fixed);
-    expect(mod!.detectClassAttributes(name)).toEqual({ category, fixedFiveDays: fixed });
+    expect(mod!.detectClassAttributes(name)).toEqual({ category });
   });
 
   it('純函式：同一輸入多次呼叫結果相同、不依賴呼叫順序', async () => {
@@ -86,7 +83,7 @@ describe('類別自動偵測純函式（新模組 @/domain/classification/class-
     const forward = TABLE.map(([n]) => mod!.detectClassAttributes(n));
     const backward = [...TABLE].reverse().map(([n]) => mod!.detectClassAttributes(n)).reverse();
     expect(backward).toEqual(forward);
-    expect(TABLE.map(([, c, f]) => ({ category: c, fixedFiveDays: f }))).toEqual(forward);
+    expect(TABLE.map(([, c]) => ({ category: c }))).toEqual(forward);
   });
 });
 

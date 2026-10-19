@@ -670,7 +670,10 @@ describe('PR-2 補齊：v3（類別式 R03）路徑的 reasons（PR65 secondary 
    * 這與 v1／v2（R09 含寫功課 k−1）相反，兩條路徑各自正確，必須分開驗。
    */
   it('v3：加寫功課不掛數學班（科數不變 → 不是決定者），只掛 care', () => {
-    const { beforeCtx, afterCtx } = contexts(undefined, 'erp-tag-v3');
+    const classSettings = new Map<string, ClassSettingLookup>([
+      ['國小輔導-寫功課', { category: 'none', fixedFiveDays: true }],
+    ]);
+    const { beforeCtx, afterCtx } = contexts(classSettings, 'erp-tag-v3');
     // before：輔導一A＋數學三A（科數 {care, math} = 2 → 9500）
     // after ：＋寫功課（v3 不計科數 → 仍 2 → 9500）；但寫功課使 hasHomeworkOrMeian=true
     //        → 課輔適用率回到 10000 → 輔導班 9500 → 10000（真變動）
