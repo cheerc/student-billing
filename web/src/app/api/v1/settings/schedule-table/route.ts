@@ -17,6 +17,7 @@ export const MAX_SCHEDULE_TABLE_BYTES = 1024 * 1024;
  */
 interface ExportClassAttr {
   className: string;
+  classType?: 'care' | 'non_care';
   category: 'care' | 'math' | 'english' | 'none';
   fixedFiveDays: boolean;
 }

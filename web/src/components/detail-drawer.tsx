@@ -249,7 +249,7 @@ function DrawerPanel({ student, onClose }: { student: StudentCalculationItem; on
                 </strong>
               </div>
               <div style={{ marginTop: '6px', borderTop: '1px dashed #cbd5e1', paddingTop: '6px' }}>
-                各課程適用率：
+                各課程學費折扣：
                 {/* issue #100：四個科目改用與學生總表相同的短標（無折扣／95折／9折），
                     不再顯示 bps 除以 100 的工程式百分比；null 一律「—」（見 formatApplicableRate）。 */}
                 <span style={{ marginLeft: '6px' }}>安親: {formatApplicableRate(student.applicableAnqinBps)}</span>

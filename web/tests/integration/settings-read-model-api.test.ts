@@ -10,7 +10,14 @@ import { activateImport } from '@/application/activate-import';
 import { previewSettingsChange } from '@/application/settings-preview';
 import { applySettingsPreview } from '@/application/apply-settings';
 import { buildSeedDraft, hashSettingsDraft } from '@/adapters/sqlite/settings-repository';
-import { SettingsDraft, ScheduleGridRow, classesToGridRows, gridRowsToClasses, gridRowsToCalculateClasses } from '@/contracts/settings';
+import {
+  SettingsDraft,
+  ScheduleGridRow,
+  classesToGridRows,
+  gridRowsToClasses,
+  gridRowsToCalculateClasses,
+  DEFAULT_CARE_CLASS_NAMES,
+} from '@/contracts/settings';
 import { CARE_WINDOWS } from '@/domain/schedules/overlap-calculator';
 import { POST as calculatePOST } from '@/app/api/v1/settings/calculate/route';
 import { GET as deductionsGET } from '@/app/api/v1/settings/deductions/route';
@@ -284,10 +291,14 @@ describe('POST /api/v1/settings/calculate（唯讀計算 read model）', () => {
     const res = await calculatePOST(calcReq({ draft: { ...seed, classes: gridRowsToCalculateClasses(rows) }, requestKey: 'grid-1' }));
     expect(res.status).toBe(200);
     const body = await res.json();
-    const gridIds = new Set(rows.map((r) => r.rowId));
+    // specs/14 §3.6：非安親課輔班保留 grid 的 rowId；安親課輔班之 sessions 為 []，回傳佔位列
+    const nonCareGridIds = new Set(
+      rows.filter((r) => !DEFAULT_CARE_CLASS_NAMES.has(r.className.trim())).map((r) => r.rowId)
+    );
     const returned = body.rows.map((r: any) => r.rowId);
     expect(new Set(returned).size).toBe(returned.length);
-    expect(new Set(returned)).toEqual(gridIds);
+    const returnedNonCareIds = new Set(returned.filter((id: string) => !id.includes('#placeholder')));
+    expect(returnedNonCareIds).toEqual(nonCareGridIds);
     expect(returned).toContain('new-row-1');
     const newRow = body.rows.find((r: any) => r.rowId === 'new-row-1');
     expect(newRow.classKey).toBe('新班');

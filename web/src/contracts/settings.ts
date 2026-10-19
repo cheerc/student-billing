@@ -251,7 +251,8 @@ function groupGridRowsToClasses<S>(
       subject,
       teacher,
       active,
-      sessions: toSessions(classRows),
+      // specs/14 §3.6 & A5：安親課輔班（classType === 'care'）sessions 一律輸出為 []
+      sessions: classType === 'care' ? [] : toSessions(classRows),
       classType,
       ...attrs,
     });

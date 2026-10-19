@@ -77,10 +77,10 @@ function sideCells(g: PreviewRowGroup): [React.ReactNode, React.ReactNode] {
   return [g.overlapMinutes ?? '—', formatDeduction(g.rawDeduction, 3)];
 }
 
-/** 班級狀態短標：無重疊／共用窗口／待補／需確認／已計算分開。 */
+/** 班級狀態短標：無重疊／安親課輔班（不計時段）／待補／需確認／已計算分開。 */
 function statusLabel(s: CareStatus): string {
   if (s === 'inactive') return '停用';
-  if (s === 'shared_window') return '共用窗口';
+  if (s === 'shared_window') return '安親課輔班（不計時段）';
   if (s === 'missing_time') return '待補';
   if (s === 'incomplete') return '待補';
   if (s === 'unknown_weekday') return '需確認';

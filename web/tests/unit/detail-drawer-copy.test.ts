@@ -186,4 +186,10 @@ describe('issue #100：學生明細各課程適用率與學生總表同格式', 
     expect(html).toContain('美語: 9折');
     expect(html).toContain('數學: 95折');
   });
+
+  it('specs/14 §0.4 & §5：使用者可見文案顯示「各課程學費折扣：」，不使用「各課程適用率：」', () => {
+    const html = render({ subjectCount: 2, baseDiscountBps: 9000 });
+    expect(html).toContain('各課程學費折扣：');
+    expect(html).not.toContain('各課程適用率：');
+  });
 });

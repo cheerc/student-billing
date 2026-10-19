@@ -10,6 +10,7 @@ import {
   classesToGridRows,
   gridRowsToClasses,
   gridRowsToCalculateClasses,
+  DEFAULT_CARE_CLASS_NAMES,
 } from '@/contracts/settings';
 import { buildSeedDraft, draftToScheduleOverride } from '@/adapters/sqlite/settings-repository';
 import { calculateStudentBilling } from '@/domain/billing/billing-calculator';
@@ -172,6 +173,30 @@ describe('UX07：週六／未知星期／缺起迄／共用窗口／停用', () 
     expect(r.anqin.overlapMinutes).toBeNull();
     expect(result.issues.filter((i) => i.classKey === '國小輔導-一A')).toEqual([]);
     expect(classOf('國小輔導-一A').anqin.status).toBe('shared_window');
+  });
+
+  it('specs/14 §3.7 & A5：任意自訂班名只要 classType === care，即給予 shared_window 專門狀態且不產生 SCHEDULE_EMPTY', () => {
+    const customCare = calcDraftOf([
+      calcCls('自訂安親班', [], { classType: 'care' }),
+      calcCls('一般自訂班', [], { classType: 'non_care' }),
+      calcCls('未指定類型自訂班', [], {}),
+    ]);
+    const r = buildSchedulePreview(customCare, 'erp-tag-v2');
+
+    // 自訂安親班：專門狀態 shared_window，無 issue
+    const careCls = r.classes.find((c) => c.classKey === '自訂安親班')!;
+    expect(careCls.anqin.status).toBe('shared_window');
+    expect(r.issues.filter((i) => i.classKey === '自訂安親班')).toEqual([]);
+
+    // 一般自訂班（non_care，空 sessions）：missing_time，有 SCHEDULE_EMPTY
+    const nonCareCls = r.classes.find((c) => c.classKey === '一般自訂班')!;
+    expect(nonCareCls.anqin.status).toBe('missing_time');
+    expect(r.issues.some((i) => i.classKey === '一般自訂班' && i.code === 'SCHEDULE_EMPTY')).toBe(true);
+
+    // 未指定類型且非 seed care 班：預設為 non_care，missing_time，有 SCHEDULE_EMPTY
+    const unspecCls = r.classes.find((c) => c.classKey === '未指定類型自訂班')!;
+    expect(unspecCls.anqin.status).toBe('missing_time');
+    expect(r.issues.some((i) => i.classKey === '未指定類型自訂班' && i.code === 'SCHEDULE_EMPTY')).toBe(true);
   });
 
   it('停用班：不計算（狀態 inactive，欄位 null），班級不扣天，不列缺時間問題', () => {
@@ -417,11 +442,13 @@ describe('B1：存檔等價 draft——去掉不完整列與 rowId，結果與�
     return rows;
   };
 
-  it('gridRowsToCalculateClasses 保留每一列（含不完整列）並帶 grid 的 rowId；完整列的值同 gridRowsToClasses', () => {
+  it('gridRowsToCalculateClasses 保留非安親課輔班每一列（含不完整列）並帶 grid 的 rowId；安親課輔班 sessions 為空（specs/14 §3.6）', () => {
     const rows = editedGrid();
     const calc = gridRowsToCalculateClasses(rows);
     const total = calc.reduce((n, c) => n + c.sessions.length, 0);
-    expect(total).toBe(rows.filter((r) => r.className.trim() !== '').length);
+    // specs/14 §3.6：安親課輔班 sessions 一律輸出為 []，非安親課輔班保留每一列
+    const nonCareRows = rows.filter((r) => r.className.trim() !== '' && !DEFAULT_CARE_CLASS_NAMES.has(r.className.trim()));
+    expect(total).toBe(nonCareRows.length);
     const ids = calc.flatMap((c) => c.sessions.map((x) => x.rowId));
     expect(new Set(ids).size).toBe(ids.length);
     expect(ids).toContain('new-row-1');

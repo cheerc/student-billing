@@ -76,8 +76,8 @@ const FIXTURE_ROWS: ScheduleGridRow[] = [
 
 /** 手算的有效屬性：固定 5 天預設恆為 false，兩班皆非 → 不固定。 */
 const FIXTURE_ATTRS = [
-  { className: '兒童美語-Gino', category: 'english' as const, fixedFiveDays: false },
-  { className: '國小數學-一A', category: 'math' as const, fixedFiveDays: false },
+  { className: '兒童美語-Gino', classType: 'non_care' as const, category: 'english' as const, fixedFiveDays: false },
+  { className: '國小數學-一A', classType: 'non_care' as const, category: 'math' as const, fixedFiveDays: false },
 ];
 
 /** 打 route：multipart 表單。`headers` 可覆寫以測各 guard。 */
@@ -331,7 +331,7 @@ describe('PR #85 G1：課表 Excel route POST handler 防護分支', () => {
         classAttrs: Array<Record<string, unknown>>;
       };
 
-      // 八欄內容相等（#113 多一欄「不計扣天」）：逐欄比對，而非只比長度
+      // 八欄平鋪時段列內容相等（#113 多一欄「不計扣天」）：逐欄比對，而非只比長度；classType 由 classAttrs 攜帶
       expect(body.rows).toHaveLength(3);
       expect(body.rows[0]).toMatchObject({
         className: '兒童美語-Gino',
@@ -357,8 +357,8 @@ describe('PR #85 G1：課表 Excel route POST handler 防護分支', () => {
       });
 
       expect(body.classAttrs).toEqual([
-        { className: '兒童美語-Gino', category: 'english', fixedFiveDays: false },
-        { className: '國小數學-一A', category: 'math', fixedFiveDays: false },
+        { className: '兒童美語-Gino', classType: 'non_care', category: 'english', fixedFiveDays: false },
+        { className: '國小數學-一A', classType: 'non_care', category: 'math', fixedFiveDays: false },
       ]);
     });
 
