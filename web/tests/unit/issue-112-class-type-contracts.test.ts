@@ -9,6 +9,7 @@ import {
 import { resolveClassEnrollment } from '@/domain/classification/class-category';
 import {
   ClassSettingSchema,
+  gridRowsToClasses,
   isSettingsDirty,
   type ScheduleGridRow,
 } from '@/contracts/settings';
@@ -135,6 +136,36 @@ describe('Issue #112 PR-1A: 課程類型 (classType) 資料模型與屬性重構
     it('手動指定 fixedFiveDays: true 原樣保留', () => {
       const attr = resolveClassAttributes('寫功課-一A', { fixedFiveDays: true });
       expect(attr.fixedFiveDays).toBe(true);
+    });
+
+    it('gridRowsToClasses: existing.fixedFiveDays === false 時，輸出班級物件明確帶有 fixedFiveDays: false 屬性', () => {
+      const rows: ScheduleGridRow[] = [
+        {
+          rowId: 'row-1',
+          className: '測試班',
+          teacher: null,
+          weekday: '一',
+          startTime: '16:30',
+          endTime: '18:00',
+          startMinutes: 990,
+          endMinutes: 1080,
+          active: true,
+          skipDeduction: false,
+        },
+      ];
+      const existingClasses = [
+        {
+          baseName: '測試班',
+          subject: '測試',
+          teacher: null,
+          active: true,
+          sessions: [],
+          fixedFiveDays: false,
+        },
+      ];
+      const result = gridRowsToClasses(rows, existingClasses as any);
+      expect('fixedFiveDays' in result[0]).toBe(true);
+      expect(result[0].fixedFiveDays).toBe(false);
     });
 
     it('resolveClassEnrollment: 未設定或未勾選時，寫功課/美安/一般班級的 fixedFiveDays 恆為 false（消除雙軌分歧）', () => {
