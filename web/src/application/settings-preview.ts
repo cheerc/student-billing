@@ -50,6 +50,18 @@ export interface CourseRateDelta {
   after: number | null;
 }
 
+const PREVIEW_RATE_COURSES: ReadonlyArray<{
+  key: CourseRateDelta['course'];
+  label: string;
+}> = [
+  { key: 'anqin', label: '安親' },
+  { key: 'tutoring', label: '課輔' },
+  { key: 'english', label: '美語' },
+  { key: 'math', label: '數學' },
+  { key: 'enrichment', label: '加強班' },
+  { key: 'chinese', label: '國語文' },
+];
+
 export interface SettingsPreviewResult {
   /**
    * 由 server 依 active_state 決定（09 §8.2.2／§8.2.3）：有現行名單 → with_students；
@@ -263,16 +275,7 @@ export function previewSettingsChange(
     }
 
     // #112 Ruling 2：第四類差異——課程學費折扣差異（比對各科目收取率）
-    const COURSES: Array<{ key: keyof typeof after.applicableRates; label: string }> = [
-      { key: 'anqin', label: '安親' },
-      { key: 'tutoring', label: '課輔' },
-      { key: 'english', label: '美語' },
-      { key: 'math', label: '數學' },
-      { key: 'enrichment', label: '加強班' },
-      { key: 'chinese', label: '國語文' },
-    ];
-
-    for (const { key, label } of COURSES) {
+    for (const { key, label } of PREVIEW_RATE_COURSES) {
       const bRate = before.applicableRates[key];
       const aRate = after.applicableRates[key];
       if (bRate !== aRate) {

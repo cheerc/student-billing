@@ -5,8 +5,10 @@ import type { StudentSnapshot } from '@/domain/students';
 import type { ClassSettingLookup } from '@/domain/classification/class-category';
 
 /**
- * A17 驗收自動化證據：v3 計算規則在 PR-2 前後逐位元保持不變。
- * 涵蓋固定 5 天強制 10000 bps、本班適用折扣 10000 bps、類別科數、衝堂最多扣除選班與額外扣天順序。
+ * A17 驗收自動化證據：v3 計算規則核心收費與天數不變式之自動化回歸防護。
+ * 鎖定 v3 關鍵語意：固定 5 天強制 10000 bps 覆寫、特殊折扣優先序、本班適用折扣 Q7-A 覆寫、
+ * 類別科數、衝堂最多扣除選班與額外扣天順序／年級下限保底（#147 / D51）。
+ * 防止引入 erp-tag-v4 或後續改動時意外破壞 v3 既有運作。
  */
 
 function makeStudent(params: {

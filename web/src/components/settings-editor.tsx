@@ -289,7 +289,6 @@ export default function SettingsEditor({
   const [appliedRuleSetVersion, setAppliedRuleSetVersion] = useState<string | null>(currentRuleSetVersion);
   const canUpgrade =
     appliedRuleSetVersion !== null &&
-    appliedRuleSetVersion !== 'erp-tag-v1' &&
     isFormalRuleSetVersion(appliedRuleSetVersion) &&
     appliedRuleSetVersion !== TARGET_FORMAL_RULE_SET_VERSION;
   const isUpgrading = canUpgrade && upgradeConfirmed;

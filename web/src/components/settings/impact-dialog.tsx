@@ -230,7 +230,7 @@ export function ImpactDialog({
               <div className="metric-card">
                 <span className="metric-label">受影響學生數</span>
                 <strong className="metric-value">{preview?.affectedStudents ?? 0} 人</strong>
-                <span className="metric-sub">天數、科數或折扣有變化（每人只計一次）</span>
+                <span className="metric-sub">天數、科數、合計折扣或課程學費折扣有變化（每人只計一次）</span>
               </div>
               <div className="metric-card">
                 <span className="metric-label">米豆奶入班天數比對</span>
