@@ -172,10 +172,10 @@ export async function buildScheduleWorkbook(
       c0: row.className,
       c1: isCare ? CLASS_TYPE_CARE_LABEL : CLASS_TYPE_NON_CARE_LABEL,
       c2: CATEGORY_LABELS[effectiveAttr.category ?? 'none'],
-      // specs/14 §3.6 & A11 匯出閘門防護：
-      // 1. 非安親課輔班不適用「天數固定5天」，強制匯出「否」，避免舊草稿殘留導致匯入時互斥拒絕。
-      // 2. 安親課輔班不輸入星期、上課時間，且不適用「不計扣天」，強制留空與「否」。
-      c3: isCare ? ((effectiveAttr.fixedFiveDays ?? false) ? FIXED_FIVE_YES : FIXED_FIVE_NO) : FIXED_FIVE_NO,
+      // specs/14 §3.6 & A11 匯出忠實輸出與欄位防護：
+      // 1. 依 D17 照實呈現：天數固定 5 天忠實輸出草稿實際保存的值，若 non_care 帶有 true，由匯入端嚴格把關互斥。
+      // 2. 安親課輔班時段在草稿層已被 A5 約束強制為空（sessions: []），故星期、時間留空，不計扣天填「否」，忠實反映草稿保存內容。
+      c3: (effectiveAttr.fixedFiveDays ?? false) ? FIXED_FIVE_YES : FIXED_FIVE_NO,
       c4: isCare ? FIXED_FIVE_NO : ((row.skipDeduction ?? false) ? SKIP_DEDUCTION_YES : FIXED_FIVE_NO),
       c5: row.teacher ?? '',
       c6: isCare ? '' : (row.weekday === '—' ? '' : row.weekday),
@@ -328,13 +328,21 @@ export async function parseScheduleWorkbook(input: Buffer | Uint8Array): Promise
     // 只有仍為整班共用的屬性（課程類型、折扣類別、固定 5 天）必須一致；不一致代表檔案本身矛盾，不靜默取其一。
     const existing = attrsByName.get(className);
     if (existing) {
-      if (
-        existing.classType !== classType ||
-        existing.category !== category ||
-        existing.fixedFiveDays !== fixedFiveDays
-      ) {
+      if (existing.classType !== classType) {
         throw new ScheduleTableImportError(
-          `班級「${className}」在不同列填了不同的課程類型、折扣類別或固定 5 天，請先讓它們一致再匯入。`,
+          `班級「${className}」在不同列填了不同的課程類型，請先讓它們一致再匯入。`,
+          location
+        );
+      }
+      if (existing.category !== category) {
+        throw new ScheduleTableImportError(
+          `班級「${className}」在不同列填了不同的折扣類別，請先讓它們一致再匯入。`,
+          location
+        );
+      }
+      if (existing.fixedFiveDays !== fixedFiveDays) {
+        throw new ScheduleTableImportError(
+          `班級「${className}」在不同列填了不同的固定 5 天設定，請先讓它們一致再匯入。`,
           location
         );
       }

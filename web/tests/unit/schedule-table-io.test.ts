@@ -200,7 +200,7 @@ describe('#81：課表 Excel 全量匯出／匯入', () => {
         ['甲班', '非安親課輔班', '數學班', '否', '是', '', '一', '10:00', '11:00'],
         ['甲班', '非安親課輔班', '美語班', '否', '否', '', '二', '10:00', '11:00'],
       ]);
-      await expect(parseScheduleWorkbook(buffer)).rejects.toThrow(/不同的課程類型、折扣類別或固定 5 天/);
+      await expect(parseScheduleWorkbook(buffer)).rejects.toThrow(/班級「甲班」在不同列填了不同的折扣類別，請先讓它們一致再匯入。/);
     });
 
     it('跨類型互斥驗證（specs/14 §3.6 & A11）：安親課輔班填寫了星期或時間 → 整批拒絕', async () => {
@@ -599,7 +599,7 @@ describe('#81：課表 Excel 全量匯出／匯入', () => {
         ['甲班', '非安親課輔班', '數學班', '否', '否', '', '一', '10:00', '11:00'],
         ['甲班', '非安親課輔班', '美語班', '否', '否', '', '二', '10:00', '11:00'],
       ]);
-      await expect(parseScheduleWorkbook(buffer)).rejects.toThrow(/不同的課程類型、折扣類別或固定 5 天/);
+      await expect(parseScheduleWorkbook(buffer)).rejects.toThrow(/班級「甲班」在不同列填了不同的折扣類別，請先讓它們一致再匯入。/);
     });
 
     it('只有表頭、沒有任何資料列 → 拒絕（避免把空課表當成合法匯入）', async () => {

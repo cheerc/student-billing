@@ -154,7 +154,6 @@ export function buildSeedGridRows(): ScheduleGridRow[] {
   let rowSeq = 1;
 
   for (const cls of seedData.classes) {
-    const isCareWindow = cls.source === 'care_window';
     for (const session of cls.sessions) {
       const hasStart = session.startMinutes !== null && session.startMinutes !== undefined;
       const hasEnd = session.endMinutes !== null && session.endMinutes !== undefined;
