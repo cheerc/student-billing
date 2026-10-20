@@ -94,12 +94,11 @@ test.describe('D2b：班級類別與固定 5 天設定 UI、升級確認', () =>
   });
 
   test('D2b-2: 自動偵測的類別與固定 5 天旗標逐班顯示，未手動者不顯示「自動設定」按鈕', async ({ page }) => {
-    // #80：獨立的屬性面板卡片已刪除，欄位併入時段表格；原本斷言「面板可見且含
-    // 『折扣類別與固定 5 天』」的命題已隨元件刪除失效，改驗新契約：欄位在表格內。
+    // #80 & specs/14：雙頁籤分離，非安親包含列入多科折扣，安親包含天數固定 5 天
     await expect(page.locator('[data-class-attributes-panel]')).toHaveCount(0);
-    const table = page.locator('table.schedule-table');
-    await expect(table).toContainText('列入多科折扣');
-    await expect(table).toContainText('天數固定 5 天');
+    const nonCareTable = page.locator('table.schedule-table-non-care');
+    await expect(nonCareTable).toContainText('列入多科折扣');
+    await expect(nonCareTable).not.toContainText('天數固定 5 天');
 
     // 國小數學-四A 自動偵測為數學班
     const row = classRow(page, '國小數學-四A');
@@ -108,11 +107,14 @@ test.describe('D2b：班級類別與固定 5 天設定 UI、升級確認', () =>
     // 未手動 → 沒有「自動設定」按鈕（#80 取代原本的「來源：自動」pill）
     await expect(row.locator('[data-restore-auto="國小數學-四A"]')).toHaveCount(0);
 
-    // 國小輔導-四年級 → 安親課輔班
+    // 切至安親頁籤：包含天數固定 5 天，國小輔導-四年級 → 安親課輔班
+    await page.locator('#class-type-tab-care').click();
+    const careTable = page.locator('table.schedule-table-care');
+    await expect(careTable).toContainText('天數固定 5 天');
     await expect(page.locator('[data-category-select="國小輔導-四年級"]').first()).toHaveValue('care');
 
-    // 固定 5 天：seed 中沒有寫功課班，改以「兒童美語-Gino」（自動偵測非固定）確認旗標未誤開
-    await expect(page.locator('[data-fixed-five-toggle="兒童美語-Gino"]').first()).not.toBeChecked();
+    // 固定 5 天：確認旗標未誤開（false）
+    await expect(page.locator('[data-fixed-five-toggle="國小輔導-四年級"]').first()).not.toBeChecked();
   });
 
   test('D2b-2: 手動選類別 → 來源變「手動」；恢復自動 → 回到自動偵測值', async ({ page }) => {
@@ -124,11 +126,13 @@ test.describe('D2b：班級類別與固定 5 天設定 UI、升級確認', () =>
     await expect(row.locator('[data-category-select="國小數學-四A"]').first()).toHaveValue('math');
   });
 
-  test('D2b-2: 固定 5 天可手動開啟並恢復自動', async ({ page }) => {
-    const row = classRow(page, '兒童美語-Gino');
-    await row.locator('[data-fixed-five-toggle="兒童美語-Gino"]').first().check();
-    await row.locator('[data-restore-auto="兒童美語-Gino"]').first().click();
-    await expect(row.locator('[data-fixed-five-toggle="兒童美語-Gino"]').first()).not.toBeChecked();
+  test('D2b-2: 固定 5 天可手動開啟與關閉（安親課輔班專屬）', async ({ page }) => {
+    await page.locator('#class-type-tab-care').click();
+    const row = classRow(page, '國小輔導-四年級');
+    await row.locator('[data-fixed-five-toggle="國小輔導-四年級"]').first().check();
+    await expect(row.locator('[data-fixed-five-toggle="國小輔導-四年級"]').first()).toBeChecked();
+    await row.locator('[data-fixed-five-toggle="國小輔導-四年級"]').first().uncheck();
+    await expect(row.locator('[data-fixed-five-toggle="國小輔導-四年級"]').first()).not.toBeChecked();
   });
 
   test('D2b-2: 手動後改班名不再重新偵測（未手動者會跟著新名重偵測）', async ({ page }) => {
@@ -184,9 +188,8 @@ test.describe('D2b：班級類別與固定 5 天設定 UI、升級確認', () =>
     });
 
     test('R2-1: 只有科數／折扣變化、天數不變時，受影響學生數仍正確（不得為 0）', async ({ page }) => {
-      // 「國小輔導-一A」在 seed 無時段 → 手動改類別是**純類別**變化：天數不變，只有科數與折扣變化。
-      // 這筆資料下「相加」與「聯集去重」同值（皆 21），因此本例是回歸保護：
-      // 確保這條路徑不會因只算天數而顯示 0。能區分兩種算法的斷言在下一個案例。
+      // 「國小輔導-一A」在 seed 無時段且為安親課輔班 → 切換至安親頁籤：手動改類別是純類別變化
+      await page.locator('#class-type-tab-care').click();
       await page.locator('[data-category-select="國小輔導-一A"]').first().selectOption('none');
       await expect(page.locator('.save-status-dirty')).toBeVisible();
 
