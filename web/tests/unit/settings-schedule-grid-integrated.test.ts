@@ -433,4 +433,41 @@ describe('specs/14：雙頁籤與切換課程類型操作（A1, A2, A4, A9, A10�
     expect(html).not.toContain('class="col-weekday"');
     expect(html).not.toContain('class="col-time"');
   });
+
+  it('a11y 契約：雙頁籤面板必須具有 role="tabpanel" 且與 tab 的 id/aria-controls 對應', () => {
+    const html = render();
+    expect(html).toContain('role="tabpanel"');
+    expect(html).toContain('id="class-type-panel-non_care"');
+    expect(html).toContain('aria-labelledby="class-type-tab-non_care"');
+  });
+
+  it('焦點班級定位 banner 契約：包含 data-focus-class 標記與「顯示全部班級」按鈕', () => {
+    const html = render({ focusClass: '兒童美語-Gino' });
+    expect(html).toContain('data-focus-class');
+    expect(html).toContain('顯示全部班級');
+  });
+
+  it('焦點班級為安親課輔班時，初始頁籤自動聚焦至 [安親課輔班]，避免誤判 missing', () => {
+    const careAttrs = new Map<string, ClassAttributesView>([
+      ['國小輔導-四年級', { classType: 'care', category: 'care', categorySource: 'auto', fixedFiveDays: false }],
+    ]);
+    const careRows: ScheduleGridRow[] = [
+      {
+        rowId: 'care-1',
+        className: '國小輔導-四年級',
+        teacher: '玟君',
+        weekday: '',
+        startTime: '',
+        endTime: '',
+        startMinutes: null,
+        endMinutes: null,
+        active: true,
+        skipDeduction: false,
+      },
+    ];
+    const html = render({ rows: careRows, classAttributes: careAttrs, focusClass: '國小輔導-四年級' });
+    expect(html).toContain('data-focus-class');
+    expect(html).not.toContain('data-focus-class-missing');
+    expect(html).toContain('id="class-type-panel-care"');
+  });
 });
