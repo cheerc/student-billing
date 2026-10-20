@@ -352,6 +352,7 @@ describe('#81：Excel 匯出／匯入工具列（單純一鍵）', () => {
       importError: '這個 Excel 的欄位標題不符合課表格式，缺少：結束時間。',
     });
     expect(html).toContain('role="alert"');
+    expect(html).toContain('alert-danger');
     expect(html).toContain('data-schedule-import-error');
     expect(html).toContain('沒有套用任何資料');
   });
