@@ -353,6 +353,101 @@ describe('#81：課表 Excel 全量匯出／匯入', () => {
       ]);
     });
 
+    it('真實種子課表 buildSeedGridRows 89 列以 resolveClassAttributes 匯出再匯入 100% 成功通過無互斥', async () => {
+      const seedRows = buildSeedGridRows();
+      const distinctClassNames = Array.from(new Set(seedRows.map((r) => r.className)));
+      const classAttrs = distinctClassNames.map((name) => {
+        const attr = resolveClassAttributes(name);
+        return {
+          className: name,
+          classType: attr.classType,
+          category: attr.category,
+          fixedFiveDays: attr.fixedFiveDays,
+        };
+      });
+
+      const buffer = await buildScheduleWorkbook(seedRows, classAttrs);
+      const result = await parseScheduleWorkbook(buffer);
+
+      expect(result.rows.length).toBe(seedRows.length);
+      const careRows = result.rows.filter((r) => r.classType === 'care');
+      expect(careRows.length).toBeGreaterThan(0);
+      for (const r of careRows) {
+        expect(r.weekday).toBe('');
+        expect(r.startTime).toBe('');
+        expect(r.endTime).toBe('');
+        expect(r.skipDeduction).toBe(false);
+      }
+    });
+
+    it('匯出端閘門淨化：若 non_care 帶有 fixedFiveDays: true，匯出時強制轉為「否」，避免匯入互斥', async () => {
+      const row: ScheduleGridRow = {
+        rowId: 'r1',
+        className: '國小數學-四A',
+        teacher: null,
+        weekday: '一',
+        startTime: '16:30',
+        endTime: '18:00',
+        startMinutes: 990,
+        endMinutes: 1080,
+        active: true,
+        skipDeduction: false,
+      };
+      const attrs: ScheduleExportClassAttr[] = [
+        { className: '國小數學-四A', classType: 'non_care', category: 'math', fixedFiveDays: true },
+      ];
+      const buffer = await buildScheduleWorkbook([row], attrs);
+      const result = await parseScheduleWorkbook(buffer);
+      expect(result.rows[0].fixedFiveDays).toBe(false);
+      expect(result.classAttrs[0].fixedFiveDays).toBe(false);
+    });
+
+    it('匯出端閘門淨化：若 care 班帶有 skipDeduction: true 或星期時間，匯出時強制留空與否，避免匯入互斥', async () => {
+      const row: ScheduleGridRow = {
+        rowId: 'r1',
+        className: '國小輔導-四年級',
+        teacher: '玟君',
+        weekday: '一',
+        startTime: '13:00',
+        endTime: '16:00',
+        startMinutes: 780,
+        endMinutes: 960,
+        active: true,
+        skipDeduction: true,
+      };
+      const attrs: ScheduleExportClassAttr[] = [
+        { className: '國小輔導-四年級', classType: 'care', category: 'care', fixedFiveDays: true },
+      ];
+      const buffer = await buildScheduleWorkbook([row], attrs);
+      const result = await parseScheduleWorkbook(buffer);
+      expect(result.rows[0].skipDeduction).toBe(false);
+      expect(result.rows[0].weekday).toBe('');
+      expect(result.rows[0].startTime).toBe('');
+      expect(result.rows[0].endTime).toBe('');
+    });
+
+    it('匯出端查表防護：班名含空白或 attrsByName 缺失時，fallback 至 resolveClassAttributes', async () => {
+      const row: ScheduleGridRow = {
+        rowId: 'r1',
+        className: '  國小輔導-四年級  ',
+        teacher: null,
+        weekday: '一',
+        startTime: '13:00',
+        endTime: '16:00',
+        startMinutes: 780,
+        endMinutes: 960,
+        active: true,
+        skipDeduction: false,
+      };
+      // 傳入空 classAttrs，迫使走 fallback
+      const buffer = await buildScheduleWorkbook([row], []);
+      const result = await parseScheduleWorkbook(buffer);
+      expect(result.rows[0].classType).toBe('care');
+      expect(result.rows[0].weekday).toBe('');
+      expect(result.rows[0].startTime).toBe('');
+      expect(result.rows[0].endTime).toBe('');
+    });
+
     it('星期可留空（#82 的佔位列）；非空時各種寫法都正規化成一到日', async () => {
       const buffer = await makeWorkbook([...SCHEDULE_TABLE_HEADERS], [
         ['空白班', '非安親課輔班', '不列入折扣', '否', '否', '', '', '', ''],
