@@ -158,7 +158,7 @@ export function buildSeedGridRows(): ScheduleGridRow[] {
     for (const session of cls.sessions) {
       const hasStart = session.startMinutes !== null && session.startMinutes !== undefined;
       const hasEnd = session.endMinutes !== null && session.endMinutes !== undefined;
-      const weekday = session.weekday ?? (isCareWindow ? '一~五' : '—');
+      const weekday = session.weekday ?? '';
       const startMin = hasStart ? session.startMinutes! : null;
       const endMin = hasEnd ? session.endMinutes! : null;
 

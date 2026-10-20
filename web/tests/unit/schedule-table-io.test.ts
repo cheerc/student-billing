@@ -128,10 +128,21 @@ describe('#81：課表 Excel 全量匯出／匯入', () => {
       expect(row4).toEqual(['國小數學-一A', '非安親課輔班', '數學班', '否', '否', '', '', '', '']);
     });
 
-    it('固定 5 天為 true 時匯出「是」', async () => {
-      const buffer = await buildScheduleWorkbook(FIXTURE_ROWS, [
-        { className: '兒童美語-Gino', classType: 'non_care', category: 'english', fixedFiveDays: true },
-        { className: '國小數學-一A', classType: 'non_care', category: 'math', fixedFiveDays: false },
+    it('固定 5 天為 true 時匯出「是」（安親課輔班適用）', async () => {
+      const careRow: ScheduleGridRow = {
+        rowId: 'row-care-1',
+        className: '國小輔導-四年級',
+        teacher: '玟君',
+        weekday: '',
+        startTime: '',
+        endTime: '',
+        startMinutes: null,
+        endMinutes: null,
+        active: true,
+        skipDeduction: false,
+      };
+      const buffer = await buildScheduleWorkbook([careRow], [
+        { className: '國小輔導-四年級', classType: 'care', category: 'care', fixedFiveDays: true },
       ]);
       const wb = new ExcelJS.Workbook();
       await wb.xlsx.load(buffer as unknown as ArrayBuffer);

@@ -12,7 +12,7 @@ import type { ScheduleGridRow } from '@/contracts/settings';
 export const MAX_SCHEDULE_TABLE_BYTES = 1024 * 1024;
 
 /**
- * 匯入端收的每班屬性形狀（只收 category 的合法字面值與 fixedFiveDays）。
+ * 匯出端傳入的每班屬性形狀（包含課程類型、折扣類別與固定 5 天）。
  * #113 follow-up：不計扣天已逐時段化，改由 `rows[]` 每一列自帶 `skipDeduction`，不是班級屬性。
  */
 interface ExportClassAttr {

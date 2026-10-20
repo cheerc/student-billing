@@ -15,7 +15,7 @@ import ExcelJS from 'exceljs';
 import type { ScheduleGridRow, ClassType } from '@/contracts/settings';
 import { timeStringToMinutes } from '@/contracts/settings';
 import type { ClassCategory } from '@/domain/classification/class-category';
-import { CATEGORY_LABELS } from '@/domain/classification/class-attributes';
+import { CATEGORY_LABELS, resolveClassAttributes } from '@/domain/classification/class-attributes';
 import { normalizeWeekday } from '@/domain/schedules/overlap-calculator';
 
 /** 匯出／匯入的完整表頭；順序即欄位順序，兩邊共用同一份（不各寫一份，避免漂移）。
@@ -150,7 +150,7 @@ export async function buildScheduleWorkbook(
   rows: ScheduleGridRow[],
   classAttrs: ScheduleExportClassAttr[]
 ): Promise<Buffer> {
-  const attrsByName = new Map(classAttrs.map((a) => [a.className, a]));
+  const attrsByName = new Map(classAttrs.map((a) => [a.className.trim(), a]));
 
   const workbook = new ExcelJS.Workbook();
   workbook.creator = '學生收費核對工具';
@@ -163,17 +163,24 @@ export async function buildScheduleWorkbook(
   }));
 
   for (const row of rows) {
-    const attr = attrsByName.get(row.className);
+    const trimmedClassName = row.className.trim();
+    const explicitAttr = attrsByName.get(trimmedClassName);
+    const effectiveAttr = explicitAttr ?? resolveClassAttributes(trimmedClassName);
+    const isCare = effectiveAttr.classType === 'care';
+
     sheet.addRow({
       c0: row.className,
-      c1: attr?.classType === 'care' ? CLASS_TYPE_CARE_LABEL : CLASS_TYPE_NON_CARE_LABEL,
-      c2: CATEGORY_LABELS[attr?.category ?? 'none'],
-      c3: (attr?.fixedFiveDays ?? false) ? FIXED_FIVE_YES : FIXED_FIVE_NO,
-      c4: (row.skipDeduction ?? false) ? SKIP_DEDUCTION_YES : FIXED_FIVE_NO,
+      c1: isCare ? CLASS_TYPE_CARE_LABEL : CLASS_TYPE_NON_CARE_LABEL,
+      c2: CATEGORY_LABELS[effectiveAttr.category ?? 'none'],
+      // specs/14 §3.6 & A11 匯出閘門防護：
+      // 1. 非安親課輔班不適用「天數固定5天」，強制匯出「否」，避免舊草稿殘留導致匯入時互斥拒絕。
+      // 2. 安親課輔班不輸入星期、上課時間，且不適用「不計扣天」，強制留空與「否」。
+      c3: isCare ? ((effectiveAttr.fixedFiveDays ?? false) ? FIXED_FIVE_YES : FIXED_FIVE_NO) : FIXED_FIVE_NO,
+      c4: isCare ? FIXED_FIVE_NO : ((row.skipDeduction ?? false) ? SKIP_DEDUCTION_YES : FIXED_FIVE_NO),
       c5: row.teacher ?? '',
-      c6: row.weekday,
-      c7: row.startTime,
-      c8: row.endTime,
+      c6: isCare ? '' : (row.weekday === '—' ? '' : row.weekday),
+      c7: isCare ? '' : row.startTime,
+      c8: isCare ? '' : row.endTime,
     });
   }
 
