@@ -28,7 +28,7 @@ import { brokenXlsx, missingHeadersXlsx, sideLink, xlsxUpload } from './helpers/
 const FIXTURE = path.resolve(__dirname, '../fixtures/conforming-erp-fixture.xlsx');
 
 /** scan() 呼叫次數（每個頁面狀態一次，標籤不得重複）。 */
-const EXPECTED_STATES = 42; // #81／#82（本 PR）：＋課表 Excel 匯入失敗、＋未設定時間說明
+const EXPECTED_STATES = 48; // #112 PR-1C：＋新增選安親、＋非安親轉安親確認、＋安親頁籤、＋安親轉非安親確認、＋焦點定位存在、＋焦點定位缺失
 
 /** 09 §7 文案表 ＋ 任務清單：日常介面不得出現。 */
 const FORBIDDEN: Array<{ term: string; re: RegExp }> = [
@@ -180,6 +180,41 @@ test.describe('R5 文案全頁掃描（09 §7）', () => {
     await scan(page, '課表設定｜確認變更視窗（只有課表）', violations);
     await page.keyboard.press('Escape');
     await cancelEdits();
+
+    // specs/14 1C（新增畫面狀態）：新增班級選安親、切換類型確認視窗、安親頁籤、焦點定位
+    await page.getByRole('button', { name: /＋ 新增班級|＋ 新增時段/ }).click();
+    await page.locator('select[aria-label="新增班級課程類型"]').selectOption('care');
+    await scan(page, '課表設定｜新增班級表單（選安親課輔班）', violations);
+    await page.getByRole('button', { name: '取消新增' }).click();
+
+    const ginoRow = page.locator('table.schedule-table-non-care tr.schedule-row', {
+      has: page.locator('input[value="兒童美語-Gino"]'),
+    }).first();
+    await ginoRow.locator('button[data-switch-to-care="兒童美語-Gino"]').click();
+    await expect(page.locator('dialog.switch-class-type-dialog')).toBeVisible({ timeout: 10000 });
+    await scan(page, '課表設定｜切換課程類型確認（非安親轉安親）', violations);
+    await page.locator('dialog.switch-class-type-dialog button', { hasText: '取消' }).click();
+
+    await page.locator('#class-type-tab-care').click();
+    await scan(page, '課表設定｜安親課輔班頁籤', violations);
+
+    const careRow = page.locator('table.schedule-table-care tr.schedule-row', {
+      has: page.locator('input[value="國小輔導-四年級"]'),
+    });
+    await careRow.locator('[data-fixed-five-toggle="國小輔導-四年級"]').check();
+    await careRow.locator('button[data-switch-to-non-care="國小輔導-四年級"]').click();
+    await expect(page.locator('dialog.switch-class-type-dialog')).toBeVisible({ timeout: 10000 });
+    await scan(page, '課表設定｜切換課程類型確認（安親轉非安親）', violations);
+    await page.locator('dialog.switch-class-type-dialog button', { hasText: '取消' }).click();
+    await cancelEdits();
+
+    await page.goto(`/settings?tab=schedule&class=${encodeURIComponent('兒童美語-Gino')}`);
+    await expect(page.locator('[data-focus-class]')).toBeVisible({ timeout: 10000 });
+    await scan(page, '課表設定｜焦點班級定位（存在班級）', violations);
+
+    await page.goto(`/settings?tab=schedule&class=${encodeURIComponent('不存在的班級')}`);
+    await expect(page.locator('[data-focus-class-missing]')).toBeVisible({ timeout: 10000 });
+    await scan(page, '課表設定｜焦點班級定位（班級不存在）', violations);
 
     await page.goto('/imports');
     await scan(page, '匯入學生｜選擇檔案', violations);

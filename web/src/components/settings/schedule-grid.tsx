@@ -1,11 +1,12 @@
 'use client';
 
-import React, { useState, useMemo, useRef } from 'react';
-import { ScheduleGridRow } from '@/contracts/settings';
+import React, { useState, useMemo, useRef, useCallback } from 'react';
+import { ScheduleGridRow, type ClassType, DEFAULT_CARE_CLASS_NAMES } from '@/contracts/settings';
 import { CalculatePreviewResponse } from '@/application/schedule-preview';
 import { InfoTip } from '@/components/ui/info-tip';
 import { CATEGORY_LABELS, type ClassAttributesView } from '@/domain/classification/class-attributes';
 import type { ClassCategory } from '@/domain/classification/class-category';
+import { TabList } from '@/components/ui/tabs';
 
 /** 折扣類別下拉選單的固定順序（與自動偵測的優先順序無關，這是使用者的選擇順序）。 */
 const CATEGORY_ORDER: ClassCategory[] = ['care', 'math', 'english', 'none'];
@@ -26,7 +27,8 @@ interface ScheduleGridProps {
   rows: ScheduleGridRow[];
   onUpdateRow: (rowId: string, updates: Partial<ScheduleGridRow>) => void;
   onDeleteRow: (rowId: string) => void;
-  onAddRow: (row: Omit<ScheduleGridRow, 'rowId'>) => void;
+  onAddRow: (row: Omit<ScheduleGridRow, 'rowId'>, classType?: ClassType) => void;
+  onSwitchClassType?: (className: string, targetType: ClassType) => void;
   calculating: boolean;
   calculateResult: CalculatePreviewResponse | null;
   /**
@@ -41,6 +43,8 @@ interface ScheduleGridProps {
    * 以進入時該班的列 id 記住，編輯中改班名或新增該班時段都不會讓列消失。
    */
   focusClass?: string | null;
+  /** 初始課程類型頁籤（預設 non_care） */
+  initialClassTypeTab?: ClassType;
   /**
    * #80：班級的折扣類別與「天數固定 5 天」併入同一張表格後，編輯器把**有效值**與變更處理器交進來。
    * 未提供（單獨使用本元件的測試）時這兩欄仍渲染，只是不可操作。
@@ -112,11 +116,13 @@ export function ScheduleGrid({
   onUpdateRow,
   onDeleteRow,
   onAddRow,
+  onSwitchClassType,
   calculating,
   calculateResult,
   calculateInputRows,
   calculateError = null,
   focusClass = null,
+  initialClassTypeTab = 'non_care',
   classAttributes,
   onSelectCategory,
   onToggleFixedFiveDays,
@@ -136,7 +142,40 @@ export function ScheduleGrid({
   const [showAddForm, setShowAddForm] = useState(false);
   const importInputRef = useRef<HTMLInputElement | null>(null);
 
-  // 新增時段表單狀態（#82：只有班名必填，其餘預設皆空）
+  // 切換課程類型確認對話框狀態（specs/14 §3.8）
+  interface SwitchConfirmTarget {
+    className: string;
+    targetType: ClassType;
+    hasSessions: boolean;
+    fixedChecked: boolean;
+  }
+  const [switchConfirmTarget, setSwitchConfirmTarget] = useState<SwitchConfirmTarget | null>(null);
+  const switchDialogRef = useRef<HTMLDialogElement | null>(null);
+  const switchTriggerRef = useRef<HTMLElement | null>(null);
+
+  const getClassType = useCallback(
+    (className: string): ClassType => {
+      const clean = className.trim();
+      const attr = classAttributes?.get(clean);
+      if (attr?.classType) return attr.classType;
+      return DEFAULT_CARE_CLASS_NAMES.has(clean) ? 'care' : 'non_care';
+    },
+    [classAttributes]
+  );
+
+  // specs/14 §3.6：課表設定頁以分頁籤呈現：[非安親課輔班]（預設開啟）、[安親課輔班]（第二順位）
+  // 若帶有 ?class=X 且 X 為安親課輔班，自動切換至 [安親課輔班] 避免誤判 missing
+  const initialTab = useMemo<ClassType>(() => {
+    if (focusClass) {
+      return getClassType(focusClass);
+    }
+    return initialClassTypeTab;
+  }, [focusClass, getClassType, initialClassTypeTab]);
+
+  const [activeTypeTab, setActiveTypeTab] = useState<ClassType>(initialTab);
+
+  // 新增班級表單狀態（#82：只有班名必填，其餘預設皆空；specs/14 A1：支援課程類型）
+  const [newClassType, setNewClassType] = useState<ClassType>('non_care');
   const [newClassName, setNewClassName] = useState('');
   const [newTeacher, setNewTeacher] = useState('');
   const [newWeekday, setNewWeekday] = useState('');
@@ -198,21 +237,85 @@ export function ScheduleGrid({
     });
   }, [rows, search, weekdayFilter, focusActive, focus, focusRowIds]);
 
+  // 統計班級與時段數量（依課程類型頁籤統計）
+  const nonCareClassesCount = useMemo(() => {
+    return new Set(
+      rows
+        .filter((r) => getClassType(r.className) === 'non_care')
+        .map((r) => r.className.trim())
+        .filter(Boolean)
+    ).size;
+  }, [rows, getClassType]);
+
+  const careClassesCount = useMemo(() => {
+    return new Set(
+      rows
+        .filter((r) => getClassType(r.className) === 'care')
+        .map((r) => r.className.trim())
+        .filter(Boolean)
+    ).size;
+  }, [rows, getClassType]);
+
+  // 非安親課輔班時段列
+  const displayedNonCareRows = useMemo(() => {
+    return filteredRows.filter((r) => getClassType(r.className) === 'non_care');
+  }, [filteredRows, getClassType]);
+
+  // 安親課輔班：每班一列
+  const displayedCareRows = useMemo(() => {
+    const careRows = filteredRows.filter((r) => getClassType(r.className) === 'care');
+    const seen = new Set<string>();
+    const list: ScheduleGridRow[] = [];
+    for (const r of careRows) {
+      const name = r.className.trim();
+      if (!seen.has(name)) {
+        seen.add(name);
+        list.push(r);
+      }
+    }
+    return list;
+  }, [filteredRows, getClassType]);
+
+  const currentTabRowCount = activeTypeTab === 'non_care' ? displayedNonCareRows.length : displayedCareRows.length;
+  const currentTabClassCount = activeTypeTab === 'non_care' ? nonCareClassesCount : careClassesCount;
+
+  const openSwitchConfirm = (className: string, targetType: ClassType, e?: React.MouseEvent) => {
+    if (e?.currentTarget) {
+      switchTriggerRef.current = e.currentTarget as HTMLElement;
+    }
+    const clean = className.trim();
+    const hasSessions = rows.some(
+      (r) =>
+        r.className.trim() === clean &&
+        (r.weekday.trim() !== '' || r.startTime.trim() !== '' || r.endTime.trim() !== '' || r.startMinutes !== null)
+    );
+    const fixedChecked = Boolean(classAttributes?.get(clean)?.fixedFiveDays);
+    setSwitchConfirmTarget({ className: clean, targetType, hasSessions, fixedChecked });
+  };
+
+  const handleConfirmSwitchType = () => {
+    if (!switchConfirmTarget) return;
+    const { className, targetType } = switchConfirmTarget;
+    onSwitchClassType?.(className, targetType);
+    setActiveTypeTab(targetType);
+    setSwitchConfirmTarget(null);
+    const targetTabId = `class-type-tab-${targetType}`;
+    setTimeout(() => {
+      const tabBtn = document.getElementById(targetTabId);
+      tabBtn?.focus();
+    }, 50);
+  };
+
   const clearFocus = () => {
     setFocus(null);
     try {
       const url = new URL(window.location.href);
       url.searchParams.delete('class');
-      window.history.replaceState(window.history.state, '', url.toString());
+      window.history.replaceState({}, '', url.toString());
     } catch {
-      /* 網址同步失敗不影響畫面 */
+      // 容錯
     }
   };
-
-  // 統計班級與時段數量
-  const uniqueClassesCount = useMemo(() => {
-    return new Set(filteredRows.map((r) => r.className.trim()).filter(Boolean)).size;
-  }, [filteredRows]);
 
   const handleCreateSession = (e: React.FormEvent) => {
     e.preventDefault();
@@ -220,19 +323,23 @@ export function ScheduleGrid({
     // #82：只有班名必填，其餘可留空（佔位列）
     if (!name) return;
 
-    onAddRow({
-      className: name,
-      teacher: newTeacher.trim() || null,
-      weekday: newWeekday,
-      startTime: newStartTime,
-      endTime: newEndTime,
-      startMinutes: null,
-      endMinutes: null,
-      active: true,
-      // #113 follow-up：新增的時段預設不計扣天＝關（未勾選）。
-      skipDeduction: false,
-    });
+    onAddRow(
+      {
+        className: name,
+        teacher: newTeacher.trim() || null,
+        weekday: newClassType === 'care' ? '' : newWeekday,
+        startTime: newClassType === 'care' ? '' : newStartTime,
+        endTime: newClassType === 'care' ? '' : newEndTime,
+        startMinutes: null,
+        endMinutes: null,
+        active: true,
+        // #113 follow-up：新增的時段預設不計扣天＝關（未勾選）。
+        skipDeduction: false,
+      },
+      newClassType
+    );
 
+    setActiveTypeTab(newClassType);
     setNewClassName('');
     setNewTeacher('');
     setNewWeekday('');
@@ -241,30 +348,48 @@ export function ScheduleGrid({
     setShowAddForm(false);
   };
 
-  /** 匯入：使用者選檔後把 File 交給編輯器（解析／驗證在 server 端，見 schedule-table route）。 */
-  const handleImportFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    // 重設 value，讓「同一個檔再選一次」也會觸發 change
-    e.target.value = '';
-    if (file && onImportExcel) onImportExcel(file);
+    if (file && onImportExcel) {
+      onImportExcel(file);
+    }
+    // 重設 input value，讓同檔名也能再次觸發 onChange
+    if (e.target) {
+      e.target.value = '';
+    }
   };
 
   return (
     <div className="card schedule-grid-container">
+      {/* specs/14 §3.6：課表設定頁以分頁籤呈現 */}
+      <div className="schedule-type-tabs" style={{ marginBottom: '16px' }}>
+        <TabList
+          label="課程類型頁籤"
+          idPrefix="class-type"
+          tabs={[
+            { key: 'non_care', label: `非安親課輔班 (${nonCareClassesCount})` },
+            { key: 'care', label: `安親課輔班 (${careClassesCount})` },
+          ]}
+          selected={activeTypeTab}
+          onSelect={(key) => setActiveTypeTab(key as ClassType)}
+        />
+      </div>
+
       {/* 搜尋與篩選工具列 */}
       <div className="toolbar">
         <input
           type="text"
           className="search"
           placeholder="搜尋班級名稱..."
+          aria-label="搜尋課表班級"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          aria-label="搜尋課表班級"
         />
+
         <select
+          aria-label="課表星期篩選"
           value={weekdayFilter}
           onChange={(e) => setWeekdayFilter(e.target.value)}
-          aria-label="課表星期篩選"
         >
           <option value="">全部星期</option>
           {WEEKDAY_OPTIONS.filter((o) => o.value !== '').map((o) => (
@@ -275,24 +400,22 @@ export function ScheduleGrid({
         </select>
 
         <span className="note count-summary">
-          {uniqueClassesCount} 個班級 · {filteredRows.length} 個時段
+          {currentTabClassCount} 個班級 · {currentTabRowCount} 個時段
           {calculating && <span className="calculating-indicator"> · 計算中...</span>}
         </span>
 
-        {/* #81：單純一鍵的 Excel 全量匯出／匯入（不提供欄位挑選） */}
-        {onExportExcel && (
-          <button
-            type="button"
-            className="btn-secondary"
-            onClick={onExportExcel}
-            disabled={transferBusy}
-            data-schedule-export=""
-          >
-            匯出 Excel
-          </button>
-        )}
-        {onImportExcel && (
-          <>
+        {/* #81：Excel 匯出／匯入按鈕（單純一鍵，無欄位挑選對話框） */}
+        {onExportExcel && onImportExcel && (
+          <div className="transfer-actions">
+            <button
+              type="button"
+              className="btn-secondary"
+              onClick={onExportExcel}
+              disabled={transferBusy}
+              data-schedule-export=""
+            >
+              {transferBusy ? '處理中...' : '匯出 Excel'}
+            </button>
             <button
               type="button"
               className="btn-secondary"
@@ -302,44 +425,51 @@ export function ScheduleGrid({
             >
               匯入 Excel
             </button>
-            {/* 原生檔案選取：以 display:none 完全移出可及性樹——它只是［匯入 Excel］按鈕
-                的實作細節，真正的可及控制項是那顆按鈕（鍵盤可達、尺寸達標）。
-                先前用 .visually-hidden-input 會被 a11y 稽核判成 1×1px 的目標過小。 */}
+            {/* 隱藏的檔案選擇器（接受 .xlsx）；使用者點擊「匯入 Excel」按鈕即開啟系統原生檔案對話框 */}
             <input
               ref={importInputRef}
               type="file"
-              accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+              accept=".xlsx"
               style={{ display: 'none' }}
-              tabIndex={-1}
-              aria-hidden="true"
-              onChange={handleImportFile}
+              aria-label="選擇課表 Excel 檔案"
+              onChange={handleFileChange}
             />
-          </>
+          </div>
         )}
 
         <button
           type="button"
           className="btn-primary end"
-          onClick={() => setShowAddForm((prev) => !prev)}
+          onClick={() => {
+            setShowAddForm((prev) => {
+              if (!prev) setNewClassType(activeTypeTab);
+              return !prev;
+            });
+          }}
         >
-          {showAddForm ? '取消新增' : '＋ 新增時段'}
+          {showAddForm ? '取消新增' : '＋ 新增班級'}
         </button>
       </div>
 
-      {/* #81：匯入失敗＝整批拒絕、未套用任何資料（不是部分套用的中間狀態） */}
+      {/* Excel 匯入錯誤橫幅（整批拒絕時顯示，角色為 alert） */}
       {importError && (
         <div className="alert alert-danger" role="alert" data-schedule-import-error="">
-          {importError} 這次匯入沒有套用任何資料，原本的課表維持不變。
+          <strong>課表匯入失敗（沒有套用任何資料）：</strong>
+          {importError}
         </div>
       )}
 
-      {/* 由班級扣天帶入的班級：只列該班全部時段，可回到全部班級（09 §2；F04） */}
+      {/* 定位模式提示橫幅（F04） */}
       {focusActive && (
         <div className="notice-inline" role="status" data-focus-class="">
           只顯示班級「{focus}」的全部時段（{filteredRows.length} 個時段）
-          <button type="button" className="link-button" onClick={clearFocus}>顯示全部班級</button>
+          <button type="button" className="link-button" onClick={clearFocus}>
+            顯示全部班級
+          </button>
         </div>
       )}
+
+      {/* 定位班級找不到時（例如剛剛在別處改名），明說並退回全部班級 */}
       {focusMissing && (
         <div className="notice-warn" role="status" data-focus-class-missing="">
           課表中找不到班級「{focus}」，可能已改名或停用；先顯示全部班級。
@@ -362,16 +492,27 @@ export function ScheduleGrid({
         </div>
       )}
 
-      {/* 新增時段內嵌表單（#82：只有「班級名稱 *」標示為必填） */}
+      {/* 新增班級內嵌表單（specs/14 A1：支援課程類型選擇） */}
       {showAddForm && (
-        <form onSubmit={handleCreateSession} className="add-session-panel" aria-label="新增時段表單">
+        <form onSubmit={handleCreateSession} className="add-session-panel" aria-label="新增班級表單">
           <div className="form-row">
+            <label>
+              <span>課程類型 *</span>
+              <select
+                value={newClassType}
+                onChange={(e) => setNewClassType(e.target.value as ClassType)}
+                aria-label="新增班級課程類型"
+              >
+                <option value="non_care">非安親課輔班</option>
+                <option value="care">安親課輔班</option>
+              </select>
+            </label>
             <label>
               <span>班級名稱 *</span>
               <input
                 type="text"
                 required
-                placeholder="例如：國小數學-一A"
+                placeholder={newClassType === 'care' ? "例如：國小輔導-七年級" : "例如：國小數學-一A"}
                 value={newClassName}
                 onChange={(e) => setNewClassName(e.target.value)}
               />
@@ -380,330 +521,514 @@ export function ScheduleGrid({
               <span>帶班老師</span>
               <input
                 type="text"
-                placeholder="老師姓名（可留空）"
+                placeholder="選填"
                 value={newTeacher}
                 onChange={(e) => setNewTeacher(e.target.value)}
               />
             </label>
-            <label>
-              <span>星期</span>
-              <select value={newWeekday} onChange={(e) => setNewWeekday(e.target.value)}>
-                {WEEKDAY_OPTIONS.map((o) => (
-                  <option key={o.value || 'unset'} value={o.value}>
-                    {o.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label>
-              <span>上課時間 (起)</span>
-              <input
-                type="time"
-                value={newStartTime}
-                onChange={(e) => setNewStartTime(e.target.value)}
-              />
-            </label>
-            <label>
-              <span>上課時間 (迄)</span>
-              <input
-                type="time"
-                value={newEndTime}
-                onChange={(e) => setNewEndTime(e.target.value)}
-              />
-            </label>
+            {newClassType === 'non_care' && (
+              <>
+                <label>
+                  <span>星期</span>
+                  <select value={newWeekday} onChange={(e) => setNewWeekday(e.target.value)}>
+                    {WEEKDAY_OPTIONS.map((o) => (
+                      <option key={o.value || 'unset'} value={o.value}>
+                        {o.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  <span>上課時間 (起)</span>
+                  <input
+                    type="time"
+                    value={newStartTime}
+                    onChange={(e) => setNewStartTime(e.target.value)}
+                  />
+                </label>
+                <label>
+                  <span>上課時間 (迄)</span>
+                  <input
+                    type="time"
+                    value={newEndTime}
+                    onChange={(e) => setNewEndTime(e.target.value)}
+                  />
+                </label>
+              </>
+            )}
             <div className="form-actions">
               <button type="submit" className="btn-primary">確認新增</button>
             </div>
           </div>
           <span className="note">
-            只有「班級名稱」必填；星期與時間可以先留空，等排課確定後再補，計算欄會顯示「—」。
+            {newClassType === 'care'
+              ? '安親課輔班不需輸入上課星期與時間。'
+              : '只有「班級名稱」必填；星期與時間可以先留空，等排課確定後再補，計算欄會顯示「—」。'}
           </span>
         </form>
       )}
 
-      {/* 單一平鋪排課表格：班級屬性與時段在同一列完成（#80），容器 2D 捲動 */}
-      <div className="scroll table-scroll-container schedule-table-scroll">
-        <table className="schedule-table">
-          <thead>
-            <tr>
-              <th rowSpan={2} className="col-classname sticky-col sticky-corner">班級名稱</th>
-              <th rowSpan={2} className="col-category">列入多科折扣</th>
-              <th rowSpan={2} className="col-fixed-five">天數固定 5 天</th>
-              {/* #113：不計扣天與「天數固定 5 天」相鄰——兩者都是「扣天怎麼算」的操作員決策。 */}
-              <th rowSpan={2} className="col-skip-deduction">不計扣天</th>
-              <th rowSpan={2} className="col-teacher">帶班老師</th>
-              <th rowSpan={2} className="col-weekday">星期</th>
-              <th rowSpan={2} className="col-time">上課時間<br />起 — 迄</th>
-              <th rowSpan={2} className="col-duration number">課程時長<br />分</th>
-              <th colSpan={2} className="col-group-anqin cblue">安親窗口 (13:00–16:00)</th>
-              <th colSpan={2} className="col-group-tutoring cteal">課輔窗口 (16:30–19:30)</th>
-              <th rowSpan={2} className="col-actions">操作</th>
-            </tr>
-            <tr>
-              <th className="number cblue">重疊／分</th>
-              <th className="number cblue">扣除／天</th>
-              <th className="number cteal">重疊／分</th>
-              <th className="number cteal">扣除／天</th>
-            </tr>
-          </thead>
-          <tbody>
-            {filteredRows.length === 0 ? (
+      {/* 切換課程類型確認對話框（specs/14 §3.8） */}
+      {switchConfirmTarget && (
+        <dialog
+          ref={switchDialogRef}
+          className="impact-dialog switch-class-type-dialog"
+          role="dialog"
+          aria-labelledby="switch-dialog-title"
+          open
+        >
+          <div className="dialoghead">
+            <h3 id="switch-dialog-title">
+              {switchConfirmTarget.targetType === 'care' ? '切換為安親課輔班' : '切換為非安親課輔班'}
+            </h3>
+          </div>
+          <div className="dialogbody">
+            <p>
+              確定要將班級「{switchConfirmTarget.className}」切換為
+              {switchConfirmTarget.targetType === 'care' ? '安親課輔班' : '非安親課輔班'}嗎？
+            </p>
+            {switchConfirmTarget.targetType === 'care' && (
+              <p className="alert alert-warning" style={{ marginTop: '8px' }}>
+                {switchConfirmTarget.hasSessions
+                  ? '該班時段將被清空，且不再進入衝堂扣天計算。'
+                  : '該班將作為安親課輔班，不輸入星期與上課時間。'}
+              </p>
+            )}
+            {switchConfirmTarget.targetType === 'non_care' && switchConfirmTarget.fixedChecked && (
+              <p className="alert alert-warning" style={{ marginTop: '8px' }}>
+                「天數固定 5 天」將重置為不勾選，改由逐時段設定。
+              </p>
+            )}
+          </div>
+          <div className="dialogfooter">
+            <button
+              type="button"
+              className="btn-secondary"
+              onClick={() => setSwitchConfirmTarget(null)}
+            >
+              取消
+            </button>
+            <button
+              type="button"
+              className="btn-primary"
+              data-confirm-switch=""
+              onClick={handleConfirmSwitchType}
+            >
+              確認切換
+            </button>
+          </div>
+        </dialog>
+      )}
+
+      {/* 課表表格：兩頁籤欄位徹底分離（specs/14 §3.6, A2, A4） */}
+      <div
+        role="tabpanel"
+        id={`class-type-panel-${activeTypeTab}`}
+        aria-labelledby={`class-type-tab-${activeTypeTab}`}
+        className="scroll table-scroll-container schedule-table-scroll"
+      >
+        {activeTypeTab === 'non_care' ? (
+          /* [非安親課輔班] 表格：包含不計扣天與時段計算，無天數固定 5 天 */
+          <table className="schedule-table schedule-table-non-care">
+            <thead>
               <tr>
-                <td colSpan={13} className="empty-row-text">
-                  沒有符合篩選條件的課表時段。
-                </td>
+                <th rowSpan={2} className="col-classname sticky-col sticky-corner">班級名稱</th>
+                <th rowSpan={2} className="col-category">列入多科折扣</th>
+                <th rowSpan={2} className="col-skip-deduction">不計扣天</th>
+                <th rowSpan={2} className="col-teacher">帶班老師</th>
+                <th rowSpan={2} className="col-weekday">星期</th>
+                <th rowSpan={2} className="col-time">上課時間<br />起 — 迄</th>
+                <th rowSpan={2} className="col-duration number">課程時長<br />分</th>
+                <th colSpan={2} className="col-group-anqin cblue">安親窗口 (13:00–16:00)</th>
+                <th colSpan={2} className="col-group-tutoring cteal">課輔窗口 (16:30–19:30)</th>
+                <th rowSpan={2} className="col-actions">操作</th>
               </tr>
-            ) : (
-              filteredRows.map((r, idx) => {
-                const isFirstOfClass =
-                  idx === 0 || filteredRows[idx - 1].className !== r.className;
-                const calcRow = resultMap.get(r.rowId);
-                const rowIssues = issuesMap.get(r.rowId) ?? [];
-                const className = r.className.trim();
+              <tr>
+                <th className="number cblue">重疊／分</th>
+                <th className="number cblue">扣除／天</th>
+                <th className="number cteal">重疊／分</th>
+                <th className="number cteal">扣除／天</th>
+              </tr>
+            </thead>
+            <tbody>
+              {displayedNonCareRows.length === 0 ? (
+                <tr>
+                  <td colSpan={12} className="empty-row-text">
+                    沒有符合篩選條件的非安親課輔班時段。
+                  </td>
+                </tr>
+              ) : (
+                displayedNonCareRows.map((r, idx) => {
+                  const isFirstOfClass =
+                    idx === 0 || displayedNonCareRows[idx - 1].className !== r.className;
+                  const calcRow = resultMap.get(r.rowId);
+                  const rowIssues = issuesMap.get(r.rowId) ?? [];
+                  const className = r.className.trim();
 
-                // 判斷該列是否為不完整列（#82：佔位列只有班名、還沒排時間）
-                const isIncomplete =
-                  r.startMinutes === null ||
-                  r.endMinutes === null ||
-                  r.endMinutes <= r.startMinutes ||
-                  calcRow?.anqin.status === 'missing_time';
+                  // 判斷該列是否為不完整列
+                  const isIncomplete =
+                    r.startMinutes === null ||
+                    r.endMinutes === null ||
+                    r.endMinutes <= r.startMinutes ||
+                    calcRow?.anqin.status === 'missing_time';
 
-                const isInactive = !r.active || calcRow?.anqin.status === 'inactive';
-                const isSharedWindow = calcRow?.anqin.status === 'shared_window';
-                // 星期空白或無法識別：v2 以 0 計，但不是「已驗證無衝堂」，以「需確認」取代數字
-                const isUnknownWeekday = !isInactive && !isIncomplete && calcRow?.anqin.status === 'unknown_weekday';
+                  const isInactive = !r.active || calcRow?.anqin.status === 'inactive';
+                  const isSharedWindow = calcRow?.anqin.status === 'shared_window';
+                  const isUnknownWeekday = !isInactive && !isIncomplete && calcRow?.anqin.status === 'unknown_weekday';
 
-                // #80：班級屬性（同一班的多列共用；變更時帶整個班名，由編輯器處理）
-                const attr = classAttributes?.get(className);
-                const categoryManual = attr?.categorySource === 'manual';
-                const anyManual = categoryManual;
-                const attrsDisabled = !classAttributes || !onSelectCategory || !onToggleFixedFiveDays;
+                  const attr = classAttributes?.get(className);
+                  const categoryManual = attr?.categorySource === 'manual';
+                  const attrsDisabled = !classAttributes || !onSelectCategory;
 
-                return (
-                  <tr
-                    key={r.rowId}
-                    className={`schedule-row ${isFirstOfClass ? 'class-group-start' : ''} ${
-                      !r.active ? 'row-inactive' : ''
-                    } ${isIncomplete ? 'row-incomplete' : ''} ${isUnknownWeekday ? 'row-unknown-weekday' : ''}`}
-                  >
-                    {/* 1. 班級名稱（凍結首欄） */}
-                    <td className="col-classname sticky-col">
-                      <input
-                        type="text"
-                        className="input-classname"
-                        value={r.className}
-                        onChange={(e) => onUpdateRow(r.rowId, { className: e.target.value })}
-                        aria-label={`班級名稱 第 ${idx + 1} 列`}
-                      />
-                    </td>
-
-                    {/* 2. 列入多科折扣（#80：從獨立卡片併入本列） */}
-                    <td className="col-category">
-                      <select
-                        value={attr?.category ?? 'none'}
-                        disabled={attrsDisabled}
-                        aria-label={`${className} 的列入多科折扣`}
-                        data-category-select={className}
-                        onChange={(e) => onSelectCategory?.(className, e.target.value as ClassCategory)}
-                      >
-                        {CATEGORY_ORDER.map((c) => (
-                          <option key={c} value={c}>
-                            {CATEGORY_LABELS[c]}
-                          </option>
-                        ))}
-                      </select>
-                    </td>
-
-                    {/* 3. 天數固定 5 天（#80）。包在 <label> 內：稽核以 label 的可點範圍
-                        計算目標尺寸，裸 checkbox 只有 16px、會被判成目標過小。 */}
-                    <td className="col-fixed-five">
-                      <label className="fixed-five-toggle">
+                  return (
+                    <tr
+                      key={r.rowId}
+                      className={`schedule-row ${isFirstOfClass ? 'class-group-start' : ''} ${
+                        !r.active ? 'row-inactive' : ''
+                      } ${isIncomplete ? 'row-incomplete' : ''} ${isUnknownWeekday ? 'row-unknown-weekday' : ''}`}
+                    >
+                      {/* 1. 班級名稱 */}
+                      <td className="col-classname sticky-col">
                         <input
-                          type="checkbox"
-                          checked={attr?.fixedFiveDays ?? false}
+                          type="text"
+                          className="input-classname"
+                          value={r.className}
+                          onChange={(e) => onUpdateRow(r.rowId, { className: e.target.value })}
+                          aria-label={`班級名稱 第 ${idx + 1} 列`}
+                        />
+                      </td>
+
+                      {/* 2. 列入多科折扣 */}
+                      <td className="col-category">
+                        <select
+                          value={attr?.category ?? 'none'}
                           disabled={attrsDisabled}
-                          aria-label={`${className} 的天數固定 5 天`}
-                          data-fixed-five-toggle={className}
-                          onChange={(e) => onToggleFixedFiveDays?.(className, e.target.checked)}
-                        />
-                        <span aria-hidden="true">{attr?.fixedFiveDays ? '是' : '否'}</span>
-                      </label>
-                    </td>
+                          aria-label={`${className} 的列入多科折扣`}
+                          data-category-select={className}
+                          onChange={(e) => onSelectCategory?.(className, e.target.value as ClassCategory)}
+                        >
+                          {CATEGORY_ORDER.map((c) => (
+                            <option key={c} value={c}>
+                              {CATEGORY_LABELS[c]}
+                            </option>
+                          ))}
+                        </select>
+                      </td>
 
-                    {/* 4. 不計扣天（#113 follow-up）：**逐列**勾選。每一列都有自己的 checkbox，
-                        勾第一列不會連動同班的其他時段——園方常只想讓其中一兩堂不扣天。
-                        與固定 5 天同樣包在 <label> 內：
-                        稽核以 label 的可點範圍計算目標尺寸，裸 checkbox 只有 16px 會被判過小。 */}
-                    <td className="col-skip-deduction">
-                      <label className="fixed-five-toggle">
-                        <input
-                          type="checkbox"
-                          checked={r.skipDeduction ?? false}
-                          aria-label={`${r.className} 第 ${idx + 1} 列的不計扣天`}
-                          data-skip-deduction-toggle={r.rowId}
-                          onChange={(e) => onUpdateRow(r.rowId, { skipDeduction: e.target.checked })}
-                        />
-                        <span aria-hidden="true">{r.skipDeduction ? '是' : '否'}</span>
-                      </label>
-                    </td>
+                      {/* 3. 不計扣天（逐列） */}
+                      <td className="col-skip-deduction">
+                        <label className="fixed-five-toggle">
+                          <input
+                            type="checkbox"
+                            checked={r.skipDeduction ?? false}
+                            aria-label={`${r.className} 第 ${idx + 1} 列的不計扣天`}
+                            data-skip-deduction-toggle={r.rowId}
+                            onChange={(e) => onUpdateRow(r.rowId, { skipDeduction: e.target.checked })}
+                          />
+                          <span aria-hidden="true">{r.skipDeduction ? '是' : '否'}</span>
+                        </label>
+                      </td>
 
-                    {/* 5. 帶班老師 */}
-                    <td className="col-teacher">
-                      <input
-                        type="text"
-                        className="input-teacher"
-                        value={r.teacher ?? ''}
-                        placeholder="無"
-                        onChange={(e) => onUpdateRow(r.rowId, { teacher: e.target.value || null })}
-                        aria-label={`帶班老師 第 ${idx + 1} 列`}
-                      />
-                    </td>
-
-                    {/* 6. 星期（#82：可清空，留空＝未定） */}
-                    <td className="col-weekday">
-                      {/* 維持文字輸入（非下拉）：#82 只要求「可以留空」，placeholder 已能表達；
-                          下拉反而會擋掉 seed 既有的非選單值（「一~五」、「—」）與使用者手打的
-                          未知星期——而「未知星期 → 需確認」是 09 §3.1 必須保留的畫面狀態。
-                          #80 曾短暫改成下拉，導致 UX07 的「填入非法星期」路徑不可達。 */}
-                      <input
-                        type="text"
-                        className="input-weekday"
-                        placeholder="未定"
-                        value={r.weekday}
-                        onChange={(e) => onUpdateRow(r.rowId, { weekday: e.target.value })}
-                        aria-label={`星期 第 ${idx + 1} 列`}
-                      />
-                    </td>
-
-                    {/* 7. 上課時間 (起 — 迄)（#82：可留空） */}
-                    <td className="col-time">
-                      <div className="time-inputs-pair">
+                      {/* 4. 帶班老師 */}
+                      <td className="col-teacher">
                         <input
                           type="text"
-                          className="input-time"
-                          placeholder="HH:mm"
-                          value={r.startTime}
-                          onChange={(e) => onUpdateRow(r.rowId, { startTime: e.target.value })}
-                          aria-label={`起始時間 第 ${idx + 1} 列`}
+                          className="input-teacher"
+                          value={r.teacher ?? ''}
+                          placeholder="無"
+                          onChange={(e) => onUpdateRow(r.rowId, { teacher: e.target.value || null })}
+                          aria-label={`帶班老師 第 ${idx + 1} 列`}
                         />
-                        <span className="time-separator">—</span>
+                      </td>
+
+                      {/* 5. 星期 */}
+                      <td className="col-weekday">
                         <input
                           type="text"
-                          className="input-time"
-                          placeholder="HH:mm"
-                          value={r.endTime}
-                          onChange={(e) => onUpdateRow(r.rowId, { endTime: e.target.value })}
-                          aria-label={`結束時間 第 ${idx + 1} 列`}
+                          className="input-weekday"
+                          placeholder="未定"
+                          value={r.weekday}
+                          onChange={(e) => onUpdateRow(r.rowId, { weekday: e.target.value })}
+                          aria-label={`星期 第 ${idx + 1} 列`}
                         />
-                      </div>
-                    </td>
+                      </td>
 
-                    {/* 8. 課程時長 分（#82：未設定時間 → 「—」） */}
-                    <td className="col-duration number" data-calc="duration">
-                      {isIncomplete ? (
-                        <NotSetYetCell />
-                      ) : isInactive ? (
-                        <span className="subtle">停用</span>
-                      ) : (
-                        calcRow?.durationMinutes ?? '—'
-                      )}
-                    </td>
+                      {/* 6. 上課時間 (起 — 迄) */}
+                      <td className="col-time">
+                        <div className="time-inputs-pair">
+                          <input
+                            type="text"
+                            className="input-time"
+                            placeholder="HH:mm"
+                            value={r.startTime}
+                            onChange={(e) => onUpdateRow(r.rowId, { startTime: e.target.value })}
+                            aria-label={`起始時間 第 ${idx + 1} 列`}
+                          />
+                          <span className="time-separator">—</span>
+                          <input
+                            type="text"
+                            className="input-time"
+                            placeholder="HH:mm"
+                            value={r.endTime}
+                            onChange={(e) => onUpdateRow(r.rowId, { endTime: e.target.value })}
+                            aria-label={`結束時間 第 ${idx + 1} 列`}
+                          />
+                        </div>
+                      </td>
 
-                    {/* 9. 安親 重疊／分 */}
-                    <td className="number cblue" data-calc="anqin-overlap">
-                      {isIncomplete ? (
-                        <NotSetYetCell />
-                      ) : isInactive ? (
-                        <span className="subtle">—</span>
-                      ) : isSharedWindow ? (
-                        <span className="subtle">共用</span>
-                      ) : isUnknownWeekday ? (
-                        <NeedsReviewBadge reasons={rowIssues} />
-                      ) : (
-                        calcRow ? (calcRow.anqin.overlapMinutes ?? 0) : '—'
-                      )}
-                    </td>
+                      {/* 7. 課程時長 */}
+                      <td className="col-duration number" data-calc="duration">
+                        {isIncomplete ? (
+                          <NotSetYetCell />
+                        ) : isInactive ? (
+                          <span className="subtle">停用</span>
+                        ) : (
+                          calcRow?.durationMinutes ?? '—'
+                        )}
+                      </td>
 
-                    {/* 10. 安親 扣除／天 */}
-                    <td className="number cblue" data-calc="anqin-deduction">
-                      {isIncomplete ? (
-                        <NotSetYetCell />
-                      ) : isInactive ? (
-                        <span className="subtle">—</span>
-                      ) : isSharedWindow ? (
-                        <span className="subtle">共用</span>
-                      ) : isUnknownWeekday ? (
-                        <NeedsReviewBadge reasons={rowIssues} />
-                      ) : (
-                        formatDeductionDays(calcRow?.anqin.rawDeduction)
-                      )}
-                    </td>
+                      {/* 8. 安親 重疊／分 */}
+                      <td className="number cblue" data-calc="anqin-overlap">
+                        {isIncomplete ? (
+                          <NotSetYetCell />
+                        ) : isInactive ? (
+                          <span className="subtle">—</span>
+                        ) : isSharedWindow ? (
+                          <span className="subtle">共用</span>
+                        ) : isUnknownWeekday ? (
+                          <NeedsReviewBadge reasons={rowIssues} />
+                        ) : (
+                          calcRow ? (calcRow.anqin.overlapMinutes ?? 0) : '—'
+                        )}
+                      </td>
 
-                    {/* 11. 課輔 重疊／分 */}
-                    <td className="number cteal" data-calc="tutoring-overlap">
-                      {isIncomplete ? (
-                        <NotSetYetCell />
-                      ) : isInactive ? (
-                        <span className="subtle">—</span>
-                      ) : isSharedWindow ? (
-                        <span className="subtle">共用</span>
-                      ) : isUnknownWeekday ? (
-                        <NeedsReviewBadge reasons={rowIssues} />
-                      ) : (
-                        calcRow ? (calcRow.tutoring.overlapMinutes ?? 0) : '—'
-                      )}
-                    </td>
+                      {/* 9. 安親 扣除／天 */}
+                      <td className="number cblue" data-calc="anqin-deduction">
+                        {isIncomplete ? (
+                          <NotSetYetCell />
+                        ) : isInactive ? (
+                          <span className="subtle">—</span>
+                        ) : isSharedWindow ? (
+                          <span className="subtle">共用</span>
+                        ) : isUnknownWeekday ? (
+                          <NeedsReviewBadge reasons={rowIssues} />
+                        ) : (
+                          formatDeductionDays(calcRow?.anqin.rawDeduction)
+                        )}
+                      </td>
 
-                    {/* 12. 課輔 扣除／天 */}
-                    <td className="number cteal" data-calc="tutoring-deduction">
-                      {isIncomplete ? (
-                        <NotSetYetCell />
-                      ) : isInactive ? (
-                        <span className="subtle">—</span>
-                      ) : isSharedWindow ? (
-                        <span className="subtle">共用</span>
-                      ) : isUnknownWeekday ? (
-                        <NeedsReviewBadge reasons={rowIssues} />
-                      ) : (
-                        formatDeductionDays(calcRow?.tutoring.rawDeduction)
-                      )}
-                    </td>
+                      {/* 10. 課輔 重疊／分 */}
+                      <td className="number cteal" data-calc="tutoring-overlap">
+                        {isIncomplete ? (
+                          <NotSetYetCell />
+                        ) : isInactive ? (
+                          <span className="subtle">—</span>
+                        ) : isSharedWindow ? (
+                          <span className="subtle">共用</span>
+                        ) : isUnknownWeekday ? (
+                          <NeedsReviewBadge reasons={rowIssues} />
+                        ) : (
+                          calcRow ? (calcRow.tutoring.overlapMinutes ?? 0) : '—'
+                        )}
+                      </td>
 
-                    {/* 13. 操作：自動設定（恢復系統推薦值）＋刪除時段 */}
-                    <td className="col-actions">
-                      <div className="row-actions">
-                        {/* #80：取代原本的「來源：自動／手動」pill。可點＝已手動覆寫過，
-                            淡灰 —＝未手動（用系統推薦值）。狀態靠文字表達，不只靠顏色（09 §6）。 */}
-                        {anyManual && onRestoreAuto ? (
+                      {/* 11. 課輔 扣除／天 */}
+                      <td className="number cteal" data-calc="tutoring-deduction">
+                        {isIncomplete ? (
+                          <NotSetYetCell />
+                        ) : isInactive ? (
+                          <span className="subtle">—</span>
+                        ) : isSharedWindow ? (
+                          <span className="subtle">共用</span>
+                        ) : isUnknownWeekday ? (
+                          <NeedsReviewBadge reasons={rowIssues} />
+                        ) : (
+                          formatDeductionDays(calcRow?.tutoring.rawDeduction)
+                        )}
+                      </td>
+
+                      {/* 12. 操作 */}
+                      <td className="col-actions">
+                        <div className="row-actions">
+                          {onSwitchClassType && isFirstOfClass && (
+                            <button
+                              type="button"
+                              className="btn-secondary"
+                              onClick={(e) => openSwitchConfirm(className, 'care', e)}
+                              data-switch-type="care"
+                              data-switch-to-care={className}
+                              aria-label={`將 ${className} 切換為安親課輔班`}
+                            >
+                              轉為安親課輔班
+                            </button>
+                          )}
+                          {categoryManual && onRestoreAuto ? (
+                            <button
+                              type="button"
+                              className="btn-secondary"
+                              aria-label={`${className} 自動設定`}
+                              data-restore-auto={className}
+                              onClick={() => onRestoreAuto(className)}
+                            >
+                              自動設定
+                            </button>
+                          ) : (
+                            <span className="subtle" aria-label={`${className} 未手動修改`}>—</span>
+                          )}
                           <button
                             type="button"
-                            className="btn-secondary"
-                            aria-label={`${className} 自動設定`}
-                            data-restore-auto={className}
-                            onClick={() => onRestoreAuto(className)}
+                            className="btn-danger-icon"
+                            title="刪除此時段"
+                            onClick={() => onDeleteRow(r.rowId)}
+                            aria-label={`刪除時段 ${r.className}`}
                           >
-                            自動設定
+                            ✕
                           </button>
-                        ) : (
-                          <span className="subtle" aria-label={`${className} 未手動修改`}>—</span>
-                        )}
-                        <button
-                          type="button"
-                          className="btn-danger-icon"
-                          title="刪除此時段"
-                          onClick={() => onDeleteRow(r.rowId)}
-                          aria-label={`刪除時段 ${r.className}`}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
+            </tbody>
+          </table>
+        ) : (
+          /* [安親課輔班] 表格：每班一列，無時段與不計扣天（specs/14 §3.6, A2, A4） */
+          <table className="schedule-table schedule-table-care">
+            <thead>
+              <tr>
+                <th className="col-classname sticky-col sticky-corner">班級名稱</th>
+                <th className="col-category">列入多科折扣</th>
+                <th className="col-fixed-five">天數固定 5 天</th>
+                <th className="col-teacher">帶班老師</th>
+                <th className="col-status">狀態</th>
+                <th className="col-actions">操作</th>
+              </tr>
+            </thead>
+            <tbody>
+              {displayedCareRows.length === 0 ? (
+                <tr>
+                  <td colSpan={6} className="empty-row-text">
+                    沒有符合篩選條件的安親課輔班。
+                  </td>
+                </tr>
+              ) : (
+                displayedCareRows.map((r, idx) => {
+                  const className = r.className.trim();
+                  const attr = classAttributes?.get(className);
+                  const categoryManual = attr?.categorySource === 'manual';
+                  const attrsDisabled = !classAttributes || !onSelectCategory || !onToggleFixedFiveDays;
+
+                  return (
+                    <tr key={r.rowId} className="schedule-row class-group-start">
+                      {/* 1. 班級名稱 */}
+                      <td className="col-classname sticky-col">
+                        <input
+                          type="text"
+                          className="input-classname"
+                          value={r.className}
+                          onChange={(e) => onUpdateRow(r.rowId, { className: e.target.value })}
+                          aria-label={`班級名稱 第 ${idx + 1} 列`}
+                        />
+                      </td>
+
+                      {/* 2. 列入多科折扣 */}
+                      <td className="col-category">
+                        <select
+                          value={attr?.category ?? 'none'}
+                          disabled={attrsDisabled}
+                          aria-label={`${className} 的列入多科折扣`}
+                          data-category-select={className}
+                          onChange={(e) => onSelectCategory?.(className, e.target.value as ClassCategory)}
                         >
-                          ✕
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                );
-              })
-            )}
-          </tbody>
-        </table>
+                          {CATEGORY_ORDER.map((c) => (
+                            <option key={c} value={c}>
+                              {CATEGORY_LABELS[c]}
+                            </option>
+                          ))}
+                        </select>
+                      </td>
+
+                      {/* 3. 天數固定 5 天 */}
+                      <td className="col-fixed-five">
+                        <label className="fixed-five-toggle">
+                          <input
+                            type="checkbox"
+                            checked={attr?.fixedFiveDays ?? false}
+                            disabled={attrsDisabled}
+                            aria-label={`${className} 的天數固定 5 天`}
+                            data-fixed-five-toggle={className}
+                            onChange={(e) => onToggleFixedFiveDays?.(className, e.target.checked)}
+                          />
+                          <span aria-hidden="true">{attr?.fixedFiveDays ? '是' : '否'}</span>
+                        </label>
+                      </td>
+
+                      {/* 4. 帶班老師 */}
+                      <td className="col-teacher">
+                        <input
+                          type="text"
+                          className="input-teacher"
+                          value={r.teacher ?? ''}
+                          placeholder="無"
+                          onChange={(e) => onUpdateRow(r.rowId, { teacher: e.target.value || null })}
+                          aria-label={`帶班老師 第 ${idx + 1} 列`}
+                        />
+                      </td>
+
+                      {/* 5. 狀態 */}
+                      <td className="col-status">
+                        <span className="badge badge-neutral" data-status-label="">
+                          安親課輔班（不計時段）
+                        </span>
+                      </td>
+
+                      {/* 6. 操作 */}
+                      <td className="col-actions">
+                        <div className="row-actions">
+                          {onSwitchClassType && (
+                            <button
+                              type="button"
+                              className="btn-secondary"
+                              onClick={(e) => openSwitchConfirm(className, 'non_care', e)}
+                              data-switch-type="non_care"
+                              data-switch-to-non-care={className}
+                              aria-label={`將 ${className} 切換為非安親課輔班`}
+                            >
+                              轉為非安親課輔班
+                            </button>
+                          )}
+                          {categoryManual && onRestoreAuto ? (
+                            <button
+                              type="button"
+                              className="btn-secondary"
+                              aria-label={`${className} 自動設定`}
+                              data-restore-auto={className}
+                              onClick={() => onRestoreAuto(className)}
+                            >
+                              自動設定
+                            </button>
+                          ) : (
+                            <span className="subtle" aria-label={`${className} 未手動修改`}>—</span>
+                          )}
+                          <button
+                            type="button"
+                            className="btn-danger-icon"
+                            title="刪除此班級"
+                            onClick={() => onDeleteRow(r.rowId)}
+                            aria-label={`刪除班級 ${r.className}`}
+                          >
+                            ✕
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
+            </tbody>
+          </table>
+        )}
       </div>
 
       <div className="tablefoot">

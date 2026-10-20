@@ -71,20 +71,20 @@ function render(overrides: Record<string, unknown> = {}): string {
   );
 }
 
-describe('#80：折扣類別與固定 5 天併入時段表格', () => {
-  it('同一張表格裡就有「列入多科折扣」與「天數固定 5 天」兩欄', () => {
+describe('#80 & specs/14：課程類型分頁與欄位分離（A2, A4）', () => {
+  it('非安親課輔班表格包含「列入多科折扣」與「不計扣天」，不顯示「天數固定 5 天」', () => {
     const html = render();
     expect(html).toContain('列入多科折扣');
-    expect(html).toContain('天數固定 5 天');
-    // 兩欄都在同一個 table 內（不是另開一張）
-    expect(html.match(/<table/g)?.length).toBe(1);
+    expect(html).toContain('不計扣天');
+    // specs/14 A2: 非安親課輔班表格無「天數固定 5 天」
+    expect(html).not.toContain('<th>天數固定 5 天</th>');
+    expect(html).not.toContain('rowSpan="2" class="col-fixed-five"');
   });
 
-  it('每個時段列都帶該班的折扣類別下拉與固定 5 天勾選（不是每班一列）', () => {
+  it('每個時段列都帶該班的折扣類別下拉', () => {
     const html = render();
-    // 兩列、兩個班 → 兩個下拉、兩個 checkbox
+    // 兩列、兩個非安親班 → 兩個下拉
     expect(html.match(/data-category-select=/g)?.length).toBe(2);
-    expect(html.match(/data-fixed-five-toggle=/g)?.length).toBe(2);
   });
 
   it('下拉顯示有效值的白話標籤（手算：Gino→美語班、一A→數學班），且對應到內部值', () => {
@@ -97,12 +97,44 @@ describe('#80：折扣類別與固定 5 天併入時段表格', () => {
     }
   });
 
-  it('固定 5 天 checkbox 反映有效值（一A 為 manual=true → checked）', () => {
-    const html = render();
-    // Gino 是 auto=false → 未勾；一A 是 manual=true → 勾
+  it('固定 5 天 checkbox 反映有效值（安親課輔班頁籤下可見，純 boolean 勾選框）', () => {
+    const careAttrs = new Map<string, ClassAttributesView>([
+      ['國小輔導-四年級', { classType: 'care', category: 'care', categorySource: 'auto', fixedFiveDays: true }],
+      ['國小輔導-五年級', { classType: 'care', category: 'care', categorySource: 'auto', fixedFiveDays: false }],
+    ]);
+    const careRows: ScheduleGridRow[] = [
+      {
+        rowId: 'care-1',
+        className: '國小輔導-四年級',
+        teacher: '王老師',
+        weekday: '',
+        startTime: '',
+        endTime: '',
+        startMinutes: null,
+        endMinutes: null,
+        active: true,
+        skipDeduction: false,
+      },
+      {
+        rowId: 'care-2',
+        className: '國小輔導-五年級',
+        teacher: '李老師',
+        weekday: '',
+        startTime: '',
+        endTime: '',
+        startMinutes: null,
+        endMinutes: null,
+        active: true,
+        skipDeduction: false,
+      },
+    ];
+    const html = render({ rows: careRows, classAttributes: careAttrs, initialClassTypeTab: 'care' });
     const checkboxes = html.match(/data-fixed-five-toggle="[^"]*"[^/]*?\/>/g) ?? [];
     expect(checkboxes).toHaveLength(2);
-    expect(html).toMatch(/data-fixed-five-toggle="兒童美語-Gino"[^>]*>/);
+    // 國小輔導-四年級 為 true → checked
+    expect(html).toMatch(/data-fixed-five-toggle="國小輔導-四年級"[^>]*checked/);
+    // 國小輔導-五年級 為 false → not checked
+    expect(html).not.toMatch(/data-fixed-five-toggle="國小輔導-五年級"[^>]*checked/);
   });
 
   it('手動過的班有「自動設定」按鈕；未手動的顯示淡灰「—」（取代原本的來源 pill）', () => {
@@ -127,12 +159,12 @@ describe('#80：折扣類別與固定 5 天併入時段表格', () => {
     expect(html).not.toContain('折扣類別與固定 5 天（');
   });
 
-  it('欄位順序：班級名稱 → 列入多科折扣 → 天數固定 5 天 → 帶班老師 → 星期 → 時間 → 計算欄 → 操作', () => {
+  it('非安親課輔班欄位順序：班級名稱 → 列入多科折扣 → 不計扣天 → 帶班老師 → 星期 → 時間 → 計算欄 → 操作', () => {
     const html = render();
     const order = [
       '班級名稱',
       '列入多科折扣',
-      '天數固定 5 天',
+      '不計扣天',
       '帶班老師',
       '星期',
       '上課時間',
@@ -155,11 +187,8 @@ describe('#80：折扣類別與固定 5 天併入時段表格', () => {
 });
 
 describe('#113 follow-up：逐列獨立勾選「不計扣天」', () => {
-  it('表格有「不計扣天」欄，緊接在「天數固定 5 天」之後', () => {
+  it('表格有「不計扣天」欄（specs/14 A2/A4：與固定 5 天欄位徹底分離）', () => {
     const html = render();
-    const atFixed = html.indexOf('天數固定 5 天');
-    const atSkip = html.indexOf('不計扣天');
-    expect(atSkip).toBeGreaterThan(atFixed);
     expect(html).toContain('col-skip-deduction');
   });
 
@@ -194,9 +223,9 @@ describe('#113 follow-up：逐列獨立勾選「不計扣天」', () => {
     expect(html).toContain('aria-label="國小數學-一A 第 2 列的不計扣天"');
   });
 
-  it('欄位順序：…天數固定 5 天 → 不計扣天 → 帶班老師 → 星期 → …', () => {
+  it('欄位順序：…列入多科折扣 → 不計扣天 → 帶班老師 → 星期 → …', () => {
     const html = render();
-    const order = ['天數固定 5 天', '不計扣天', '帶班老師', '星期', '上課時間', '課程時長', '操作'];
+    const order = ['列入多科折扣', '不計扣天', '帶班老師', '星期', '上課時間', '課程時長', '操作'];
     let cursor = 0;
     for (const label of order) {
       const at = html.indexOf(label, cursor);
@@ -205,9 +234,9 @@ describe('#113 follow-up：逐列獨立勾選「不計扣天」', () => {
     }
   });
 
-  it('空狀態的 colSpan 隨欄位數一起長大（12 → 13）', () => {
+  it('空狀態的 colSpan 隨欄位數一致（12 欄）', () => {
     const html = render({ rows: [] });
-    expect(html).toContain('<td colSpan="13" class="empty-row-text">');
+    expect(html).toContain('<td colSpan="12" class="empty-row-text">');
   });
 });
 
@@ -217,9 +246,8 @@ describe('#82：新增時段僅班名必填、其餘可留空', () => {
     // 編輯列：文字輸入（保留使用者輸入未知星期的能力——09 §3.1 的「需確認」狀態來自這裡）
     expect(html).toMatch(/<input[^>]*class="input-weekday"[^>]*placeholder="未定"/);
     expect(html).not.toMatch(/<select[^>]*class="input-weekday"/);
-    // 新增表單獨立於元件 state（showAddForm 是內部 useState），靜態渲染不會展開；
-    // 因此這裡只驗「新增時段」入口存在，星期選項交給 E2E（#82-1 實際開表單驗預設值為空）。
-    expect(html).toContain('＋ 新增時段');
+    // specs/14 A1: 新增入口為「新增班級」
+    expect(html).toContain('＋ 新增班級');
   });
 
   it('缺時間的列：計算欄平靜顯示「—」且帶 aria-label「未設定時間」（decision d-…-11）', () => {
@@ -324,6 +352,7 @@ describe('#81：Excel 匯出／匯入工具列（單純一鍵）', () => {
       importError: '這個 Excel 的欄位標題不符合課表格式，缺少：結束時間。',
     });
     expect(html).toContain('role="alert"');
+    expect(html).toContain('alert-danger');
     expect(html).toContain('data-schedule-import-error');
     expect(html).toContain('沒有套用任何資料');
   });
@@ -356,5 +385,90 @@ describe('#81：Excel 匯出／匯入工具列（單純一鍵）', () => {
     // 靜態渲染不會觸發事件；此處只確認 handler 已接上（未拋 TypeError＝呼叫鏈完整）
     expect(seen).toEqual([]);
     expect(seenFixed).toEqual([]);
+  });
+});
+
+describe('specs/14：雙頁籤與切換課程類型操作（A1, A2, A4, A9, A10）', () => {
+  it('頁籤渲染：顯示「非安親課輔班」與「安親課輔班」雙頁籤並帶有數量統計', () => {
+    const html = render();
+    expect(html).toContain('非安親課輔班');
+    expect(html).toContain('安親課輔班');
+    expect(html).toContain('role="tablist"');
+  });
+
+  it('非安親課輔班頁籤：首欄行操作有「轉為安親課輔班」按鈕', () => {
+    const html = render({ onSwitchClassType: () => {} });
+    expect(html).toContain('轉為安親課輔班');
+    expect(html).toContain('data-switch-to-care="兒童美語-Gino"');
+  });
+
+  it('安親課輔班頁籤：表格顯示「安親課輔班（不計時段）」短標，操作有「轉為非安親課輔班」按鈕，無時間與不計扣天', () => {
+    const careAttrs = new Map<string, ClassAttributesView>([
+      ['國小輔導-四年級', { classType: 'care', category: 'care', categorySource: 'auto', fixedFiveDays: false }],
+    ]);
+    const careRows: ScheduleGridRow[] = [
+      {
+        rowId: 'care-1',
+        className: '國小輔導-四年級',
+        teacher: '玟君',
+        weekday: '',
+        startTime: '',
+        endTime: '',
+        startMinutes: null,
+        endMinutes: null,
+        active: true,
+        skipDeduction: false,
+      },
+    ];
+    const html = render({
+      rows: careRows,
+      classAttributes: careAttrs,
+      initialClassTypeTab: 'care',
+      onSwitchClassType: () => {},
+    });
+    expect(html).toContain('安親課輔班（不計時段）');
+    expect(html).toContain('轉為非安親課輔班');
+    expect(html).toContain('data-switch-to-non-care="國小輔導-四年級"');
+    // 欄位徹底分離：安親課輔班表格無星期、無時間、無不計扣天
+    expect(html).not.toContain('class="col-skip-deduction"');
+    expect(html).not.toContain('class="col-weekday"');
+    expect(html).not.toContain('class="col-time"');
+  });
+
+  it('a11y 契約：雙頁籤面板必須具有 role="tabpanel" 且與 tab 的 id/aria-controls 對應', () => {
+    const html = render();
+    expect(html).toContain('role="tabpanel"');
+    expect(html).toContain('id="class-type-panel-non_care"');
+    expect(html).toContain('aria-labelledby="class-type-tab-non_care"');
+  });
+
+  it('焦點班級定位 banner 契約：包含 data-focus-class 標記與「顯示全部班級」按鈕', () => {
+    const html = render({ focusClass: '兒童美語-Gino' });
+    expect(html).toContain('data-focus-class');
+    expect(html).toContain('顯示全部班級');
+  });
+
+  it('焦點班級為安親課輔班時，初始頁籤自動聚焦至 [安親課輔班]，避免誤判 missing', () => {
+    const careAttrs = new Map<string, ClassAttributesView>([
+      ['國小輔導-四年級', { classType: 'care', category: 'care', categorySource: 'auto', fixedFiveDays: false }],
+    ]);
+    const careRows: ScheduleGridRow[] = [
+      {
+        rowId: 'care-1',
+        className: '國小輔導-四年級',
+        teacher: '玟君',
+        weekday: '',
+        startTime: '',
+        endTime: '',
+        startMinutes: null,
+        endMinutes: null,
+        active: true,
+        skipDeduction: false,
+      },
+    ];
+    const html = render({ rows: careRows, classAttributes: careAttrs, focusClass: '國小輔導-四年級' });
+    expect(html).toContain('data-focus-class');
+    expect(html).not.toContain('data-focus-class-missing');
+    expect(html).toContain('id="class-type-panel-care"');
   });
 });

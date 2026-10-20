@@ -25,24 +25,25 @@ test('已儲存的手動類別：reload → 恢復自動 → 儲存 → reload �
   await expect(page.locator(`[data-category-select="${name}"]`).first()).toHaveValue('math');
 });
 
-test('已儲存的手動固定 5 天：reload → 恢復自動 → 儲存 → reload 仍為自動且未勾選', async ({ page }) => {
-  const name = '兒童美語-Gino';
-  await page.locator(`[data-fixed-five-toggle="${name}"]`).first().check();
+test('已儲存的安親班手動類別：reload → 恢復自動 → 儲存 → reload 仍為自動且為安親課輔班', async ({ page }) => {
+  await page.locator('#class-type-tab-care').click();
+  const name = '國小輔導-四年級';
+  await page.locator(`[data-category-select="${name}"]`).first().selectOption('none');
   await saveSettings(page);
   await reloadSettings(page);
+  await page.locator('#class-type-tab-care').click();
   await page.locator(`[data-restore-auto="${name}"]`).first().click();
-  await expect(page.locator(`[data-fixed-five-toggle="${name}"]`).first()).not.toBeChecked();
+  await expect(page.locator(`[data-category-select="${name}"]`).first()).toHaveValue('care');
   await saveSettings(page);
   await reloadSettings(page);
-  await expect(page.locator(`[data-fixed-five-toggle="${name}"]`).first()).not.toBeChecked();
-  await expect(page.locator(`[data-category-select="${name}"]`).first()).toHaveValue('english');
+  await page.locator('#class-type-tab-care').click();
+  await expect(page.locator(`[data-category-select="${name}"]`).first()).toHaveValue('care');
 });
 
 test('已儲存手動值的班改名後恢復自動：以目前班名重新偵測並持久化', async ({ page }) => {
   const from = '國小數學-四A';
   const to = '寫功課-合成班';
   await page.locator(`[data-category-select="${from}"]`).first().selectOption('care');
-  await page.locator(`[data-fixed-five-toggle="${from}"]`).first().uncheck();
   await saveSettings(page);
   await reloadSettings(page);
   const inputs = page.locator('input.input-classname');
@@ -55,9 +56,7 @@ test('已儲存手動值的班改名後恢復自動：以目前班名重新偵�
   await expect(page.locator(`[data-category-select="${to}"]`).first()).toHaveValue('care');
   await page.locator(`[data-restore-auto="${to}"]`).first().click();
   await expect(page.locator(`[data-category-select="${to}"]`).first()).toHaveValue('none');
-  await expect(page.locator(`[data-fixed-five-toggle="${to}"]`).first()).toBeChecked();
   await saveSettings(page);
   await reloadSettings(page);
   await expect(page.locator(`[data-category-select="${to}"]`).first()).toHaveValue('none');
-  await expect(page.locator(`[data-fixed-five-toggle="${to}"]`).first()).toBeChecked();
 });

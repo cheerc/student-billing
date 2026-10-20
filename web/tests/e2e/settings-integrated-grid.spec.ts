@@ -27,26 +27,28 @@ test.describe('#80：單一表格整合屬性（班級列同時設定類別與�
     await expect(page.getByText('折扣類別與固定 5 天（')).toHaveCount(0);
   });
 
-  test('#80-2: 同一列裡就有類別下拉與固定 5 天勾選（不需上下重找班級）', async ({ page }) => {
-    // 欄位標題在同一張表頭裡
-    const headers = page.locator('table.schedule-table thead');
+  test('#80-2: 非安親頁籤同時設定類別與不計扣天；安親頁籤設定固定 5 天', async ({ page }) => {
+    // 預設非安親頁籤：包含類別與不計扣天，無固定 5 天
+    const headers = page.locator('table.schedule-table-non-care thead');
     await expect(headers).toContainText('班級名稱');
     await expect(headers).toContainText('列入多科折扣');
-    await expect(headers).toContainText('天數固定 5 天');
+    await expect(headers).toContainText('不計扣天');
+    await expect(headers).not.toContainText('天數固定 5 天');
     await expect(headers).toContainText('帶班老師');
     await expect(headers).toContainText('星期');
 
-    // 國小數學-四A 的類別下拉與 checkbox 都在同一個 <tr> 內。
-    // 該班在 seed 有 2 筆時段 → 有 2 列（#80 併入表格後每一列都能設定該班屬性），
-    // 所以斷言「每一列都同時帶類別下拉與固定 5 天勾選」，而不是「只有一列」。
     const rows = page.locator('tr.schedule-row', {
       has: page.locator('[data-category-select="國小數學-四A"]').first(),
     });
     await expect(rows).toHaveCount(2);
     await expect(rows.locator('[data-category-select="國小數學-四A"]')).toHaveCount(2);
-    await expect(rows.locator('[data-fixed-five-toggle="國小數學-四A"]')).toHaveCount(2);
     await expect(rows.first().locator('[data-category-select="國小數學-四A"]')).toHaveValue('math');
-    await expect(rows.first().locator('[data-fixed-five-toggle="國小數學-四A"]')).toBeVisible();
+    // 切換至安親頁籤：包含天數固定 5 天
+    await page.locator('#class-type-tab-care').click();
+    const careHeaders = page.locator('table.schedule-table-care thead');
+    await expect(careHeaders).toContainText('天數固定 5 天');
+    await expect(careHeaders).not.toContainText('不計扣天');
+    await expect(page.locator('[data-fixed-five-toggle="國小輔導-四年級"]')).toBeVisible();
   });
 
   test('#80-3: 省略「來源：自動／手動」pill，改以「自動設定」按鈕承載狀態', async ({ page }) => {
@@ -68,9 +70,9 @@ test.describe('#80：單一表格整合屬性（班級列同時設定類別與�
     await expect(page.locator('[data-restore-auto="國小數學-四A"]').first()).toHaveCount(0);
   });
 
-  test('#80-4: 「＋ 新增時段」仍在表格工具列（#80 Expected Outcome 3）', async ({ page }) => {
+  test('#80-4: 「＋ 新增班級」仍在表格工具列（specs/14 A1）', async ({ page }) => {
     const toolbar = page.locator('.schedule-grid-container .toolbar');
-    await expect(toolbar.getByRole('button', { name: '＋ 新增時段' })).toBeVisible();
+    await expect(toolbar.getByRole('button', { name: '＋ 新增班級' })).toBeVisible();
   });
 
   test('#80-5: 欄位超出螢幕時，表格在容器內 2D 捲動、整頁不橫向溢出', async ({ page }) => {
