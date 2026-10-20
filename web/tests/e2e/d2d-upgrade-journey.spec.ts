@@ -18,7 +18,7 @@ import { test, expect } from '@playwright/test';
  *   1. 只勾升級 → 「確認變更」可用（`isDirty` 不含 `upgradeConfirmed` 時按鈕停用）
  *   2. 預覽顯示受影響學生數 1 人與天數變動明細
  *      （before 與 after 誤用同一版本、或 preview route 丟棄 `targetRuleSetVersion` 時皆為 0 人）
- *   3. 儲存後產生新的 v3 結果，舊 v2 run 保留
+ *   3. 儲存後產生新的 v4 結果，舊 v2 run 保留
  */
 
 /**
@@ -54,7 +54,7 @@ test.beforeEach(async ({ page }) => {
     await expect(dialog).toContainText('天數變動明細');
   });
 
-  test('完整旅程：升級預覽 → 儲存 → 產生 v3 新結果、舊 v2 結果保留', async ({ page }) => {
+  test('完整旅程：升級預覽 → 儲存 → 產生 v4 新結果、舊 v2 結果保留', async ({ page }) => {
     const before = await page.request.get('/api/v1/runs/current');
     const beforeJson = await before.json();
     const oldRunId = beforeJson.activeRunId as string;
@@ -69,11 +69,11 @@ test.beforeEach(async ({ page }) => {
     expect((await applied).ok()).toBe(true);
     await expect(dialog).toBeHidden();
 
-    // 新 run 為 v3
+    // 新 run 為目標正式軌 v4（#112 起；固定 5 天與課程學費折扣解耦）
     const after = await page.request.get('/api/v1/runs/current');
     const afterJson = await after.json();
     expect(afterJson.activeRunId).not.toBe(oldRunId);
-    expect(afterJson.run?.ruleSetVersion).toBe('erp-tag-v3');
+    expect(afterJson.run?.ruleSetVersion).toBe('erp-tag-v4');
 
     // 舊 v2 run 仍可讀、仍標 v2（不因升級被改寫或刪除）
     const old = await page.request.get(`/api/v1/runs/${oldRunId}/students`);

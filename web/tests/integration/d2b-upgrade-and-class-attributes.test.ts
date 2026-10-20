@@ -91,9 +91,9 @@ describe('D2b 4: 升級流程（Q11／D37／S manifest §2）— 空 DB 預設 v
 
   afterEach(() => db.close());
 
-  it('空 DB（無 active run）的目標版本為 erp-tag-v3', () => {
-    expect(resolveFormalRuleSetVersion(db)).toBe('erp-tag-v3');
-    expect(resolveTargetRuleSetVersion(db, undefined)).toBe('erp-tag-v3');
+  it('空 DB（無 active run）的目標版本為 erp-tag-v4（#112 起目標正式軌）', () => {
+    expect(resolveFormalRuleSetVersion(db)).toBe('erp-tag-v4');
+    expect(resolveTargetRuleSetVersion(db, undefined)).toBe('erp-tag-v4');
   });
 
   it('已有 v2 active run 時，現行版本維持 v2，且未明確要求升級的目標版本也維持 v2（不靜默切換）', () => {

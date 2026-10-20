@@ -22,7 +22,7 @@ export class RuleSetResolutionError extends Error {
  * 正式軌 ruleSetVersion（09 §8.1）：有 active run 且其版本為正式軌則採其值；
  * 否則（無 active run，或 active run 為診斷軌 compat）採現行預設版本 TARGET_FORMAL_RULE_SET_VERSION。
  *
- * D2b（Q11）：空 DB 直接預設 erp-tag-v3（解析器層即可回傳目標版本）；
+ * D2b（Q11）：空 DB 直接預設目標正式軌（D2b 時為 erp-tag-v3；#112 起為 erp-tag-v4），解析器層即可回傳目標版本；
  * 既有 v2 DB 走 activate／apply 沿用其 active run 的 v2，直到使用者明確確認升級。
  */
 export function resolveFormalRuleSetVersion(db: Database.Database): FormalRuleSetVersion {

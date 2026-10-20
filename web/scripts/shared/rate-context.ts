@@ -28,6 +28,7 @@ import { ruleSetCapabilities } from '../../src/domain/billing/rule-set';
 export interface RunSnapshotPayload {
   isV3Run: boolean;
   classCategories: RunClassCategorySnapshot[] | null;
+  ruleSetVersion?: string | null;
 }
 
 /**
@@ -67,7 +68,7 @@ export interface RunSnapshotSource {
  */
 export function buildRunSnapshotContext(run: RunSnapshotSource | null | undefined): RunSnapshotPayload | undefined {
   if (!run || !Array.isArray(run.classCategories)) return undefined;
-  return { isV3Run: true, classCategories: run.classCategories };
+  return { isV3Run: true, classCategories: run.classCategories, ruleSetVersion: run.ruleSetVersion };
 }
 
 /**
@@ -100,7 +101,11 @@ export function toApplicableRateContext(
 ): ApplicableRateContext | undefined {
   const rows = snapshotRowsOf(rateContext);
   if (rows === null) return undefined;
-  return { isV3Run: true, findSnapshot: (name) => rows.find((r) => r.base_name === name) };
+  return {
+    isV3Run: true,
+    ruleSetVersion: rateContext?.ruleSetVersion,
+    findSnapshot: (name) => rows.find((r) => r.base_name === name),
+  };
 }
 
 /** 查單一班名的快照列（供呼叫端判斷顯示類別）；沒有快照概念時回 `undefined`。 */

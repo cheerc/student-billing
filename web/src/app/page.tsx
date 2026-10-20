@@ -11,6 +11,7 @@ import ActiveRunView from '@/components/active-run-view';
 import { findUnmappedClasses, getScheduleDeductions } from '@/application/schedule-deductions';
 import { getImportBatch } from '@/adapters/sqlite/import-repository';
 import { loadRunClassCategories } from '@/application/applicable-rate';
+import { ruleSetCapabilities } from '@/domain/billing/rule-set';
 
 export const dynamic = 'force-dynamic';
 
@@ -54,9 +55,10 @@ export default async function HomePage({
           }}
           unmappedClasses={findUnmappedClasses(db, activeRun.id, availableClasses)}
           classCategorySnapshots={
-            // D2b 3：v3 run 才有類別快照；v1／v2 為空陣列 → 學生總表走名稱映射（與既有行為相同）
-            activeRun.ruleSetVersion === 'erp-tag-v3' ? loadRunClassCategories(db, activeRun.id) : null
+            // 類別快照：以能力旗標判斷，categoryBasedBilling 為真時載入快照；v1／v2 為 null → 走名稱映射
+            ruleSetCapabilities(activeRun.ruleSetVersion).categoryBasedBilling ? loadRunClassCategories(db, activeRun.id) : null
           }
+          classCategoryRuleSetVersion={activeRun.ruleSetVersion}
           initialData={view.data}
           initialOptions={view.options}
           initialView={view.view}

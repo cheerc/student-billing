@@ -35,7 +35,7 @@ export interface ResolvedClassSession {
   skipDeduction?: boolean;
 }
 
-export type RuleSetVersion = 'erp-tag-v1' | 'excel-v260922-compat' | 'erp-tag-v2' | 'erp-tag-v3';
+export type RuleSetVersion = 'erp-tag-v1' | 'excel-v260922-compat' | 'erp-tag-v2' | 'erp-tag-v3' | 'erp-tag-v4';
 
 export interface CalculationOptions {
   ruleSetVersion?: RuleSetVersion;
@@ -502,12 +502,12 @@ export function calculateStudentBilling(
           chinese: null,
         }
       : {
-          anqin: calculateApplicableRate('anqin', baseDiscountBps, tagDiscounts.internalStudent, hasHomeworkOrMeian, hasSpecialDiscount),
-          tutoring: calculateApplicableRate('tutoring', baseDiscountBps, tagDiscounts.internalStudent, hasHomeworkOrMeian, hasSpecialDiscount),
-          english: calculateApplicableRate('english', baseDiscountBps, tagDiscounts.internalStudent, hasHomeworkOrMeian, hasSpecialDiscount),
-          math: calculateApplicableRate('math', baseDiscountBps, tagDiscounts.internalStudent, hasHomeworkOrMeian, hasSpecialDiscount),
-          enrichment: calculateApplicableRate('enrichment', baseDiscountBps, tagDiscounts.internalStudent, hasHomeworkOrMeian, hasSpecialDiscount),
-          chinese: calculateApplicableRate('chinese', baseDiscountBps, tagDiscounts.internalStudent, hasHomeworkOrMeian, hasSpecialDiscount),
+          anqin: calculateApplicableRate('anqin', baseDiscountBps, tagDiscounts.internalStudent, hasHomeworkOrMeian, hasSpecialDiscount, capabilities.homeworkDiscountDecoupled),
+          tutoring: calculateApplicableRate('tutoring', baseDiscountBps, tagDiscounts.internalStudent, hasHomeworkOrMeian, hasSpecialDiscount, capabilities.homeworkDiscountDecoupled),
+          english: calculateApplicableRate('english', baseDiscountBps, tagDiscounts.internalStudent, hasHomeworkOrMeian, hasSpecialDiscount, capabilities.homeworkDiscountDecoupled),
+          math: calculateApplicableRate('math', baseDiscountBps, tagDiscounts.internalStudent, hasHomeworkOrMeian, hasSpecialDiscount, capabilities.homeworkDiscountDecoupled),
+          enrichment: calculateApplicableRate('enrichment', baseDiscountBps, tagDiscounts.internalStudent, hasHomeworkOrMeian, hasSpecialDiscount, capabilities.homeworkDiscountDecoupled),
+          chinese: calculateApplicableRate('chinese', baseDiscountBps, tagDiscounts.internalStudent, hasHomeworkOrMeian, hasSpecialDiscount, capabilities.homeworkDiscountDecoupled),
         };
 
   // 6. 級距比較 (Tier Comparisons, U43, U47)

@@ -9,7 +9,7 @@ import {
   isFormalRuleSetVersion,
   ruleSetCapabilities,
 } from '@/domain/billing/rule-set';
-import type { StudentSnapshot } from '@/contracts/student-billing';
+import type { StudentSnapshot } from '@/domain/students';
 import type { ClassSettingLookup } from '@/domain/classification/class-category';
 import type { RosterChangeContext } from '@/application/roster-changes';
 

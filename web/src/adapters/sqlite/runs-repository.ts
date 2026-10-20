@@ -138,8 +138,8 @@ export function saveCalculationRun(
     );
   }
 
-  // R2-1: v3 run 持久化 run_class_categories 快照，置於 calculation_runs 確定存在後執行，避免級聯刪除
-  if (run.ruleSetVersion === 'erp-tag-v3' && classCategories && classCategories.length > 0) {
+  // R2-1: 類別快照持久化 (categoryBasedBilling)，置於 calculation_runs 確定存在後執行，避免級聯刪除
+  if (ruleSetCapabilities(run.ruleSetVersion).categoryBasedBilling && classCategories && classCategories.length > 0) {
     const insertCategory = db.prepare(`
       INSERT OR REPLACE INTO run_class_categories (
         run_id, base_name, category, fixed_five_days, mapped, source

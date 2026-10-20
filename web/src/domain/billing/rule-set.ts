@@ -10,18 +10,18 @@
  */
 
 /** 正式軌 ruleSetVersion（診斷軌 excel-v260922-compat 不作正式值，根 CLAUDE.md §2）。 */
-export type FormalRuleSetVersion = 'erp-tag-v1' | 'erp-tag-v2' | 'erp-tag-v3';
+export type FormalRuleSetVersion = 'erp-tag-v1' | 'erp-tag-v2' | 'erp-tag-v3' | 'erp-tag-v4';
 
-export const FORMAL_RULE_SET_VERSIONS: ReadonlySet<string> = new Set<FormalRuleSetVersion>(['erp-tag-v1', 'erp-tag-v2', 'erp-tag-v3']);
+export const FORMAL_RULE_SET_VERSIONS: ReadonlySet<string> = new Set<FormalRuleSetVersion>(['erp-tag-v1', 'erp-tag-v2', 'erp-tag-v3', 'erp-tag-v4']);
 
 /** 正式軌版本的可枚舉清單（API 契約用；與 FORMAL_RULE_SET_VERSIONS 同一份定義，不各寫一份）。 */
-export const FORMAL_RULE_SET_VERSION_LIST = ['erp-tag-v1', 'erp-tag-v2', 'erp-tag-v3'] as const;
+export const FORMAL_RULE_SET_VERSION_LIST = ['erp-tag-v1', 'erp-tag-v2', 'erp-tag-v3', 'erp-tag-v4'] as const;
 
 /**
  * 空 DB 的目標正式軌（Q11）。既有 v2 DB 走 activate／apply 沿用其 active run 的版本，
  * 直到使用者明確確認升級（D2b 的升級確認流程），因此這裡不影響既有資料。
  */
-export const TARGET_FORMAL_RULE_SET_VERSION: FormalRuleSetVersion = 'erp-tag-v3';
+export const TARGET_FORMAL_RULE_SET_VERSION: FormalRuleSetVersion = 'erp-tag-v4';
 
 /**
  * D2 之前的「無 active run 時採用的版本」。D2b 起解析器改採 TARGET_FORMAL_RULE_SET_VERSION，
@@ -54,6 +54,8 @@ export interface RuleSetCapabilities {
   unmappedClassWarning: boolean;
   /** #147: 固定 5 天在額外扣天前套用，額外扣天扣在固定 5 天之後 (但受年級下限保底)。 */
   extraDeductionAfterFloor: boolean;
+  /** #112: 固定 5 天與課程學費折扣解耦（不將 anqin／tutoring 強制覆蓋為 10000 bps）。 */
+  homeworkDiscountDecoupled: boolean;
 }
 
 const NO_CAPABILITIES: RuleSetCapabilities = {
@@ -66,6 +68,7 @@ const NO_CAPABILITIES: RuleSetCapabilities = {
   diagnosticsDecomposition: false,
   unmappedClassWarning: false,
   extraDeductionAfterFloor: false,
+  homeworkDiscountDecoupled: false,
 };
 
 /**
@@ -88,6 +91,7 @@ const CAPABILITIES: Readonly<Record<string, RuleSetCapabilities>> = {
     diagnosticsDecomposition: false,
     unmappedClassWarning: false,
     extraDeductionAfterFloor: false,
+    homeworkDiscountDecoupled: false,
   },
   // 正式軌 v3（D2）：同星期比對、類別式科數、扣天取最多、美語缺課表警告、未對應班警告、診斷標籤分解、額外扣天在固定5天後扣除。
   'erp-tag-v3': {
@@ -100,6 +104,20 @@ const CAPABILITIES: Readonly<Record<string, RuleSetCapabilities>> = {
     diagnosticsDecomposition: true,
     unmappedClassWarning: true,
     extraDeductionAfterFloor: true,
+    homeworkDiscountDecoupled: false,
+  },
+  // 正式軌 v4（#112）：繼承 v3 全部特性，並將固定 5 天與課程學費折扣解耦（固定 5 天不再覆寫折扣）。
+  'erp-tag-v4': {
+    sameWeekdayOnly: true,
+    unknownWeekdayWarning: true,
+    scheduleIncompleteOnUnknownWeekday: true,
+    categoryBasedBilling: true,
+    maxDeductionSelection: true,
+    missingEnglishScheduleWarning: true,
+    diagnosticsDecomposition: true,
+    unmappedClassWarning: true,
+    extraDeductionAfterFloor: true,
+    homeworkDiscountDecoupled: true,
   },
 };
 

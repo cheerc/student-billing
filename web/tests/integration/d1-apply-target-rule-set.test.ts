@@ -81,19 +81,19 @@ describe('F-3：apply 使用 preview 記錄的目標規則版本', () => {
     expect(ruleSetOfRun(db, applied.runId as string)).toBe('erp-tag-v2');
   });
 
-  it('active 為診斷軌 compat：目標採 erp-tag-v3（診斷軌不作正式值；Q11 空 DB 預設）', async () => {
+  it('active 為診斷軌 compat：目標採 erp-tag-v4（診斷軌不作正式值；Q11 空 DB 預設）', async () => {
     const { db, revision } = await activeWithVersion('excel-v260922-compat');
     const preview = previewSettingsChange(db, undefined, { draft: changedDraft(), expectedRevision: revision });
-    expect(targetColumn(db, preview.previewId)).toBe('erp-tag-v3');
+    expect(targetColumn(db, preview.previewId)).toBe('erp-tag-v4');
     const applied = applySettingsPreview(db, { previewId: preview.previewId, expectedRevision: revision, idempotencyKey: 'k-apply-3' });
-    expect(ruleSetOfRun(db, applied.runId as string)).toBe('erp-tag-v3');
+    expect(ruleSetOfRun(db, applied.runId as string)).toBe('erp-tag-v4');
   });
 
-  it('settings_only（無現行名單）的 preview 也記錄目標版本（erp-tag-v3）；apply 不建 run', () => {
+  it('settings_only（無現行名單）的 preview 也記錄目標版本（erp-tag-v4）；apply 不建 run', () => {
     const db = ctx.db();
     const preview = previewSettingsChange(db, undefined, { draft: changedDraft(), expectedRevision: 0 });
     expect(preview.mode).toBe('settings_only');
-    expect(targetColumn(db, preview.previewId)).toBe('erp-tag-v3');
+    expect(targetColumn(db, preview.previewId)).toBe('erp-tag-v4');
     const applied = applySettingsPreview(db, { previewId: preview.previewId, expectedRevision: 0, idempotencyKey: 'k-so' });
     expect(applied.runId).toBeNull();
   });
@@ -152,15 +152,15 @@ describe('規則版本解析器（新模組 @/application/rule-set-resolver）',
     const mod = await loadModule<Resolver>('@/application/rule-set-resolver');
     expect(mod, '@/application/rule-set-resolver 需存在').not.toBeNull();
     const db = ctx.db();
-    expect(mod!.resolveFormalRuleSetVersion(db)).toBe('erp-tag-v3');
+    expect(mod!.resolveFormalRuleSetVersion(db)).toBe('erp-tag-v4');
 
     await saveFixtureBatch(db, 'imp_a');
     const run = activateBatch(db, 'imp_a', 'k1');
-    expect(mod!.resolveFormalRuleSetVersion(db)).toBe('erp-tag-v3');
+    expect(mod!.resolveFormalRuleSetVersion(db)).toBe('erp-tag-v4');
     setRunRuleSet(db, run.runId, 'erp-tag-v1');
     expect(mod!.resolveFormalRuleSetVersion(db)).toBe('erp-tag-v1');
     setRunRuleSet(db, run.runId, 'excel-v260922-compat');
-    expect(mod!.resolveFormalRuleSetVersion(db)).toBe('erp-tag-v3');
+    expect(mod!.resolveFormalRuleSetVersion(db)).toBe('erp-tag-v4');
   });
 
   it('resolveRuleSetForApply：記錄值為正式軌則採用；null／undefined 回 server 解析值；非正式軌拋錯', async () => {
@@ -169,9 +169,9 @@ describe('規則版本解析器（新模組 @/application/rule-set-resolver）',
     const db = ctx.db();
     expect(mod!.resolveRuleSetForApply(db, 'erp-tag-v1')).toBe('erp-tag-v1');
     expect(mod!.resolveRuleSetForApply(db, 'erp-tag-v2')).toBe('erp-tag-v2');
-    // 無記錄值時回 server 解析值；空 DB → 目標版本 erp-tag-v3（D2b Q11）
-    expect(mod!.resolveRuleSetForApply(db, null)).toBe('erp-tag-v3');
-    expect(mod!.resolveRuleSetForApply(db, undefined)).toBe('erp-tag-v3');
+    // 無記錄值時回 server 解析值；空 DB → 目標版本 erp-tag-v4（D2b Q11；#112 起目標正式軌）
+    expect(mod!.resolveRuleSetForApply(db, null)).toBe('erp-tag-v4');
+    expect(mod!.resolveRuleSetForApply(db, undefined)).toBe('erp-tag-v4');
     expect(() => mod!.resolveRuleSetForApply(db, 'excel-v260922-compat')).toThrow();
     expect(() => mod!.resolveRuleSetForApply(db, 'garbage-version')).toThrow();
   });

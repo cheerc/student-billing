@@ -10,7 +10,7 @@ import { test, expect } from '@playwright/test';
  * 1. **F-1 取消修改**：`upgradeConfirmed` 留在 `true` → 畫面仍顯示
  *    「有未儲存的變更 · 請確認變更後儲存」（`isDirty` 含 `upgradeChanged`），
  *    但使用者明明已經取消全部修改，而且**這個 state 無法再從畫面清除**。
- * 2. **F-2 套用成功**：server 已套用 v3，但 client 端 `canUpgrade` 仍看舊的
+ * 2. **F-2 套用成功**：server 已套用目標正式軌，但 client 端 `canUpgrade` 仍看舊的
  *    `currentRuleSetVersion`（v2，server-render prop，session 內不更新）→
  *    `[data-upgrade-banner]` 仍在（錯誤地說「可以升級」）、`isDirty` 仍 true、
  *    「確認變更」仍可點、離頁仍被守衛與 beforeunload 攔截。banner 應消失、狀態列應乾淨。
@@ -92,7 +92,7 @@ test.describe('D2d r3／F1：取消修改必須清除升級勾選', () => {
     await expect(page.locator('[data-upgrade-banner]'), '套用失敗後 banner 應仍在').toBeVisible();
     const after = await (await page.request.get('/api/v1/runs/current')).json();
     expect(after.activeRunId, '套用失敗不得改變 active run').toBe(beforeRunId);
-    expect(after.run?.ruleSetVersion, '套用失敗不得冒認 v3').toBe('erp-tag-v2');
+    expect(after.run?.ruleSetVersion, '套用失敗不得冒認已升級').toBe('erp-tag-v2');
   });
 });
 
@@ -111,14 +111,14 @@ test.describe('D2d r3／F2：套用成功後升級狀態必須收斂', () => {
     expect((await applied).ok()).toBe(true);
     await expect(dialog).toBeHidden();
 
-    // server 端已是 v3
+    // server 端已是目標正式軌 v4（#112 起）
     const after = await (await page.request.get('/api/v1/runs/current')).json();
-    expect(after.run?.ruleSetVersion).toBe('erp-tag-v3');
+    expect(after.run?.ruleSetVersion).toBe('erp-tag-v4');
 
     // ★ F-2：client 端也必須收斂
     await expect(
       page.locator('[data-upgrade-banner]'),
-      '套用成功後升級 banner 必須消失（畫面已是 v3）'
+      '套用成功後升級 banner 必須消失（畫面已是目標正式軌）'
     ).toHaveCount(0);
     await expect(page.locator('.save-status-clean'), '套用成功後狀態列應為乾淨').toBeVisible();
     await expect(
@@ -126,21 +126,21 @@ test.describe('D2d r3／F2：套用成功後升級狀態必須收斂', () => {
       '套用成功後「確認變更」應停用（沒有未儲存變更）'
     ).toBeDisabled();
 
-    // ── 同一條旅程的延伸：再次編輯 → 取消 → 重載，狀態必須維持 v3 ──
+    // ── 同一條旅程的延伸：再次編輯 → 取消 → 重載，狀態必須維持目標正式軌 ──
     // （與上面的套用成功合併成同一條：兩者共用同一個 v2 前置 DB，
-    //   拆成兩條會讓後者在前者把 DB 升成 v3 之後被 beforeEach 靜默 skip。）
+    //   拆成兩條會讓後者在前者把 DB 升上去之後被 beforeEach 靜默 skip。）
     await page.locator('input.input-time').first().fill('14:45');
     await expect(page.locator('.save-status-dirty'), '再次編輯應顯示未儲存變更').toBeVisible();
     await expect(
       page.locator('[data-upgrade-banner]'),
-      '再次編輯時 banner 不得復原（版本已是 v3）'
+      '再次編輯時 banner 不得復原（版本已是目標正式軌）'
     ).toHaveCount(0);
     await page.getByRole('button', { name: '取消修改' }).click();
     await expect(page.locator('.save-status-clean'), '再次編輯後取消應回到乾淨').toBeVisible();
 
     await page.reload();
     const reloaded = await (await page.request.get('/api/v1/runs/current')).json();
-    expect(reloaded.run?.ruleSetVersion, '重載後仍是 v3').toBe('erp-tag-v3');
+    expect(reloaded.run?.ruleSetVersion, '重載後仍是目標正式軌 v4').toBe('erp-tag-v4');
     await expect(
       page.locator('[data-upgrade-banner]'),
       '重載後 banner 不得復原'

@@ -10,6 +10,8 @@
  * SQL（query-students）與選項端點（query-student-options）共用同一個類別判斷，畫面也以此為準。
  */
 
+import { ruleSetCapabilities } from '@/domain/billing/rule-set';
+
 export type RateCategory = 'care' | 'math' | 'english';
 
 export function rateCategoryOfClass(className: string): RateCategory | null {
@@ -43,8 +45,11 @@ export interface RunClassCategorySnapshot {
  * client component（畫面以 server 傳下的快照陣列查詢）使用，不把 db 帶進瀏覽器。
  */
 export interface ApplicableRateContext {
-  /** 該 run 是否為 v3（v1／v2 走名稱映射，不讀快照） */
-  isV3Run: boolean;
+  /** 該 run 是否為 v3（相容舊簽章；v1／v2 走名稱映射，不讀快照） */
+  isV3Run?: boolean;
+  usesSnapshot?: boolean;
+  ruleSetVersion?: string | null;
+  fixedFiveDaysAffectsRate?: boolean;
   /** 以**名冊班名**查快照（快照的 base_name 存的就是名冊班名，secondary N-8 對齊） */
   findSnapshot: (rosterClassName: string) => RunClassCategorySnapshot | undefined;
 }
@@ -65,14 +70,26 @@ export function applicableRateForClass(
   s: ApplicableRateFields,
   context?: ApplicableRateContext
 ): ApplicableRate {
-  if (context?.isV3Run) {
+  const usesSnapshot =
+    context?.usesSnapshot ??
+    (context?.ruleSetVersion
+      ? ruleSetCapabilities(context.ruleSetVersion).categoryBasedBilling
+      : context?.isV3Run ?? false);
+
+  if (usesSnapshot && context?.findSnapshot) {
     const row = context.findSnapshot(className);
     if (!row) {
-      // v3 run 缺該班快照 → 無法判定，嚴禁以當前班名猜測（03 §5.3.4）
+      // 缺該班快照 → 無法判定，嚴禁以當前班名猜測（03 §5.3.4）
       return { status: 'not_configured' };
     }
-    if (row.fixed_five_days === 1) {
-      // Q7-A: 不列入但固定 5 天的班本班適用折扣顯示 100% 而非「未設定」
+    const fixedFiveDaysAffectsRate =
+      context.fixedFiveDaysAffectsRate ??
+      (context.ruleSetVersion
+        ? !ruleSetCapabilities(context.ruleSetVersion).homeworkDiscountDecoupled
+        : context.isV3Run ?? false);
+
+    if (fixedFiveDaysAffectsRate && row.fixed_five_days === 1) {
+      // v3 Q7-A: 不列入但固定 5 天的班本班適用折扣顯示 100% 而非「未設定」
       return { status: 'configured', bps: 10000 };
     }
     if (row.category === 'math') return { status: 'configured', bps: s.applicableMathBps };
