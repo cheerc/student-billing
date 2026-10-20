@@ -246,13 +246,33 @@ describe('#81：課表 Excel 全量匯出／匯入', () => {
       );
     });
 
-    it('同一班不同列的「課程類型」不一致 → 整批拒絕', async () => {
+    it('同一班不同列的「課程類型」不一致 → 整批拒絕並精確點名課程類型', async () => {
       const buffer = await makeWorkbook([...SCHEDULE_TABLE_HEADERS], [
         ['衝突班', '非安親課輔班', '數學班', '否', '否', '', '一', '10:00', '11:00'],
         ['衝突班', '安親課輔班', '數學班', '否', '否', '', '', '', ''],
       ]);
       await expect(parseScheduleWorkbook(buffer)).rejects.toThrow(
-        /不同的課程類型、折扣類別或固定 5 天/
+        /班級「衝突班」在不同列填了不同的課程類型，請先讓它們一致再匯入。/
+      );
+    });
+
+    it('同一班不同列的「折扣類別」不一致 → 整批拒絕並精確點名折扣類別', async () => {
+      const buffer = await makeWorkbook([...SCHEDULE_TABLE_HEADERS], [
+        ['衝突班', '非安親課輔班', '數學班', '否', '否', '', '一', '10:00', '11:00'],
+        ['衝突班', '非安親課輔班', '美語班', '否', '否', '', '二', '10:00', '11:00'],
+      ]);
+      await expect(parseScheduleWorkbook(buffer)).rejects.toThrow(
+        /班級「衝突班」在不同列填了不同的折扣類別，請先讓它們一致再匯入。/
+      );
+    });
+
+    it('同一班不同列的「固定 5 天」不一致 → 整批拒絕並精確點名固定 5 天設定', async () => {
+      const buffer = await makeWorkbook([...SCHEDULE_TABLE_HEADERS], [
+        ['衝突班', '安親課輔班', '安親課輔班', '是', '否', '', '', '', ''],
+        ['衝突班', '安親課輔班', '安親課輔班', '否', '否', '', '', '', ''],
+      ]);
+      await expect(parseScheduleWorkbook(buffer)).rejects.toThrow(
+        /班級「衝突班」在不同列填了不同的固定 5 天設定，請先讓它們一致再匯入。/
       );
     });
   });
@@ -391,7 +411,7 @@ describe('#81：課表 Excel 全量匯出／匯入', () => {
       }
     });
 
-    it('匯出端閘門淨化：若 non_care 帶有 fixedFiveDays: true，匯出時強制轉為「否」，避免匯入互斥', async () => {
+    it('若 non_care 帶有 fixedFiveDays: true，匯出時忠實輸出，匯入時嚴格拒絕互斥', async () => {
       const row: ScheduleGridRow = {
         rowId: 'r1',
         className: '國小數學-四A',
@@ -408,9 +428,16 @@ describe('#81：課表 Excel 全量匯出／匯入', () => {
         { className: '國小數學-四A', classType: 'non_care', category: 'math', fixedFiveDays: true },
       ];
       const buffer = await buildScheduleWorkbook([row], attrs);
-      const result = await parseScheduleWorkbook(buffer);
-      expect(result.rows[0].fixedFiveDays).toBe(false);
-      expect(result.classAttrs[0].fixedFiveDays).toBe(false);
+      const wb = new ExcelJS.Workbook();
+      await wb.xlsx.load(buffer as unknown as ArrayBuffer);
+      const ws = wb.getWorksheet(SCHEDULE_TABLE_SHEET_NAME)!;
+      // 依 D17 照實呈現：匯出端維持忠實輸出
+      expect((ws.getRow(2).values as unknown[])[4]).toBe('是');
+
+      // 匯入端嚴格把關：整批拒絕非安親課輔班之固定 5 天
+      await expect(parseScheduleWorkbook(buffer)).rejects.toThrow(
+        /第 2 列為非安親課輔班，非安親課輔班不適用「天數固定5天」，請填「否」/
+      );
     });
 
     it('匯出端閘門淨化：若 care 班帶有 skipDeduction: true 或星期時間，匯出時強制留空與否，避免匯入互斥', async () => {
@@ -619,14 +646,17 @@ describe('#81：課表 Excel 全量匯出／匯入', () => {
     };
 
     const appAttrs = (rows: ScheduleGridRow[]) =>
-      [...new Set(rows.map((r) => r.className))].map((className) => ({
-        className,
-        classType: resolveClassAttributes(className).classType,
-        category: 'none' as const,
-        fixedFiveDays: false,
-      }));
+      [...new Set(rows.map((r) => r.className))].map((className) => {
+        const attr = resolveClassAttributes(className);
+        return {
+          className,
+          classType: attr.classType,
+          category: attr.category,
+          fixedFiveDays: attr.fixedFiveDays,
+        };
+      });
 
-    it('seed 課表（88 列）匯出後能原封不動匯回來', async () => {
+    it('seed 課表（88/89 列）匯出後能原封不動匯回來', async () => {
       const rows = appRows();
       const buffer = await buildScheduleWorkbook(rows, appAttrs(rows));
       const result = await parseScheduleWorkbook(buffer);
