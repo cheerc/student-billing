@@ -338,8 +338,8 @@ run 的設定快照＝`run.scheduleVersionId`：`seed-v250922`（該 run 沒有�
   - **快照語意隨規則版本而異**：`fixed_five_days` 在 v3 會讓本班折扣變 100%，在 v4 不會。消費端必須把該 run 的 `ruleSetVersion` 一併傳入讀模型（`SummaryTable` 的 `classCategoryRuleSetVersion`、工具層 `toApplicableRateContext`），不得由消費端自行字面比較版本決定。
 
 #### 5.3.5 診斷標籤兩段式分解
-- `calculate-run` 對 v3 run 同時計算 formal(v3)、shadow(v2) 與 compat：
-  - `formal(v3)` vs `shadow(v2)` 天數差 → 標記 `RULESET_POLICY_DIFFERENCE`（白話：「新舊規則對這位學生的算法不同。」）。
+- `calculate-run` 對具 `diagnosticsDecomposition` 能力的 run（v3、v4）同時計算 formal、shadow(v2) 與 compat：
+  - `formal` vs `shadow(v2)` 天數差 → 標記 `RULESET_POLICY_DIFFERENCE`（白話：「新舊規則對這位學生的算法不同。」）。
   - `shadow(v2)` vs `compat` 天數差 → 標記 `NUMERIC_POLICY_DIFFERENCE`。
   - 新 issue code `RULESET_POLICY_DIFFERENCE` 與 `CLASS_NOT_MAPPED` 登錄於 `KNOWN_ISSUE_CODES` 與 `lib/issue-copy.ts`。
 
