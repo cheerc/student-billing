@@ -10,6 +10,7 @@ import { resolveClassEnrollment } from '@/domain/classification/class-category';
 import {
   ClassSettingSchema,
   gridRowsToClasses,
+  gridRowsToCalculateClasses,
   isSettingsDirty,
   type ScheduleGridRow,
 } from '@/contracts/settings';
@@ -116,6 +117,54 @@ describe('Issue #112 PR-1A: 課程類型 (classType) 資料模型與屬性重構
           },
         ])
       ).toBe(true);
+    });
+  });
+
+  describe('A5: 安親課輔班 sessions 強制為 []（specs/14 §3.6 & A5）', () => {
+    it('gridRowsToClasses 與 gridRowsToCalculateClasses 對 classType === care 班級強制輸出 sessions: []', () => {
+      const rows: ScheduleGridRow[] = [
+        {
+          rowId: 'row-care',
+          className: '國小輔導-四年級',
+          teacher: '玟君',
+          weekday: '一',
+          startTime: '13:00',
+          endTime: '16:00',
+          startMinutes: 780,
+          endMinutes: 960,
+          active: true,
+          skipDeduction: false,
+        },
+        {
+          rowId: 'row-noncare',
+          className: '國小數學-四A',
+          teacher: '張老師',
+          weekday: '一',
+          startTime: '16:30',
+          endTime: '18:00',
+          startMinutes: 990,
+          endMinutes: 1080,
+          active: true,
+          skipDeduction: false,
+        },
+      ];
+
+      const existingClasses = [
+        { baseName: '國小輔導-四年級', subject: '國小輔導', teacher: '玟君', active: true, sessions: [], classType: 'care' as const },
+        { baseName: '國小數學-四A', subject: '國小數學', teacher: '張老師', active: true, sessions: [], classType: 'non_care' as const },
+      ];
+
+      const saveClasses = gridRowsToClasses(rows, existingClasses as any);
+      const careSave = saveClasses.find((c) => c.baseName === '國小輔導-四年級')!;
+      const nonCareSave = saveClasses.find((c) => c.baseName === '國小數學-四A')!;
+      expect(careSave.sessions).toEqual([]);
+      expect(nonCareSave.sessions).toHaveLength(1);
+
+      const calcClasses = gridRowsToCalculateClasses(rows, existingClasses as any);
+      const careCalc = calcClasses.find((c) => c.baseName === '國小輔導-四年級')!;
+      const nonCareCalc = calcClasses.find((c) => c.baseName === '國小數學-四A')!;
+      expect(careCalc.sessions).toEqual([]);
+      expect(nonCareCalc.sessions).toHaveLength(1);
     });
   });
 

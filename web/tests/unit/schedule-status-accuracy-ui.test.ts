@@ -303,7 +303,7 @@ describe('ClassDeductionsPanel：整班優先序（未知／不完整＞已計�
       unknown_weekday: '需確認',
       missing_time: '待補',
       incomplete: '待補',
-      shared_window: '共用窗口',
+      shared_window: '安親課輔班（不計時段）',
       inactive: '停用',
     };
     expect(html).toContain(`<span class="ded-status" data-status="${expected}">${labels[expected]}</span>`);

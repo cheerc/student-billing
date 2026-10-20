@@ -16,7 +16,7 @@ import {
   calculateSessionDeduction,
   isUnknownWeekday,
 } from '@/domain/schedules/overlap-calculator';
-import seedData from '@/domain/schedules/schedule-seed.json';
+import { resolveClassAttributes } from '@/domain/classification/class-attributes';
 import type { CareStatus } from './care-status';
 import { FormalRuleSetVersion, ruleSetCapabilities } from '@/domain/billing/rule-set';
 import { resolveFormalRuleSetVersion } from './rule-set-resolver';
@@ -132,13 +132,6 @@ export const CARE_WINDOWS_VIEW: SchedulePreviewWindows = {
   },
 };
 
-/** seed 內的共用窗口班（source=care_window）：沒有自己的 session，不捏造。 */
-const SHARED_WINDOW_CLASSES: ReadonlySet<string> = new Set(
-  (seedData.classes as Array<{ baseName: string; source: string }>)
-    .filter((c) => c.source === 'care_window')
-    .map((c) => c.baseName)
-);
-
 /**
  * draft.careWindows 是否等於 ruleSet 窗口。窗口固定（D33）：draft 仍必帶 careWindows（schema 必填），
  * 但只允許 ruleSet 值；不符由呼叫端回 400 INVALID_DRAFT，不靜默忽略。
@@ -211,8 +204,9 @@ function aggregateStatus(a: {
   totalOverlapMinutes: number;
 }): CareStatus {
   if (!a.active) return 'inactive';
-  // 沒有任何完整時段：無列（待補）或只有 seed 共用窗口班自己的 null 時間列
-  if (a.completeCount === 0 && (a.incompleteCount === 0 || a.shared)) return a.shared ? 'shared_window' : 'missing_time';
+  // specs/14 §3.7：安親課輔班專門狀態
+  if (a.shared) return 'shared_window';
+  if (a.completeCount === 0 && a.incompleteCount === 0) return 'missing_time';
   if (a.incompleteCount > 0) return 'incomplete';
   if (a.anyUnknownWeekday) return 'unknown_weekday';
   // #113：不計扣天排在 calculated 之前（無重疊 = 2 < 不計扣天 = 3 → 兩側任一為不計扣天即顯示不計扣天）。
@@ -235,7 +229,9 @@ export function buildSchedulePreview(draft: CalculateDraft, ruleSetVersion: Form
   const issues: PreviewIssue[] = [];
 
   for (const c of draft.classes) {
-    const shared = SHARED_WINDOW_CLASSES.has(c.baseName);
+    // specs/14 §3.7 & A5：專門狀態改依班級設定之課程類型 classType === 'care' 判定（取代靜態班名 SHARED_WINDOW_CLASSES）
+    // 經 resolveClassAttributes 正規化後嚴格比對 === 'care'，相容舊草稿未帶 classType 屬性
+    const shared = resolveClassAttributes(c.baseName, c).classType === 'care';
     const calcSessions = override.get(c.baseName) ?? [];
     // #113 follow-up（逐時段）：只有未勾選的時段才納入扣天。
     // 勾選者時段仍保留（不是 schedule_empty），只是不扣天。

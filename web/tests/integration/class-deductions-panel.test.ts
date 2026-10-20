@@ -61,8 +61,8 @@ describe('UX05–07／09 §5.2：班級扣天 read model 與面板', () => {
       React.createElement(ClassDeductionsPanel, { data: res, onEditClass: () => {} })
     );
     expect(html).toContain('尚未匯入學生，可先檢查扣天');
-    // 狀態欄：缺時段／共用窗口／無重疊分開
-    expect(html).toMatch(/無重疊|共用窗口|待補/);
+    // 狀態欄：缺時段／安親課輔班（不計時段）／無重疊分開
+    expect(html).toMatch(/無重疊|安親課輔班（不計時段）|待補/);
   });
 
   it('扣除以正量顯示：rawDeduction／rounded 為 domain 負值，畫面顯示正量', () => {
@@ -126,7 +126,7 @@ describe('UX05–07／09 §5.2：班級扣天 read model 與面板', () => {
     expect(html).toContain('課輔');
   });
 
-  it('狀態欄區分：無重疊／共用窗口／待補／需確認（不混為同一種狀態）', () => {
+  it('狀態欄區分：無重疊／安親課輔班（不計時段）／待補／需確認（不混為同一種狀態）', () => {
     const res = getScheduleDeductions(db);
     const statuses = new Set(res.classes.map((c) => c.anqin.status));
     // seed 內容含多種類型；不應只有一種

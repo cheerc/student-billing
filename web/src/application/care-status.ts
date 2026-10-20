@@ -13,11 +13,11 @@ export type CareStatus =
   | 'unknown_weekday' // 星期缺失、空白或無法識別：v2 fail-closed 為 0，但不是「無衝堂」
   | 'missing_time' // 列：起訖不完整（缺起／缺迄／迄≤起）；班級（無任何列）：沒有時段（待補）
   | 'incomplete' // 班級層：含不完整列。扣天只統計完整列，不顯示成 calculated
-  | 'shared_window' // seed 的共用窗口班（care_window），本身沒有 session，不捏造
+  | 'shared_window' // 安親課輔班（specs/14 §3.7，不計時段），本身沒有 session，不捏造
   | 'inactive'; // 班級停用，不計算
 
 /**
- * 整班優先序（數字小者優先顯示）：停用／共用窗口（班級層旗標）＞ 未知／不完整（不可信，需人處理）＞ 已計算 ＞ 無重疊。
+ * 整班優先序（數字小者優先顯示）：停用／安親課輔班（班級層旗標）＞ 未知／不完整（不可信，需人處理）＞ 已計算 ＞ 無重疊。
  * 「未知／不完整」三種（incomplete、missing_time、unknown_weekday）同一層級，不分先後——實務上兩側會是同一種，
  * 兩側不同時取第一個引數（安親側）。
  *
