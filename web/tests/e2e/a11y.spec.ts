@@ -334,7 +334,7 @@ test.describe('R5 可及性稽核（09 §6）', () => {
     await page.goto('/settings');
     await expect(page.locator('h1', { hasText: '課表設定' })).toBeVisible({ timeout: 10000 });
 
-    const tablist = page.locator('[role="tablist"]').first();
+    const tablist = page.getByRole('tablist', { name: '課表設定頁籤' });
     await expect(tablist).toHaveAttribute('aria-label', /.+/);
     const schedule = tablist.locator('[role="tab"]', { hasText: /^課表/ });
     const mapping = tablist.locator('[role="tab"]', { hasText: '班名對應' });

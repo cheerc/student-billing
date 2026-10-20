@@ -89,9 +89,12 @@ test.describe('F04 編輯此班課表：穩定班級識別、課表頁列出該�
     await expect(banner).toContainText(target.classKey);
     await expect(banner).toContainText(`${expectedSessions} 個時段`);
 
-    // 可回到全部班級
+    // 可回到全部班級（跨雙頁籤加總驗證全量時段列數）
     await banner.getByRole('button', { name: '顯示全部班級' }).click();
-    await expect(scheduleRows).toHaveCount(allRows);
+    const nonCare = await scheduleRows.count();
+    await page.locator('#class-type-tab-care').click();
+    const care = await page.locator('.schedule-table tbody tr.schedule-row').count();
+    expect(nonCare + care).toBe(allRows);
 
     // 返回：仍是班級扣天頁籤
     await page.goBack();

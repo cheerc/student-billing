@@ -453,7 +453,7 @@ export function ScheduleGrid({
 
       {/* Excel 匯入錯誤橫幅（整批拒絕時顯示，角色為 alert） */}
       {importError && (
-        <div className="alert alert-error" role="alert" data-schedule-import-error="">
+        <div className="alert alert-danger" role="alert" data-schedule-import-error="">
           <strong>課表匯入失敗（沒有套用任何資料）：</strong>
           {importError}
         </div>
