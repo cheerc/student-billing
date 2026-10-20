@@ -369,17 +369,17 @@ run 的設定快照＝`run.scheduleVersionId`：`seed-v250922`（該 run 沒有�
 **合併衝突的判定基準是各來源班的「有效屬性」**（手動值優先，未手動者依 baseline 班名自動偵測），不是只看手動值——否則兩班中有一班未手動時會被誤判為不衝突。
 
 #### 5.4.3 影響預覽與 dirty
-- `POST /api/v1/settings/preview` 的 `before`（現行已儲存設定）與 `after`（草稿）**都帶 `classSettings`**，因此類別式科數的變化會進入預覽。
-- 新增兩個明細：`subjectCountDeltas`（已補科數）與 `baseDiscountDeltas`（合計折扣 bps），只列出有變化者。
-- `affectedStudents` 為三個明細的 **`personCode` 聯集去重計數**（天數、科數、折扣是同一批學生的不同欄位變化，同一人只能算一次）。**不得相加**——相加會把同時有天數與科數變化的學生重複計算。語意為「受影響去重人數」，與 09 §3.1 一致；三種明細皆空時為 0。
+- `POST /api/v1/settings/preview` 的 `before`（現行已儲存設定）與 `after`（草稿）**都帶 `classSettings`**，因此類別式科數與收費率的變化會進入預覽。
+- 明細包含：`dayDeltas`（天數）、`subjectCountDeltas`（已補科數）、`baseDiscountDeltas`（合計折扣 bps），以及 #112 Ruling 2 新增的 `courseRateDeltas`（課程學費折扣收取率 bps，比對各課程收取率），只列出有變化者。
+- `affectedStudents` 為四個明細的 **`personCode` 聯集去重計數**（天數、科數、合計折扣、課程學費折扣是同一批學生的不同欄位變化，同一人只能算一次）。**不得相加**——相加會把多項同時有變化的學生重複計算。語意為「受影響去重人數」，與 09 §3.1 一致；四種明細皆空時為 0。`settings_only` 模式下 `affectedStudents` 與各明細皆為 `null`。
 - 新增 `aliasCategoryNotices`（`AliasCategoryNotice[]`）：米豆奶班名經 alias 對應到系統班後，兩側**自動偵測**類別不同者（`detectAliasCategoryChanges(draft.aliases)`），每項含 `rawBaseName`／`targetBaseName`／`rawDetected`／`targetDetected`。**提示而非阻擋**（Q13、06 D37）——預覽照常成功、儲存照常進行。`settings_only` 與 `with_students` 兩種 mode 都會產出（提示是草稿的靜態推導，不需名冊）。
 - dirty 只比對**手動覆寫**（`manualAttrs` vs `baselineManualAttrs`）：未手動者由班名推導，班名本身已由 rows／baseline 逐列比對涵蓋；若把自動值也帶進 `isSettingsDirty` 的 `classAttrs`，會讓沒有任何覆寫的空 baseline 與整份班級清單永遠長度不同 → 永遠 dirty。
 - 類別／固定 5 天欄位進 draft JSON，因此 `hashSettingsDraft` 自動涵蓋（值與來源都算，改來源即改 hash），且**不改 `hashSettingsDraft` 契約**（仍是 `sha256(JSON.stringify(draft))`）。
 
-#### 5.4.4 升級確認（Q11；S manifest §2）
+#### 5.4.4 升級確認（Q11；S manifest §2；#112 Ruling 1）
 - 空 DB 的目標版本為 `TARGET_FORMAL_RULE_SET_VERSION`（D2b 時為 `erp-tag-v3`；#112 起為 **`erp-tag-v4`**；`resolveFormalRuleSetVersion` 在無 active run 時採它）。
-- 既有 v2 DB **不動**：`resolveTargetRuleSetVersion(db, requested)` 在未指定時沿用現行正式軌版本，因此既有 v2 資料庫的 preview／apply／activate 都繼續產 v2 run。
-- 升級必須是**明確動作**：課表設定頁在 `currentRuleSetVersion === 'erp-tag-v2'` 時顯示「改用新規則（v4）」勾選；勾選後 preview payload 帶 `targetRuleSetVersion: 'erp-tag-v4'`（#112 起；D2b 當時為 v3）。
+- 既有正式軌 run（v1/v2/v3）**不動**：`resolveTargetRuleSetVersion(db, requested)` 在未指定時沿用現行正式軌版本，因此未勾選升級時既有資料庫的 preview／apply／activate 均維持現行規則版本。
+- 升級必須是**明確動作**：課表設定頁在現行版本為正式軌且未達目標版本（`isFormalRuleSetVersion(appliedRuleSetVersion) && appliedRuleSetVersion !== TARGET_FORMAL_RULE_SET_VERSION`，即 v1、v2、v3）時顯示「改用新規則（v4）」勾選；勾選後 preview payload 帶 `targetRuleSetVersion: 'erp-tag-v4'`；套用成功後生效版本更新為目標版本，升級橫幅即時收斂消失。
 - `SettingsPreviewRequestSchema.targetRuleSetVersion` 以 `z.enum(FORMAL_RULE_SET_VERSION_LIST)` 驗證：非正式軌值（診斷軌、未知字串）一律 400，不猜、不靜默降級。
 - preview 記錄的 `target_rule_set_version` 仍是 apply 唯一採用的來源（D1 F-3）：新 run 的版本＝preview 的目標版本，舊 run 的值與分類不變；失敗不切 active（整段在 `db.transaction`），冪等鍵先於 CAS。
 
