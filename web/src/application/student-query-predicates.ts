@@ -1,11 +1,35 @@
 import type Database from 'better-sqlite3';
 import type { NormalizedStudentQuery, QuerySelection } from '@/contracts/student-query';
 import { parseTagDiscounts } from '@/domain/billing/discount-rules';
+import { getCalculationRun } from '@/adapters/sqlite/runs-repository';
+import { ruleSetCapabilities } from '@/domain/billing/rule-set';
 import { selectionPredicate, classPredicate, branchPredicate, applicableRateColumn, escapeLike, type QueryPredicate } from './student-query-sql';
 
 /** 同一次 request 共用特殊折扣集合；各欄 facet 不重複全 run 掃描。 */
 export function createStudentPredicateBuilder(db: Database.Database, runId: string, importId: string) {
   let specialCodes: string[] | undefined;
+  const run = getCalculationRun(db, runId);
+  const snapshots = run?.classCategories;
+  const ruleSetVersion = run?.ruleSetVersion;
+  const usesSnapshot = ruleSetCapabilities(ruleSetVersion ?? 'erp-tag-v2').categoryBasedBilling && Array.isArray(snapshots);
+
+  const getApplicableColumn = (className: string): string | null => {
+    if (usesSnapshot && snapshots) {
+      const snap = snapshots.find((s) => s.base_name === className);
+      if (!snap) return null;
+      const fixedFiveDaysAffectsRate = !ruleSetCapabilities(ruleSetVersion ?? 'erp-tag-v2').homeworkDiscountDecoupled;
+      if (fixedFiveDaysAffectsRate && snap.fixed_five_days === 1) {
+        return '10000';
+      }
+      if (snap.category === 'care') {
+        return '(CASE WHEN sc.grade IN (1,2) THEN sc.applicable_anqin_bps WHEN sc.grade BETWEEN 3 AND 6 THEN sc.applicable_tutoring_bps ELSE NULL END)';
+      }
+      if (snap.category === 'math') return 'sc.applicable_math_bps';
+      if (snap.category === 'english') return 'sc.applicable_english_bps';
+      return null;
+    }
+    return applicableRateColumn(className);
+  };
   return (query: NormalizedStudentQuery, excludedKey?: string, replacement?: QuerySelection) => {
     const selected = { ...query.selections };
     if (excludedKey) {
@@ -51,7 +75,7 @@ export function createStudentPredicateBuilder(db: Database.Database, runId: stri
       const classes = selected.enrollmentKey;
       // facet 排除／替換班級時須重查單班前提，不能把排除本欄誤當使用者未選班。
       const single = classes && !classes.none && classes.values.length === 1 && typeof classes.values[0] === 'string';
-      const column = single ? applicableRateColumn(String(classes.values[0])) : null;
+      const column = single ? getApplicableColumn(String(classes.values[0])) : null;
       add(column ? selectionPredicate(selected.applicableDiscountBps, column) : { sql: '0', args: [] });
     }
     if (query.q) add({ sql: "(sc.name LIKE ? ESCAPE '\\' OR sc.person_code LIKE ? ESCAPE '\\')", args: [`%${escapeLike(query.q)}%`, `%${escapeLike(query.q)}%`] });

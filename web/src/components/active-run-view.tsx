@@ -61,7 +61,7 @@ interface ActiveRunViewProps {
    */
   unmappedClasses?: string[] | null;
   /**
-   * D2b 3（N-8）：該 run 的班級類別快照（v3 才有；server 由 run_class_categories 讀出，以名冊班名為 key）。
+   * D2b 3（N-8）：該 run 的班級類別快照（具快照能力的 run 才有；server 由 run_class_categories 讀出，以名冊班名為 key）。
    * 學生總表的「本班適用折扣」依它判斷；v1／v2 為 null → 名稱映射。
    */
   classCategorySnapshots?: RunClassCategorySnapshot[] | null;

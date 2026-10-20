@@ -118,6 +118,15 @@ describe('D2b 4: 升級流程（Q11／D37／S manifest §2）— 空 DB 預設 v
     expect(resolveTargetRuleSetVersion(db, 'erp-tag-v2')).toBe('erp-tag-v2');
   });
 
+  it('Ruling 1: 已有 v3 active run 時，未明確要求升級維持 v3；明確要求升級（targetRuleSetVersion=erp-tag-v4）時目標版本為 v4', () => {
+    seedStudents(db, 'imp_a');
+    activate(db, 'imp_a', 'run_v3', 'erp-tag-v3');
+
+    expect(resolveFormalRuleSetVersion(db)).toBe('erp-tag-v3');
+    expect(resolveTargetRuleSetVersion(db, undefined)).toBe('erp-tag-v3');
+    expect(resolveTargetRuleSetVersion(db, 'erp-tag-v4')).toBe('erp-tag-v4');
+  });
+
   it('未知版本字串一律拒絕（不猜）', () => {
     expect(() => resolveTargetRuleSetVersion(db, 'erp-tag-v9')).toThrow();
   });
@@ -182,6 +191,35 @@ describe('D2b 4: preview 記錄目標版本、apply 用同一版本、產生新 
     const oldRun = db.prepare('SELECT rule_set_version FROM calculation_runs WHERE id = ?').get('run_v2') as any;
     expect(oldRun.rule_set_version).toBe('erp-tag-v2');
     const oldRowsAfter = db.prepare('SELECT * FROM student_calculations WHERE run_id = ?').all('run_v2') as any[];
+    expect(oldRowsAfter).toEqual(oldRowsBefore);
+  });
+
+  it('Ruling 1: v3 active run 升級 apply 後：新 run 為 v4 並成為 active，舊 v3 run 的值完全不變', () => {
+    activate(db, 'imp_a', 'run_v3', 'erp-tag-v3');
+    const rev = (db.prepare('SELECT revision FROM active_state WHERE id = 1').get() as any).revision as number;
+    const oldRowsBefore = db.prepare('SELECT * FROM student_calculations WHERE run_id = ?').all('run_v3') as any[];
+
+    const preview = previewSettingsChange(db, 'imp_a', {
+      draft: buildSeedDraft(),
+      expectedRevision: rev,
+      targetRuleSetVersion: 'erp-tag-v4',
+    });
+    const applied = applySettingsPreview(db, {
+      previewId: preview.previewId,
+      expectedRevision: rev,
+      idempotencyKey: 'idem-upgrade-v4',
+    });
+
+    expect(applied.runId).not.toBe('run_v3');
+    const newRun = db.prepare('SELECT rule_set_version FROM calculation_runs WHERE id = ?').get(applied.runId) as any;
+    expect(newRun.rule_set_version).toBe('erp-tag-v4');
+    const active = db.prepare('SELECT active_run_id FROM active_state WHERE id = 1').get() as any;
+    expect(active.active_run_id).toBe(applied.runId);
+
+    // 舊 v3 run 仍存在且逐欄不變
+    const oldRun = db.prepare('SELECT rule_set_version FROM calculation_runs WHERE id = ?').get('run_v3') as any;
+    expect(oldRun.rule_set_version).toBe('erp-tag-v3');
+    const oldRowsAfter = db.prepare('SELECT * FROM student_calculations WHERE run_id = ?').all('run_v3') as any[];
     expect(oldRowsAfter).toEqual(oldRowsBefore);
   });
 

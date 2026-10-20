@@ -70,6 +70,7 @@ export function applicableRateForClass(
   s: ApplicableRateFields,
   context?: ApplicableRateContext
 ): ApplicableRate {
+  // Ruling 5: 旗標回退優先序為 usesSnapshot > ruleSetVersion > isV3Run
   const usesSnapshot =
     context?.usesSnapshot ??
     (context?.ruleSetVersion
@@ -82,6 +83,7 @@ export function applicableRateForClass(
       // 缺該班快照 → 無法判定，嚴禁以當前班名猜測（03 §5.3.4）
       return { status: 'not_configured' };
     }
+    // Ruling 5: 旗標回退優先序為 fixedFiveDaysAffectsRate > ruleSetVersion > isV3Run
     const fixedFiveDaysAffectsRate =
       context.fixedFiveDaysAffectsRate ??
       (context.ruleSetVersion

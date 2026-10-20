@@ -41,6 +41,15 @@ export interface TierTransition {
   afterStatus: string;
 }
 
+export interface CourseRateDelta {
+  personCode: string;
+  name: string;
+  course: 'anqin' | 'tutoring' | 'english' | 'math' | 'enrichment' | 'chinese';
+  courseLabel: string;
+  before: number | null;
+  after: number | null;
+}
+
 export interface SettingsPreviewResult {
   /**
    * 由 server 依 active_state 決定（09 §8.2.2／§8.2.3）：有現行名單 → with_students；
@@ -63,6 +72,8 @@ export interface SettingsPreviewResult {
   subjectCountDeltas: Array<{ personCode: string; name: string; before: number | null; after: number | null }> | null;
   /** D2b 6：合計折扣（基本率收取率 bps）的變化明細；只列出有變化者 */
   baseDiscountDeltas: Array<{ personCode: string; name: string; before: number | null; after: number | null }> | null;
+  /** #112 Ruling 2：課程學費折扣（各課程收取率 bps）的變化明細；只列出有變化者；settings_only 為 null */
+  courseRateDeltas: CourseRateDelta[] | null;
   /**
    * D2b r2（R2-2／Q13／06 D37）：米豆奶班名經 alias 對應到系統班後，兩側自動偵測的折扣類別
    * 不同者（該別名的類別將改由系統班決定）。**提示而非阻擋**——與 Q9 同名合併衝突不同，
@@ -100,6 +111,7 @@ function saveSettingsOnlyPreview(
     targetRuleSetVersion,
     subjectCountDeltas: null,
     baseDiscountDeltas: null,
+    courseRateDeltas: null,
     aliasCategoryNotices: detectAliasCategoryChanges(draft.aliases),
   };
 
@@ -202,6 +214,7 @@ export function previewSettingsChange(
   const dayDeltas: SettingsPreviewResult['dayDeltas'] = [];
   const subjectCountDeltas: NonNullable<SettingsPreviewResult['subjectCountDeltas']> = [];
   const baseDiscountDeltas: NonNullable<SettingsPreviewResult['baseDiscountDeltas']> = [];
+  const courseRateDeltas: CourseRateDelta[] = [];
   const tierTransitions: TierTransition[] = [];
   let mismatchBefore = 0;
   let mismatchAfter = 0;
@@ -249,6 +262,31 @@ export function previewSettingsChange(
       baseDiscountDeltas.push({ personCode: stu.personCode, name: stu.name, before: before.baseDiscountBps, after: after.baseDiscountBps });
     }
 
+    // #112 Ruling 2：第四類差異——課程學費折扣差異（比對各科目收取率）
+    const COURSES: Array<{ key: keyof typeof after.applicableRates; label: string }> = [
+      { key: 'anqin', label: '安親' },
+      { key: 'tutoring', label: '課輔' },
+      { key: 'english', label: '美語' },
+      { key: 'math', label: '數學' },
+      { key: 'enrichment', label: '加強班' },
+      { key: 'chinese', label: '國語文' },
+    ];
+
+    for (const { key, label } of COURSES) {
+      const bRate = before.applicableRates[key];
+      const aRate = after.applicableRates[key];
+      if (bRate !== aRate) {
+        courseRateDeltas.push({
+          personCode: stu.personCode,
+          name: stu.name,
+          course: key,
+          courseLabel: label,
+          before: bRate,
+          after: aRate,
+        });
+      }
+    }
+
     // 記錄 match/mismatch 轉換
     if (
       (bMismatch !== aMismatch) ||
@@ -280,12 +318,13 @@ export function previewSettingsChange(
     mode: 'with_students',
     previewId,
     inputHash,
-    // R2-1：三種差異是同一批學生的不同欄位變化，必須以 personCode **聯集去重計數**。
+    // R2-1 & #112 Ruling 2：四種差異是同一批學生的不同欄位變化，必須以 personCode **聯集去重計數**。
     // 相加會把同一人重複計算（primary B-1）。語意＝「受影響去重人數」，與 09 §3.1 一致。
     affectedStudents: new Set<string>([
       ...dayDeltas.map((d) => d.personCode),
       ...subjectCountDeltas.map((d) => d.personCode),
       ...baseDiscountDeltas.map((d) => d.personCode),
+      ...courseRateDeltas.map((d) => d.personCode),
     ]).size,
     dayDeltas,
     mismatchBefore,
@@ -296,6 +335,7 @@ export function previewSettingsChange(
     targetRuleSetVersion: formalRuleSetVersion,
     subjectCountDeltas,
     baseDiscountDeltas,
+    courseRateDeltas,
     aliasCategoryNotices: detectAliasCategoryChanges(draft.aliases),
   };
 

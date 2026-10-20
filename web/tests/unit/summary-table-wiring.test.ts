@@ -11,8 +11,8 @@ describe('Ruling 4: SummaryTable ruleSetVersion 與快照接線防回歸單元�
     name: '測試生',
     branch: '本校',
     grade: 4,
-    subjectCount: 1,
-    baseDiscountBps: 10000,
+    subjectCount: 2,
+    baseDiscountBps: 9500,
     anqinDays: null,
     tutoringDays: 5,
     applicableAnqinBps: null,
@@ -41,7 +41,7 @@ describe('Ruling 4: SummaryTable ruleSetVersion 與快照接線防回歸單元�
     ],
     trace: { rawTags: '' },
     createdAt: new Date().toISOString(),
-  };
+  } as any;
 
   const snapshots: RunClassCategorySnapshot[] = [
     {

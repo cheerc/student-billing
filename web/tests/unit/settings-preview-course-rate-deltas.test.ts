@@ -122,14 +122,22 @@ describe('Ruling 2: settings-preview 納入課程學費折扣差異（courseRate
     expect(preview.subjectCountDeltas).toHaveLength(0);
     expect(preview.baseDiscountDeltas).toHaveLength(0);
 
-    // 第四類差異：courseRateDeltas 必須有課輔項
-    expect((preview as any).courseRateDeltas).toBeDefined();
-    expect((preview as any).courseRateDeltas).toHaveLength(1);
-    expect((preview as any).courseRateDeltas[0]).toEqual({
+    // 第四類差異：courseRateDeltas 必須有課輔與安親項
+    expect(preview.courseRateDeltas).toBeDefined();
+    expect(preview.courseRateDeltas).toHaveLength(2);
+    expect(preview.courseRateDeltas).toContainEqual({
       personCode: 'S_FOURTH',
       name: '四年級生',
       course: 'tutoring',
       courseLabel: '課輔',
+      before: 10000,
+      after: 9500,
+    });
+    expect(preview.courseRateDeltas).toContainEqual({
+      personCode: 'S_FOURTH',
+      name: '四年級生',
+      course: 'anqin',
+      courseLabel: '安親',
       before: 10000,
       after: 9500,
     });
@@ -141,8 +149,8 @@ describe('Ruling 2: settings-preview 納入課程學費折扣差異（courseRate
   it('2. 日常設定編輯（非升級）：在 v3 下切換固定 5 天亦會改變收費率 → courseRateDeltas 正常觸發', () => {
     const draft: SettingsDraft = buildSeedDraft();
     const care = draft.classes.find((c) => c.baseName === '國小輔導-四年級')!;
-    // 預設為 false，改為 true
-    care.fixedFiveDays = true;
+    // 已存設定為 true，編輯草稿取消勾選為 false
+    care.fixedFiveDays = false;
 
     const preview = previewSettingsChange(db, 'imp_four', {
       draft,
@@ -150,16 +158,15 @@ describe('Ruling 2: settings-preview 納入課程學費折扣差異（courseRate
       targetRuleSetVersion: 'erp-tag-v3', // 維持 v3
     });
 
-    // 在 v3 下，勾固定 5 天會讓課輔收費率由 9500 升至 10000
-    expect((preview as any).courseRateDeltas).toBeDefined();
-    expect((preview as any).courseRateDeltas).toHaveLength(1);
-    expect((preview as any).courseRateDeltas[0]).toEqual({
+    // 在 v3 下，取消固定 5 天會讓課輔收費率由 10000 回到 9500
+    expect(preview.courseRateDeltas).toBeDefined();
+    expect(preview.courseRateDeltas).toContainEqual({
       personCode: 'S_FOURTH',
       name: '四年級生',
       course: 'tutoring',
       courseLabel: '課輔',
-      before: 9500,
-      after: 10000,
+      before: 10000,
+      after: 9500,
     });
     expect(preview.affectedStudents).toBe(1);
   });

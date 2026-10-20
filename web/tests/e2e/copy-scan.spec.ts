@@ -28,7 +28,7 @@ import { brokenXlsx, missingHeadersXlsx, sideLink, xlsxUpload } from './helpers/
 const FIXTURE = path.resolve(__dirname, '../fixtures/conforming-erp-fixture.xlsx');
 
 /** scan() 呼叫次數（每個頁面狀態一次，標籤不得重複）。 */
-const EXPECTED_STATES = 48; // #112 PR-1C：＋新增選安親、＋非安親轉安親確認、＋安親頁籤、＋安親轉非安親確認、＋焦點定位存在、＋焦點定位缺失
+const EXPECTED_STATES = 49; // #112 PR-1C/PR-2：＋新增選安親、＋非安親轉安親確認、＋安親頁籤、＋安親轉非安親確認、＋焦點定位存在、＋焦點定位缺失、＋確認變更（課程學費折扣變動）
 
 /** 09 §7 文案表 ＋ 任務清單：日常介面不得出現。 */
 const FORBIDDEN: Array<{ term: string; re: RegExp }> = [
@@ -375,6 +375,40 @@ test.describe('R5 文案全頁掃描（09 §7）', () => {
     // 回到「課表」頁籤（前面的班名對應在另一個頁籤），再操作時段列
     await page.locator('button[role="tab"]', { hasText: /^課表/ }).first().click();
     await expect(page.locator('.schedule-table')).toBeVisible();
+
+    // Ruling 2 狀態：確認變更視窗呈現「課程學費折扣變動」明細表
+    await page.route('**/api/v1/settings/preview', (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          mode: 'with_students',
+          previewId: 'prev-course-scan',
+          affectedStudents: 1,
+          dayDeltas: [],
+          subjectCountDeltas: [],
+          baseDiscountDeltas: [],
+          courseRateDeltas: [
+            { personCode: 'P9999', name: '掃描學生', course: 'tutoring', courseLabel: '課輔', before: 10000, after: 9500 },
+          ],
+          mismatchBefore: 0,
+          mismatchAfter: 0,
+          tierTransitions: [],
+          issueDelta: { before: 0, after: 0 },
+          expiresAt: new Date(Date.now() + 15 * 60 * 1000).toISOString(),
+          targetRuleSetVersion: 'erp-tag-v4',
+          aliasCategoryNotices: [],
+        }),
+      })
+    );
+    await page.locator('.schedule-table tbody tr').nth(3).locator('input.input-time').first().fill('14:40');
+    await page.locator('button', { hasText: '確認變更' }).click();
+    await expect(page.locator('dialog.impact-dialog')).toBeVisible({ timeout: 15000 });
+    await expect(page.locator('dialog.impact-dialog [data-course-rate-deltas]')).toBeVisible({ timeout: 10000 });
+    await scan(page, '課表設定｜確認變更視窗（課程學費折扣變動）', violations);
+    await page.unroute('**/api/v1/settings/preview');
+    await page.keyboard.press('Escape');
+    await cancelEdits();
 
     // 資料已被另一個視窗更新（預覽回 409，訊息與實際伺服器相同）
     await page.route('**/api/v1/settings/preview', (route) =>

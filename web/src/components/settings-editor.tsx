@@ -47,6 +47,7 @@ import {
   readRawFailure,
   type UserFacingError,
 } from '@/lib/user-messages';
+import { isFormalRuleSetVersion, TARGET_FORMAL_RULE_SET_VERSION } from '@/domain/billing/rule-set';
 
 interface SettingsEditorProps {
   importId: string | null;
@@ -286,7 +287,11 @@ export default function SettingsEditor({
   // **apply 記錄的** `targetRuleSetVersion`——apply 的結果才是權威，不主動猜目標版本。
   // 缺值時保守不變（`?? prev`），不製造未知狀態。
   const [appliedRuleSetVersion, setAppliedRuleSetVersion] = useState<string | null>(currentRuleSetVersion);
-  const canUpgrade = appliedRuleSetVersion === 'erp-tag-v2';
+  const canUpgrade =
+    appliedRuleSetVersion !== null &&
+    appliedRuleSetVersion !== 'erp-tag-v1' &&
+    isFormalRuleSetVersion(appliedRuleSetVersion) &&
+    appliedRuleSetVersion !== TARGET_FORMAL_RULE_SET_VERSION;
   const isUpgrading = canUpgrade && upgradeConfirmed;
 
   // 儲存確認視窗狀態
@@ -874,7 +879,7 @@ export default function SettingsEditor({
         expectedRevision: revision,
       };
       // 升級流程（Q11）：只有使用者明確勾選「改用新規則」才帶目標版本；否則沿用現行版本（v2 DB 不動）
-      if (isUpgrading) payload.targetRuleSetVersion = 'erp-tag-v4';
+      if (isUpgrading) payload.targetRuleSetVersion = TARGET_FORMAL_RULE_SET_VERSION;
       if (hasActiveImport && importId) {
         payload.importId = importId;
       }
