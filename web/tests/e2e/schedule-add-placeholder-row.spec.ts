@@ -28,17 +28,17 @@ async function calcCellsText(page: Page, className: string): Promise<string[]> {
   return (await cells.allTextContents()).map((t) => t.trim());
 }
 
-/** 開「＋ 新增時段」表單，只填班級名稱後送出。 */
+/** 開「＋ 新增班級」表單，只填班級名稱後送出。 */
 async function addClassNameOnly(page: Page, className: string) {
-  await page.getByRole('button', { name: '＋ 新增時段' }).click();
+  await page.getByRole('button', { name: /＋ 新增班級|＋ 新增時段/ }).click();
   const form = page.locator('form.add-session-panel');
   await expect(form).toBeVisible();
-  await form.locator('input[type="text"]').first().fill(className);
+  await form.locator('input[required]').fill(className);
   await form.getByRole('button', { name: '確認新增' }).click();
   await expect(rowOf(page, className)).toBeVisible();
 }
 
-test.describe('#82：新增時段僅班名必填、平靜顯示「—」', () => {
+test.describe('#82 & specs/14：新增班級僅班名必填、雙課程類型支援（A1）', () => {
   test.beforeEach(async ({ page }) => {
     await resetSeedSettings(page);
     await page.goto('/settings');
@@ -47,18 +47,20 @@ test.describe('#82：新增時段僅班名必填、平靜顯示「—」', () =>
     await expect(page.locator('.save-status-clean')).toBeVisible();
   });
 
-  test('#82-1: 只輸入班級名稱即可新增成功（其餘欄位預設皆空）', async ({ page }) => {
-    await page.getByRole('button', { name: '＋ 新增時段' }).click();
+  test('#82-1: 非安親課輔班新增：僅班名必填、其餘欄位預設皆空', async ({ page }) => {
+    await page.getByRole('button', { name: /＋ 新增班級|＋ 新增時段/ }).click();
     const form = page.locator('form.add-session-panel');
     await expect(form).toBeVisible();
 
-    // 表單初始狀態：除了班名，其餘都應為空（不再預設週一／13:00／15:00）
-    await expect(form.locator('select').first()).toHaveValue('');
+    // 表單初始狀態：課程類型預設為非安親；除了班名，其餘都應為空（不再預設週一／13:00／15:00）
+    await expect(form.locator('select[aria-label="新增班級課程類型"]')).toHaveValue('non_care');
+    const weekdaySelect = form.locator('select:not([aria-label="新增班級課程類型"])');
+    await expect(weekdaySelect).toHaveValue('');
     await expect(form.locator('input[type="time"]').first()).toHaveValue('');
     await expect(form.locator('input[type="time"]').last()).toHaveValue('');
 
     // 只填班級名稱
-    await form.locator('input[type="text"]').first().fill('新開班-待排課');
+    await form.locator('input[required]').fill('新開班-待排課');
     await form.getByRole('button', { name: '確認新增' }).click();
 
     // 列已建立
@@ -73,7 +75,7 @@ test.describe('#82：新增時段僅班名必填、平靜顯示「—」', () =>
   });
 
   test('#82-2: 只有班級名稱是必填（班名空白時不得新增）', async ({ page }) => {
-    await page.getByRole('button', { name: '＋ 新增時段' }).click();
+    await page.getByRole('button', { name: /＋ 新增班級|＋ 新增時段/ }).click();
     const form = page.locator('form.add-session-panel');
     await expect(form).toBeVisible();
 
@@ -128,5 +130,23 @@ test.describe('#82：新增時段僅班名必填、平靜顯示「—」', () =>
     await expect
       .poll(async () => (await calcCellsText(page, '新開班-待排課')).join('|'), { timeout: 15000 })
       .not.toContain('—');
+  });
+
+  test('#82-6: 安親課輔班新增：選安親時不顯示時間欄位（specs/14 A1）', async ({ page }) => {
+    await page.getByRole('button', { name: /＋ 新增班級|＋ 新增時段/ }).click();
+    const form = page.locator('form.add-session-panel');
+    await expect(form).toBeVisible();
+
+    await form.locator('select[aria-label="新增班級課程類型"]').selectOption('care');
+    await expect(form.locator('input[type="time"]')).toHaveCount(0);
+    await expect(form.locator('select:not([aria-label="新增班級課程類型"])')).toHaveCount(0);
+    await expect(form.locator('span.note')).toContainText('安親課輔班不需輸入上課星期與時間。');
+
+    await form.locator('input[required]').fill('國小輔導-新安親班');
+    await form.getByRole('button', { name: '確認新增' }).click();
+
+    // 安親課輔班建立成功後自動切至安親頁籤
+    await expect(page.locator('#class-type-tab-care')).toHaveAttribute('aria-selected', 'true');
+    await expect(rowOf(page, '國小輔導-新安親班')).toBeVisible();
   });
 });

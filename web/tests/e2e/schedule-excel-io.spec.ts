@@ -76,8 +76,11 @@ test.describe('#81：課表 Excel 全量匯出／匯入', () => {
     await expect(page.locator('[data-category-select="國小數學-四A"]').first()).toHaveValue('none');
     await expect(page.locator('[data-restore-auto="國小數學-四A"]').first()).toBeVisible();
 
-    // 表格仍有原本的全部時段（整批取代不是清空）；筆數由 seed 推導，不寫死
-    await expect(page.locator('tr.schedule-row')).toHaveCount(appRowCount());
+    // 表格仍有原本的全部時段（整批取代不是清空）；跨雙頁籤加總驗證全量筆數（Reviewer 1 要求）
+    const nonCareCount = await page.locator('table.schedule-table-non-care tr.schedule-row').count();
+    await page.locator('#class-type-tab-care').click();
+    const careCount = await page.locator('table.schedule-table-care tr.schedule-row').count();
+    expect(nonCareCount + careCount).toBe(appRowCount());
   });
 
   test('#81-3: 匯出 → 匯入 → 匯出，兩次匯出檔的**資料內容**一致（值層級冪等）', async ({ page }) => {

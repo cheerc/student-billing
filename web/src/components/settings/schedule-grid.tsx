@@ -142,9 +142,6 @@ export function ScheduleGrid({
   const [showAddForm, setShowAddForm] = useState(false);
   const importInputRef = useRef<HTMLInputElement | null>(null);
 
-  // specs/14 §3.6：課表設定頁以分頁籤呈現：[非安親課輔班]（預設開啟）、[安親課輔班]（第二順位）
-  const [activeTypeTab, setActiveTypeTab] = useState<ClassType>(initialClassTypeTab);
-
   // 切換課程類型確認對話框狀態（specs/14 §3.8）
   interface SwitchConfirmTarget {
     className: string;
@@ -165,6 +162,17 @@ export function ScheduleGrid({
     },
     [classAttributes]
   );
+
+  // specs/14 §3.6：課表設定頁以分頁籤呈現：[非安親課輔班]（預設開啟）、[安親課輔班]（第二順位）
+  // 若帶有 ?class=X 且 X 為安親課輔班，自動切換至 [安親課輔班] 避免誤判 missing
+  const initialTab = useMemo<ClassType>(() => {
+    if (focusClass) {
+      return getClassType(focusClass);
+    }
+    return initialClassTypeTab;
+  }, [focusClass, getClassType, initialClassTypeTab]);
+
+  const [activeTypeTab, setActiveTypeTab] = useState<ClassType>(initialTab);
 
   // 新增班級表單狀態（#82：只有班名必填，其餘預設皆空；specs/14 A1：支援課程類型）
   const [newClassType, setNewClassType] = useState<ClassType>('non_care');
@@ -296,6 +304,17 @@ export function ScheduleGrid({
       const tabBtn = document.getElementById(targetTabId);
       tabBtn?.focus();
     }, 50);
+  };
+
+  const clearFocus = () => {
+    setFocus(null);
+    try {
+      const url = new URL(window.location.href);
+      url.searchParams.delete('class');
+      window.history.replaceState({}, '', url.toString());
+    } catch {
+      // 容錯
+    }
   };
 
   const handleCreateSession = (e: React.FormEvent) => {
@@ -442,33 +461,18 @@ export function ScheduleGrid({
 
       {/* 定位模式提示橫幅（F04） */}
       {focusActive && (
-        <div className="alert alert-info">
-          <span>
-            目前正在檢視班級「<strong>{focus}</strong>」的時段設定。
-          </span>
-          <button
-            type="button"
-            className="btn-secondary btn-inline"
-            onClick={() => setFocus(null)}
-          >
-            檢視全部班級
+        <div className="notice-inline" role="status" data-focus-class="">
+          只顯示班級「{focus}」的全部時段（{filteredRows.length} 個時段）
+          <button type="button" className="link-button" onClick={clearFocus}>
+            顯示全部班級
           </button>
         </div>
       )}
 
       {/* 定位班級找不到時（例如剛剛在別處改名），明說並退回全部班級 */}
       {focusMissing && (
-        <div className="alert alert-warning">
-          <span>
-            找不到原本要檢視的班級「<strong>{focus}</strong>」（可能已被改名或刪除），已顯示全部班級。
-          </span>
-          <button
-            type="button"
-            className="btn-secondary btn-inline"
-            onClick={() => setFocus(null)}
-          >
-            我知道了
-          </button>
+        <div className="notice-warn" role="status" data-focus-class-missing="">
+          課表中找不到班級「{focus}」，可能已改名或停用；先顯示全部班級。
         </div>
       )}
 
@@ -617,7 +621,12 @@ export function ScheduleGrid({
       )}
 
       {/* 課表表格：兩頁籤欄位徹底分離（specs/14 §3.6, A2, A4） */}
-      <div className="scroll table-scroll-container schedule-table-scroll">
+      <div
+        role="tabpanel"
+        id={`class-type-panel-${activeTypeTab}`}
+        aria-labelledby={`class-type-tab-${activeTypeTab}`}
+        className="scroll table-scroll-container schedule-table-scroll"
+      >
         {activeTypeTab === 'non_care' ? (
           /* [非安親課輔班] 表格：包含不計扣天與時段計算，無天數固定 5 天 */
           <table className="schedule-table schedule-table-non-care">
