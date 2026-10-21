@@ -28,7 +28,6 @@ interface ScheduleGridProps {
   onUpdateRow: (rowId: string, updates: Partial<ScheduleGridRow>) => void;
   onDeleteRow: (rowId: string) => void;
   onAddRow: (row: Omit<ScheduleGridRow, 'rowId'>, classType?: ClassType) => void;
-  onSwitchClassType?: (className: string, targetType: ClassType) => void;
   calculating: boolean;
   calculateResult: CalculatePreviewResponse | null;
   /**
@@ -116,7 +115,6 @@ export function ScheduleGrid({
   onUpdateRow,
   onDeleteRow,
   onAddRow,
-  onSwitchClassType,
   calculating,
   calculateResult,
   calculateInputRows,
@@ -141,17 +139,6 @@ export function ScheduleGrid({
   const [weekdayFilter, setWeekdayFilter] = useState('');
   const [showAddForm, setShowAddForm] = useState(false);
   const importInputRef = useRef<HTMLInputElement | null>(null);
-
-  // 切換課程類型確認對話框狀態（specs/14 §3.8）
-  interface SwitchConfirmTarget {
-    className: string;
-    targetType: ClassType;
-    hasSessions: boolean;
-    fixedChecked: boolean;
-  }
-  const [switchConfirmTarget, setSwitchConfirmTarget] = useState<SwitchConfirmTarget | null>(null);
-  const switchDialogRef = useRef<HTMLDialogElement | null>(null);
-  const switchTriggerRef = useRef<HTMLElement | null>(null);
 
   const getClassType = useCallback(
     (className: string): ClassType => {
@@ -278,33 +265,6 @@ export function ScheduleGrid({
 
   const currentTabRowCount = activeTypeTab === 'non_care' ? displayedNonCareRows.length : displayedCareRows.length;
   const currentTabClassCount = activeTypeTab === 'non_care' ? nonCareClassesCount : careClassesCount;
-
-  const openSwitchConfirm = (className: string, targetType: ClassType, e?: React.MouseEvent) => {
-    if (e?.currentTarget) {
-      switchTriggerRef.current = e.currentTarget as HTMLElement;
-    }
-    const clean = className.trim();
-    const hasSessions = rows.some(
-      (r) =>
-        r.className.trim() === clean &&
-        (r.weekday.trim() !== '' || r.startTime.trim() !== '' || r.endTime.trim() !== '' || r.startMinutes !== null)
-    );
-    const fixedChecked = Boolean(classAttributes?.get(clean)?.fixedFiveDays);
-    setSwitchConfirmTarget({ className: clean, targetType, hasSessions, fixedChecked });
-  };
-
-  const handleConfirmSwitchType = () => {
-    if (!switchConfirmTarget) return;
-    const { className, targetType } = switchConfirmTarget;
-    onSwitchClassType?.(className, targetType);
-    setActiveTypeTab(targetType);
-    setSwitchConfirmTarget(null);
-    const targetTabId = `class-type-tab-${targetType}`;
-    setTimeout(() => {
-      const tabBtn = document.getElementById(targetTabId);
-      tabBtn?.focus();
-    }, 50);
-  };
 
   const clearFocus = () => {
     setFocus(null);
@@ -568,58 +528,6 @@ export function ScheduleGrid({
         </form>
       )}
 
-      {/* 切換課程類型確認對話框（specs/14 §3.8） */}
-      {switchConfirmTarget && (
-        <dialog
-          ref={switchDialogRef}
-          className="impact-dialog switch-class-type-dialog"
-          role="dialog"
-          aria-labelledby="switch-dialog-title"
-          open
-        >
-          <div className="dialoghead">
-            <h3 id="switch-dialog-title">
-              {switchConfirmTarget.targetType === 'care' ? '切換為安親課輔班' : '切換為非安親課輔班'}
-            </h3>
-          </div>
-          <div className="dialogbody">
-            <p>
-              確定要將班級「{switchConfirmTarget.className}」切換為
-              {switchConfirmTarget.targetType === 'care' ? '安親課輔班' : '非安親課輔班'}嗎？
-            </p>
-            {switchConfirmTarget.targetType === 'care' && (
-              <p className="alert alert-warning" style={{ marginTop: '8px' }}>
-                {switchConfirmTarget.hasSessions
-                  ? '該班時段將被清空，且不再進入衝堂扣天計算。'
-                  : '該班將作為安親課輔班，不輸入星期與上課時間。'}
-              </p>
-            )}
-            {switchConfirmTarget.targetType === 'non_care' && switchConfirmTarget.fixedChecked && (
-              <p className="alert alert-warning" style={{ marginTop: '8px' }}>
-                「天數固定 5 天」將重置為不勾選，改由逐時段設定。
-              </p>
-            )}
-          </div>
-          <div className="dialogfooter">
-            <button
-              type="button"
-              className="btn-secondary"
-              onClick={() => setSwitchConfirmTarget(null)}
-            >
-              取消
-            </button>
-            <button
-              type="button"
-              className="btn-primary"
-              data-confirm-switch=""
-              onClick={handleConfirmSwitchType}
-            >
-              確認切換
-            </button>
-          </div>
-        </dialog>
-      )}
-
       {/* 課表表格：兩頁籤欄位徹底分離（specs/14 §3.6, A2, A4） */}
       <div
         role="tabpanel"
@@ -850,18 +758,6 @@ export function ScheduleGrid({
                       {/* 12. 操作 */}
                       <td className="col-actions">
                         <div className="row-actions">
-                          {onSwitchClassType && isFirstOfClass && (
-                            <button
-                              type="button"
-                              className="btn-secondary"
-                              onClick={(e) => openSwitchConfirm(className, 'care', e)}
-                              data-switch-type="care"
-                              data-switch-to-care={className}
-                              aria-label={`將 ${className} 切換為安親課輔班`}
-                            >
-                              轉為安親課輔班
-                            </button>
-                          )}
                           {categoryManual && onRestoreAuto ? (
                             <button
                               type="button"
@@ -986,18 +882,6 @@ export function ScheduleGrid({
                       {/* 6. 操作 */}
                       <td className="col-actions">
                         <div className="row-actions">
-                          {onSwitchClassType && (
-                            <button
-                              type="button"
-                              className="btn-secondary"
-                              onClick={(e) => openSwitchConfirm(className, 'non_care', e)}
-                              data-switch-type="non_care"
-                              data-switch-to-non-care={className}
-                              aria-label={`將 ${className} 切換為非安親課輔班`}
-                            >
-                              轉為非安親課輔班
-                            </button>
-                          )}
                           {categoryManual && onRestoreAuto ? (
                             <button
                               type="button"
