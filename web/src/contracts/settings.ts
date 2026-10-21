@@ -97,8 +97,12 @@ export const ClassSettingSchema = z.object({
   active: z.boolean().default(true),
   sessions: z.array(SessionSchema).default([]),
   classType: ClassTypeSchema.optional(),
-  category: z.enum(['care', 'math', 'english', 'none']).optional(),
-  categorySource: z.enum(['auto', 'manual']).optional(),
+  category: z.enum(['care', 'math', 'english', 'none', 'unset']).optional(),
+  /**
+   * #157 Ruling 4：來源狀態只剩「使用者決定」（`manual`）與「未決定」（`unset`）。
+   * `auto` 僅保留為舊資料的接受值——讀取時一律落為 `unset`（Ruling 5），不再寫回。
+   */
+  categorySource: z.enum(['auto', 'manual', 'unset']).optional(),
   fixedFiveDays: z.boolean().optional(),
   /**
    * #113 follow-up：不計扣天已改為**逐時段**（`sessions[].skipDeduction`），不再是班級屬性。
@@ -234,7 +238,7 @@ function groupGridRowsToClasses<S>(
         (DEFAULT_CARE_CLASS_NAMES.has(className) || existing?.fixedFiveDays === true));
     const classType: ClassType = isCare ? 'care' : 'non_care';
 
-    // specs/14 §3.10：類別的手動設定隨班保留。未手動（auto）的班不寫這些欄位。
+    // specs/14 §3.10：類別的使用者指定隨班保留；未指定者不寫這些欄位（＝未設定，03 §5.2 第 2 點）。
     // 固定 5 天為純布林值（無 fixedSource），有設定值則隨班保留。
     const attrs = {
       ...(existing?.categorySource === 'manual' && existing?.category !== undefined
@@ -360,8 +364,8 @@ export function detectSplitClasses(
 export interface ClassAttributeSetting {
   className: string;
   classType?: ClassType;
-  category?: 'care' | 'math' | 'english' | 'none';
-  categorySource?: 'auto' | 'manual';
+  category?: 'care' | 'math' | 'english' | 'none' | 'unset';
+  categorySource?: 'auto' | 'manual' | 'unset';
   fixedFiveDays?: boolean;
 }
 

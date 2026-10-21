@@ -63,10 +63,14 @@ const CATEGORY_BY_LABEL: Record<string, ClassCategory> = {
   數學班: 'math',
   美語班: 'english',
   不列入折扣: 'none',
+  // #157：未設定是一個獨立狀態；匯出寫「（未設定）」，匯入接受它回 unset，
+  // 不得落回 none（那會把「使用者尚未決定」記成「使用者決定不列入」）。
+  '（未設定）': 'unset',
   care: 'care',
   math: 'math',
   english: 'english',
   none: 'none',
+  unset: 'unset',
 };
 
 /** 匯出時每個班級的**有效**屬性（編輯器已解析手動值與自動偵測；這裡不再重算一次）。 */
@@ -171,7 +175,8 @@ export async function buildScheduleWorkbook(
     sheet.addRow({
       c0: row.className,
       c1: isCare ? CLASS_TYPE_CARE_LABEL : CLASS_TYPE_NON_CARE_LABEL,
-      c2: CATEGORY_LABELS[effectiveAttr.category ?? 'none'],
+      // #157：未指定類別匯出為「（未設定）」，不得落回「不列入折扣」（那是另一個決定）。
+      c2: CATEGORY_LABELS[effectiveAttr.category ?? 'unset'],
       // specs/14 §3.6 & A11 匯出忠實輸出與欄位防護：
       // 1. 依 D17 照實呈現：天數固定 5 天忠實輸出草稿實際保存的值，若 non_care 帶有 true，由匯入端嚴格把關互斥。
       // 2. 安親課輔班時段在草稿層已被 A5 約束強制為空（sessions: []），故星期、時間留空，不計扣天填「否」，忠實反映草稿保存內容。
@@ -206,14 +211,14 @@ function parseCategoryCell(value: string, location: string): ClassCategory {
   const trimmed = value.trim();
   if (trimmed === '') {
     throw new ScheduleTableImportError(
-      `第 ${location} 列的「列入多科折扣」不能空白，請填安親課輔班／數學班／美語班／不列入折扣。`,
+      `第 ${location} 列的「列入多科折扣」不能空白，請填（未設定）／安親課輔班／數學班／美語班／不列入折扣。`,
       location
     );
   }
   const category = CATEGORY_BY_LABEL[trimmed];
   if (!category) {
     throw new ScheduleTableImportError(
-      `第 ${location} 列的「列入多科折扣」不是可辨識的類別，請填安親課輔班／數學班／美語班／不列入折扣。`,
+      `第 ${location} 列的「列入多科折扣」不是可辨識的類別，請填（未設定）／安親課輔班／數學班／美語班／不列入折扣。`,
       location
     );
   }

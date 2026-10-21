@@ -270,11 +270,14 @@ const CASES: Case[] = [
   },
   {
     code: 'R4_UNMAPPED',
-    tests: '班名未對應課表：米豆奶班名不在系統課表 → CLASS_NOT_MAPPED 需確認、1 科、基本無折扣',
-    acceptance: ['§6.3 未對應課表', 'D40 Q4'],
+    tests: '班名未對應課表：米豆奶班名不在系統課表 → CLASS_NOT_MAPPED 需確認、0 科（未設定）、基本無折扣',
+    acceptance: ['§6.3 未對應課表', 'D53 Ruling 3'],
     rows: { baseline: { classes: [UN], grade: '一年級', tags: [] }, variant: { classes: [UN], grade: '一年級', tags: [] } },
-    expected: { after: { subjectCount: 1, baseDiscountBps: 10000 }, issueCodes: ['CLASS_NOT_MAPPED'] },
-    specRefs: ['specs/04 UX62', 'specs/02 R03（按類別計科數，名稱可判定即 1 科）'],
+    // #157 Ruling 1／3：班名不再參與類別判定。未對應的班一律 unset → 不計科數 → 0 科、
+    // 基本率 10000（0 科），且一律產生 CLASS_NOT_MAPPED。
+    // 原手算「名稱可判定即 1 科」引用的是已被 D53 廢除的自動偵測規則。
+    expected: { after: { subjectCount: 0, baseDiscountBps: 10000 }, issueCodes: ['CLASS_NOT_MAPPED'] },
+    specRefs: ['specs/04 UX62', 'specs/06 D53 Ruling 1、Ruling 3', 'specs/02 §9B unset 語意'],
   },
   {
     code: 'R4_FACET5',

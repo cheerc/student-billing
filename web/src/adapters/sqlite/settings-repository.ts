@@ -5,6 +5,7 @@ import {
   buildSeedGridRows,
   gridRowsToClasses,
 } from '@/contracts/settings';
+import { SEED_CLASS_CATEGORIES } from '@/domain/schedules/seed-manifest';
 
 export interface SettingsVersionRecord {
   id: string;
@@ -217,13 +218,29 @@ export function draftToScheduleOverride(
   return map;
 }
 
-/** 由 seed 預設產生初始草稿（攜帶全量 89 筆平鋪時段消空 sessions 雙義性）。 */
+/**
+ * 由 seed 預設產生初始草稿（攜帶全量 89 筆平鋪時段消空 sessions 雙義性）。
+ *
+ * #157 Ruling 1：`category` 不再由班名推導，因此「seed 的 49 個既有班級屬於哪個折扣類別」
+ * 若不在這裡明說，全新 DB 的每一班都會是「未設定」，學生的科數／折扣全部歸零。
+ *
+ * seed 是**匯入前的既有機構設定**（不是使用者尚未填寫的空白），它在舊制下就對應到一組
+ * 明確的類別；因此由 seed 產生的草稿把這組類別**寫成使用者的明確指定**（`categorySource: 'manual'`），
+ * 值由 `seed-manifest` 的 `SEED_CLASS_CATEGORIES` 單一定義。
+ * 這是「既有資料」而非「把舊 auto 推導值升格」——後者指已儲存設定版本裡的 `source='auto'`
+ * 殘留，那一律視為未設定（Ruling 5）。
+ *
+ * 使用者存檔後即成為該版本的內容，之後完全由使用者決定。
+ */
 export function buildSeedDraft(
   seedClasses?: Array<{ baseName: string; subject: string; teacher?: string | null }>,
   careWindows?: { anqin: { start: number; end: number }; tutoring: { start: number; end: number } }
 ): SettingsDraft {
   const seedRows = buildSeedGridRows();
-  const fullSeedClasses = gridRowsToClasses(seedRows);
+  const fullSeedClasses = gridRowsToClasses(seedRows).map((c) => {
+    const category = SEED_CLASS_CATEGORIES.get(c.baseName);
+    return category ? { ...c, category, categorySource: 'manual' as const } : c;
+  });
 
   return {
     classes: fullSeedClasses,

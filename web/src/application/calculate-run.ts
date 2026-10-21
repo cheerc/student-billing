@@ -354,7 +354,8 @@ export function executeCalculationRun(
           category: resolved.category,
           fixedFiveDays: resolved.fixedFiveDays ? 1 : 0,
           mapped: resolved.mapped ? 1 : 0,
-          source: resolved.categorySource === 'manual' ? 'manual' : 'auto',
+          // #157 Ruling 4：來源值域為 'manual' | 'unset'（舊 'auto' 不再寫入）。
+          source: resolved.categorySource,
         });
       }
     }

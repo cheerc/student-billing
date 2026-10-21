@@ -80,6 +80,35 @@ export const SEED_CLASSES: SeedClassItem[] = SEED_CLASS_RAW_NAMES.map((raw) => {
 
 export const SEED_BASE_NAMES = SEED_CLASSES.map((c) => c.baseName);
 
+/**
+ * seed 49 個既有班級的**折扣類別**（`ClassCategory`），單一定義處。
+ *
+ * #157 Ruling 1 之後類別不再由班名推導；若 seed 草稿不帶這組值，全新 DB 的每一班都會是
+ * 「未設定」，學生的科數與折扣全部歸零（實測影響 92.7% 的學生）。seed 描述的是
+ * **匯入前既有的機構設定**，不是使用者尚未填寫的空白，因此把這組類別明寫成資料。
+ *
+ * 資料來源與邊界：
+ *  - 這是 #157 之前 `detectClassCategory` 對 seed 班名的判定結果，逐班以 seed 名單核對
+ *    （care 8 班、math 12 班、english 24 班、none 5 班，合計 49）。
+ *  - 僅適用於 seed 班名。名冊中不在課表設定的班仍一律 `unset`（#157 Ruling 3），
+ *    不在此表的班名也不得被推導。
+ *  - 使用者存檔後即成為該設定版本的內容，之後完全由使用者決定。
+ */
+export const SEED_CLASS_CATEGORIES: ReadonlyMap<string, SeedClassCategory> = new Map(
+  SEED_CLASSES.map((c) => [c.baseName, seedCategoryOf(c.subject)] as const)
+);
+
+/** seed 的科目 → 折扣類別（`deriveSubject` 的既有分類，不是新的班名比對）。 */
+export function seedCategoryOf(subject: string): SeedClassCategory {
+  if (subject === '國小輔導') return 'care';
+  if (subject === '國小數學') return 'math';
+  if (subject === '兒童美語') return 'english';
+  // 加強班、國語文、其他：不列入多科折扣
+  return 'none';
+}
+
+export type SeedClassCategory = 'care' | 'math' | 'english' | 'none';
+
 export interface BaseNameClassificationResult {
   matched: string[];
   matchedCount: number;

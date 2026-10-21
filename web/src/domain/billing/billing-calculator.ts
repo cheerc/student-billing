@@ -558,11 +558,14 @@ export function calculateStudentBilling(
 
   issues.push(...additionalIssues);
 
-  // Q4-b: CLASS_NOT_MAPPED 需確認警告 (限 care / math / english 的未對應班)
+  // Q4-b: CLASS_NOT_MAPPED 需確認警告。
+  // #157 Ruling 3：範圍改為「所有未對應班」，不再限 care/math/english。舊制下被自動偵測成
+  // none 的班名（交通車、正音班…）靜默不計入折扣，使用者無法從結果反推「這班根本沒被收錄」；
+  // 現在未對應一律警告，且快照的類別一律是 unset（不是使用者指定的 none）。
   if (capabilities.unmappedClassWarning && resolvedEnrollments) {
     const unmappedSeen = new Set<string>();
     for (const r of resolvedEnrollments) {
-      if (!r.mapped && (r.category === 'care' || r.category === 'math' || r.category === 'english')) {
+      if (!r.mapped) {
         if (!unmappedSeen.has(r.baseName)) {
           unmappedSeen.add(r.baseName);
           issues.push({

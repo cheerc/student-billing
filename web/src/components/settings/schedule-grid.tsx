@@ -8,8 +8,11 @@ import { CATEGORY_LABELS, type ClassAttributesView } from '@/domain/classificati
 import type { ClassCategory } from '@/domain/classification/class-category';
 import { TabList } from '@/components/ui/tabs';
 
-/** 折扣類別下拉選單的固定順序（與自動偵測的優先順序無關，這是使用者的選擇順序）。 */
-const CATEGORY_ORDER: ClassCategory[] = ['care', 'math', 'english', 'none'];
+/**
+ * 折扣類別下拉選單的固定順序。
+ * #157 Ruling 4：`unset`（未設定）排最前——它是預設狀態，也必須讓使用者能把設錯的班改回未設定。
+ */
+const CATEGORY_ORDER: ClassCategory[] = ['unset', 'care', 'math', 'english', 'none'];
 
 /** 星期下拉的可選項（#82 另加「未定」，讓行政可以先建班名再排時間）。 */
 const WEEKDAY_OPTIONS: Array<{ value: string; label: string }> = [
@@ -51,8 +54,6 @@ interface ScheduleGridProps {
   classAttributes?: Map<string, ClassAttributesView>;
   onSelectCategory?: (className: string, category: ClassCategory) => void;
   onToggleFixedFiveDays?: (className: string, fixed: boolean) => void;
-  /** 「自動設定」：丟棄手動覆寫，回到依班名自動偵測的系統推薦值（#80 取代原本的「來源」pill）。 */
-  onRestoreAuto?: (className: string) => void;
   /** #81：課表全量匯出／匯入（單純一鍵，無欄位挑選對話框）。未提供時不渲染這兩個按鈕。 */
   onExportExcel?: () => void;
   onImportExcel?: (file: File) => void;
@@ -124,7 +125,6 @@ export function ScheduleGrid({
   classAttributes,
   onSelectCategory,
   onToggleFixedFiveDays,
-  onRestoreAuto,
   onExportExcel,
   onImportExcel,
   importError = null,
@@ -585,7 +585,6 @@ export function ScheduleGrid({
                   const isUnknownWeekday = !isInactive && !isIncomplete && calcRow?.anqin.status === 'unknown_weekday';
 
                   const attr = classAttributes?.get(className);
-                  const categoryManual = attr?.categorySource === 'manual';
                   const attrsDisabled = !classAttributes || !onSelectCategory;
 
                   return (
@@ -609,7 +608,7 @@ export function ScheduleGrid({
                       {/* 2. 列入多科折扣 */}
                       <td className="col-category">
                         <select
-                          value={attr?.category ?? 'none'}
+                          value={attr?.category ?? 'unset'}
                           disabled={attrsDisabled}
                           aria-label={`${className} 的列入多科折扣`}
                           data-category-select={className}
@@ -758,19 +757,6 @@ export function ScheduleGrid({
                       {/* 12. 操作 */}
                       <td className="col-actions">
                         <div className="row-actions">
-                          {categoryManual && onRestoreAuto ? (
-                            <button
-                              type="button"
-                              className="btn-secondary"
-                              aria-label={`${className} 自動設定`}
-                              data-restore-auto={className}
-                              onClick={() => onRestoreAuto(className)}
-                            >
-                              自動設定
-                            </button>
-                          ) : (
-                            <span className="subtle" aria-label={`${className} 未手動修改`}>—</span>
-                          )}
                           <button
                             type="button"
                             className="btn-danger-icon"
@@ -812,7 +798,6 @@ export function ScheduleGrid({
                 displayedCareRows.map((r, idx) => {
                   const className = r.className.trim();
                   const attr = classAttributes?.get(className);
-                  const categoryManual = attr?.categorySource === 'manual';
                   const attrsDisabled = !classAttributes || !onSelectCategory || !onToggleFixedFiveDays;
 
                   return (
@@ -831,7 +816,7 @@ export function ScheduleGrid({
                       {/* 2. 列入多科折扣 */}
                       <td className="col-category">
                         <select
-                          value={attr?.category ?? 'none'}
+                          value={attr?.category ?? 'unset'}
                           disabled={attrsDisabled}
                           aria-label={`${className} 的列入多科折扣`}
                           data-category-select={className}
@@ -882,19 +867,6 @@ export function ScheduleGrid({
                       {/* 6. 操作 */}
                       <td className="col-actions">
                         <div className="row-actions">
-                          {categoryManual && onRestoreAuto ? (
-                            <button
-                              type="button"
-                              className="btn-secondary"
-                              aria-label={`${className} 自動設定`}
-                              data-restore-auto={className}
-                              onClick={() => onRestoreAuto(className)}
-                            >
-                              自動設定
-                            </button>
-                          ) : (
-                            <span className="subtle" aria-label={`${className} 未手動修改`}>—</span>
-                          )}
                           <button
                             type="button"
                             className="btn-danger-icon"
