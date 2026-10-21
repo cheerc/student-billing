@@ -124,13 +124,13 @@ describe('D2b N-6: run_class_categories 快照持久化與讀模型（完整生�
     expect(hwRow.mapped).toBe(0);
     expect(hwRow.source).toBe('unset');
 
-    // 「國小輔導-四年級」是 seed 的班 → 已對應。seed 草稿帶的是**使用者明確指定**的類別
-    // （#157：seed 是匯入前既有的機構設定，不是待填空白），因此 source=manual。
+    // 「國小輔導-四年級」是 seed 的班 → 已對應，且套用 **seed 基準**（機構既有的班級設定）。
+    // #157：seed 基準**不是**使用者的決定，故 source=seed 而非 manual。
     const seedRow = v3Rows.find((r) => r.base_name === '國小輔導-四年級');
     expect(seedRow).toBeDefined();
     expect(seedRow.category).toBe('care');
     expect(seedRow.mapped).toBe(1);
-    expect(seedRow.source).toBe('manual');
+    expect(seedRow.source).toBe('seed');
   });
 
   it('v2 run 重存時 student_calculations 不被級聯刪除 (R2-1)', () => {
@@ -290,10 +290,10 @@ describe('D2b N-7: alias 解析與 manual 來源的快照回歸', () => {
       .get('run_alias', '美語新班-2026春') as any;
     expect(row).toBeDefined();
     // #157：alias 解析到系統班「兒童美語-Gino」後，該班的類別由**使用者的設定**決定；
-    // seed 草稿對它有明確指定 → english/manual（舊制依班名寫成 english，但 source 是 auto）。
+    // 未指定 → 套用 seed 基準 → english/seed（舊制依班名寫成 english，但 source 是 auto）。
     expect(row.mapped).toBe(1);
     expect(row.category).toBe('english');
-    expect(row.source).toBe('manual');
+    expect(row.source).toBe('seed');
   });
 
   it('N-7(b): 沒有 alias 且系統無此班時 mapped=0，並對自動偵測為數學的未對應班出 CLASS_NOT_MAPPED', () => {

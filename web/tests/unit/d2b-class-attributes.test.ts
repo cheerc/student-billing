@@ -23,12 +23,21 @@ function cls(baseName: string, extra: Partial<ClassSetting> = {}): ClassSetting 
 }
 
 describe('D2b 1: 設定資料模型 — 有效類別與固定 5 天（#157：未設定＋使用者決定）', () => {
-  it('未指定類別時有效值＝unset（#157 Ruling 1：不再依班名自動偵測），固定 5 天預設 false', () => {
-    const r = resolveClassAttributes('國小數學-四A');
+  it('未指定類別時有效值＝unset（非 seed 班；#157 Ruling 1：不再依班名自動偵測），固定 5 天預設 false', () => {
+    // 用非 seed 的班名（「某自創班」不在 seed 49 班內）。seed 班的未指定情況另有 seed 基準，
+    // 見 issue-157-seed-category-fallback.test.ts。
+    const r = resolveClassAttributes('某自創班');
     expect(r.classType).toBe('non_care');
     expect(r.category).toBe('unset');
     expect(r.categorySource).toBe('unset');
     expect(r.fixedFiveDays).toBe(false);
+  });
+
+  it('seed 班未指定類別 → 套用 seed 基準（來源為 seed，非 manual）', () => {
+    const r = resolveClassAttributes('國小數學-四A');
+    expect(r.classType).toBe('non_care');
+    expect(r.category).toBe('math');
+    expect(r.categorySource).toBe('seed');
   });
 
   it('手動設定類別時有效值＝手動值，來源為 manual', () => {
@@ -50,7 +59,7 @@ describe('D2b 1: 設定資料模型 — 有效類別與固定 5 天（#157：未
   });
 
   it('類別缺值但固定 5 天有值時，各自判定（固定 5 天不推導類別）', () => {
-    const r = resolveClassAttributes('國小輔導-四年級', { fixedFiveDays: true });
+    const r = resolveClassAttributes('某自創班', { fixedFiveDays: true });
     expect(r.classType).toBe('care'); // fixedFiveDays: true → 歸入 care 課程類型（specs/14 §3.9）
     expect(r.category).toBe('unset'); // #157：固定 5 天與類別互不推導
     expect(r.categorySource).toBe('unset');
@@ -159,10 +168,10 @@ describe('D2b 5（Q9）: 同名合併且設定不同時阻擋儲存', () => {
 describe('D2b 1: draft ↔ 班級屬性清單轉換（單一來源）', () => {
   it('從 draft 的 classes 取得屬性（無欄位＝未設定；有 manual 欄位＝使用者決定）', () => {
     const attrs = attributesFromDraftClasses([
-      cls('國小數學-四A'),
+      cls('某自創班'),
       cls('自創班', { category: 'care', categorySource: 'manual' }),
     ]);
-    expect(attrs.get('國小數學-四A')).toEqual({
+    expect(attrs.get('某自創班')).toEqual({
       classType: 'non_care',
       category: 'unset',
       categorySource: 'unset',
@@ -177,8 +186,8 @@ describe('D2b 1: draft ↔ 班級屬性清單轉換（單一來源）', () => {
   });
 
   it('baseline 版本讀出的是「當時已儲存」的屬性，與 draft 逐欄可比較', () => {
-    const base = attributesFromBaselineClasses([cls('國小數學-四A')]);
-    expect(base.get('國小數學-四A')).toEqual({
+    const base = attributesFromBaselineClasses([cls('某自創班')]);
+    expect(base.get('某自創班')).toEqual({
       classType: 'non_care',
       category: 'unset',
       categorySource: 'unset',

@@ -315,14 +315,15 @@ describe('D2b 6: 類別／固定 5 天變更進完整影響預覽（人數、天
     const draft: SettingsDraft = buildSeedDraft();
     // 先手動設成 none，再在同一份草稿把該班改回未設定 → 有效值回到未設定（0 科）。
     // #157 Ruling 4：沒有「恢復自動」；撤回決定的路徑是選回「（未設定）」。
-    // 手算：學生報 care + math。before 側是 seed（兩科都計入 → 2 科），
+    // 撤回在草稿裡的形狀是**明確的** `category: 'unset'` + `categorySource: 'unset'`
+    // （編輯器 `applyManualAttrsToClasses` 就是這樣寫的）——不是「刪掉這兩個欄位」：
+    // 刪掉代表「從未被指定」，那會適用 seed 基準（math），撤回就失效了。
+    // 手算：學生報 care + math。before 側是 seed 基準（兩科都計入 → 2 科），
     // after 側撤回 math 的指定 → 該科不計入（未設定）→ 1 科。
     // 因此本案例驗的是「撤回決定確實改變了計算結果」，而不是「回到原值」。
     const target = draft.classes.find((c) => c.baseName === '國小數學-四A')!;
-    target.category = 'none';
-    target.categorySource = 'manual';
-    delete target.category;
-    delete target.categorySource;
+    target.category = 'unset';
+    target.categorySource = 'unset';
 
     const preview: any = previewSettingsChange(db, 'imp_b', {
       draft,

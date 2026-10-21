@@ -34,12 +34,15 @@ interface WithdrawnDetection {
   detectClassAttributes?: unknown;
 }
 
-/** 四種在 #157 之前會被自動偵測成不同類別的班名。 */
+/**
+ * 四種在 #157 之前會被自動偵測成不同類別的**非 seed 班名**。
+ * （seed 班的未指定情況改適用 seed 基準，見 issue-157-seed-category-fallback.test.ts。）
+ */
 const PREVIOUSLY_DETECTED: Array<[string, ClassCategory]> = [
-  ['國小輔導-四年級', 'care'],
-  ['國小數學-四A', 'math'],
-  ['兒童美語-Gino', 'english'],
-  ['交通車', 'none'],
+  ['合成自建班-甲', 'care'],
+  ['合成自建班-乙', 'math'],
+  ['合成自建班-丙', 'english'],
+  ['交通車-東區', 'none'],
 ];
 
 describe('類別判定模組（#157 改寫：未設定語意）', () => {
@@ -64,6 +67,17 @@ describe('類別判定模組（#157 改寫：未設定語意）', () => {
     }
   );
 
+  it('seed 班未指定類別 → 套用 seed 基準，來源標記為 seed（不是使用者的決定）', async () => {
+    const mod = await loadModule<{ resolveClassEnrollment: typeof resolveClassEnrollment }>(MODULE);
+    const r = mod!.resolveClassEnrollment(
+      { rawToken: '國小數學-四A[團]', baseName: '國小數學-四A' },
+      undefined,
+      new Map<string, ClassSettingLookup>([['國小數學-四A', {}]])
+    );
+    expect(r.category).toBe('math');
+    expect(r.categorySource).toBe('seed');
+  });
+
   it('純函式：同一輸入多次呼叫結果相同、不依賴呼叫順序', () => {
     const run = (name: string) =>
       resolveClassEnrollment({ rawToken: name, baseName: name }, undefined, new Map([[name, {}]]));
@@ -73,37 +87,60 @@ describe('類別判定模組（#157 改寫：未設定語意）', () => {
   });
 });
 
-describe('Ruling 4／5：來源狀態只有 manual 與 unset', () => {
+describe('Ruling 4／5：來源狀態為 manual／seed／unset', () => {
+  const NON_SEED = '合成自建班-甲';
+
   it('manual 且類別有值 → 保留該類別與來源', () => {
-    expect(effectiveCategoryOf({ category: 'math', categorySource: 'manual' })).toEqual({
+    expect(effectiveCategoryOf(NON_SEED, { category: 'math', categorySource: 'manual' })).toEqual({
       category: 'math',
       categorySource: 'manual',
     });
   });
 
   it('缺類別 → unset；缺來源 → unset；舊 auto 來源 → unset（不得升格為使用者決定）', () => {
-    expect(effectiveCategoryOf({})).toEqual({ category: 'unset', categorySource: 'unset' });
-    expect(effectiveCategoryOf({ category: 'math' })).toEqual({ category: 'unset', categorySource: 'unset' });
-    expect(effectiveCategoryOf({ category: 'math', categorySource: 'unset' })).toEqual({
+    expect(effectiveCategoryOf(NON_SEED, {})).toEqual({ category: 'unset', categorySource: 'unset' });
+    expect(effectiveCategoryOf(NON_SEED, { category: 'math' })).toEqual({
+      category: 'unset',
+      categorySource: 'unset',
+    });
+    expect(effectiveCategoryOf(NON_SEED, { category: 'math', categorySource: 'unset' })).toEqual({
       category: 'unset',
       categorySource: 'unset',
     });
     // Ruling 5：舊資料的系統推導值不是使用者的確認
-    expect(effectiveCategoryOf({ category: 'math', categorySource: 'auto' })).toEqual({
+    expect(effectiveCategoryOf(NON_SEED, { category: 'math', categorySource: 'auto' })).toEqual({
       category: 'unset',
       categorySource: 'unset',
     });
   });
 
   it('使用者可以明確選擇 none 與 unset（兩者是不同狀態）', () => {
-    expect(effectiveCategoryOf({ category: 'none', categorySource: 'manual' })).toEqual({
+    expect(effectiveCategoryOf(NON_SEED, { category: 'none', categorySource: 'manual' })).toEqual({
       category: 'none',
       categorySource: 'manual',
     });
     // 選回「（未設定）」＝撤回決定
-    expect(effectiveCategoryOf({ category: 'unset', categorySource: 'unset' })).toEqual({
+    expect(effectiveCategoryOf(NON_SEED, { category: 'unset', categorySource: 'unset' })).toEqual({
       category: 'unset',
       categorySource: 'unset',
+    });
+  });
+
+  it('seed 基準：未指定的 seed 班取得 seed 類別，來源為 seed；使用者撤回則維持 unset', () => {
+    // 未指定 → seed 基準
+    expect(effectiveCategoryOf('國小數學-四A', {})).toEqual({
+      category: 'math',
+      categorySource: 'seed',
+    });
+    // 使用者明確撤回 → 維持 unset，**不得**被 seed 基準還原
+    expect(effectiveCategoryOf('國小數學-四A', { category: 'unset', categorySource: 'unset' })).toEqual({
+      category: 'unset',
+      categorySource: 'unset',
+    });
+    // 使用者的決定優先於 seed 基準
+    expect(effectiveCategoryOf('國小數學-四A', { category: 'none', categorySource: 'manual' })).toEqual({
+      category: 'none',
+      categorySource: 'manual',
     });
   });
 });

@@ -139,25 +139,27 @@ describe('Ruling 3：未對應課表的班一律 unset、mapped=false，且一�
 });
 
 describe('Ruling 1 & 2：已對應但未指定類別 → unset，且不計入科數', () => {
-  it('已收錄於課表設定、但沒有任何 category 欄位的班 → unset / unset', () => {
+  it('已收錄於課表設定、但沒有任何 category 欄位的**非 seed 班** → unset / unset', () => {
+    // 用非 seed 的班名（「合成自建班-甲」不在 seed 49 班內），以驗「沒有使用者的指定就是未設定」。
+    // seed 班的未指定情況另見 issue-157-seed-category-fallback.test.ts（seed 基準）。
     const r = resolveClassEnrollment(
-      { rawToken: '國小數學-四A[團]', baseName: '國小數學-四A' },
+      { rawToken: '合成自建班-甲[團]', baseName: '合成自建班-甲' },
       undefined,
-      new Map<string, ClassSettingLookup>([['國小數學-四A', {}]])
+      new Map<string, ClassSettingLookup>([['合成自建班-甲', {}]])
     );
     expect(r.mapped).toBe(true);
     expect(r.category).toBe('unset');
     expect(r.categorySource).toBe('unset');
   });
 
-  it('已收錄但未指定類別的班不計入科數（即使班名含「國小數學」也不得自動算數學班）', () => {
+  it('已收錄但未指定類別的**非 seed 班**不計入科數（不得由班名推導）', () => {
     const res = calculateStudentBilling(
-      makeStudent({ personCode: 'M1', grade: 4, baseNames: ['國小數學-四A', '兒童美語-Gino'] }),
+      makeStudent({ personCode: 'M1', grade: 4, baseNames: ['合成自建班-甲', '合成自建班-乙'] }),
       {
         ruleSetVersion: 'erp-tag-v4',
         classSettings: new Map<string, ClassSettingLookup>([
-          ['國小數學-四A', {}],
-          ['兒童美語-Gino', {}],
+          ['合成自建班-甲', {}],
+          ['合成自建班-乙', {}],
         ]),
       }
     );
@@ -166,6 +168,18 @@ describe('Ruling 1 & 2：已對應但未指定類別 → unset，且不計入科
     expect(res.baseDiscountBps).toBe(10000);
     // 已對應 → 不是 CLASS_NOT_MAPPED（該警告只針對「班名未對應課表」）
     expect(res.issues.some((i) => i.code === 'CLASS_NOT_MAPPED')).toBe(false);
+  });
+
+  it('seed 班未指定類別 → 套用 seed 基準（機構既有設定），來源標記為 seed 而非 manual', () => {
+    const r = resolveClassEnrollment(
+      { rawToken: '國小數學-四A[團]', baseName: '國小數學-四A' },
+      undefined,
+      new Map<string, ClassSettingLookup>([['國小數學-四A', {}]])
+    );
+    expect(r.mapped).toBe(true);
+    expect(r.category).toBe('math');
+    // seed 基準**不是**使用者的決定（#157 Ruling 4／Ruling 5）
+    expect(r.categorySource).toBe('seed');
   });
 
   it('calculateSubjectCountV3 對 unset 與 none 皆不計入（兩者的計算結果相同）', () => {
@@ -220,14 +234,14 @@ describe('Ruling 2：使用者明確指定 none 與 unset「計算結果相同�
   });
 
   it('使用者明確指定 care 時才計入科數（單一班名相同、來源不同 → 結果不同）', () => {
-    const student = makeStudent({ personCode: 'N2', grade: 4, baseNames: ['國小輔導-四年級'] });
+    const student = makeStudent({ personCode: 'N2', grade: 4, baseNames: ['合成自建班-甲'] });
     const specified = calculateStudentBilling(student, {
       ruleSetVersion: 'erp-tag-v4',
-      classSettings: new Map<string, ClassSettingLookup>([['國小輔導-四年級', manual('care')]]),
+      classSettings: new Map<string, ClassSettingLookup>([['合成自建班-甲', manual('care')]]),
     });
     const unspecified = calculateStudentBilling(student, {
       ruleSetVersion: 'erp-tag-v4',
-      classSettings: new Map<string, ClassSettingLookup>([['國小輔導-四年級', {}]]),
+      classSettings: new Map<string, ClassSettingLookup>([['合成自建班-甲', {}]]),
     });
     // 手算：care = 1 科 → 10000；unset = 0 科 → 10000（0 科也是基本率）；但種類數不同
     expect(specified.subjectCount).toBe(1);
@@ -236,21 +250,21 @@ describe('Ruling 2：使用者明確指定 none 與 unset「計算結果相同�
 });
 
 describe('Ruling 5：已儲存設定中 category 存在但來源為 auto → 視為 unset', () => {
-  it('舊資料 categorySource="auto" 的 category 不得升格為使用者決定', () => {
+  it('舊資料 categorySource="auto" 的 category 不得升格為使用者決定（非 seed 班）', () => {
     const r = resolveClassEnrollment(
-      { rawToken: '國小數學-四A[團]', baseName: '國小數學-四A' },
+      { rawToken: '合成自建班-甲[團]', baseName: '合成自建班-甲' },
       undefined,
       // 舊設定：有 category 值，但來源是系統推導的 auto
       new Map<string, ClassSettingLookup>([
-        ['國小數學-四A', { category: 'math', categorySource: 'auto' as never }],
+        ['合成自建班-甲', { category: 'math', categorySource: 'auto' as never }],
       ])
     );
     expect(r.category).toBe('unset');
     expect(r.categorySource).toBe('unset');
   });
 
-  it('resolveClassAttributes：舊 auto 來源的已存值同樣視為未設定', () => {
-    const attrs = resolveClassAttributes('國小數學-四A', {
+  it('resolveClassAttributes：舊 auto 來源的已存值同樣視為未設定（非 seed 班）', () => {
+    const attrs = resolveClassAttributes('合成自建班-甲', {
       category: 'math',
       categorySource: 'auto' as never,
     });
@@ -264,12 +278,22 @@ describe('Ruling 5：已儲存設定中 category 存在但來源為 auto → 視
     expect(attrs.categorySource).toBe('manual');
   });
 
-  it('resolveClassAttributes：缺 category 時回 unset，且不依班名偵測', () => {
-    for (const name of ['國小輔導-四年級', '國小數學-四A', '兒童美語-Gino', '交通車']) {
+  it('resolveClassAttributes：非 seed 班缺 category 時回 unset，且不依班名偵測', () => {
+    for (const name of ['合成自建班-甲', '合成自建班-乙', '交通車-東區']) {
       const attrs = resolveClassAttributes(name);
       expect(attrs.category, name).toBe('unset');
       expect(attrs.categorySource, name).toBe('unset');
     }
+  });
+
+  it('seed 班的舊 auto 值同樣不採用——改用 seed 基準（來源為 seed，非 manual）', () => {
+    const attrs = resolveClassAttributes('國小數學-四A', {
+      category: 'math',
+      categorySource: 'auto' as never,
+    });
+    // 舊 auto 推導值不得升格為使用者的決定；seed 基準是機構既有設定，兩者可採其一但來源必須如實
+    expect(attrs.category).toBe('math');
+    expect(attrs.categorySource).toBe('seed');
   });
 });
 
