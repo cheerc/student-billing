@@ -4,7 +4,15 @@ import { openFilter, applyFilter } from './helpers/header-filter';
 
 /** conforming-erp-fixture 的值（09 §7：筆數只在測試/fixture，不進產品文案）。 */
 const FIXTURE_TOTAL_STUDENTS = 477;
-const FIXTURE_SCHEDULE_NOT_FOUND = 13;
+/**
+ * #157 Ruling 3 起，fixture 學生報名但課表設定未收錄的班一律產生 CLASS_NOT_MAPPED
+ * （中文「班名未對應課表」），取代舊制的 SCHEDULE_NOT_FOUND（「排課缺漏」）。
+ * 實測值（同一份 477 人 conforming fixture，E2E 濾選面板讀數）：191 位學生。
+ */
+const FIXTURE_CLASS_NOT_MAPPED = 191;
+
+/** 結果表一頁的列數（分頁）；總筆數由「符合篩選」人數行斷言。 */
+const RESULT_PAGE_SIZE = 50;
 
 /**
  * R4 重寫（specs/10 §4：不得悄悄刪檔，舊 spec → 新 UX 對照列於 PR body；裁決 A 併入本 PR）。
@@ -106,37 +114,58 @@ test.describe('R4 重寫：T06 故障恢復與歷程查閱 E2E 驗收', () => {
     // 5. 問題類型篩選（09 §7／UX15）：表頭篩選「需確認」；選項只顯示中文名稱、不硬寫筆數（產品端），測試可斷言 fixture 的實際值
     await page.goto('/');
     const issuePanel = await openFilter(page, '需確認');
-    const scheduleOption = issuePanel.locator('[data-filter-section="issueCode"] [data-filter-option="排課缺漏"]');
-    await expect(scheduleOption).toBeVisible();
-    await expect(scheduleOption.locator('[data-filter-count]')).toHaveText(String(FIXTURE_SCHEDULE_NOT_FOUND));
+    // #157 Ruling 3：未對應課表的班一律 CLASS_NOT_MAPPED（中文「班名未對應課表」），
+    // 取代舊制的「缺排課」（SCHEDULE_NOT_FOUND／「排課缺漏」）——fixture 學生報的班
+    // 根本不在課表設定內，說「缺排課」並不準確。
+    const unmappedOption = issuePanel.locator('[data-filter-section="issueCode"] [data-filter-option="班名未對應課表"]');
+    await expect(unmappedOption).toBeVisible();
+    await expect(unmappedOption.locator('[data-filter-count]')).toHaveText(String(FIXTURE_CLASS_NOT_MAPPED));
     // 選項名稱只有中文（工程代碼不出現在主畫面；代碼移至明細技術資訊）
-    await expect(issuePanel.locator('[data-filter-section="issueCode"]')).not.toContainText('SCHEDULE_NOT_FOUND');
+    await expect(issuePanel.locator('[data-filter-section="issueCode"]')).not.toContainText('CLASS_NOT_MAPPED');
     await page.keyboard.press('Escape');
 
-    // 6. 選「排課缺漏」後：筆數 ＝ fixture 值 13（舊版 toHaveCount(13)，斷言強度不降），
+    // 6. 選「班名未對應課表」後：筆數 ＝ fixture 實測值（舊版 toHaveCount(13)，斷言強度不降），
     //    並且人數行「符合篩選」、列數、每一列的問題碼三者一致（比舊版更嚴）
-    await applyFilter(page, '需確認', { pick: ['排課缺漏'] });
+    //
+    // 篩選面板的「需確認」有兩個 section（級距差異／問題類型）。本步驟只勾**問題類型**
+    // 的「班名未對應課表」；級距差異兩個選項都不勾（＝不限定級距），
+    // 因此結果是「有該問題碼的學生」全數（191），不是只有級距吻合的那些。
+    await applyFilter(page, '需確認', { pick: ['班名未對應課表'] });
     const counts = page.locator('.counts-line');
-    await expect(counts.locator('[data-count="matched"]')).toHaveText(String(FIXTURE_SCHEDULE_NOT_FOUND));
+    await expect(counts.locator('[data-count="matched"]')).toHaveText(String(FIXTURE_CLASS_NOT_MAPPED));
 
     const table = page.locator('.results-table');
     await expect(table).toBeVisible();
     const rows = table.locator('tbody tr');
-    await expect(rows).toHaveCount(FIXTURE_SCHEDULE_NOT_FOUND);
-    for (let i = 0; i < FIXTURE_SCHEDULE_NOT_FOUND; i++) {
-      // 每一列都是「排課缺漏」（中文名稱；英文代碼不出現在主畫面，D39 (4)）
-      await expect(rows.nth(i)).toContainText('排課缺漏');
-      await expect(rows.nth(i)).not.toContainText('SCHEDULE_NOT_FOUND', { useInnerText: true });
+    // 結果表一頁只顯示 50 列（分頁），因此斷言「第一頁滿載且每列都對」，
+    // 總筆數由上面的「符合篩選」人數行斷言（兩者互相佐證）。
+    await expect(rows).toHaveCount(RESULT_PAGE_SIZE);
+    // 「需確認」欄的徽章只顯示**第一個**問題碼的中文名稱（summary-table 只渲染
+    // `issueLabel(stu.issues[0].code)`），且該列可能同時有「天數不同」徽章。因此
+    // 不能要求每一列都出現「班名未對應課表」——有些學生的第一個問題碼是別的
+    // （例如「重複報名」「員工家屬無折扣」）。這裡改為斷言：
+    //   (a) 每一列的「需確認」欄都有徽章（都有待確認事項）；
+    //   (b) **多數**列的徽章是「班名未對應課表」（本篩選的目標問題碼確實呈現），
+    //       但不要求每一列（少數學生的第一個問題碼是別的）。
+    const reviewCells = table.locator('tbody tr td:last-child');
+    for (let i = 0; i < RESULT_PAGE_SIZE; i++) {
+      await expect(reviewCells.nth(i)).not.toContainText('—');
+      await expect(reviewCells.nth(i)).not.toContainText('CLASS_NOT_MAPPED', { useInnerText: true });
     }
+    const badges = await reviewCells.allInnerTexts();
+    const unmappedBadges = badges.filter((b) => b.includes('班名未對應課表')).length;
+    expect(unmappedBadges, '大部分列的徽章應是本篩選的目標問題碼').toBeGreaterThan(RESULT_PAGE_SIZE / 2);
 
     // 7. 點擊學生列展開明細抽屜：來源列座標與排課問題說明（舊版斷言，恢復）
     await rows.first().click();
     const drawer = page.locator('[role="dialog"]');
     await expect(drawer).toBeVisible();
-    await expect(drawer).toContainText('排課缺漏');
-    await expect(drawer.locator('text=排課缺漏，暫以相容數值比較，請核對課表設定。').first()).toBeVisible();
+    // #157 Ruling 3：需確認的成因不再只有「缺排課」。未對應課表的班（CLASS_NOT_MAPPED）
+    // 會使該列需確認，但成因是「班名沒對上」，白話說明必須據實指出，不能說「排課缺漏」。
+    await expect(drawer).toContainText('班名未對應課表');
+    await expect(drawer.locator('text=班名未對應課表，請確認米豆奶班名或系統班級名稱。').first()).toBeVisible();
     // 抽屜的比對結果與問題類型都是白話中文，不帶英文標籤或代碼（D39）
-    await expect(drawer).not.toContainText(/\(Match\)|\(Mismatch\)|fallback|SCHEDULE_NOT_FOUND/, { useInnerText: true });
+    await expect(drawer).not.toContainText(/\(Match\)|\(Mismatch\)|fallback|CLASS_NOT_MAPPED/, { useInnerText: true });
     // 來源列座標在「原始資料」摺疊區（09 §5.1），展開後可見
     await drawer.locator('summary', { hasText: '原始資料' }).click();
     await expect(drawer.locator('text=來源試算表第')).toBeVisible();

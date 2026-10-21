@@ -94,10 +94,13 @@ test.describe('UX32 D39 (4) 問題類型：只顯示中文名稱，代碼在明�
     const badges = await page.locator('.results-table tbody .badge-warn').allInnerTexts();
     expect(badges.length, '需要有待確認的學生才能驗證').toBeGreaterThan(0);
     for (const b of badges) expect(b, `徽章：${b}`).not.toMatch(/[A-Z]{3,}_[A-Z_]+/);
-    expect(badges).toContain('排課缺漏');
+    // #157 Ruling 3：未對應課表的班一律產生 CLASS_NOT_MAPPED（中文「班名未對應課表」），
+    // 取代舊制對「缺排課」（SCHEDULE_NOT_FOUND，中文「排課缺漏」）的提示——
+    // 這兩個 fixture 學生報的班根本不在課表設定內，說「缺排課」並不準確。
+    expect(badges).toContain('班名未對應課表');
 
-    // 篩出「排課缺漏」→ 開第一位的明細抽屜
-    const row = page.locator('.results-table tbody tr', { hasText: '排課缺漏' }).first();
+    // 篩出「班名未對應課表」→ 開第一位的明細抽屜
+    const row = page.locator('.results-table tbody tr', { hasText: '班名未對應課表' }).first();
     await expect(row).toBeVisible();
     await row.click();
     const drawer = page.getByRole('dialog').first();
@@ -105,14 +108,14 @@ test.describe('UX32 D39 (4) 問題類型：只顯示中文名稱，代碼在明�
 
     const warning = drawer.locator('.alert-warning').first();
     const text = await visibleText(warning);
-    expect(text).toContain('排課缺漏');
-    expect(text, `抽屜待確認事項不得外露代碼或工程詞：${text}`).not.toMatch(/SCHEDULE_NOT_FOUND|\[[A-Z_]+\]|fallback|種子|alias/i);
+    expect(text).toContain('班名未對應課表');
+    expect(text, `抽屜待確認事項不得外露代碼或工程詞：${text}`).not.toMatch(/CLASS_NOT_MAPPED|\[[A-Z_]+\]|fallback|種子|alias/i);
 
     // 技術資訊預設收合；展開後才看得到問題代碼
     const tech = drawer.locator('details', { has: page.locator('summary', { hasText: '技術資訊' }) });
     await expect(tech).toHaveJSProperty('open', false);
     await tech.locator('summary').click();
-    await expect(tech).toContainText('SCHEDULE_NOT_FOUND', { useInnerText: true });
+    await expect(tech).toContainText('CLASS_NOT_MAPPED', { useInnerText: true });
   });
 });
 

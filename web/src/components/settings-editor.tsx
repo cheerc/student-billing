@@ -513,11 +513,14 @@ export default function SettingsEditor({
   const handleSelectCategory = (className: string, category: ClassCategory) => {
     setManualAttrs((prev) => {
       const next = new Map(prev);
+      const base = currentAttrs.get(className) ?? resolveClassAttributes(className);
       if (category === 'unset') {
-        next.delete(className);
+        // 撤回指定：記為**明確的未設定**，不是「刪掉這一筆」。
+        // 若只是刪除，整班改名時 `carryAttributesOnRename` 會從 baseline 撈回舊值
+        // （seed 草稿帶的是使用者明確指定的 math），使用者的撤回就被還原了。
+        next.set(className, { ...base, category: 'unset', categorySource: 'unset' });
         return next;
       }
-      const base = currentAttrs.get(className) ?? resolveClassAttributes(className);
       next.set(className, { ...base, category, categorySource: 'manual' });
       return next;
     });

@@ -20,6 +20,7 @@ const FIXTURE_TIER_MISMATCH = 5;
  *   舊：抽屜兩個固定標題「八項每週收費天數結果」「ERP 登記級距比對清單」→ 新：四分區（收費結果／課程與扣天／
  *       原始資料／技術資訊），其中「ERP 登記級距比對」仍在「課程與扣天」分區
  *   舊：「級距吻合」＋「有待確認事項」→ 表格含 SCHEDULE_NOT_FOUND → 新：同（UX12）
+ *       （#157 Ruling 3 起，未對應課表的班改以 CLASS_NOT_MAPPED 提示，中文「班名未對應課表」）
  *   新增：班級扣天頁（UX05–07）、人數行 scope（UX13）
  */
 
@@ -199,7 +200,7 @@ test.describe('R4 重寫：核對結果頁 E2E 驗收（學生總表 12 欄 + �
     expect(Number(await matched.textContent())).toBeLessThanOrEqual(scoped);
   });
 
-  test('UX12: 級距差異篩選＝fixture 的 5 筆，列內容與抽屜可查；吻合＋待確認含「排課缺漏」（中文名稱，代碼不外露）', async ({ page }) => {
+  test('UX12: 級距差異篩選＝fixture 的 5 筆，列內容與抽屜可查；吻合＋待確認含「班名未對應課表」（中文名稱，代碼不外露）', async ({ page }) => {
     await ensureActivated(page);
 
     const counts = page.locator('.counts-line');
@@ -234,8 +235,11 @@ test.describe('R4 重寫：核對結果頁 E2E 驗收（學生總表 12 欄 + �
     for (let i = 0; i < issueOptionCount; i++) await issueOptions.nth(i).check();
     await p.getByRole('button', { name: '確定', exact: true }).click();
     await expect(rows.first()).toBeVisible();
-    // 問題類型只顯示中文名稱（D39 (4)）：同一列仍看得到「排課缺漏」，英文代碼不出現在主畫面
-    await expect(table.locator('tbody')).toContainText('排課缺漏');
-    await expect(table.locator('tbody')).not.toContainText('SCHEDULE_NOT_FOUND', { useInnerText: true });
+    // 問題類型只顯示中文名稱（D39 (4)）：同一列仍看得到中文名稱，英文代碼不出現在主畫面。
+    // #157 Ruling 3：未對應課表的班一律 CLASS_NOT_MAPPED（中文「班名未對應課表」），
+    // 不再是「缺排課」（SCHEDULE_NOT_FOUND／「排課缺漏」）——fixture 學生報的班
+    // 根本不在課表設定內，說「缺排課」並不準確。
+    await expect(table.locator('tbody')).toContainText('班名未對應課表');
+    await expect(table.locator('tbody')).not.toContainText('CLASS_NOT_MAPPED', { useInnerText: true });
   });
 });
