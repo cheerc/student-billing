@@ -388,7 +388,7 @@ describe('#81：Excel 匯出／匯入工具列（單純一鍵）', () => {
   });
 });
 
-describe('specs/14：雙頁籤與切換課程類型操作（A1, A2, A4, A9, A10）', () => {
+describe('specs/14 & Issue #155：雙頁籤與簡化操作（移除切換按鈕，A1, A2, A4）', () => {
   it('頁籤渲染：顯示「非安親課輔班」與「安親課輔班」雙頁籤並帶有數量統計', () => {
     const html = render();
     expect(html).toContain('非安親課輔班');
@@ -396,13 +396,15 @@ describe('specs/14：雙頁籤與切換課程類型操作（A1, A2, A4, A9, A10�
     expect(html).toContain('role="tablist"');
   });
 
-  it('非安親課輔班頁籤：首欄行操作有「轉為安親課輔班」按鈕', () => {
+  it('非安親課輔班頁籤：操作欄不包含「轉為安親課輔班」按鈕與切換對話框（Issue #155）', () => {
     const html = render({ onSwitchClassType: () => {} });
-    expect(html).toContain('轉為安親課輔班');
-    expect(html).toContain('data-switch-to-care="兒童美語-Gino"');
+    expect(html).not.toContain('轉為安親課輔班');
+    expect(html).not.toContain('data-switch-to-care');
+    expect(html).not.toContain('data-switch-type');
+    expect(html).not.toContain('switch-class-type-dialog');
   });
 
-  it('安親課輔班頁籤：表格顯示「安親課輔班（不計時段）」短標，操作有「轉為非安親課輔班」按鈕，無時間與不計扣天', () => {
+  it('安親課輔班頁籤：表格顯示「安親課輔班（不計時段）」短標，操作無「轉為非安親課輔班」按鈕（Issue #155）', () => {
     const careAttrs = new Map<string, ClassAttributesView>([
       ['國小輔導-四年級', { classType: 'care', category: 'care', categorySource: 'auto', fixedFiveDays: false }],
     ]);
@@ -427,8 +429,9 @@ describe('specs/14：雙頁籤與切換課程類型操作（A1, A2, A4, A9, A10�
       onSwitchClassType: () => {},
     });
     expect(html).toContain('安親課輔班（不計時段）');
-    expect(html).toContain('轉為非安親課輔班');
-    expect(html).toContain('data-switch-to-non-care="國小輔導-四年級"');
+    expect(html).not.toContain('轉為非安親課輔班');
+    expect(html).not.toContain('data-switch-to-non-care');
+    expect(html).not.toContain('data-switch-type');
     // 欄位徹底分離：安親課輔班表格無星期、無時間、無不計扣天
     expect(html).not.toContain('class="col-skip-deduction"');
     expect(html).not.toContain('class="col-weekday"');
