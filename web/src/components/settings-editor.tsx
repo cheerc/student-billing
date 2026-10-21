@@ -418,8 +418,8 @@ export default function SettingsEditor({
 
 
   /**
-   * 合併衝突的判定必須用各來源班的**有效**屬性（手動值優先，未手動者依 baseline 班名自動偵測），
-   * 只拿「手動值」會讓兩班中有一班未手動時被誤判為不衝突。
+   * 合併衝突的判定必須用各來源班的**有效**屬性（使用者的指定優先，未指定者為 unset），
+   * 只拿「指定值」會讓兩班中有一班未指定時被誤判為不衝突。
    */
   const mergeConflicts = useMemo(() => {
     if (classLifecycle.merges.length === 0) return [];
@@ -454,9 +454,9 @@ export default function SettingsEditor({
   const effectiveManualAttrs = manualAttrsAfterRename;
 
   /**
-   * 只有「手動覆寫」需要獨立計入 dirty：未手動的類別與固定 5 天是由班名推導，
-   * 班名本身已由 rows／baseline 的逐列比對涵蓋，若把自動值也帶進去，
-   * 會讓「沒有任何覆寫」的空 baseline 與整份班級清單永遠長度不同 → 永遠 dirty。
+   * 只有「使用者的指定」需要獨立計入 dirty：未指定的類別與固定 5 天沒有值可比較，
+   * 班名本身已由 rows／baseline 的逐列比對涵蓋，若把未指定者的值也帶進去，
+   * 會讓「沒有任何指定」的空 baseline 與整份班級清單永遠長度不同 → 永遠 dirty。
    */
   const manualAttrSettings = useMemo(
     () =>
@@ -485,7 +485,7 @@ export default function SettingsEditor({
   }, [upgradeChanged, baseline, baselineManualAttrs, rows, draft.aliases, manualAttrSettings, effectiveManualAttrs]);
 
   /**
-   * 課表每個班級目前有效的類別／固定 5 天（手動值優先，未手動者依**目前**班名自動偵測）。
+   * 課表每個班級目前有效的類別／固定 5 天（使用者的指定優先，未指定者為 unset）。
    * 這是 UI 顯示、影響預覽與儲存共用的單一來源。
    */
   const currentAttrs: Map<string, ClassAttributesView> = useMemo(() => {
@@ -494,7 +494,7 @@ export default function SettingsEditor({
       const n = r.className.trim();
       if (n) names.add(n);
     }
-    // 手動值帶過來；其餘依目前班名自動偵測
+    // 使用者的指定帶過來；其餘為未設定
     const out = new Map<string, ClassAttributesView>();
     for (const n of names) {
       out.set(n, effectiveManualAttrs.get(n) ?? resolveClassAttributes(n));
@@ -687,7 +687,7 @@ export default function SettingsEditor({
 
   /**
    * 匯出：把**目前草稿**（含尚未儲存的編輯）整份送給 server 產生 .xlsx。
-   * 匯出的是有效屬性（手動值優先、未手動者為自動偵測值），所以匯出檔本身就是一份完整的課表備份。
+   * 匯出的是有效屬性（使用者的指定優先、未指定者為「（未設定）」），所以匯出檔本身就是一份完整的課表備份。
    */
   const handleExportExcel = useCallback(async () => {
     setScheduleTransferBusy(true);
@@ -732,7 +732,7 @@ export default function SettingsEditor({
    * 匯入：整批取代目前草稿。
    * 解析與格式驗證在 server 端（`schedule-table-io`），任何一列不合法即整批拒絕，
    * 回傳的 error 直接顯示、**不動 rows** —— 因此不會出現「套用了一半」的破碎狀態。
-   * 匯入的屬性一律視為使用者明確指定（manual）：匯入是顯式動作，不該被自動偵測改回去。
+   * 匯入的屬性一律視為使用者明確指定（manual）：匯入是顯式動作，不該被任何自動判定改回去。
    */
   const handleImportExcel = useCallback(async (file: File) => {
     setScheduleTransferBusy(true);

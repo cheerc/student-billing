@@ -33,7 +33,7 @@ export interface RosterChangeContext {
   /**
    * D2a：班級設定（手動／自動類別與固定 5 天）。**與 run 端同源**（calculate-run 的
    * `buildClassSettingMap(resolveLatestSavedSettings(db).draft)`，specs/11 §3 B1-D 同源要求）：
-   * 異動明細的 before 側必須與「按下之後系統實際會用的狀態」一致（D17），不可退回自動偵測。
+   * 異動明細的 before 側必須與「按下之後系統實際會用的狀態」一致（D17），不可退回名稱推導。
    */
   classSettings?: Map<string, ClassSettingLookup>;
 }

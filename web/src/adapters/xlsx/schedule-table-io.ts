@@ -73,7 +73,7 @@ const CATEGORY_BY_LABEL: Record<string, ClassCategory> = {
   unset: 'unset',
 };
 
-/** 匯出時每個班級的**有效**屬性（編輯器已解析手動值與自動偵測；這裡不再重算一次）。 */
+/** 匯出時每個班級的**有效**屬性（編輯器已解析使用者的指定與未設定；這裡不再重算一次）。 */
 export interface ScheduleExportClassAttr {
   className: string;
   classType?: ClassType;
@@ -99,7 +99,7 @@ export interface ScheduleImportRow {
 /** 匯入結果：可餵給編輯器取代整份草稿的列，以及每班的屬性。 */
 export interface ScheduleImportResult {
   rows: ScheduleImportRow[];
-  /** 匯入的屬性一律視為使用者明確指定（manual）：匯入是顯式動作，不該被自動偵測覆寫回去。 */
+  /** 匯入的屬性一律視為使用者明確指定（manual）：匯入是顯式動作，不該被任何自動判定覆寫回去。 */
   classAttrs: Array<{
     className: string;
     classType: ClassType;
