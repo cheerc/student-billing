@@ -81,31 +81,80 @@ export const SEED_CLASSES: SeedClassItem[] = SEED_CLASS_RAW_NAMES.map((raw) => {
 export const SEED_BASE_NAMES = SEED_CLASSES.map((c) => c.baseName);
 
 /**
- * seed 49 個既有班級的**折扣類別**（`ClassCategory`），單一定義處。
+ * seed 49 個既有班級的**折扣類別基準**（`ClassCategory`），單一定義處（逐班明列的資料）。
  *
- * #157 Ruling 1 之後類別不再由班名推導；若 seed 草稿不帶這組值，全新 DB 的每一班都會是
- * 「未設定」，學生的科數與折扣全部歸零（實測影響 92.7% 的學生）。seed 描述的是
- * **匯入前既有的機構設定**，不是使用者尚未填寫的空白，因此把這組類別明寫成資料。
+ * #157 Ruling 1 之後類別不再由班名推導；若沒有這組基準，全新 DB 的每一班都會是「未設定」，
+ * 學生的科數／折扣全部歸零（實測影響 92.7% 的學生）。seed 描述的是**匯入前既有的機構設定**，
+ * 不是使用者尚未填寫的空白，因此這組類別是 seed 的既有基準。
  *
- * 資料來源與邊界：
- *  - 這是 #157 之前 `detectClassCategory` 對 seed 班名的判定結果，逐班以 seed 名單核對
- *    （care 8 班、math 12 班、english 24 班、none 5 班，合計 49）。
- *  - 僅適用於 seed 班名。名冊中不在課表設定的班仍一律 `unset`（#157 Ruling 3），
- *    不在此表的班名也不得被推導。
- *  - 使用者存檔後即成為該設定版本的內容，之後完全由使用者決定。
+ * **這是資料，不是規則**：本表逐班明列 49 個 seed 班級的類別。**使用者在課表設定新增的班
+ * （不在本表）一律是「未設定」**，不會因班名含「國小數學」之類的字樣而被推導——這正是
+ * #157 Ruling 1 要去除的行為。
+ *
+ * 各值的依據（依**課程性質**，不是班名關鍵字比對）：
+ *  - 國小輔導 → `care`（安親課輔班）
+ *  - 國小數學 → `math`（數學班）
+ *  - 兒童美語 → `english`（美語班）
+ *  - 加強班／國語文 → `none`（不列入多科折扣；02 §9A.3／R15 視其本班適用折扣為 not_configured）
+ *  合計 49 班：care 8／math 12／english 24／none 5。
+ *
+ * 與 #157 之前 `detectClassCategory` 對這 49 個班名的判定結果**逐班相同**（49/49 一致）。
+ * 刻意如此：讓「移除自動偵測」在既有資料上不造成 seed 班級的類別漂移。
+ * 其中「小六加強班-數學」是**加強班**課程（與其姊妹班「小六加強班-自然」「小六加強班-國文」
+ * 同類），故為 `none`——舊的班名關鍵字規則因該名不含「國小數學」而恰好也得到 `none`，
+ * 兩者在此班一致；本表**不以班名關鍵字為依據**，而以課程性質為依據。
  */
-export const SEED_CLASS_CATEGORIES: ReadonlyMap<string, SeedClassCategory> = new Map(
-  SEED_CLASSES.map((c) => [c.baseName, seedCategoryOf(c.subject)] as const)
-);
-
-/** seed 的科目 → 折扣類別（`deriveSubject` 的既有分類，不是新的班名比對）。 */
-export function seedCategoryOf(subject: string): SeedClassCategory {
-  if (subject === '國小輔導') return 'care';
-  if (subject === '國小數學') return 'math';
-  if (subject === '兒童美語') return 'english';
-  // 加強班、國語文、其他：不列入多科折扣
-  return 'none';
-}
+export const SEED_CLASS_CATEGORIES: ReadonlyMap<string, SeedClassCategory> = new Map([
+  ["小六加強班-自然", "none"],
+  ["小六加強班-國文", "none"],
+  ["小六加強班-數學", "none"],
+  ["兒童美語-Gino", "english"],
+  ["兒童美語-Archy", "english"],
+  ["兒童美語-Chevady", "english"],
+  ["兒童美語-Cody", "english"],
+  ["兒童美語-Ali", "english"],
+  ["兒童美語-Dommie", "english"],
+  ["兒童美語-EC", "english"],
+  ["兒童美語-ED", "english"],
+  ["兒童美語-Pluto", "english"],
+  ["兒童美語-EF", "english"],
+  ["兒童美語-EG", "english"],
+  ["兒童美語-EK", "english"],
+  ["兒童美語-EL", "english"],
+  ["兒童美語-EM", "english"],
+  ["兒童美語-Kirra", "english"],
+  ["兒童美語-Norma", "english"],
+  ["兒童美語-Hopper", "english"],
+  ["兒童美語-Teffer", "english"],
+  ["兒童美語-Toker", "english"],
+  ["國小國語文-小三小四", "none"],
+  ["國小國語文-小五", "none"],
+  ["國小輔導-一A", "care"],
+  ["國小輔導-一B", "care"],
+  ["國小輔導-二A", "care"],
+  ["國小輔導-二B", "care"],
+  ["國小輔導-三年級", "care"],
+  ["國小輔導-五年級", "care"],
+  ["國小輔導-六年級", "care"],
+  ["國小輔導-四年級", "care"],
+  ["國小數學-一A", "math"],
+  ["國小數學-一B", "math"],
+  ["國小數學-二A", "math"],
+  ["國小數學-二B", "math"],
+  ["國小數學-三A", "math"],
+  ["國小數學-三B", "math"],
+  ["國小數學-五A", "math"],
+  ["國小數學-五B", "math"],
+  ["國小數學-六A", "math"],
+  ["國小數學-六B", "math"],
+  ["國小數學-四A", "math"],
+  ["國小數學-四B", "math"],
+  ["兒童美語-KA", "english"],
+  ["兒童美語-KB", "english"],
+  ["兒童美語-KC", "english"],
+  ["兒童美語-EA", "english"],
+  ["兒童美語-EB", "english"],
+]);
 
 export type SeedClassCategory = 'care' | 'math' | 'english' | 'none';
 

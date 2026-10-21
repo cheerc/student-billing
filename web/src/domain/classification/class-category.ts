@@ -11,11 +11,16 @@
  *  - `none`：使用者明確指定「不列入折扣」，不計科數。
  *  - `unset`：使用者尚未指定。計算上與 `none` 同效，差異只在呈現與提示。
  *
- * 來源狀態（#157 Ruling 4）：`categorySource` 只有 `'manual'`（使用者決定）與
- * `'unset'`（未決定）兩種；`'auto'` 及其「恢復自動」路徑已整條拆除。
+ * 來源狀態（#157 Ruling 4）：`categorySource` 有三種——
+ *  - `'manual'`：使用者明確指定。
+ *  - `'seed'`：**seed 基準**（機構既有的班級設定；不是使用者的決定）。
+ *  - `'unset'`：未指定——可能是使用者明確撤回（選回「（未設定）」），也可能從未被指定。
+ *  `'auto'`（舊的班名推導）僅作為舊資料的讀取值存在，其值一律不採用（Ruling 5）。
  *
  * 不依賴 DB／UI／規則版本。
  */
+
+import { SEED_CLASS_CATEGORIES } from '@/domain/schedules/seed-manifest';
 
 export type ClassCategory = 'care' | 'math' | 'english' | 'none' | 'unset';
 
@@ -26,11 +31,17 @@ export interface ClassAttributes {
 /**
  * 類別的來源狀態。
  *
- * `'auto'` 只作為**舊資料的讀取值**出現在型別上：`specs/06` D53 Ruling 5 明定
- * 舊設定中 `category` 有值但來源為 `auto` 者視為 `unset`（不把系統推導值升格為
- * 使用者的決定）。新寫入的路徑只會產生 `'manual'`／`'unset'`。
+ * - `'manual'`：使用者明確指定。
+ * - `'seed'`：seed 基準值（機構既有的班級設定；**不是**使用者的決定，故不記為 manual）。
+ * - `'unset'`：未指定。使用者明確撤回時會存成這個值，以區分「從未指定」與「已撤回」——
+ *   撤回必須真的撤回，不能在下一次讀取時被 seed 基準還原（Ruling C 的精神）。
+ * - `'auto'`：只作為**舊資料的讀取值**存在（`specs/06` D53 Ruling 5：其值一律不採用，
+ *   不把系統推導值升格為使用者的決定）。新寫入的路徑不會產生這個值。
  */
-export type CategorySource = 'manual' | 'unset' | 'auto';
+export type CategorySource = 'manual' | 'unset' | 'seed' | 'auto';
+
+/** 有效類別的來源（讀取後的結果；`'auto'` 永不出現在結果中）。 */
+export type EffectiveCategorySource = 'manual' | 'unset' | 'seed';
 
 export interface ResolvedClassEnrollment {
   rawToken: string;
@@ -38,7 +49,7 @@ export interface ResolvedClassEnrollment {
   resolvedBaseName: string;
   mapped: boolean;
   category: ClassCategory;
-  categorySource: 'manual' | 'unset';
+  categorySource: EffectiveCategorySource;
   fixedFiveDays: boolean;
 }
 
@@ -52,16 +63,38 @@ export interface ClassSettingLookup {
 /**
  * 已儲存設定 → 有效類別與來源。
  *
- * Ruling 5 的相容處理集中在此：只有 `categorySource === 'manual'` 且 `category` 有值時，
- * 該類別才是使用者的決定；舊資料的 `'auto'` 來源、缺來源、缺類別一律是 `unset`。
+ * 判斷順序（每一層都不可互換）：
+ *  1. `'manual'` 且有值 → **使用者的決定**，原樣採用（任何基準都不得覆寫它）。
+ *  2. `'unset'` → 使用者明確撤回（或本來就未指定）→ 未設定。
+ *     **不得**被 seed 基準還原：撤回必須真的撤回。
+ *  3. `'seed'` 且有值 → 已持久化的 seed 基準，原樣採用。
+ *  4. 其餘（缺值，或舊資料的 `'auto'`）→ 舊的班名推導值一律不採用（Ruling 5）；
+ *     若該班屬 **seed 49 班**，改套用 **seed 基準**（機構既有的班級設定）；
+ *     非 seed 班則為未設定。
+ *
+ * 第 4 點是「既有 DB 與全新 DB 結果一致」的關鍵：seed 基準對兩條路徑同樣生效，
+ * 否則同一份設定會因資料庫是新是舊而算出不同結果。
+ *
+ * @param baseName 解析後的班名（經 alias）；seed 基準以它為 key。
  */
-export function effectiveCategoryOf(saved?: {
-  category?: ClassCategory;
-  categorySource?: CategorySource;
-}): { category: ClassCategory; categorySource: 'manual' | 'unset' } {
+export function effectiveCategoryOf(
+  baseName: string,
+  saved?: {
+    category?: ClassCategory;
+    categorySource?: CategorySource;
+  }
+): { category: ClassCategory; categorySource: EffectiveCategorySource } {
   if (saved?.categorySource === 'manual' && saved.category !== undefined) {
     return { category: saved.category, categorySource: 'manual' };
   }
+  if (saved?.categorySource === 'unset') {
+    return { category: 'unset', categorySource: 'unset' };
+  }
+  if (saved?.categorySource === 'seed' && saved.category !== undefined) {
+    return { category: saved.category, categorySource: 'seed' };
+  }
+  const seed = SEED_CLASS_CATEGORIES.get(baseName);
+  if (seed) return { category: seed, categorySource: 'seed' };
   return { category: 'unset', categorySource: 'unset' };
 }
 
@@ -82,7 +115,7 @@ export function resolveClassEnrollment(
   const cls = classSettingMap?.get(resolvedBaseName);
 
   if (cls) {
-    const { category, categorySource } = effectiveCategoryOf(cls);
+    const { category, categorySource } = effectiveCategoryOf(resolvedBaseName, cls);
     return {
       rawToken: token.rawToken,
       baseName: token.baseName,

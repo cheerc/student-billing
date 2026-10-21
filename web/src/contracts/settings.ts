@@ -99,10 +99,11 @@ export const ClassSettingSchema = z.object({
   classType: ClassTypeSchema.optional(),
   category: z.enum(['care', 'math', 'english', 'none', 'unset']).optional(),
   /**
-   * #157 Ruling 4：來源狀態只剩「使用者決定」（`manual`）與「未決定」（`unset`）。
-   * `auto` 僅保留為舊資料的接受值——讀取時一律落為 `unset`（Ruling 5），不再寫回。
+   * #157 Ruling 4：來源狀態為「使用者決定」（`manual`）、「seed 基準」（`seed`）、
+   * 「未設定」（`unset`）。
+   * `auto` 僅保留為舊資料的接受值——讀取時其值一律不採用（Ruling 5），不再寫回。
    */
-  categorySource: z.enum(['auto', 'manual', 'unset']).optional(),
+  categorySource: z.enum(['auto', 'manual', 'unset', 'seed']).optional(),
   fixedFiveDays: z.boolean().optional(),
   /**
    * #113 follow-up：不計扣天已改為**逐時段**（`sessions[].skipDeduction`），不再是班級屬性。
@@ -240,8 +241,14 @@ function groupGridRowsToClasses<S>(
 
     // specs/14 §3.10：類別的使用者指定隨班保留；未指定者不寫這些欄位（＝未設定，03 §5.2 第 2 點）。
     // 固定 5 天為純布林值（無 fixedSource），有設定值則隨班保留。
+    //
+    // #157：寫出 `manual`（使用者的決定）與 `unset`（使用者**明確撤回**）兩種來源。
+    // `unset` 必須寫出——否則撤回的班在下次讀取時會被 seed 基準還原成原本的類別，
+    // 使用者的撤回就失效了（Ruling C 的精神：撤回必須真的撤回）。
+    // `seed` 基準不寫出：它可由 seed 表重新推得，寫進草稿只會污染使用者的設定內容。
     const attrs = {
-      ...(existing?.categorySource === 'manual' && existing?.category !== undefined
+      ...((existing?.categorySource === 'manual' || existing?.categorySource === 'unset') &&
+      existing?.category !== undefined
         ? { category: existing.category, categorySource: existing.categorySource }
         : {}),
       ...(existing?.fixedFiveDays !== undefined
@@ -365,7 +372,7 @@ export interface ClassAttributeSetting {
   className: string;
   classType?: ClassType;
   category?: 'care' | 'math' | 'english' | 'none' | 'unset';
-  categorySource?: 'auto' | 'manual' | 'unset';
+  categorySource?: 'auto' | 'manual' | 'unset' | 'seed';
   fixedFiveDays?: boolean;
 }
 

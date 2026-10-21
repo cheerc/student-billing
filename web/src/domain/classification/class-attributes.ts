@@ -10,7 +10,7 @@
  * 本模組是 domain 純函式，不依賴 DB／UI／規則版本。
  */
 
-import { type ClassCategory, effectiveCategoryOf } from './class-category';
+import { type ClassCategory, type EffectiveCategorySource, effectiveCategoryOf } from './class-category';
 import {
   type ClassType,
   DEFAULT_CARE_CLASS_NAMES,
@@ -29,8 +29,14 @@ export const CATEGORY_LABELS: Record<ClassCategory, string> = {
   unset: '（未設定）',
 };
 
-/** 屬性來源狀態：使用者的決定，或尚未決定。舊資料的 `auto` 讀取時落為 `unset`。 */
-export type AttributeSource = 'manual' | 'unset';
+/**
+ * 屬性來源狀態。
+ *
+ * - `'manual'`：使用者明確指定。
+ * - `'seed'`：seed 基準值（機構既有的班級設定；**不是**使用者的決定）。
+ * - `'unset'`：未指定（含使用者明確撤回）。
+ */
+export type AttributeSource = EffectiveCategorySource;
 
 /** 已儲存於設定草稿的類別欄位（皆可缺；缺＝未設定，讀取時即 unset）。 */
 export interface SavedClassAttributes {
@@ -72,7 +78,7 @@ export function resolveClassAttributes(
     (DEFAULT_CARE_CLASS_NAMES.has(baseName) || saved?.fixedFiveDays === true
       ? 'care'
       : 'non_care');
-  const { category, categorySource } = effectiveCategoryOf(saved);
+  const { category, categorySource } = effectiveCategoryOf(baseName, saved);
   const fixedFiveDays = saved?.fixedFiveDays ?? false;
   return {
     classType,

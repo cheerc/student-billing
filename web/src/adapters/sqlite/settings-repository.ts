@@ -5,7 +5,6 @@ import {
   buildSeedGridRows,
   gridRowsToClasses,
 } from '@/contracts/settings';
-import { SEED_CLASS_CATEGORIES } from '@/domain/schedules/seed-manifest';
 
 export interface SettingsVersionRecord {
   id: string;
@@ -221,26 +220,29 @@ export function draftToScheduleOverride(
 /**
  * 由 seed 預設產生初始草稿（攜帶全量 89 筆平鋪時段消空 sessions 雙義性）。
  *
- * #157 Ruling 1：`category` 不再由班名推導，因此「seed 的 49 個既有班級屬於哪個折扣類別」
- * 若不在這裡明說，全新 DB 的每一班都會是「未設定」，學生的科數／折扣全部歸零。
+ * #157 Ruling 1：`category` 不再由班名推導。若 seed 草稿不帶任何類別資訊，全新 DB 的
+ * 每一班都會是「未設定」，學生的科數／折扣全部歸零（實測影響 92.7% 的學生）。
  *
  * seed 是**匯入前的既有機構設定**（不是使用者尚未填寫的空白），它在舊制下就對應到一組
- * 明確的類別；因此由 seed 產生的草稿把這組類別**寫成使用者的明確指定**（`categorySource: 'manual'`），
- * 值由 `seed-manifest` 的 `SEED_CLASS_CATEGORIES` 單一定義。
- * 這是「既有資料」而非「把舊 auto 推導值升格」——後者指已儲存設定版本裡的 `source='auto'`
- * 殘留，那一律視為未設定（Ruling 5）。
+ * 明確的類別。那組類別由 `seed-manifest` 的 `SEED_CLASS_CATEGORIES` 單一定義，並在
+ * **「讀取已儲存設定」路徑**同樣套用（`effectiveCategoryOf` 的 seed 基準）。
  *
- * 使用者存檔後即成為該版本的內容，之後完全由使用者決定。
+ * 因此本函式**刻意不寫** `category`／`categorySource`：
+ *  - 寫 `manual` 會把 seed 基準偽裝成使用者的決定，正是 Ruling 5 要避免的；
+ *  - 寫 `seed` 會讓 seed 基準看起來像被存進草稿的設定內容；
+ *  - 不寫則全新 DB 與既有 DB 走的是**同一條** seed 基準路徑，對同一份設定算出相同結果。
+ *
+ * 使用者一旦自行指定（`manual`）或撤回（`unset`），該值會被寫進設定版本並優先於 seed 基準。
  */
 export function buildSeedDraft(
   seedClasses?: Array<{ baseName: string; subject: string; teacher?: string | null }>,
   careWindows?: { anqin: { start: number; end: number }; tutoring: { start: number; end: number } }
 ): SettingsDraft {
   const seedRows = buildSeedGridRows();
-  const fullSeedClasses = gridRowsToClasses(seedRows).map((c) => {
-    const category = SEED_CLASS_CATEGORIES.get(c.baseName);
-    return category ? { ...c, category, categorySource: 'manual' as const } : c;
-  });
+  // #157：seed 草稿**不寫** category／categorySource。seed 基準由 `SEED_CLASS_CATEGORIES`
+  // 在「讀取已儲存設定」路徑同樣套用（`effectiveCategoryOf`），故全新 DB 與既有 DB
+  // 對同一份設定算出**相同**結果——寫進草稿只會讓 seed 基準看起來像使用者的決定。
+  const fullSeedClasses = gridRowsToClasses(seedRows);
 
   return {
     classes: fullSeedClasses,

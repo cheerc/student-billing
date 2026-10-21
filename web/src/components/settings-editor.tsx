@@ -128,7 +128,9 @@ function applyManualAttrsToClasses<T extends { baseName: string; classType?: 'ca
     return {
       ...clean,
       classType: m?.classType ?? c.classType,
-      ...(m?.categorySource === 'manual'
+      // #157：寫出 `manual`（使用者的決定）與 `unset`（使用者**明確撤回**）。
+      // 撤回必須寫出——否則該班在下次讀取時會被 seed 基準還原，撤回就失效了。
+      ...(m?.categorySource === 'manual' || m?.categorySource === 'unset'
         ? { category: m.category, categorySource: m.categorySource }
         : {}),
       ...(m?.fixedFiveDays !== undefined
@@ -244,7 +246,13 @@ export default function SettingsEditor({
   const [manualAttrs, setManualAttrs] = useState<Map<string, ClassAttributesView>>(() => {
     const map = new Map<string, ClassAttributesView>();
     for (const c of initialDraft.classes) {
-      if (c.classType !== undefined || c.categorySource === 'manual' || c.fixedFiveDays !== undefined) {
+      // `unset` 也納入：使用者明確撤回的班必須被記住，否則重新整理後撤回失效。
+      if (
+        c.classType !== undefined ||
+        c.categorySource === 'manual' ||
+        c.categorySource === 'unset' ||
+        c.fixedFiveDays !== undefined
+      ) {
         map.set(c.baseName, resolveClassAttributes(c.baseName, c));
       }
     }
@@ -259,7 +267,13 @@ export default function SettingsEditor({
   const [baselineManualAttrs, setBaselineManualAttrs] = useState<Map<string, ClassAttributesView>>(() => {
     const map = new Map<string, ClassAttributesView>();
     for (const c of initialDraft.classes) {
-      if (c.classType !== undefined || c.categorySource === 'manual' || c.fixedFiveDays !== undefined) {
+      // `unset` 也納入：使用者明確撤回的班必須被記住，否則重新整理後撤回失效。
+      if (
+        c.classType !== undefined ||
+        c.categorySource === 'manual' ||
+        c.categorySource === 'unset' ||
+        c.fixedFiveDays !== undefined
+      ) {
         map.set(c.baseName, resolveClassAttributes(c.baseName, c));
       }
     }
@@ -885,6 +899,7 @@ export default function SettingsEditor({
         [...effectiveManualAttrs].filter(
           ([className, a]) =>
             a.categorySource === 'manual' ||
+            a.categorySource === 'unset' ||
             a.fixedFiveDays ||
             a.classType !== resolveClassAttributes(className).classType
         )
