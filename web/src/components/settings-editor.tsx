@@ -528,58 +528,6 @@ export default function SettingsEditor({
     setPreview(null);
   };
 
-  /** specs/14 §3.8：切換課程類型事前確認後呼叫，清空不再適用的欄位 */
-  const handleSwitchClassType = (className: string, targetType: ClassType) => {
-    setManualAttrs((prev) => {
-      const next = new Map(prev);
-      const base = currentAttrs.get(className) ?? resolveClassAttributes(className);
-      next.set(className, { ...base, classType: targetType, fixedFiveDays: false });
-      return next;
-    });
-    if (targetType === 'care') {
-      // 轉為安親課輔班：清空該班時段
-      setRows((prev) => {
-        const others = prev.filter((r) => r.className.trim() !== className);
-        const first = prev.find((r) => r.className.trim() === className);
-        const emptyRow: ScheduleGridRow = {
-          rowId: first?.rowId ?? `grid-${className}-1`,
-          className,
-          teacher: first?.teacher ?? null,
-          weekday: '',
-          startTime: '',
-          endTime: '',
-          startMinutes: null,
-          endMinutes: null,
-          active: first?.active ?? true,
-          skipDeduction: false,
-        };
-        return [...others, emptyRow];
-      });
-    } else {
-      // 轉為非安親課輔班：確保至少有一列佔位列
-      setRows((prev) => {
-        const hasRow = prev.some((r) => r.className.trim() === className);
-        if (!hasRow) {
-          const emptyRow: ScheduleGridRow = {
-            rowId: `grid-${className}-1`,
-            className,
-            teacher: null,
-            weekday: '',
-            startTime: '',
-            endTime: '',
-            startMinutes: null,
-            endMinutes: null,
-            active: true,
-            skipDeduction: false,
-          };
-          return [...prev, emptyRow];
-        }
-        return prev;
-      });
-    }
-    setPreview(null);
-  };
-
   const handleRestoreAuto = (className: string) => {
     const names = [className, ...classLifecycle.renames
       .filter((rename) => rename.to === className)
@@ -1044,7 +992,6 @@ export default function SettingsEditor({
             onUpdateRow={handleUpdateRow}
             onDeleteRow={handleDeleteRow}
             onAddRow={handleAddRow}
-            onSwitchClassType={handleSwitchClassType}
             calculating={calculating}
             calculateResult={calculateResult}
             calculateInputRows={calculateInputRows}

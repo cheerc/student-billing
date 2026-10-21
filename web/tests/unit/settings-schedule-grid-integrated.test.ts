@@ -397,7 +397,7 @@ describe('specs/14 & Issue #155：雙頁籤與簡化操作（移除切換按鈕�
   });
 
   it('非安親課輔班頁籤：操作欄不包含「轉為安親課輔班」按鈕與切換對話框（Issue #155）', () => {
-    const html = render({ onSwitchClassType: () => {} });
+    const html = render();
     expect(html).not.toContain('轉為安親課輔班');
     expect(html).not.toContain('data-switch-to-care');
     expect(html).not.toContain('data-switch-type');
@@ -426,7 +426,6 @@ describe('specs/14 & Issue #155：雙頁籤與簡化操作（移除切換按鈕�
       rows: careRows,
       classAttributes: careAttrs,
       initialClassTypeTab: 'care',
-      onSwitchClassType: () => {},
     });
     expect(html).toContain('安親課輔班（不計時段）');
     expect(html).not.toContain('轉為非安親課輔班');

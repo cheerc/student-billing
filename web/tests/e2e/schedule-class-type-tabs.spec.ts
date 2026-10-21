@@ -1,17 +1,17 @@
 import { test, expect } from '@playwright/test';
 
 /**
- * Issue #112 / specs/14：課表設定雙頁籤 UI 重構與課程類型切換防呆（PR-1C）
+ * Issue #112 / specs/14 / Issue #155：課表設定雙頁籤 UI 與簡化操作 E2E 驗收
  *
  * 驗收條件涵蓋：
  *  - A1: 新增班級時可選課程類型「非安親課輔班」或「安親課輔班」，選安親時只填班名與老師
  *  - A2: 兩頁籤僅顯示各自適用的欄位，非安親無固定5天，安親無時段與不計扣天
  *  - A3: 預設開啟非安親課輔班；seed 8 個 care 班位於安親頁籤，其餘 41 班位於非安親頁籤
  *  - A4: 專屬欄位不並列
- *  - A9/A10: 既有班級切換課程類型事前確認對話框，時段清空警示與固定5天重置提示，切換後焦點合理跟隨
+ *  - Issue #155: 徹底移除「轉為安親／非安親課輔班」按鈕與切換對話框，操作回歸單純新增與刪除
  */
 
-test.describe('Issue #112 PR-1C: 課表設定雙頁籤與課程類型切換防呆 E2E 驗收', () => {
+test.describe('Issue #112 / #155: 課表設定雙頁籤與簡化操作 E2E 驗收', () => {
   test.beforeEach(async ({ page }) => {
     await page.goto('/settings');
     await expect(page.locator('h1', { hasText: '課表設定' })).toBeVisible({ timeout: 15000 });
@@ -127,104 +127,60 @@ test.describe('Issue #112 PR-1C: 課表設定雙頁籤與課程類型切換防�
     await expect(newClassRow.locator('[data-status-label]')).toHaveText('安親課輔班（不計時段）');
   });
 
-  test('A9, A10: 切換課程類型事前確認對話框、時段清空警示、固定5天重置與焦點管理', async ({ page }) => {
-    // 1. [非安親課輔班 → 安親課輔班] 切換
-    // 找一個有時段的班級（例如兒童美語-Gino）
-    const ginoRow = page.locator('table.schedule-table-non-care tr.schedule-row', {
-      has: page.locator('input[value="兒童美語-Gino"]'),
-    }).first();
-    await expect(ginoRow).toBeVisible();
+  test('Issue #155: 兩頁籤均不包含「轉為安親／非安親課輔班」按鈕與切換對話框，回歸單純新增與刪除', async ({ page }) => {
+    // 1. [非安親課輔班] 頁籤：不含轉為安親課輔班按鈕
+    await expect(page.locator('button[data-switch-type]')).toHaveCount(0);
+    await expect(page.locator('button[data-switch-to-care]')).toHaveCount(0);
+    await expect(page.locator('button', { hasText: '轉為安親課輔班' })).toHaveCount(0);
 
-    // 點擊「轉為安親課輔班」
-    await ginoRow.locator('button[data-switch-to-care="兒童美語-Gino"]').click();
+    // 2. 切換至 [安親課輔班] 頁籤：不含轉為非安親課輔班按鈕
+    await page.locator('#class-type-tab-care').click();
+    await expect(page.locator('button[data-switch-type]')).toHaveCount(0);
+    await expect(page.locator('button[data-switch-to-non-care]')).toHaveCount(0);
+    await expect(page.locator('button', { hasText: '轉為非安親課輔班' })).toHaveCount(0);
 
-    // 彈出確認對話框
-    const dialog = page.locator('dialog.switch-class-type-dialog');
-    await expect(dialog).toBeVisible();
-    await expect(dialog.locator('#switch-dialog-title')).toHaveText('切換為安親課輔班');
-    // 明確顯示時段清空警示
-    await expect(dialog).toContainText('該班時段將被清空，且不再進入衝堂扣天計算。');
-
-    // 點擊「確認切換」
-    await dialog.locator('button[data-confirm-switch]').click();
-    await expect(dialog).toHaveCount(0);
-
-    // 自動切換到 [安親課輔班] 頁籤，焦點合理跟隨至 active tab
-    await expect(page.locator('#class-type-tab-care')).toHaveAttribute('aria-selected', 'true');
-    await expect(page.locator('#class-type-tab-care')).toBeFocused();
-
-    // Gino 班級已在安親頁籤，且只有 1 列，狀態為安親課輔班（不計時段）
-    const ginoCareRow = page.locator('table.schedule-table-care tr.schedule-row', {
-      has: page.locator('input[value="兒童美語-Gino"]'),
-    });
-    await expect(ginoCareRow).toHaveCount(1);
-    await expect(ginoCareRow.locator('[data-status-label]')).toHaveText('安親課輔班（不計時段）');
-
-    // 2. [安親課輔班 → 非安親課輔班] 切換
-    // 先勾選固定 5 天
-    await ginoCareRow.locator('[data-fixed-five-toggle="兒童美語-Gino"]').check();
-    await expect(ginoCareRow.locator('[data-fixed-five-toggle="兒童美語-Gino"]')).toBeChecked();
-
-    // 點擊「轉為非安親課輔班」
-    await ginoCareRow.locator('button[data-switch-to-non-care="兒童美語-Gino"]').click();
-
-    // 彈出確認對話框
-    await expect(dialog).toBeVisible();
-    await expect(dialog.locator('#switch-dialog-title')).toHaveText('切換為非安親課輔班');
-    // 明確提示天數固定 5 天將重置為不勾選
-    await expect(dialog).toContainText('「天數固定 5 天」將重置為不勾選，改由逐時段設定。');
-
-    // 點擊「確認切換」
-    await dialog.locator('button[data-confirm-switch]').click();
-    await expect(dialog).toHaveCount(0);
-
-    // 自動切換回 [非安親課輔班] 頁籤，焦點跟隨
-    await expect(page.locator('#class-type-tab-non_care')).toHaveAttribute('aria-selected', 'true');
-    await expect(page.locator('#class-type-tab-non_care')).toBeFocused();
-
-    // Gino 班級回到非安親頁籤，可輸入時段
-    const ginoNonCareRow = page.locator('table.schedule-table-non-care tr.schedule-row', {
-      has: page.locator('input[value="兒童美語-Gino"]'),
-    });
-    await expect(ginoNonCareRow).toBeVisible();
+    // 3. 全頁不存在切換確認對話框
+    await expect(page.locator('dialog.switch-class-type-dialog')).toHaveCount(0);
   });
 
-  test('Reviewer 1 驗證點：切換課程類型後存檔，重新整理頁面後設定持久化不回退', async ({ page }) => {
-    // 切換至 [安親課輔班]
-    await page.locator('#class-type-tab-care').click();
+  test('Issue #155: 新增安親班與刪除班級後存檔，重新整理頁面後設定持久化不回退', async ({ page }) => {
+    // 1. 新增安親課輔班
+    await page.getByRole('button', { name: '＋ 新增班級' }).click();
+    const addForm = page.locator('form.add-session-panel');
+    await addForm.locator('select[aria-label="新增班級課程類型"]').selectOption('care');
+    const testCareName = `國小輔導-持久化${Date.now().toString().slice(-4)}`;
+    await addForm.locator('input[required]').fill(testCareName);
+    await addForm.getByRole('button', { name: '確認新增' }).click();
 
-    // 將 seed care 班「國小輔導-六年級」轉為非安親課輔班
+    // 自動切換到安親頁籤，共有 8 + 1 = 9 班
+    await expect(page.locator('#class-type-tab-care')).toHaveAttribute('aria-selected', 'true');
+    await expect(page.locator('table.schedule-table-care tr.schedule-row')).toHaveCount(9);
+
+    // 2. 刪除一個班級（例如國小輔導-六年級）
     const grade6Row = page.locator('table.schedule-table-care tr.schedule-row', {
       has: page.locator('input[value="國小輔導-六年級"]'),
     });
     await expect(grade6Row).toBeVisible();
-    await grade6Row.locator('button[data-switch-to-non-care="國小輔導-六年級"]').click();
+    await grade6Row.getByRole('button', { name: '刪除班級 國小輔導-六年級' }).click();
+    await expect(page.locator('table.schedule-table-care tr.schedule-row')).toHaveCount(8);
 
-    const dialog = page.locator('dialog.switch-class-type-dialog');
-    await expect(dialog).toBeVisible();
-    await dialog.locator('button[data-confirm-switch]').click();
-    await expect(dialog).toHaveCount(0);
-
-    // 確認變更按鈕點擊，開啟儲存對話框
+    // 3. 儲存變更
     await page.getByRole('button', { name: '確認變更' }).click();
     const impactDialog = page.locator('dialog.impact-dialog');
     await expect(impactDialog).toBeVisible();
     await impactDialog.locator('button', { hasText: /儲存並更新結果|儲存課表/ }).click();
     await expect(impactDialog).toHaveCount(0);
 
-    // 重新載入頁面
+    // 4. 重新載入頁面驗證持久化
     await page.reload();
     await expect(page.locator('.schedule-grid-container')).toBeVisible({ timeout: 15000 });
 
-    // 預設非安親頁籤中，國小輔導-六年級 依然在非安親列表內，沒有被靜默還原
-    const nonCareRows = page.locator('table.schedule-table-non-care tr.schedule-row', {
-      has: page.locator('input[value="國小輔導-六年級"]'),
-    });
-    await expect(nonCareRows).toBeVisible();
-
-    // 安親頁籤中只剩下 7 班
+    // 切到安親頁籤：仍為 8 班，新班在、被刪除的班不在
     await page.locator('#class-type-tab-care').click();
-    await expect(page.locator('table.schedule-table-care tr.schedule-row')).toHaveCount(7);
+    await expect(page.locator('table.schedule-table-care tr.schedule-row')).toHaveCount(8);
+    await expect(page.locator('table.schedule-table-care tr.schedule-row', {
+      has: page.locator(`input[value="${testCareName}"]`),
+    })).toBeVisible();
     await expect(page.locator('table.schedule-table-care tr.schedule-row', {
       has: page.locator('input[value="國小輔導-六年級"]'),
     })).toHaveCount(0);
