@@ -115,18 +115,22 @@ describe('D2b N-6: run_class_categories 快照持久化與讀模型（完整生�
     const v3Rows = db.prepare('SELECT * FROM run_class_categories WHERE run_id = ?').all('run_v3') as any[];
     expect(v3Rows.length).toBeGreaterThan(0);
 
+    // #157 Ruling 1／3：班名不參與類別判定。名冊中的「國小輔導-寫功課」不在課表設定內
+    // → 未對應 → category=unset、mapped=0、source=unset。
     const hwRow = v3Rows.find((r) => r.base_name === '國小輔導-寫功課');
     expect(hwRow).toBeDefined();
-    expect(hwRow.category).toBe('none');
+    expect(hwRow.category).toBe('unset');
     expect(hwRow.fixed_five_days).toBe(0);
     expect(hwRow.mapped).toBe(0);
-    expect(hwRow.source).toBe('auto');
+    expect(hwRow.source).toBe('unset');
 
+    // 「國小輔導-四年級」是 seed 的班 → 已對應。seed 草稿帶的是**使用者明確指定**的類別
+    // （#157：seed 是匯入前既有的機構設定，不是待填空白），因此 source=manual。
     const seedRow = v3Rows.find((r) => r.base_name === '國小輔導-四年級');
     expect(seedRow).toBeDefined();
     expect(seedRow.category).toBe('care');
     expect(seedRow.mapped).toBe(1);
-    expect(seedRow.source).toBe('auto');
+    expect(seedRow.source).toBe('manual');
   });
 
   it('v2 run 重存時 student_calculations 不被級聯刪除 (R2-1)', () => {
@@ -148,7 +152,9 @@ describe('D2b N-6: run_class_categories 快照持久化與讀模型（完整生�
 
   it('讀模型 (N-6): 不列入但固定 5 天的班級顯示 100%，且該斷言真的落在 fixed_five_days 分支（適用率給非 10000 值）', () => {
     const classSettings = new Map<string, ClassSettingLookup>([
-      ['國小輔導-寫功課', { category: 'none', fixedFiveDays: true }],
+      ['國小輔導-寫功課', { category: 'none', categorySource: 'manual', fixedFiveDays: true }],
+      // 對照組用的 care 班：#157 後類別必須明確宣告，否則快照是 unset（讀模型回 not_configured）。
+      ['國小輔導-四年級', { category: 'care', categorySource: 'manual', fixedFiveDays: false }],
     ]);
     runV3('run_v3_rate', classSettings);
 
@@ -283,8 +289,11 @@ describe('D2b N-7: alias 解析與 manual 來源的快照回歸', () => {
       .prepare('SELECT * FROM run_class_categories WHERE run_id = ? AND base_name = ?')
       .get('run_alias', '美語新班-2026春') as any;
     expect(row).toBeDefined();
+    // #157：alias 解析到系統班「兒童美語-Gino」後，該班的類別由**使用者的設定**決定；
+    // seed 草稿對它有明確指定 → english/manual（舊制依班名寫成 english，但 source 是 auto）。
     expect(row.mapped).toBe(1);
     expect(row.category).toBe('english');
+    expect(row.source).toBe('manual');
   });
 
   it('N-7(b): 沒有 alias 且系統無此班時 mapped=0，並對自動偵測為數學的未對應班出 CLASS_NOT_MAPPED', () => {
@@ -301,8 +310,9 @@ describe('D2b N-7: alias 解析與 manual 來源的快照回歸', () => {
     const row = db
       .prepare('SELECT * FROM run_class_categories WHERE run_id = ? AND base_name = ?')
       .get('run_noalias', '國小數學-未對應新班') as any;
+    // #157 Ruling 3：未對應班的快照類別一律 unset（不再依班名寫成 math）
     expect(row.mapped).toBe(0);
-    expect(row.category).toBe('math');
+    expect(row.category).toBe('unset');
   });
 
   it('N-7(c): 設定草稿以 categorySource=manual 指定類別時，快照 source 為 manual', () => {

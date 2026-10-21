@@ -51,10 +51,13 @@ test.describe('D2b 空 DB 畫面契約：settings_only 影響預覽、Q11 升級
   });
 
   // 同檔共用 DB（`--repeat` 預設每輪全新 DB，只有 `--keep-db` 才跨輪沿用）：透過正式 CAS API 還原合成 seed，再從新頁面驗證清理已持久化。
-  // 「恢復自動」的 UI 持久化另由 d2c-restore-auto.spec.ts 獨立驗證，不由 cleanup 代替。
+  // #157：原 d2c-restore-auto.spec.ts（驗「恢復自動」按鈕）已隨 Ruling 4 廢除；
+  // 「指定類別」的持久化改由本檔與 d2b-class-category.spec.ts 涵蓋。
   test.afterEach(async ({ page }) => {
     await resetSeedSettings(page);
     await page.goto('/settings');
+    // #157：seed 草稿帶的是使用者明確指定的類別（math），
+    // 還原後仍是 math（resetSeedSettings 走的是 buildSeedDraft()）。
     for (const name of ['國小數學-四A', '國小數學-四B']) {
       await expect(page.locator(`[data-category-select="${name}"]`).first()).toHaveValue('math');
     }
@@ -72,19 +75,10 @@ test.describe('D2b 空 DB 畫面契約：settings_only 影響預覽、Q11 升級
 
   test('D2b-5（Q9）: 同名合併且設定不同時阻擋儲存並說明', async ({ page }) => {
     // D2c N-1：本案例必須自足，不依賴前一案例的狀態。
-    // 前置：兩班都先確定為「自動」（前一案例可能已把四A 設為手動或已還原），
-    // 再只把四A 設為手動 → 兩班有效屬性確定不同 → 合併必然是衝突。
-    // 「恢復自動」按鈕只在該項為手動時出現（class-attributes-panel.tsx），故條件式點擊
-    for (const cn of ['國小數學-四A', '國小數學-四B']) {
-      const btn = page.locator(`[data-restore-auto="${cn}"]`).first();
-      if (await btn.count()) {
-        await btn.click();
-      } else {
-      }
-    }
-
-    // 把「國小數學-四A」手動設為不列入折扣
+    // #157 Ruling 4：沒有「恢復自動」按鈕。把「國小數學-四A」設為手動的 none、
+    // 「國小數學-四B」設為手動的 math → 兩班有效屬性確定不同 → 合併必然是衝突。
     await page.locator('[data-category-select="國小數學-四A"]').first().selectOption('none');
+    await page.locator('[data-category-select="國小數學-四B"]').first().selectOption('math');
 
     // D2c N-1：本案例必須自足——把手動設定**先儲存**再改名。
     // 合併衝突的判定基準是各來源班的「有效屬性」（已儲存的手動值優先，未手動者依 baseline 班名

@@ -136,15 +136,16 @@ describe('D2d H: UX60 舊 v3 run 的類別快照不被重新分類（專項旅�
   }
 
   it('舊 v3 run → 改該班類別 → 新 run：舊快照逐列不變，新快照反映新類別', () => {
-    // 1. 存 baseline 設定（Z 未手動 → 依班名自動偵測為 math）
+    // 1. 存 baseline 設定（seed 草稿帶 Z 的**明確**類別 math）
     storeDraft(buildSeedDraft(), 'v1', 1);
 
     // 2. 產生舊的 v3 run A
     activate(db, 'imp_snap', 'run_A', 'erp-tag-v3');
     const snapA_before = snapshotOf(db, 'run_A');
+    // #157 Ruling 4：source 值域為 'manual' | 'unset'；seed 草稿帶的是使用者明確指定的類別。
     expect(snapA_before.find((r) => r.base_name === Z)).toMatchObject({
       category: 'math',
-      source: 'auto',
+      source: 'manual',
     });
 
     // 3. 改設定：把 Z 手動設為不列入折扣（none）
@@ -232,7 +233,11 @@ describe('D2d H: UX60 舊 v3 run 的類別快照不被重新分類（專項旅�
     const readV1 = readStoredDraft(v1.content_json);
     const readV2 = readStoredDraft(v2.content_json);
 
-    expect(readV1.classes.find((c) => c.baseName === Z)?.categorySource).toBeUndefined();
+    // v1 保留 seed 草稿當時的內容（math/manual）；v2 是使用者手動改成的 none/manual。
+    expect(readV1.classes.find((c) => c.baseName === Z)).toMatchObject({
+      category: 'math',
+      categorySource: 'manual',
+    });
     expect(readV2.classes.find((c) => c.baseName === Z)).toMatchObject({
       category: 'none',
       categorySource: 'manual',

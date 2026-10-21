@@ -49,7 +49,7 @@ const ROWS: ScheduleGridRow[] = [
 
 // #113 follow-up：不計扣天不再是班級屬性，只剩類別與固定 5 天；specs/14 加入 classType，移除 fixedSource。
 const ATTRS = new Map<string, ClassAttributesView>([
-  ['兒童美語-Gino', { classType: 'non_care', category: 'english', categorySource: 'auto', fixedFiveDays: false }],
+  ['兒童美語-Gino', { classType: 'non_care', category: 'english', categorySource: 'unset', fixedFiveDays: false }],
   ['國小數學-一A', { classType: 'non_care', category: 'math', categorySource: 'manual', fixedFiveDays: true }],
 ]);
 
@@ -65,7 +65,6 @@ function render(overrides: Record<string, unknown> = {}): string {
       classAttributes: ATTRS,
       onSelectCategory: () => {},
       onToggleFixedFiveDays: () => {},
-      onRestoreAuto: () => {},
       ...overrides,
     })
   );
@@ -99,8 +98,8 @@ describe('#80 & specs/14：課程類型分頁與欄位分離（A2, A4）', () =>
 
   it('固定 5 天 checkbox 反映有效值（安親課輔班頁籤下可見，純 boolean 勾選框）', () => {
     const careAttrs = new Map<string, ClassAttributesView>([
-      ['國小輔導-四年級', { classType: 'care', category: 'care', categorySource: 'auto', fixedFiveDays: true }],
-      ['國小輔導-五年級', { classType: 'care', category: 'care', categorySource: 'auto', fixedFiveDays: false }],
+      ['國小輔導-四年級', { classType: 'care', category: 'care', categorySource: 'unset', fixedFiveDays: true }],
+      ['國小輔導-五年級', { classType: 'care', category: 'care', categorySource: 'unset', fixedFiveDays: false }],
     ]);
     const careRows: ScheduleGridRow[] = [
       {
@@ -137,14 +136,11 @@ describe('#80 & specs/14：課程類型分頁與欄位分離（A2, A4）', () =>
     expect(html).not.toMatch(/data-fixed-five-toggle="國小輔導-五年級"[^>]*checked/);
   });
 
-  it('手動過的班有「自動設定」按鈕；未手動的顯示淡灰「—」（取代原本的來源 pill）', () => {
+  it('不再有任何「恢復自動／自動設定」按鈕（#157 Ruling 4：auto 來源已拆除）', () => {
     const html = render();
-    // 國小數學-一A 兩項都是 manual → 有按鈕
-    expect(html).toContain('data-restore-auto="國小數學-一A"');
-    expect(html).toContain('自動設定');
-    // 兒童美語-Gino 兩項都是 auto → 沒有按鈕，該格是 aria-label「未手動修改」的「—」
-    expect(html).not.toContain('data-restore-auto="兒童美語-Gino"');
-    expect(html).toContain('aria-label="兒童美語-Gino 未手動修改"');
+    expect(html).not.toContain('data-restore-auto');
+    expect(html).not.toContain('自動設定');
+    expect(html).not.toContain('未手動修改');
   });
 
   it('「來源：自動／手動」pill 完全不再出現（#80 省略來源顯示）', () => {
@@ -377,8 +373,7 @@ describe('#81：Excel 匯出／匯入工具列（單純一鍵）', () => {
         classAttributes: ATTRS,
         onSelectCategory: (n: string, c: ClassCategory) => seen.push([n, c]),
         onToggleFixedFiveDays: (n: string, f: boolean) => seenFixed.push([n, f]),
-        onRestoreAuto: () => {},
-        onExportExcel: () => {},
+          onExportExcel: () => {},
         onImportExcel: () => {},
       })
     );
@@ -406,7 +401,7 @@ describe('specs/14 & Issue #155：雙頁籤與簡化操作（移除切換按鈕�
 
   it('安親課輔班頁籤：表格顯示「安親課輔班（不計時段）」短標，操作無「轉為非安親課輔班」按鈕（Issue #155）', () => {
     const careAttrs = new Map<string, ClassAttributesView>([
-      ['國小輔導-四年級', { classType: 'care', category: 'care', categorySource: 'auto', fixedFiveDays: false }],
+      ['國小輔導-四年級', { classType: 'care', category: 'care', categorySource: 'unset', fixedFiveDays: false }],
     ]);
     const careRows: ScheduleGridRow[] = [
       {
@@ -452,7 +447,7 @@ describe('specs/14 & Issue #155：雙頁籤與簡化操作（移除切換按鈕�
 
   it('焦點班級為安親課輔班時，初始頁籤自動聚焦至 [安親課輔班]，避免誤判 missing', () => {
     const careAttrs = new Map<string, ClassAttributesView>([
-      ['國小輔導-四年級', { classType: 'care', category: 'care', categorySource: 'auto', fixedFiveDays: false }],
+      ['國小輔導-四年級', { classType: 'care', category: 'care', categorySource: 'unset', fixedFiveDays: false }],
     ]);
     const careRows: ScheduleGridRow[] = [
       {

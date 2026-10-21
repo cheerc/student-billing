@@ -7,8 +7,36 @@ import { SEED_BASE_NAMES } from '@/domain/schedules/seed-manifest';
 import { runMigrations } from '@/adapters/sqlite/migrator';
 import { saveImportBatch } from '@/adapters/sqlite/import-repository';
 import { executeCalculationRun } from '@/application/calculate-run';
+import type { ClassSettingLookup } from '@/domain/classification/class-category';
+import { manualCategories } from '../helpers/manual-categories';
 
 describe('D2a: erp-tag-v3 班級類別計費核心與選班演算法', () => {
+  /**
+   * 本檔所有虛構班級的**明確**類別宣告（#157 Ruling 1：班名不再參與判定）。
+   *
+   * 每一項都是「這個測試要驗的業務事實」，不是由產品依班名猜出來的：
+   *   - 國小輔導-四年級 → care；國小輔導-寫功課 → 使用者明確指定不列入 → none
+   *   - 國小數學-*／兒童美語-* → 各自科目
+   *   - 交通車／正音班 → 使用者明確指定不列入 → none
+   * 未列在此表的班名（例如「國小數學-全新未開班」）刻意保持未設定，用來驗 Ruling 3。
+   */
+  const MANUAL = manualCategories({
+    care: ['國小輔導-四年級', '國小輔導-五子', '國小輔導-美安'],
+    math: [
+      '國小數學-四A', '國小數學-甲', '國小數學-乙', '國小數學-丙',
+      '國小數學-X', '國小數學-Y',
+    ],
+    english: ['兒童美語-甲', '兒童美語-乙', '兒童美語-X', '兒童美語-Y', '兒童美語-EA', '兒童美語-EB', '兒童美語-未排課'],
+    none: ['國小輔導-寫功課', '交通車[中區]', '交通車-A', '交通車-B', '正音A班'],
+  });
+
+  /** 以本檔的明確宣告補齊 classSettings（保留呼叫端已給的項目）。 */
+  function withManual(extra?: Map<string, ClassSettingLookup>): Map<string, ClassSettingLookup> {
+    const map = new Map(MANUAL);
+    for (const [k, v] of extra ?? []) map.set(k, v);
+    return map;
+  }
+
   // 基礎 helper: 構造最小 StudentSnapshot
   function makeStudent(params: {
     personCode?: string;
@@ -67,7 +95,7 @@ describe('D2a: erp-tag-v3 班級類別計費核心與選班演算法', () => {
       expect(resV2.subjectCount).toBe(1); // v2: 2 - 1 = 1
       expect(resV2.baseDiscountBps).toBe(10000);
 
-      const resV3 = calculateStudentBilling(student, { ruleSetVersion: 'erp-tag-v3' as any });
+      const resV3 = calculateStudentBilling(student, { ruleSetVersion: 'erp-tag-v3' as any, classSettings: MANUAL });
       expect(resV3.subjectCount).toBe(2); // v3: {care, math} = 2
       expect(resV3.baseDiscountBps).toBe(9500);
     });
@@ -89,7 +117,7 @@ describe('D2a: erp-tag-v3 班級類別計費核心與選班演算法', () => {
       const resV2 = calculateStudentBilling(student, { ruleSetVersion: 'erp-tag-v2' });
       expect(resV2.baseDiscountBps).toBe(9500);
 
-      const resV3 = calculateStudentBilling(student, { ruleSetVersion: 'erp-tag-v3' as any });
+      const resV3 = calculateStudentBilling(student, { ruleSetVersion: 'erp-tag-v3' as any, classSettings: MANUAL });
       expect(resV3.baseDiscountBps).toBe(9000);
     });
 
@@ -110,7 +138,7 @@ describe('D2a: erp-tag-v3 班級類別計費核心與選班演算法', () => {
       expect(resV2.subjectCount).toBe(0);
       expect(resV2.baseDiscountBps).toBe(10000);
 
-      const resV3 = calculateStudentBilling(student, { ruleSetVersion: 'erp-tag-v3' as any });
+      const resV3 = calculateStudentBilling(student, { ruleSetVersion: 'erp-tag-v3' as any, classSettings: MANUAL });
       expect(resV3.subjectCount).toBe(1);
       expect(resV3.baseDiscountBps).toBe(9500);
     });
@@ -124,7 +152,7 @@ describe('D2a: erp-tag-v3 班級類別計費核心與選班演算法', () => {
         ],
       });
 
-      const resV3 = calculateStudentBilling(student, { ruleSetVersion: 'erp-tag-v3' as any });
+      const resV3 = calculateStudentBilling(student, { ruleSetVersion: 'erp-tag-v3' as any, classSettings: MANUAL });
       expect(resV3.subjectCount).toBe(1); // {english} = 1
       expect(resV3.baseDiscountBps).toBe(10000);
     });
@@ -138,7 +166,7 @@ describe('D2a: erp-tag-v3 班級類別計費核心與選班演算法', () => {
         ],
       });
 
-      const resV3 = calculateStudentBilling(student, { ruleSetVersion: 'erp-tag-v3' as any });
+      const resV3 = calculateStudentBilling(student, { ruleSetVersion: 'erp-tag-v3' as any, classSettings: MANUAL });
       expect(resV3.subjectCount).toBe(0);
       expect(resV3.baseDiscountBps).toBe(10000);
     });
@@ -167,7 +195,7 @@ describe('D2a: erp-tag-v3 班級類別計費核心與選班演算法', () => {
       const resV2 = calculateStudentBilling(student, { ruleSetVersion: 'erp-tag-v2', scheduleOverride });
       expect(resV2.careDays.tutoring.days).toBe(4.5);
 
-      const resV3 = calculateStudentBilling(student, { ruleSetVersion: 'erp-tag-v3' as any, scheduleOverride });
+      const resV3 = calculateStudentBilling(student, { ruleSetVersion: 'erp-tag-v3' as any, scheduleOverride, classSettings: MANUAL });
       expect(resV3.careDays.tutoring.days).toBe(4.0);
     });
 
@@ -193,7 +221,7 @@ describe('D2a: erp-tag-v3 班級類別計費核心與選班演算法', () => {
       const resV2 = calculateStudentBilling(student, { ruleSetVersion: 'erp-tag-v2', scheduleOverride });
       expect(resV2.careDays.anqin.days).toBe(4.5);
 
-      const resV3 = calculateStudentBilling(student, { ruleSetVersion: 'erp-tag-v3' as any, scheduleOverride });
+      const resV3 = calculateStudentBilling(student, { ruleSetVersion: 'erp-tag-v3' as any, scheduleOverride, classSettings: MANUAL });
       expect(resV3.careDays.anqin.days).toBe(4.0);
     });
 
@@ -218,7 +246,7 @@ describe('D2a: erp-tag-v3 班級類別計費核心與選班演算法', () => {
         ],
       });
       expect(calculateStudentBilling(studentG2, { ruleSetVersion: 'erp-tag-v2', scheduleOverride }).careDays.anqin.days).toBe(5.0);
-      expect(calculateStudentBilling(studentG2, { ruleSetVersion: 'erp-tag-v3' as any, scheduleOverride }).careDays.anqin.days).toBe(4.5);
+      expect(calculateStudentBilling(studentG2, { ruleSetVersion: 'erp-tag-v3' as any, scheduleOverride, classSettings: MANUAL }).careDays.anqin.days).toBe(4.5);
 
       const studentG4 = makeStudent({
         grade: 4,
@@ -228,7 +256,7 @@ describe('D2a: erp-tag-v3 班級類別計費核心與選班演算法', () => {
         ],
       });
       expect(calculateStudentBilling(studentG4, { ruleSetVersion: 'erp-tag-v2', scheduleOverride }).careDays.tutoring.days).toBe(4.5);
-      expect(calculateStudentBilling(studentG4, { ruleSetVersion: 'erp-tag-v3' as any, scheduleOverride }).careDays.tutoring.days).toBe(4.5);
+      expect(calculateStudentBilling(studentG4, { ruleSetVersion: 'erp-tag-v3' as any, scheduleOverride, classSettings: MANUAL }).careDays.tutoring.days).toBe(4.5);
     });
 
     it('平手取報名順序在前者 (token_index 較小)', () => {
@@ -246,7 +274,7 @@ describe('D2a: erp-tag-v3 班級類別計費核心與選班演算法', () => {
         ],
       });
 
-      const resV3 = calculateStudentBilling(student, { ruleSetVersion: 'erp-tag-v3' as any, scheduleOverride });
+      const resV3 = calculateStudentBilling(student, { ruleSetVersion: 'erp-tag-v3' as any, scheduleOverride, classSettings: MANUAL });
       expect(resV3.careDays.tutoring.days).toBe(4.5);
     });
 
@@ -270,7 +298,7 @@ describe('D2a: erp-tag-v3 班級類別計費核心與選班演算法', () => {
       expect(resV2.careDays.tutoring.days).toBe(5.0);
       expect(resV2.issues.some((i) => i.code === 'SCHEDULE_NOT_FOUND')).toBe(true);
 
-      const resV3 = calculateStudentBilling(student, { ruleSetVersion: 'erp-tag-v3' as any, scheduleOverride });
+      const resV3 = calculateStudentBilling(student, { ruleSetVersion: 'erp-tag-v3' as any, scheduleOverride, classSettings: MANUAL });
       expect(resV3.careDays.tutoring.days).toBe(4.5);
       expect(resV3.issues.some((i) => i.code === 'SCHEDULE_NOT_FOUND')).toBe(true);
     });
@@ -298,7 +326,7 @@ describe('D2a: erp-tag-v3 班級類別計費核心與選班演算法', () => {
         ],
       });
 
-      const resV3 = calculateStudentBilling(student, { ruleSetVersion: 'erp-tag-v3' as any, scheduleOverride });
+      const resV3 = calculateStudentBilling(student, { ruleSetVersion: 'erp-tag-v3' as any, scheduleOverride, classSettings: MANUAL });
       expect(resV3.careDays.tutoring.days).toBe(4.0);
       expect(resV3.issues.some((i) => i.code === 'UNKNOWN_WEEKDAY')).toBe(true);
     });
@@ -314,7 +342,7 @@ describe('D2a: erp-tag-v3 班級類別計費核心與選班演算法', () => {
         enrollments: [{ rawToken: '國小輔導-寫功課', baseName: '國小輔導-寫功課' }],
       });
 
-      const resV3 = calculateStudentBilling(student, { ruleSetVersion: 'erp-tag-v3' as any });
+      const resV3 = calculateStudentBilling(student, { ruleSetVersion: 'erp-tag-v3' as any, classSettings: MANUAL });
       expect(resV3.careDays.tutoring.days).toBe(3);
       expect(resV3.careDays.tutoring.displayDays).toBe('3*額');
       expect(resV3.applicableRates.tutoring).toBe(10000); // 固定 5 天適用率 100%
@@ -342,7 +370,7 @@ describe('D2a: erp-tag-v3 班級類別計費核心與選班演算法', () => {
       expect(resCompat.careDays.tutoring.displayDays).toBe('5*額');
 
       // 正式軌 v3：額外扣天在固定 5 天之後扣除
-      const resV3 = calculateStudentBilling(student, { ruleSetVersion: 'erp-tag-v3' as any });
+      const resV3 = calculateStudentBilling(student, { ruleSetVersion: 'erp-tag-v3' as any, classSettings: MANUAL });
       expect(resV3.careDays.tutoring.days).toBe(3);
       expect(resV3.careDays.tutoring.displayDays).toBe('3*額');
     });
@@ -358,7 +386,7 @@ describe('D2a: erp-tag-v3 班級類別計費核心與選班演算法', () => {
       const resV2 = calculateStudentBilling(student, { ruleSetVersion: 'erp-tag-v2' });
       expect(resV2.careDays.tutoring.isEnrolled).toBe(true);
 
-      const resV3 = calculateStudentBilling(student, { ruleSetVersion: 'erp-tag-v3' as any });
+      const resV3 = calculateStudentBilling(student, { ruleSetVersion: 'erp-tag-v3' as any, classSettings: MANUAL });
       expect(resV3.careDays.tutoring.isEnrolled).toBe(false);
     });
   });
@@ -374,11 +402,12 @@ describe('D2a: erp-tag-v3 班級類別計費核心與選班演算法', () => {
       });
 
       const classSettings = new Map([
-        ['國小輔導-寫功課', { category: 'none' as const, fixedFiveDays: true }],
+        // #157：明確指定才有折扣語意；Q8 的條件是 fixedFiveDays && category === 'none'
+        ['國小輔導-寫功課', { category: 'none' as const, categorySource: 'manual' as const, fixedFiveDays: true }],
       ]);
       const resV3 = calculateStudentBilling(student, {
         ruleSetVersion: 'erp-tag-v3' as any,
-        classSettings,
+        classSettings: withManual(classSettings),
       });
       const dup = resV3.issues.find((i) => i.code === 'DUPLICATE_SUBJECT_ENROLLMENT');
       expect(dup).toBeDefined();
@@ -393,7 +422,7 @@ describe('D2a: erp-tag-v3 班級類別計費核心與選班演算法', () => {
         ],
       });
 
-      const resV3 = calculateStudentBilling(student, { ruleSetVersion: 'erp-tag-v3' as any });
+      const resV3 = calculateStudentBilling(student, { ruleSetVersion: 'erp-tag-v3' as any, classSettings: MANUAL });
       expect(resV3.issues.some((i) => i.code === 'DUPLICATE_SUBJECT_ENROLLMENT')).toBe(false);
     });
   });
@@ -411,12 +440,13 @@ describe('D2a: erp-tag-v3 班級類別計費核心與選班演算法', () => {
       const resV2 = calculateStudentBilling(student, { ruleSetVersion: 'erp-tag-v2', scheduleOverride });
       expect(resV2.issues.some((i) => i.code === 'SCHEDULE_NOT_FOUND')).toBe(false);
 
-      const resV3 = calculateStudentBilling(student, { ruleSetVersion: 'erp-tag-v3' as any, scheduleOverride });
+      const resV3 = calculateStudentBilling(student, { ruleSetVersion: 'erp-tag-v3' as any, scheduleOverride, classSettings: MANUAL });
       expect(resV3.issues.some((i) => i.code === 'SCHEDULE_NOT_FOUND')).toBe(true);
     });
 
-    it('Q4-b: 未對應班若自動偵測為安親課輔/數學/美語，出 CLASS_NOT_MAPPED 需確認警告', () => {
-      // 學生報「國小數學-新開未對應班」，在課表設定中未找到
+    it('Q4-b: 未對應班（不限類別）一律出 CLASS_NOT_MAPPED 需確認警告', () => {
+      // 學生報「國小數學-新開未對應班」，在課表設定中未找到。
+      // #157 Ruling 3：範圍由「care/math/english」改為「所有未對應班」。
       const scheduleOverride = new Map<string, Array<{ start: number; end: number; weekday?: string | null }>>([]);
 
       const student = makeStudent({
@@ -424,13 +454,13 @@ describe('D2a: erp-tag-v3 班級類別計費核心與選班演算法', () => {
         enrollments: [{ rawToken: '國小數學-新開未對應班', baseName: '國小數學-新開未對應班' }],
       });
 
-      const resV3 = calculateStudentBilling(student, { ruleSetVersion: 'erp-tag-v3' as any, scheduleOverride });
+      const resV3 = calculateStudentBilling(student, { ruleSetVersion: 'erp-tag-v3' as any, scheduleOverride, classSettings: MANUAL });
       const unmapped = resV3.issues.find((i) => i.code === 'CLASS_NOT_MAPPED');
       expect(unmapped).toBeDefined();
       expect(unmapped?.message).toContain('班名未對應課表，請確認米豆奶班名或系統班級名稱');
     });
 
-    it('Q4-b: 未對應班若自動偵測為 none (如交通車)，不出 CLASS_NOT_MAPPED', () => {
+    it('Q4-b（#157 改寫）: 未對應的交通車同樣出 CLASS_NOT_MAPPED——不再靜默', () => {
       const scheduleOverride = new Map<string, Array<{ start: number; end: number; weekday?: string | null }>>([]);
 
       const student = makeStudent({
@@ -438,8 +468,10 @@ describe('D2a: erp-tag-v3 班級類別計費核心與選班演算法', () => {
         enrollments: [{ rawToken: '交通車-東區', baseName: '交通車-東區' }],
       });
 
-      const resV3 = calculateStudentBilling(student, { ruleSetVersion: 'erp-tag-v3' as any, scheduleOverride });
-      expect(resV3.issues.some((i) => i.code === 'CLASS_NOT_MAPPED')).toBe(false);
+      // 舊制：交通車的班名被自動偵測成 none，因此靜默不警告（119 位學生因此無任何提示）。
+      // #157 Ruling 3：未對應就是未對應，一律警告——否則使用者無法從結果反推「這班沒被收錄」。
+      const resV3 = calculateStudentBilling(student, { ruleSetVersion: 'erp-tag-v3' as any, scheduleOverride, classSettings: MANUAL });
+      expect(resV3.issues.some((i) => i.code === 'CLASS_NOT_MAPPED')).toBe(true);
     });
   });
 
@@ -460,7 +492,7 @@ describe('D2a: erp-tag-v3 班級類別計費核心與選班演算法', () => {
       const resCompat = calculateStudentBilling(student, { ruleSetVersion: 'excel-v260922-compat' });
       expect(resCompat.baseDiscountBps).toBe(10000);
 
-      const resV3 = calculateStudentBilling(student, { ruleSetVersion: 'erp-tag-v3' as any });
+      const resV3 = calculateStudentBilling(student, { ruleSetVersion: 'erp-tag-v3' as any, classSettings: MANUAL });
       expect(resV3.baseDiscountBps).toBe(10000);
     });
 
@@ -488,7 +520,7 @@ describe('D2a: erp-tag-v3 班級類別計費核心與選班演算法', () => {
       const resV2 = calculateStudentBilling(student, { ruleSetVersion: 'erp-tag-v2' });
       expect(resV2.baseDiscountBps).toBe(9500);
 
-      const resV3 = calculateStudentBilling(student, { ruleSetVersion: 'erp-tag-v3' as any });
+      const resV3 = calculateStudentBilling(student, { ruleSetVersion: 'erp-tag-v3' as any, classSettings: MANUAL });
       expect(resV3.baseDiscountBps).toBe(9500);
     });
 

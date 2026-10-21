@@ -6,7 +6,7 @@ import { test, expect } from '@playwright/test';
  *
  * 驗收目標（issue #80 Expected Outcome 1–5）：
  *  1. 不再有兩個分離的班級清單區塊；同一列即可設定類別／固定 5 天／時段；
- *  2. 省略「來源：自動／手動」pill，改以「自動設定」按鈕承載來源狀態；
+ *  2. 省略「來源：自動／手動」pill（#157：連「自動設定」按鈕也一併拆除，改以「（未設定）」下拉表達）
  *  3. 表格底端維持「＋ 新增時段」；
  *  4. 欄位超出螢幕時表格可上下左右捲動，不產生整頁破版；
  *  5. 類別手動覆寫、固定 5 天切換、恢復自動、時段新增／修改／刪除行為完整保留。
@@ -51,23 +51,24 @@ test.describe('#80：單一表格整合屬性（班級列同時設定類別與�
     await expect(page.locator('[data-fixed-five-toggle="國小輔導-四年級"]')).toBeVisible();
   });
 
-  test('#80-3: 省略「來源：自動／手動」pill，改以「自動設定」按鈕承載狀態', async ({ page }) => {
-    // 未手動的班：沒有按鈕，顯示「—」
-    await expect(page.locator('[data-restore-auto="國小數學-四A"]').first()).toHaveCount(0);
-    await expect(page.locator('[aria-label="國小數學-四A 未手動修改"]').first()).toBeVisible();
+  test('#80-3（#157 改寫）: 不再有任何「恢復自動」按鈕；撤回指定＝選回「（未設定）」', async ({ page }) => {
+    // #157 Ruling 4：categorySource 的 'auto' 與其整條路徑拆除，
+    // 因此「自動設定」按鈕與「未手動修改」提示都不存在。
+    await expect(page.locator('[data-restore-auto]')).toHaveCount(0);
+    await expect(page.locator('[aria-label$="未手動修改"]')).toHaveCount(0);
     // 整張表都沒有「自動」／「手動」pill 文字欄
     await expect(page.locator('[data-category-source]')).toHaveCount(0);
     await expect(page.locator('[data-fixed-source]')).toHaveCount(0);
 
-    // 手動後：出現可點的「自動設定」按鈕
+    // 使用者可以選回「（未設定）」＝撤回這個決定（取代舊的「恢復自動」路徑）
     await page.locator('[data-category-select="國小數學-四A"]').first().selectOption('none');
-    await expect(page.locator('[data-restore-auto="國小數學-四A"]').first()).toBeVisible();
-    await expect(page.locator('[data-restore-auto="國小數學-四A"]').first()).toHaveText('自動設定');
-
-    // 點它回到自動偵測值（數學班），按鈕消失
-    await page.locator('[data-restore-auto="國小數學-四A"]').first().click();
-    await expect(page.locator('[data-category-select="國小數學-四A"]').first()).toHaveValue('math');
-    await expect(page.locator('[data-restore-auto="國小數學-四A"]').first()).toHaveCount(0);
+    await expect(page.locator('[data-category-select="國小數學-四A"]').first()).toHaveValue('none');
+    await page.locator('[data-category-select="國小數學-四A"]').first().selectOption('unset');
+    await expect(page.locator('[data-category-select="國小數學-四A"]').first()).toHaveValue('unset');
+    // 下拉有五個選項，「（未設定）」排在最前
+    const options = await page.locator('[data-category-select="國小數學-四A"]').first().locator('option').allTextContents();
+    expect(options[0]).toContain('未設定');
+    expect(options).toHaveLength(5);
   });
 
   test('#80-4: 「＋ 新增班級」仍在表格工具列（specs/14 A1）', async ({ page }) => {

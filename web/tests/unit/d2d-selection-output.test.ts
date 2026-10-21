@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { calculateStudentBilling } from '@/domain/billing/billing-calculator';
+import { manualCategories } from '../helpers/manual-categories';
 import type { StudentSnapshot } from '@/domain/students/types';
 import Database from 'better-sqlite3';
 import { runMigrations } from '@/adapters/sqlite/migrator';
@@ -63,7 +64,11 @@ describe('D2d B: 八項總表重複同類取選中班（Q10-A）', () => {
   // 只要 scheduleOverride 存在就改用 NO_SEED_CLASSES、完全棄用 seed，
   // 空 Map 會讓所有班變 schedule_not_found（已實測：v2/v3 都得 5 天）。
   // 本案例要用**純 seed 路徑**（不傳 override），englishDays 才讀得到 seed 場次數。
-  const SEED_PATH = { aliasMap: new Map(), classSettings: new Map() } as const;
+  // #157 Ruling 1：候選班必須是使用者指定過的類別（舊制靠班名自動判定）。
+  const SEED_PATH = {
+    aliasMap: new Map(),
+    classSettings: manualCategories({ english: ['兒童美語-Gino', '兒童美語-Chevady'] }),
+  } as const;
 
   it('calculator 的 v3 結果必須輸出選中班（selection）供下游共用', () => {
     const student = makeStudent('S-EN-DUP', ['兒童美語-Gino', '兒童美語-Chevady'], 4);

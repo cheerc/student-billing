@@ -104,20 +104,29 @@ describe('Ruling 3：未對應課表的班一律 unset、mapped=false，且一�
   }
 
   it('未對應班對有效科數與基本折扣的影響為零（與「該班不在名單報名」結果相同）', () => {
-    const enrolled = calculateStudentBilling(
-      makeStudent({ personCode: 'U2', grade: 4, baseNames: ['國小輔導-四年級', '國小數學-四A', '兒童美語-Gino'] }),
-      { ruleSetVersion: 'erp-tag-v4', classSettings: new Map() }
+    const settings = new Map<string, ClassSettingLookup>([['國小輔導-四年級', manual('care')]]);
+    // 對照組：只有一個使用者明確指定的 care 班
+    const onlySpecified = calculateStudentBilling(
+      makeStudent({ personCode: 'U2', grade: 4, baseNames: ['國小輔導-四年級'] }),
+      { ruleSetVersion: 'erp-tag-v4', classSettings: settings }
     );
-    const notEnrolled = calculateStudentBilling(makeStudent({ personCode: 'U2', grade: 4, baseNames: [] }), {
-      ruleSetVersion: 'erp-tag-v4',
-      classSettings: new Map(),
-    });
+    // 實驗組：同一個 care 班，外加四個未對應的班（舊制分別會被偵測成 care/math/english/none）
+    const plusUnmapped = calculateStudentBilling(
+      makeStudent({
+        personCode: 'U2',
+        grade: 4,
+        baseNames: ['國小輔導-四年級', '國小輔導-未收錄', '國小數學-未收錄', '兒童美語-未收錄', '交通車'],
+      }),
+      { ruleSetVersion: 'erp-tag-v4', classSettings: settings }
+    );
 
-    // 手算：三班皆 unset → 0 個折扣類別 → 科數 0 → 基本率 10000（無折扣）
-    expect(enrolled.subjectCount).toBe(0);
-    expect(enrolled.baseDiscountBps).toBe(10000);
-    expect(enrolled.subjectCount).toBe(notEnrolled.subjectCount);
-    expect(enrolled.baseDiscountBps).toBe(notEnrolled.baseDiscountBps);
+    // 手算：兩側都只有 1 個折扣類別（care）→ 科數 1 → 基本率 10000（1 科無折扣）。
+    // 若未對應班仍被班名推導出 math／english，科數會變成 3 → 9000，這裡就會抓到。
+    expect(onlySpecified.subjectCount).toBe(1);
+    expect(plusUnmapped.subjectCount).toBe(1);
+    expect(onlySpecified.baseDiscountBps).toBe(10000);
+    expect(plusUnmapped.baseDiscountBps).toBe(10000);
+    expect(plusUnmapped.applicableRates).toEqual(onlySpecified.applicableRates);
   });
 
   it('未對應班不觸發天數地板：小四報名兩班未對應課表 → 課輔 5 天（無扣天、無固定 5 天）', () => {

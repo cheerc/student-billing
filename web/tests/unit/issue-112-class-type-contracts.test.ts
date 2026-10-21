@@ -86,7 +86,7 @@ describe('Issue #112 PR-1A: 課程類型 (classType) 資料模型與屬性重構
             className: '測試班',
             classType: 'non_care' as const,
             category: 'none' as const,
-            categorySource: 'auto' as const,
+            categorySource: 'unset' as const,
             fixedFiveDays: false,
           },
         ],
@@ -99,7 +99,7 @@ describe('Issue #112 PR-1A: 課程類型 (classType) 資料模型與屬性重構
             className: '測試班',
             classType: 'non_care',
             category: 'none',
-            categorySource: 'auto',
+            categorySource: 'unset',
             fixedFiveDays: false,
           },
         ])
@@ -112,7 +112,7 @@ describe('Issue #112 PR-1A: 課程類型 (classType) 資料模型與屬性重構
             className: '測試班',
             classType: 'care',
             category: 'none',
-            categorySource: 'auto',
+            categorySource: 'unset',
             fixedFiveDays: false,
           },
         ])
@@ -221,7 +221,9 @@ describe('Issue #112 PR-1A: 課程類型 (classType) 資料模型與屬性重構
       // 1. 無 classSettings（未對應或未指定）：寫功課、美安、一般班級皆為 false
       const unmappedHw = resolveClassEnrollment({ rawToken: '寫功課', baseName: '寫功課' });
       expect(unmappedHw.fixedFiveDays).toBe(false);
-      expect(unmappedHw.category).toBe('none');
+      // #157 Ruling 1／3：未對應的班一律 unset（舊制會依班名偵測為 none）
+      expect(unmappedHw.category).toBe('unset');
+      expect(unmappedHw.categorySource).toBe('unset');
 
       const unmappedMeian = resolveClassEnrollment({ rawToken: '美安', baseName: '美安' });
       expect(unmappedMeian.fixedFiveDays).toBe(false);
@@ -298,7 +300,7 @@ describe('Issue #112 PR-1A: 課程類型 (classType) 資料模型與屬性重構
           {
             classType: 'care',
             category: 'care',
-            categorySource: 'auto',
+            categorySource: 'unset',
             fixedFiveDays: false,
           },
         ],
@@ -307,7 +309,7 @@ describe('Issue #112 PR-1A: 課程類型 (classType) 資料模型與屬性重構
           {
             classType: 'non_care',
             category: 'care',
-            categorySource: 'auto',
+            categorySource: 'unset',
             fixedFiveDays: false,
           },
         ],
@@ -329,7 +331,7 @@ describe('Issue #112 PR-1A: 課程類型 (classType) 資料模型與屬性重構
           {
             classType: 'care',
             category: 'care',
-            categorySource: 'auto',
+            categorySource: 'unset',
             fixedFiveDays: true,
           },
         ],
@@ -338,7 +340,7 @@ describe('Issue #112 PR-1A: 課程類型 (classType) 資料模型與屬性重構
           {
             classType: 'care',
             category: 'care',
-            categorySource: 'auto',
+            categorySource: 'unset',
             fixedFiveDays: false,
           },
         ],

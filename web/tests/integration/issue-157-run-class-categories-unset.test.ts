@@ -4,6 +4,7 @@ import { runMigrations } from '@/adapters/sqlite/migrator';
 import { saveImportBatch } from '@/adapters/sqlite/import-repository';
 import { executeCalculationRun } from '@/application/calculate-run';
 import { loadRunClassCategories } from '@/application/applicable-rate';
+import { saveCalculationRun } from '@/adapters/sqlite/runs-repository';
 import type { ClassSettingLookup } from '@/domain/classification/class-category';
 
 /**
@@ -84,6 +85,8 @@ describe('Issue #157 快照：未對應班 category=unset、source=unset', () =>
 
   it('未對應班一律寫 category=unset、source=unset、mapped=0（不論班名為何）', () => {
     const res = runV4('run_157_unmapped');
+    // 快照的唯一寫入點是 saveCalculationRun（D2c N-1），讀模型才查得到。
+    saveCalculationRun(db, res.run, res.results, res.classCategories);
     const rows = loadRunClassCategories(db, 'run_157_unmapped');
 
     // executeCalculationRun 產出的快照物件與讀模型必須一致（同一組事實）
@@ -95,16 +98,18 @@ describe('Issue #157 快照：未對應班 category=unset、source=unset', () =>
       '兒童美語-未對應班',
       '交通車-未對應班',
     ]) {
+      // 讀模型（RunClassCategorySnapshot）只帶 base_name／category／fixed_five_days，
+      // 因此 mapped 由 executeCalculationRun 產出的記錄驗證、category 兩者都驗。
       const row = rows.find((r) => r.base_name === baseName);
       expect(row, baseName).toBeDefined();
-      expect(row!.mapped, baseName).toBe(0);
       expect(row!.category, baseName).toBe('unset');
-    }
 
-    const record = res.classCategories!.find((r) => r.baseName === '國小數學-未對應班');
-    expect(record!.source).toBe('unset');
-    expect(record!.mapped).toBe(0);
-    expect(record!.category).toBe('unset');
+      const record = res.classCategories!.find((r) => r.baseName === baseName);
+      expect(record, baseName).toBeDefined();
+      expect(record!.mapped, baseName).toBe(0);
+      expect(record!.category, baseName).toBe('unset');
+      expect(record!.source, baseName).toBe('unset');
+    }
   });
 
   it('已對應但使用者未指定類別 → 快照 category=unset（不得依班名寫入 math）', () => {
