@@ -324,31 +324,33 @@ run 的設定快照＝`run.scheduleVersionId`：`seed-v250922`（該 run 沒有�
 - **美語缺課表警告（F-8）**：v3 下美語班找不到排課時發出 `SCHEDULE_NOT_FOUND` 需確認警告（對齊數學班）。
 
 #### 5.3.4 run 類別快照與讀模型
-- `executeCalculationRun` 於執行 v3 run 時**產出** `classCategories`，不持久化。`saveCalculationRun` 在新 run 列建立後，於呼叫端的同一交易內**唯一寫入**該 run 採用的有效類別快照至 `run_class_categories`（欄位：`run_id`, `base_name`, `category`, `fixed_five_days`, `mapped`, `source`）；不提供已存在 run 的就地補寫路徑。v1／v2 run 不寫類別快照。
-- 讀模型 `applicableRateForClass` 於查詢 v3 run 時讀取該 run 之快照：
-  - 固定 5 天之班級（即使類別為 none，如寫功課）之本班適用折扣顯示 100%（10000 bps）而非「未設定」（Q7-A）。
-  - 若 v3 run 缺失快照，回傳 `not_configured`（無法判定），嚴禁以當前班名猜測。
+- `executeCalculationRun` 於執行 v3 及後續具 `categoryBasedBilling` 的 run 時**產出** `classCategories`，不持久化。`saveCalculationRun` 在新 run 列建立後，於呼叫端的同一交易內**唯一寫入**該 run 採用的有效類別快照至 `run_class_categories`（欄位：`run_id`, `base_name`, `category`, `fixed_five_days`, `mapped`, `source`）；不提供已存在 run 的就地補寫路徑。v1／v2 run 不寫類別快照。
+- 讀模型 `applicableRateForClass` 於查詢此類 run 時讀取該 run 之快照：
+  - **v3 行為**：固定 5 天之班級（即使類別為 none，如寫功課）之本班適用折扣顯示 100%（10000 bps）而非「未設定」（Q7-A）。
+  - **v4 行為（#112、`homeworkDiscountDecoupled = true`）**：不再因 `fixed_five_days === 1` 回傳 10000；本班適用折扣**完全**依快照的 `category` 決定（`care` 依年級取安親／課輔側、`math`、`english`），`none` 一律 `not_configured`（02 §9A.3）。
+  - 若該 run 缺失快照，回傳 `not_configured`（無法判定），嚴禁以當前班名猜測。
 - **API 契約（issue #122）**：`GET /api/v1/runs/{runId}` 與 `GET /api/v1/runs/current` 的回應（後者為 `run` 欄位）**必須**包含該 run 的類別快照，欄位名 `classCategories`：
-  - **形狀即 `RunClassCategorySnapshot`**：`{ base_name, category, fixed_five_days }`，**底線命名**且 `fixed_five_days` 為**數字 0／1**。不得改名為駝峰、不得轉為布林——讀模型判 `fixed_five_days === 1`，形狀改變會讓「固定 5 天 → 100%」靜默失效。
-  - **三態語意互斥，不可互相取代**：`undefined`＝此 run 沒有快照概念（v1／v2，走名稱映射）；`[]`＝v3 run 但查無任何快照列（一律 `not_configured`）；有值＝v3 run 的實際採用類別。
-  - 判定「是否為 v3」一律走能力旗標（§5.3.1 禁止字面版本比較），**不得**以「查得到列與否」推導，否則 v3 的零列會退化成 `undefined` 而讓讀模型錯誤地退回名稱映射。
+  - **形狀即 `RunClassCategorySnapshot`**：`{ base_name, category, fixed_five_days }`，**底線命名**且 `fixed_five_days` 為**數字 0／1**。不得改名為駝峰、不得轉為布林——讀模型判 `fixed_five_days === 1`，形狀改變會讓 v3 的「固定 5 天 → 100%」靜默失效。
+  - **三態語意互斥，不可互相取代**：`undefined`＝此 run 沒有快照概念（v1／v2，走名稱映射）；`[]`＝有快照概念的 run 但查無任何快照列（一律 `not_configured`）；有值＝該 run 的實際採用類別。
+  - 判定「是否讀快照」一律走能力旗標 `categoryBasedBilling`（§5.3.1 禁止字面版本比較），**不得**以「查得到列與否」推導，否則零列會退化成 `undefined` 而讓讀模型錯誤地退回名稱映射。
   - 快照由**載入層**（`getCalculationRun`）帶出，非各 route 自行補查：`/runs/{id}`、`/runs/current`、`/classes` 等消費端共用同一份讀模型，避免各補一次而漂移。
   - 消費端（含 `web/scripts/` 下的帳務比對工具）一律將此快照傳入 `applicableRateForClass`，**不得**直接讀 `applicableEnglishBps`／`applicableMathBps` 等學生層欄位自行推導班級類別。
+  - **快照語意隨規則版本而異**：`fixed_five_days` 在 v3 會讓本班折扣變 100%，在 v4 不會。消費端必須把該 run 的 `ruleSetVersion` 一併傳入讀模型（`SummaryTable` 的 `classCategoryRuleSetVersion`、工具層 `toApplicableRateContext`），不得由消費端自行字面比較版本決定。
 
 #### 5.3.5 診斷標籤兩段式分解
-- `calculate-run` 對 v3 run 同時計算 formal(v3)、shadow(v2) 與 compat：
-  - `formal(v3)` vs `shadow(v2)` 天數差 → 標記 `RULESET_POLICY_DIFFERENCE`（白話：「新舊規則對這位學生的算法不同。」）。
+- `calculate-run` 對具 `diagnosticsDecomposition` 能力的 run（v3、v4）同時計算 formal、shadow(v2) 與 compat：
+  - `formal` vs `shadow(v2)` 天數差 → 標記 `RULESET_POLICY_DIFFERENCE`（白話：「新舊規則對這位學生的算法不同。」）。
   - `shadow(v2)` vs `compat` 天數差 → 標記 `NUMERIC_POLICY_DIFFERENCE`。
   - 新 issue code `RULESET_POLICY_DIFFERENCE` 與 `CLASS_NOT_MAPPED` 登錄於 `KNOWN_ISSUE_CODES` 與 `lib/issue-copy.ts`。
 
-### 5.4 班級類別設定 UI、升級確認與讀模型接線（D2b）
+### 5.4 班級類別設定 UI、升級確認與讀模型接線（D2b；#112 v4 能力旗標見末段）
 
 #### 5.4.1 設定草稿的類別／固定 5 天欄位與來源
 - 班級屬性包含課程類型 `classType`（`care`／`non_care`，specs/14 §3.1）、多科折扣類別 `category`（`care`／`math`／`english`／`none`，帶 `categorySource: 'auto' | 'manual'`），以及固定 5 天 `fixedFiveDays`（布林，specs/14 §3.3/§3.10 移除 auto 偵測與 fixedSource，純布林勾選框）。
 - **有效值解析**（`domain/classification/class-attributes` 的 `resolveClassAttributes`）：
   - `classType`：已儲存值優先；未設定時依 8 個 seed `care_window` 班（或歷史已存 `fixedFiveDays: true`）預設為 `care`，其餘預設為 `non_care`。
   - `category`：已儲存值優先；缺值時來源為 `auto` 並依班名自動偵測；手動值恰等於自動偵測值時仍為 `manual`。
-  - `fixedFiveDays`：已儲存值優先（specs/14 §3.3/§3.10 移除 fixedSource，純布林勾選框，未設定時為 false；舊規則描述留待 PR-2 隨 v4 統一修訂）。
+  - `fixedFiveDays`：已儲存值優先（specs/14 §3.3/§3.10 移除 fixedSource，純布林勾選框，未設定時為 false）。
   - 舊快照（無新欄位）讀取當下即得到正確的有效值，**不回寫**（03 §5.2 版本界線規則第 2 點）；改班名時未手動者依新名重新解析。
 - 寫回 draft 時（`groupGridRowsToClasses`）：每班**必寫入 `classType`**；`category` 與 `categorySource` 僅在手動指定（`manual`）時寫入；`fixedFiveDays` 在有顯式設定值時（existing?.fixedFiveDays !== undefined）隨班寫入。未手動之 `category` 不寫入以維持「缺欄位＝依班名自動偵測」的語意。
 
@@ -367,27 +369,28 @@ run 的設定快照＝`run.scheduleVersionId`：`seed-v250922`（該 run 沒有�
 **合併衝突的判定基準是各來源班的「有效屬性」**（手動值優先，未手動者依 baseline 班名自動偵測），不是只看手動值——否則兩班中有一班未手動時會被誤判為不衝突。
 
 #### 5.4.3 影響預覽與 dirty
-- `POST /api/v1/settings/preview` 的 `before`（現行已儲存設定）與 `after`（草稿）**都帶 `classSettings`**，因此類別式科數的變化會進入預覽。
-- 新增兩個明細：`subjectCountDeltas`（已補科數）與 `baseDiscountDeltas`（合計折扣 bps），只列出有變化者。
-- `affectedStudents` 為三個明細的 **`personCode` 聯集去重計數**（天數、科數、折扣是同一批學生的不同欄位變化，同一人只能算一次）。**不得相加**——相加會把同時有天數與科數變化的學生重複計算。語意為「受影響去重人數」，與 09 §3.1 一致；三種明細皆空時為 0。
+- `POST /api/v1/settings/preview` 的 `before`（現行已儲存設定）與 `after`（草稿）**都帶 `classSettings`**，因此類別式科數與收費率的變化會進入預覽。
+- 明細包含：`dayDeltas`（天數）、`subjectCountDeltas`（已補科數）、`baseDiscountDeltas`（合計折扣 bps），以及 #112 Ruling 2 新增的 `courseRateDeltas`（課程學費折扣收取率 bps，比對各課程收取率），只列出有變化者。
+- `affectedStudents` 為四個明細的 **`personCode` 聯集去重計數**（天數、科數、合計折扣、課程學費折扣是同一批學生的不同欄位變化，同一人只能算一次）。**不得相加**——相加會把多項同時有變化的學生重複計算。語意為「受影響去重人數」，與 09 §3.1 一致；四種明細皆空時為 0。`settings_only` 模式下 `affectedStudents` 與各明細皆為 `null`。
 - 新增 `aliasCategoryNotices`（`AliasCategoryNotice[]`）：米豆奶班名經 alias 對應到系統班後，兩側**自動偵測**類別不同者（`detectAliasCategoryChanges(draft.aliases)`），每項含 `rawBaseName`／`targetBaseName`／`rawDetected`／`targetDetected`。**提示而非阻擋**（Q13、06 D37）——預覽照常成功、儲存照常進行。`settings_only` 與 `with_students` 兩種 mode 都會產出（提示是草稿的靜態推導，不需名冊）。
 - dirty 只比對**手動覆寫**（`manualAttrs` vs `baselineManualAttrs`）：未手動者由班名推導，班名本身已由 rows／baseline 逐列比對涵蓋；若把自動值也帶進 `isSettingsDirty` 的 `classAttrs`，會讓沒有任何覆寫的空 baseline 與整份班級清單永遠長度不同 → 永遠 dirty。
 - 類別／固定 5 天欄位進 draft JSON，因此 `hashSettingsDraft` 自動涵蓋（值與來源都算，改來源即改 hash），且**不改 `hashSettingsDraft` 契約**（仍是 `sha256(JSON.stringify(draft))`）。
 
-#### 5.4.4 升級確認（Q11；S manifest §2）
-- 空 DB 的目標版本為 `erp-tag-v3`（`TARGET_FORMAL_RULE_SET_VERSION`；`resolveFormalRuleSetVersion` 在無 active run 時採它）。
-- 既有 v2 DB **不動**：`resolveTargetRuleSetVersion(db, requested)` 在未指定時沿用現行正式軌版本，因此既有 v2 資料庫的 preview／apply／activate 都繼續產 v2 run。
-- 升級必須是**明確動作**：課表設定頁在 `currentRuleSetVersion === 'erp-tag-v2'` 時顯示「改用新規則（v3）」勾選；勾選後 preview payload 帶 `targetRuleSetVersion: 'erp-tag-v3'`。
+#### 5.4.4 升級確認（Q11；S manifest §2；#112 Ruling 1）
+- 空 DB 的目標版本為 `TARGET_FORMAL_RULE_SET_VERSION`（D2b 時為 `erp-tag-v3`；#112 起為 **`erp-tag-v4`**；`resolveFormalRuleSetVersion` 在無 active run 時採它）。
+- 既有正式軌 run（v1/v2/v3）**不動**：`resolveTargetRuleSetVersion(db, requested)` 在未指定時沿用現行正式軌版本，因此未勾選升級時既有資料庫的 preview／apply／activate 均維持現行規則版本。
+- 升級必須是**明確動作**：課表設定頁在現行版本為正式軌且未達目標版本（`isFormalRuleSetVersion(appliedRuleSetVersion) && appliedRuleSetVersion !== TARGET_FORMAL_RULE_SET_VERSION`，即 v1、v2、v3）時顯示「改用新規則（v4）」勾選；勾選後 preview payload 帶 `targetRuleSetVersion: 'erp-tag-v4'`；套用成功後生效版本更新為目標版本，升級橫幅即時收斂消失。
 - `SettingsPreviewRequestSchema.targetRuleSetVersion` 以 `z.enum(FORMAL_RULE_SET_VERSION_LIST)` 驗證：非正式軌值（診斷軌、未知字串）一律 400，不猜、不靜默降級。
 - preview 記錄的 `target_rule_set_version` 仍是 apply 唯一採用的來源（D1 F-3）：新 run 的版本＝preview 的目標版本，舊 run 的值與分類不變；失敗不切 active（整段在 `db.transaction`），冪等鍵先於 CAS。
 
 #### 5.4.5 讀模型接線（N-8 對齊）
-- `applicableRateForClass` 的 v3 分支改以**注入的快照查詢**（`{ isV3Run, findSnapshot }`）取得類別，不再直接吃 `db`：
+- `applicableRateForClass` 的快照分支改以**注入的快照查詢**（`{ isV3Run／usesSnapshot, ruleSetVersion, findSnapshot }`）取得類別，不再直接吃 `db`：
   - server 端以 `loadRunClassCategories(db, runId)` 一次取出該 run 的快照；
   - client component（學生總表）由 server 以 prop 傳下，**不把 db 帶進瀏覽器**。
 - **查詢 key 必須是名冊班名**：快照的 `base_name` 存的就是名冊班名（`executeCalculationRun` 以 `r.base_name` 寫入），畫面 `singleClass` 亦來自名冊報名 key（`exactlyOneClass` → `unescapeWire`），兩者同源。此對齊是隱含契約，由 UI 測試鎖定。
 - v1／v2 run 沒有快照 → 不帶 `isV3Run`，沿用名稱映射（既有行為不變）。
-- v3 run 缺該班快照 → `not_configured`（無法判定），不以當前班名猜測。
+- 該 run 缺該班快照 → `not_configured`（無法判定），不以當前班名猜測。
+- **固定 5 天是否改寫本班折扣由能力旗標決定**（#112）：`ruleSetVersion` 具 `homeworkDiscountDecoupled`（v4）時，`fixed_five_days` 不參與判定；v3 仍依 Q7-A 回傳 10000。消費端一律傳入該 run 的 `ruleSetVersion`，不得自行字面比較版本。
 
 ## 6. Agent 使用邊界
 

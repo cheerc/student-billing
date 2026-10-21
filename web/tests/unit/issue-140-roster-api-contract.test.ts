@@ -43,7 +43,8 @@ describe('issue #140 第 3 項：RunInfoLike 宣告 classCategories', () => {
   it('`RunSnapshotSource` 與 `RunInfoLike` 對接：run 回應可直接餵進共用入口', () => {
     const run: RunInfoLike = { ruleSetVersion: 'erp-tag-v3', classCategories: [] };
     // 形狀必須相容，否則工具端得再轉一次手，就會出現第二份「怎麼讀快照」的實作
-    expect(buildRunSnapshotContext(run)).toEqual({ isV3Run: true, classCategories: [] });
+    // #112：payload 一併帶上 ruleSetVersion，讓讀模型能依版本能力旗標決定固定 5 天是否改寫折扣
+    expect(buildRunSnapshotContext(run)).toEqual({ isV3Run: true, classCategories: [], ruleSetVersion: 'erp-tag-v3' });
   });
 });
 

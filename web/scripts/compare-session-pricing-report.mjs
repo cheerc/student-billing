@@ -956,8 +956,8 @@ async function main() {
     ruleSetVersion: run.ruleSetVersion || '—',
     numericPolicy: run.numericPolicy || '—',
     rateSource: rateContext
-      ? `v3 類別快照（${rateContext.classCategories.length} 班，與畫面同源）`
-      : '非 v3 run：依當前班名映射',
+      ? `類別快照（${rateContext.classCategories.length} 班，與畫面同源）`
+      : '非快照 run：依當前班名映射',
     billAnchorDate: billDates[Math.floor(billDates.length / 2)] || '—',
     duplicateNames: duplicates,
     amountColumns: amounts.classHeadings.length

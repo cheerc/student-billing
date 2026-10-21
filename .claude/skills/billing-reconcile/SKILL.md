@@ -157,9 +157,11 @@ npm run billing:compare:sessions -- --xlsx "<財務報表.xlsx>" [--out "<報告
 報告上那兩欄標為「不可驗證」。若使用者問「單價對不對」「金額怎麼算」，答案是：
 系統目前沒有這個概念，這也是 #118 要解決的；不要用「金額 ÷ 堂數」反推單價再宣稱比對過。
 
-**兩台工具都直接讀 `applicable*` 欄位**，繞過了產品端 v3 run 的 `classCategories` 快照路徑
-（`GET /api/v1/runs/{id}` 未暴露該欄位）。影響有限但**分歧面包含手動改過的班級類別**：
-若有人手動改過某班的類別或固定 5 天旗標，工具讀數會與畫面不同。細節見 CLAUDE.md §9.3。
+**固定 5 天對本班折扣的影響隨規則版本不同（#112）。** 兩台工具都把 run 的
+`classCategories` 快照傳入產品端 `applicableRateForClass`（issue #122 起），並一併傳入該 run 的
+`ruleSetVersion`：`erp-tag-v3` 下固定 5 天的班本班折扣顯示 100%（Q7-A）；**`erp-tag-v4` 起改為
+完全依 `category` 決定**，`none` 班（即使固定 5 天）標為「無法判定」。若同一份 run 的畫面與工具
+讀數不同，先確認是否有人手動改過班級類別。細節見 CLAUDE.md §9.3。
 
 ## 其他
 

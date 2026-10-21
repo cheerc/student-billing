@@ -30,6 +30,7 @@ interface Capabilities {
   diagnosticsDecomposition: boolean;
   unmappedClassWarning: boolean;
   extraDeductionAfterFloor: boolean;
+  homeworkDiscountDecoupled: boolean;
 }
 
 describe('D1 能力旗標表（新模組 @/domain/billing/rule-set）', () => {
@@ -42,7 +43,7 @@ describe('D1 能力旗標表（新模組 @/domain/billing/rule-set）', () => {
     expect(mod, '@/domain/billing/rule-set 需存在').not.toBeNull();
     const caps = mod!.ruleSetCapabilities;
 
-    // R2-4: 嚴格 toEqual 斷言全量 8 項旗標，防止靜默弱化
+    // R2-4: 嚴格 toEqual 斷言全量 9 項旗標（#112 新增 homeworkDiscountDecoupled），防止靜默弱化
     expect(caps('erp-tag-v2')).toEqual({
       sameWeekdayOnly: true,
       unknownWeekdayWarning: true,
@@ -53,6 +54,7 @@ describe('D1 能力旗標表（新模組 @/domain/billing/rule-set）', () => {
       diagnosticsDecomposition: false,
       unmappedClassWarning: false,
       extraDeductionAfterFloor: false,
+      homeworkDiscountDecoupled: false,
     });
     for (const off of ['erp-tag-v1', 'excel-v260922-compat', 'garbage-version', '']) {
       expect(caps(off), off).toEqual({
@@ -65,15 +67,17 @@ describe('D1 能力旗標表（新模組 @/domain/billing/rule-set）', () => {
         diagnosticsDecomposition: false,
         unmappedClassWarning: false,
         extraDeductionAfterFloor: false,
+        homeworkDiscountDecoupled: false,
       });
     }
 
-    // 正式軌成員包含 v1、v2、v3（D2 新增 v3）
-    expect([...mod!.FORMAL_RULE_SET_VERSIONS].sort()).toEqual(['erp-tag-v1', 'erp-tag-v2', 'erp-tag-v3']);
+    // 正式軌成員包含 v1、v2、v3、v4（D2 新增 v3；#112 新增 v4）
+    expect([...mod!.FORMAL_RULE_SET_VERSIONS].sort()).toEqual(['erp-tag-v1', 'erp-tag-v2', 'erp-tag-v3', 'erp-tag-v4']);
     expect(mod!.isFormalRuleSetVersion('erp-tag-v1')).toBe(true);
     expect(mod!.isFormalRuleSetVersion('erp-tag-v2')).toBe(true);
     expect(mod!.isFormalRuleSetVersion('excel-v260922-compat')).toBe(false);
     expect(mod!.isFormalRuleSetVersion('erp-tag-v3')).toBe(true);
+    expect(mod!.isFormalRuleSetVersion('erp-tag-v4')).toBe(true);
   });
 });
 

@@ -174,8 +174,8 @@ describe('UX18：API 路徑（calculate／deductions）對全量 seed 草稿的�
     );
     expect(res.status).toBe(200);
     const body = await res.json();
-    // 規則版本改為 v3（Q11 空 DB 預設），但逐堂計算值是 D24／D30 層，v3 未改動 → golden 仍成立
-    expect(body.ruleSetVersion).toBe('erp-tag-v3');
+    // 規則版本改為目標正式軌 v4（Q11 空 DB 預設；#112 起目標版本），但逐堂計算值是 D24／D30 層，v4 未改動 → golden 仍成立
+    expect(body.ruleSetVersion).toBe('erp-tag-v4');
     expectMatchesGolden(body.classes, 'calculate');
   });
 

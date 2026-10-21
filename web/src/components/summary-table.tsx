@@ -83,13 +83,18 @@ function extraDays(stu: StudentCalculationItem): string {
 function localRate(
   stu: StudentCalculationItem,
   className: string,
-  snapshots: RunClassCategorySnapshot[] | undefined
+  snapshots: RunClassCategorySnapshot[] | undefined,
+  ruleSetVersion?: string | null
 ): string {
   const r = applicableRateForClass(
     className,
     stu,
     snapshots
-      ? { isV3Run: true, findSnapshot: (name) => snapshots.find((x) => x.base_name === name) }
+      ? {
+          isV3Run: true,
+          ruleSetVersion,
+          findSnapshot: (name) => snapshots.find((x) => x.base_name === name),
+        }
       : undefined
   );
   if (r.status === 'not_configured') return '未設定';
@@ -106,10 +111,12 @@ interface SummaryTableProps {
   /** 表頭篩選觸發鈕；未提供時是純表格 */
   renderFilter?: (column: StudentColumnKey) => React.ReactNode;
   /**
-   * 該 run 的班級類別快照（v3 才有；server 由 run_class_categories 讀出）。
-   * 有值＝v3 run，本班適用折扣依快照判斷；無值＝v1／v2，名稱映射。
+   * 該 run 的班級類別快照（具快照能力的 run 才有；server 由 run_class_categories 讀出）。
+   * 有值＝快照 run，本班適用折扣依快照判斷；無值＝名稱映射。
    */
   classCategorySnapshots?: RunClassCategorySnapshot[] | null;
+  /** 該 run 的規則集版本（例如 erp-tag-v4） */
+  ruleSetVersion?: string | null;
 }
 
 /**
@@ -146,6 +153,7 @@ export default function SummaryTable({
   singleClass = null,
   renderFilter,
   classCategorySnapshots = null,
+  ruleSetVersion = null,
 }: SummaryTableProps) {
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
   const f = (column: StudentColumnKey) => renderFilter?.(column) ?? null;
@@ -256,7 +264,7 @@ export default function SummaryTable({
                   <td className="number">{extraDays(stu)}</td>
                   <td className="number">{formatBaseDiscount(stu.baseDiscountBps)}</td>
                   {singleClass !== null && (
-                    <td className="number">{localRate(stu, singleClass, classCategorySnapshots ?? undefined)}</td>
+                    <td className="number">{localRate(stu, singleClass, classCategorySnapshots ?? undefined, ruleSetVersion)}</td>
                   )}
                   <td className="number">{num(stu.subjectCount)}</td>
                   <td>

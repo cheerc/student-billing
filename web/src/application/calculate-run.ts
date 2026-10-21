@@ -1,6 +1,7 @@
 import Database from 'better-sqlite3';
 import { StudentSnapshot, ParsedToken } from '@/domain/students';
 import { calculateStudentBilling, RuleSetVersion, ResolvedClassSession } from '@/domain/billing/billing-calculator';
+import { ruleSetCapabilities } from '@/domain/billing/rule-set';
 import { CalculationRunRecord, StudentCalculationRecord, RunClassCategoryRecord } from '@/adapters/sqlite/runs-repository';
 import seedData from '@/domain/schedules/schedule-seed.json';
 import { SettingsDraft } from '@/contracts/settings';
@@ -175,7 +176,7 @@ export function executeCalculationRun(
       classSettings,
     });
 
-    if (ruleSetVersion === 'erp-tag-v3') {
+    if (ruleSetCapabilities(ruleSetVersion).diagnosticsDecomposition) {
       const shadowV2 = calculateStudentBilling(student, {
         ruleSetVersion: 'erp-tag-v2',
         aliasMap: options.aliasMap,
@@ -224,7 +225,7 @@ export function executeCalculationRun(
     let englishDays: number | null = null;
     const hasEnglish = enrollments.some((e) => e.baseName.includes('兒童美語'));
     if (hasEnglish) {
-      if (ruleSetVersion === 'erp-tag-v3' && formal.selection?.english) {
+      if (ruleSetCapabilities(ruleSetVersion).categoryBasedBilling && formal.selection?.english) {
         const selected = formal.selection.english.selectedBaseName;
         const enSeed = seedMap.get(selected);
         englishDays = enSeed ? enSeed.sessions.length : 2;
@@ -238,7 +239,7 @@ export function executeCalculationRun(
     let mathDays: number | null = null;
     const hasMath = enrollments.some((e) => e.baseName.includes('國小數學'));
     if (hasMath) {
-      if (ruleSetVersion === 'erp-tag-v3' && formal.selection?.math) {
+      if (ruleSetCapabilities(ruleSetVersion).categoryBasedBilling && formal.selection?.math) {
         const selected = formal.selection.math.selectedBaseName;
         const maSeed = seedMap.get(selected);
         mathDays = maSeed ? maSeed.sessions.length : 2;
@@ -336,9 +337,9 @@ export function executeCalculationRun(
     createdAt: now,
   };
 
-  // R2-1 & R2-2: v3 run 產生 run_class_categories 快照物件，供 saveCalculationRun 持久化
+  // R2-1 & R2-2: 產生 run_class_categories 快照物件，供 saveCalculationRun 持久化
   let classCategories: RunClassCategoryRecord[] | undefined;
-  if (ruleSetVersion === 'erp-tag-v3') {
+  if (ruleSetCapabilities(ruleSetVersion).categoryBasedBilling) {
     const classCategoryMap = new Map<string, RunClassCategoryRecord>();
 
     for (const r of enrollmentRows) {

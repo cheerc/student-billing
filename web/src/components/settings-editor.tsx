@@ -47,6 +47,7 @@ import {
   readRawFailure,
   type UserFacingError,
 } from '@/lib/user-messages';
+import { isFormalRuleSetVersion, TARGET_FORMAL_RULE_SET_VERSION } from '@/domain/billing/rule-set';
 
 interface SettingsEditorProps {
   importId: string | null;
@@ -70,6 +71,7 @@ interface SettingsEditorProps {
   reportRefreshRetryDelaysMs?: number[];
   /**
    * D2b 4（Q11）：現行 run 的規則版本。v2 時顯示「改用新規則」升級動作（明確確認，不靜默切換）。
+   * #112：目標正式軌改為 erp-tag-v4（固定 5 天與課程學費折扣解耦）。
    * null＝尚無啟用的 run（空 DB，該 run 建立時即為目標版本 v3，無需升級動作）。
    */
   currentRuleSetVersion?: string | null;
@@ -277,15 +279,18 @@ export default function SettingsEditor({
   const reqSeqRef = useRef(0);
   const latestReqKeyRef = useRef<string>('');
 
-  // D2b 4（Q11）：是否已明確確認要改用新規則（v3）。未確認時一切照現行版本走，既有 v2 DB 不動。
+  // D2b 4（Q11）：是否已明確確認要改用新規則（v4）。未確認時一切照現行版本走，既有 v2 DB 不動。
   const [upgradeConfirmed, setUpgradeConfirmed] = useState(false);
   // D2d r3／F-2：`currentRuleSetVersion` 是 server-render prop，session 內不更新，
   // 套用成功後 `canUpgrade` 仍為 true → banner 仍在、isDirty 仍 true、離頁仍被攔截。
   // 改用**本地 state 追蹤「目前生效的版本」**（初始取 server prop）；套用成功後設為
-  // **apply 記錄的** `targetRuleSetVersion`——apply 的結果才是權威，不主動猜 v3。
+  // **apply 記錄的** `targetRuleSetVersion`——apply 的結果才是權威，不主動猜目標版本。
   // 缺值時保守不變（`?? prev`），不製造未知狀態。
   const [appliedRuleSetVersion, setAppliedRuleSetVersion] = useState<string | null>(currentRuleSetVersion);
-  const canUpgrade = appliedRuleSetVersion === 'erp-tag-v2';
+  const canUpgrade =
+    appliedRuleSetVersion !== null &&
+    isFormalRuleSetVersion(appliedRuleSetVersion) &&
+    appliedRuleSetVersion !== TARGET_FORMAL_RULE_SET_VERSION;
   const isUpgrading = canUpgrade && upgradeConfirmed;
 
   // 儲存確認視窗狀態
@@ -873,7 +878,7 @@ export default function SettingsEditor({
         expectedRevision: revision,
       };
       // 升級流程（Q11）：只有使用者明確勾選「改用新規則」才帶目標版本；否則沿用現行版本（v2 DB 不動）
-      if (isUpgrading) payload.targetRuleSetVersion = 'erp-tag-v3';
+      if (isUpgrading) payload.targetRuleSetVersion = TARGET_FORMAL_RULE_SET_VERSION;
       if (hasActiveImport && importId) {
         payload.importId = importId;
       }
@@ -1016,14 +1021,14 @@ export default function SettingsEditor({
                   type="checkbox"
                   checked={upgradeConfirmed}
                   data-upgrade-confirm=""
-                  aria-label="改用新規則（erp-tag-v3）"
+                  aria-label="改用新規則（erp-tag-v4）"
                   onChange={(e) => {
                     setUpgradeConfirmed(e.target.checked);
                     setPreview(null);
                   }}
                 />
                 <span>
-                  <strong>改用新規則（v3）</strong>：勾選後，本次確認變更會改用新的計算規則重新計算全部學生
+                  <strong>改用新規則（v4）</strong>：勾選後，本次確認變更會改用新的計算規則重新計算全部學生
                   （折扣類別、天數下限與重複報名的判定方式不同），並產生新的核對結果。
                   <br />
                   未勾選時維持現行規則，既有結果不受影響；已產生的舊結果不會被改寫。

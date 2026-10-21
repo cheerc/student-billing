@@ -176,14 +176,16 @@ export function calculateApplicableRate(
   baseDiscountBps: number | null,
   isInternalStudent: boolean,
   hasHomeworkOrMeian: boolean,
-  hasSpecialDiscount: boolean
+  hasSpecialDiscount: boolean,
+  homeworkDiscountDecoupled: boolean = false
 ): number | null {
   if (baseDiscountBps === null) {
     return null;
   }
 
   // #124：特殊折扣有值時不套用寫功課/美安的 10000 覆蓋。
-  const homeworkOverwriteApplies = hasHomeworkOrMeian && !hasSpecialDiscount;
+  // #112 erp-tag-v4：固定 5 天與課程學費折扣解耦，homeworkDiscountDecoupled 為真時不套用 10000 覆蓋。
+  const homeworkOverwriteApplies = !homeworkDiscountDecoupled && hasHomeworkOrMeian && !hasSpecialDiscount;
 
   if (courseType === 'anqin') {
     if (homeworkOverwriteApplies) {

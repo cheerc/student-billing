@@ -61,10 +61,12 @@ interface ActiveRunViewProps {
    */
   unmappedClasses?: string[] | null;
   /**
-   * D2b 3（N-8）：該 run 的班級類別快照（v3 才有；server 由 run_class_categories 讀出，以名冊班名為 key）。
+   * D2b 3（N-8）：該 run 的班級類別快照（具快照能力的 run 才有；server 由 run_class_categories 讀出，以名冊班名為 key）。
    * 學生總表的「本班適用折扣」依它判斷；v1／v2 為 null → 名稱映射。
    */
   classCategorySnapshots?: RunClassCategorySnapshot[] | null;
+  /** 該 run 的規則集版本（快照語意隨版本而異：v4 起固定 5 天不再改寫本班折扣）。 */
+  classCategoryRuleSetVersion?: string | null;
   /** current＝目前使用的資料；history＝歷史資料（唯讀，來自匯入紀錄）。預設 current。 */
   mode?: 'current' | 'history';
   /** 資料來源（檔名與日期）；橫幅據此標示來源日期（09 §2）。 */
@@ -126,6 +128,7 @@ export default function ActiveRunView({
   deductionsUnavailable,
   unmappedClasses = null,
   classCategorySnapshots = null,
+  classCategoryRuleSetVersion = null,
   mode = 'current',
   source,
 }: ActiveRunViewProps) {
@@ -677,6 +680,7 @@ export default function ActiveRunView({
               loading={loading}
               singleClass={singleClass}
               classCategorySnapshots={classCategorySnapshots ?? null}
+              ruleSetVersion={classCategoryRuleSetVersion ?? null}
               renderFilter={renderFilter}
               onSelectStudent={(s) => setSelectedStudent(s)}
               onResetFilters={handleResetFilters}

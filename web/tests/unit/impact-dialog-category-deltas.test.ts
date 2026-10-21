@@ -206,4 +206,45 @@ describe('N02: ImpactDialog 科數與合計折扣變動明細（UX65／issue #54
       expect(html).toContain('未設定');
     }).not.toThrow();
   });
+
+  it('6. Ruling 2: 課程學費折扣變動（courseRateDeltas）呈現完整明細表格與格式化文字', () => {
+    const preview: any = {
+      mode: 'with_students',
+      previewId: 'prev-course-rate-1',
+      inputHash: 'hash6',
+      expectedRevision: 1,
+      settingsVersionId: 'v1',
+      importId: 'imp_1',
+      runId: 'run_1',
+      totalStudents: 1,
+      affectedStudents: 1,
+      mismatchCount: 0,
+      dayDeltas: [],
+      subjectCountDeltas: [],
+      baseDiscountDeltas: [],
+      courseRateDeltas: [
+        { personCode: 'R3_003', name: '學生丙', course: 'tutoring', courseLabel: '課輔', before: 10000, after: 9500 },
+      ],
+    };
+
+    const html = renderToStaticMarkup(
+      React.createElement(ImpactDialog, {
+        isOpen: true,
+        mode: 'with_students',
+        preview,
+        splitWarnings: [],
+        onClose: () => {},
+        onApply: () => {},
+        applying: false,
+      })
+    );
+
+    expect(html).toContain('課程學費折扣變動明細');
+    expect(html).toContain('R3_003');
+    expect(html).toContain('學生丙');
+    expect(html).toContain('課輔');
+    expect(html).toContain('無折扣');
+    expect(html).toContain('95折');
+    expect(html).toContain('本次課表變更未改變現行學生的收費天數。');
+  });
 });

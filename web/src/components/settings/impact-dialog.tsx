@@ -54,6 +54,17 @@ export interface SettingsPreviewData {
     after: number | null;
   }> | null;
   /**
+   * #112 Ruling 2：課程學費折扣變動明細
+   */
+  courseRateDeltas?: Array<{
+    personCode: string;
+    name: string;
+    course: string;
+    courseLabel: string;
+    before: number | null;
+    after: number | null;
+  }> | null;
+  /**
    * D2b r2（R2-2／Q13／06 D37）：跨類別別名提示。**不阻擋儲存**，只在使用者確認前列出
    * 哪些別名的折扣類別將改由系統班決定。
    */
@@ -134,6 +145,7 @@ export function ImpactDialog({
   const hasDeltas = Array.isArray(preview?.dayDeltas) && preview!.dayDeltas!.length > 0;
   const hasSubjectDeltas = Array.isArray(preview?.subjectCountDeltas) && preview!.subjectCountDeltas!.length > 0;
   const hasDiscountDeltas = Array.isArray(preview?.baseDiscountDeltas) && preview!.baseDiscountDeltas!.length > 0;
+  const hasCourseRateDeltas = Array.isArray(preview?.courseRateDeltas) && preview!.courseRateDeltas!.length > 0;
   const aliasNotices = preview?.aliasCategoryNotices ?? [];
 
   return (
@@ -218,7 +230,7 @@ export function ImpactDialog({
               <div className="metric-card">
                 <span className="metric-label">受影響學生數</span>
                 <strong className="metric-value">{preview?.affectedStudents ?? 0} 人</strong>
-                <span className="metric-sub">天數、科數或折扣有變化（每人只計一次）</span>
+                <span className="metric-sub">天數、科數、合計折扣或課程學費折扣有變化（每人只計一次）</span>
               </div>
               <div className="metric-card">
                 <span className="metric-label">米豆奶入班天數比對</span>
@@ -309,6 +321,36 @@ export function ImpactDialog({
                         <tr key={d.personCode}>
                           <td className="code-text">{d.personCode}</td>
                           <td>{d.name}</td>
+                          <td>{formatDiscountBps(d.before)}</td>
+                          <td className="after-bold">{formatDiscountBps(d.after)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+
+            {hasCourseRateDeltas && (
+              <div className="deltas-table-container" style={{ marginTop: '16px' }} data-course-rate-deltas="">
+                <h3 className="section-title">課程學費折扣變動明細（前 50 筆）</h3>
+                <div className="scroll table-scroll-container">
+                  <table className="data-table">
+                    <thead>
+                      <tr>
+                        <th>人員代碼</th>
+                        <th>姓名</th>
+                        <th>課程</th>
+                        <th>變更前折扣</th>
+                        <th>變更後折扣</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {preview!.courseRateDeltas!.slice(0, 50).map((d) => (
+                        <tr key={`${d.personCode}-${d.course}`}>
+                          <td className="code-text">{d.personCode}</td>
+                          <td>{d.name}</td>
+                          <td>{d.courseLabel}</td>
                           <td>{formatDiscountBps(d.before)}</td>
                           <td className="after-bold">{formatDiscountBps(d.after)}</td>
                         </tr>

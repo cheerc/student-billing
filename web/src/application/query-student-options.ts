@@ -4,6 +4,7 @@ import { parseTagDiscounts } from '@/domain/billing/discount-rules';
 import { normalizeStudentQuery, type QueryValue } from '@/contracts/student-query';
 import { createStudentPredicateBuilder } from './student-query-predicates';
 import { rateCategoryOfClass } from './applicable-rate';
+import { ruleSetCapabilities } from '@/domain/billing/rule-set';
 import { ALLOWED_RUN_QUERY_PARAMS, validateRunQueryParams, QueryStudentError } from './query-students';
 
 export interface StudentFilterOption { value: string; count: number; labelKey?: 'unparsedClassLabel' }
@@ -50,8 +51,39 @@ export function queryStudentOptions(db: Database.Database, runId: string, params
   }
   const selected = query.selections.enrollmentKey;
   const classKey = selected && !selected.none && selected.values.length === 1 && typeof selected.values[0] === 'string' ? selected.values[0] : null;
-  const category = classKey === null ? null : rateCategoryOfClass(classKey);
-  const context: RunStudentOptions['applicableRateContext'] = { classKey: classKey === null ? null : wireValue(classKey), status: classKey === null ? 'requires_class' : category ? 'configured' : 'not_configured' };
+
+  // Ruling 3: 優先自 run.classCategories 快照讀取班級類別（非快照 run 才退回 rateCategoryOfClass）
+  let category: 'care' | 'math' | 'english' | null = null;
+  let isFixedFiveV3 = false;
+  const usesSnapshot = ruleSetCapabilities(run.ruleSetVersion).categoryBasedBilling && Array.isArray(run.classCategories);
+
+  if (classKey !== null) {
+    if (usesSnapshot && run.classCategories) {
+      const snap = run.classCategories.find((c) => c.base_name === classKey);
+      if (snap) {
+        if (!ruleSetCapabilities(run.ruleSetVersion).homeworkDiscountDecoupled && snap.fixed_five_days === 1) {
+          isFixedFiveV3 = true;
+        }
+        if (snap.category === 'care' || snap.category === 'math' || snap.category === 'english') {
+          category = snap.category;
+        }
+      }
+    } else {
+      category = rateCategoryOfClass(classKey);
+    }
+  }
+
+  const contextStatus: 'configured' | 'not_configured' | 'requires_class' =
+    classKey === null
+      ? 'requires_class'
+      : isFixedFiveV3 || category !== null
+        ? 'configured'
+        : 'not_configured';
+
+  const context: RunStudentOptions['applicableRateContext'] = {
+    classKey: classKey === null ? null : wireValue(classKey),
+    status: contextStatus,
+  };
   const candidates = new Map<string, Map<string, QueryValue>>();
   for (const key of ['enrollmentKey', 'grade', 'branch', 'anqinDays', 'tutoringDays', 'baseDiscountBps', 'applicableDiscountBps', 'hasExtraDeduction', 'sibling', 'specialDiscount', 'internalStudent', 'hasIssues', 'issueCode', 'tierMismatch', 'tierComparison', 'hasClass']) candidates.set(key, new Map());
   const facetRows = new Map<string, Array<[string, string]>>([...candidates.keys()].map((key) => [key, []]));
@@ -95,11 +127,21 @@ export function queryStudentOptions(db: Database.Database, runId: string, params
     add('internalStudent', [tags.internalStudent]);
     add('specialDiscount', [tags.specialDiscount !== null]);
     add('hasExtraDeduction', [Boolean(trace.careDays?.anqin?.hasExtraFlag || trace.careDays?.tutoring?.hasExtraFlag)]);
-    if (classKey && category && names?.has(classKey)) {
-      const value = category === 'care'
-        ? row.grade === 1 || row.grade === 2 ? row.applicable_anqin_bps : row.grade >= 3 && row.grade <= 6 ? row.applicable_tutoring_bps : null
-        : category === 'math' ? row.applicable_math_bps : row.applicable_english_bps;
-      add('applicableDiscountBps', [value]);
+    if (classKey && names?.has(classKey)) {
+      if (contextStatus === 'configured') {
+        const value = isFixedFiveV3
+          ? 10000
+          : category === 'care'
+            ? row.grade === 1 || row.grade === 2
+              ? row.applicable_anqin_bps
+              : row.grade >= 3 && row.grade <= 6
+                ? row.applicable_tutoring_bps
+                : null
+            : category === 'math'
+              ? row.applicable_math_bps
+              : row.applicable_english_bps;
+        add('applicableDiscountBps', [value]);
+      }
     } else if (classKey === null) {
       // 全量四欄的實際值；沒有恰選一班時不能拿這份集合當某班的適用率。
       add('applicableDiscountBps', [row.applicable_anqin_bps, row.applicable_tutoring_bps, row.applicable_math_bps, row.applicable_english_bps]);

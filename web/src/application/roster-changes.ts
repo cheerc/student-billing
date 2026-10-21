@@ -515,10 +515,11 @@ function buildClassDiscountChanges(
     for (const change of addedTokens) {
       const token = afterTokens.get(change.rawToken);
       if (!token) continue;
-      // 決定了計入科數 → 原因；或改變 hasHomeworkOrMeian 且本班是 care（安親／課輔會回到 10000）
+      // 決定了計入科數 → 原因；或改變 hasHomeworkOrMeian 且本班是 care（安親／課輔會回到 10000；v4 解耦後不適用）
+      const homeworkAffectsDiscount = !ruleSetCapabilities(afterCtx.ruleSetVersion ?? 'erp-tag-v2').homeworkDiscountDecoupled;
       if (
         decidesSubjectCount([...before.enrollments, ...after.enrollments], beforeCtx, token) ||
-        (isCare && affectsHomeworkOrMeian(token, afterCtx))
+        (isCare && homeworkAffectsDiscount && affectsHomeworkOrMeian(token, afterCtx))
       ) {
         reasons.push({ kind: 'enrollment_added', className: change.baseName, rawToken: change.rawToken });
       }
@@ -526,9 +527,10 @@ function buildClassDiscountChanges(
     for (const change of removedTokens) {
       const token = beforeTokens.get(change.rawToken);
       if (!token) continue;
+      const homeworkAffectsDiscount = !ruleSetCapabilities(beforeCtx.ruleSetVersion ?? 'erp-tag-v2').homeworkDiscountDecoupled;
       if (
         decidesSubjectCount([...before.enrollments, ...after.enrollments], beforeCtx, token) ||
-        (isCare && affectsHomeworkOrMeian(token, beforeCtx))
+        (isCare && homeworkAffectsDiscount && affectsHomeworkOrMeian(token, beforeCtx))
       ) {
         reasons.push({ kind: 'enrollment_removed', className: change.baseName, rawToken: change.rawToken });
       }
