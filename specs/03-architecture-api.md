@@ -329,7 +329,8 @@ run 的設定快照＝`run.scheduleVersionId`：`seed-v250922`（該 run 沒有�
   - **v3 行為**：固定 5 天之班級（即使類別為 none，如寫功課）之本班適用折扣顯示 100%（10000 bps）而非「未設定」（Q7-A）。
   - **v4 行為（#112、`homeworkDiscountDecoupled = true`）**：不再因 `fixed_five_days === 1` 回傳 10000；本班適用折扣**完全**依快照的 `category` 決定（`care` 依年級取安親／課輔側、`math`、`english`），`none` 一律 `not_configured`（02 §9A.3）。
   - 若該 run 缺失快照，回傳 `not_configured`（無法判定），嚴禁以當前班名猜測。
-- **快照形狀契約（#157）**：`run_class_categories` 的 `category` 欄位值域為 `care`／`math`／`english`／`none`／**`unset`**；`source` 欄位值域為 **`manual`**／**`unset`**（`auto` 已隨班名自動偵測一併移除；舊 run 的列**不重算、不改寫**，仍保留其當時寫入的 `auto` 字串，讀取時視為 `unset`）。**`mapped = 0` 之列一律為 `unset`**（未對應的班不論班名為何都沒有使用者的指定），且該 run 對該生一律產生 `CLASS_NOT_MAPPED`（[02](./02-calculation-rules.md) §9A.6）。
+- **快照形狀契約（#157）**：`run_class_categories` 的 `category` 欄位值域為 `care`／`math`／`english`／`none`／**`unset`**；`source` 欄位值域為 **`manual`**／**`seed`**／**`unset`**（`auto` 已隨班名自動偵測一併移除；舊 run 的列**不重算、不改寫**，仍保留其當時寫入的 `auto` 字串，讀取時視為 `unset`）。**`mapped = 0` 之列一律為 `unset`**（未對應的班不論班名為何都沒有使用者的指定），且該 run 對該生一律產生 `CLASS_NOT_MAPPED`（[02](./02-calculation-rules.md) §9A.6）。
+- **設定草稿的類別欄位（#157）**：`ClassSettingSchema` 的 `category` 值域含 `unset`；`categorySource` 值域為 `manual`／`seed`／`unset`／`auto`（`auto` 僅為舊資料的接受值，讀取時其值不採用）。**草稿只寫 `manual`（使用者的決定）與 `unset`（使用者明確撤回）兩種來源**；`seed` 基準由 `SEED_CLASS_CATEGORIES` 在**讀取設定時**套用，**不寫進草稿**——如此全新 DB 與既有 DB 對同一份設定算出相同結果，且草稿內容不被 seed 基準污染。撤回必須寫出 `unset`（不可刪欄位），否則重新讀取時會被基準還原。
 - **API 契約（issue #122）**：`GET /api/v1/runs/{runId}` 與 `GET /api/v1/runs/current` 的回應（後者為 `run` 欄位）**必須**包含該 run 的類別快照，欄位名 `classCategories`：
   - **形狀即 `RunClassCategorySnapshot`**：`{ base_name, category, fixed_five_days }`，**底線命名**且 `fixed_five_days` 為**數字 0／1**。不得改名為駝峰、不得轉為布林——讀模型判 `fixed_five_days === 1`，形狀改變會讓 v3 的「固定 5 天 → 100%」靜默失效。
   - **三態語意互斥，不可互相取代**：`undefined`＝此 run 沒有快照概念（v1／v2，走名稱映射）；`[]`＝有快照概念的 run 但查無任何快照列（一律 `not_configured`）；有值＝該 run 的實際採用類別。
