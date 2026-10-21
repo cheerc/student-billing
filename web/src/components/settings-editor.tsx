@@ -443,9 +443,9 @@ export default function SettingsEditor({
     const renames = classLifecycle.renames;
     if (renames.length === 0) return manualAttrs;
     const inheritableBaseline = new Map(baselineManualAttrs);
-    // D2d C（04 §8 UX72）：baseline 的**班名集合**（含未手動、靠自動偵測的班），
-    // 讓 carryAttributesOnRename 能分辨「改名成不存在的新名」（手動值跟著走）與
-    // 「併入 baseline 已存在的班 Z」（以 Z 為準，不帶入 X 的手動值）。
+    // D2d C（04 §8 UX72）：baseline 的**班名集合**（含未指定類別的班），
+    // 讓 carryAttributesOnRename 能分辨「改名成不存在的新名」（使用者的指定跟著走）與
+    // 「併入 baseline 已存在的班 Z」（以 Z 為準，不帶入 X 的指定）。
     const baselineNames = new Set(baseline.rows.map((r) => r.className.trim()).filter(Boolean));
     return carryAttributesOnRename(renames, manualAttrs, inheritableBaseline, baselineNames);
   }, [classLifecycle, manualAttrs, baselineManualAttrs, baseline.rows]);
@@ -506,9 +506,14 @@ export default function SettingsEditor({
   /**
    * 選類別 → 使用者決定（manual）。
    *
-   * #157 Ruling 4：選回「（未設定）」等於撤回這個決定 → 該班回到 `unset`（不寫 category 欄位，
-   * 03 §5.2 版本界線規則第 2 點）。沒有「恢復自動」這種回退路徑：一旦 auto 來源移除，
-   * 依班名重新判定就沒有對應物，留著只會是空殼按鈕。
+   * #157 Ruling 4：選回「（未設定）」等於撤回這個決定 → 該班回到 `unset`。
+   * 沒有「恢復自動」這種回退路徑：一旦 auto 來源移除，依班名重新判定就沒有對應物，
+   * 留著只會是空殼按鈕。
+   *
+   * 撤回的結果**記成明確的未設定**（`categorySource: 'unset'`）而不是「刪掉這一筆」：
+   * 刪掉會讓整班改名時從 baseline 撈回舊值（seed 草稿帶的是使用者明確指定的類別），
+   * 使用者的撤回就被還原了。存檔時 `applyManualAttrsToClasses` 只寫 `categorySource === 'manual'`
+   * 的班，因此撤回後該班的草稿不帶 category 欄位（＝未設定，03 §5.2 版本界線規則第 2 點）。
    */
   const handleSelectCategory = (className: string, category: ClassCategory) => {
     setManualAttrs((prev) => {
