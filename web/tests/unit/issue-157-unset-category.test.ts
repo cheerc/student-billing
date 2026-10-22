@@ -362,6 +362,40 @@ describe('Ruling 4：整班改名後 unset 仍是 unset，不得依新名重新�
     expect(out.get('國小輔導-新班')?.categorySource).toBe('unset');
   });
 
+  it('seed 班改名到非 seed 班名時，立刻變成明確 unset，與存檔後讀取值一致', () => {
+    const before = new Map<string, ClassAttributesView>([
+      ['國小數學-四A', resolveClassAttributes('國小數學-四A')],
+    ]);
+    const out = carryAttributesOnRename(
+      [{ from: '國小數學-四A', to: '國小數學-四A新名' }],
+      before,
+      new Map(before)
+    );
+
+    expect(out.get('國小數學-四A')?.category).toBe('math');
+    expect(out.get('國小數學-四A新名')?.category).toBe('unset');
+    expect(out.get('國小數學-四A新名')?.categorySource).toBe('unset');
+  });
+
+  it('兩個相同 seed 類別合併至非 seed 班名時，新班即顯示明確 unset', () => {
+    const before = new Map<string, ClassAttributesView>([
+      ['國小數學-四A', resolveClassAttributes('國小數學-四A')],
+      ['國小數學-四B', resolveClassAttributes('國小數學-四B')],
+    ]);
+    const out = carryAttributesOnRename(
+      [
+        { from: '國小數學-四A', to: '國小數學-四年級合班' },
+        { from: '國小數學-四B', to: '國小數學-四年級合班' },
+      ],
+      before,
+      new Map(before),
+      new Set(before.keys())
+    );
+
+    expect(out.get('國小數學-四年級合班')?.category).toBe('unset');
+    expect(out.get('國小數學-四年級合班')?.categorySource).toBe('unset');
+  });
+
   it('手動指定的值隨班帶走（manual 不因改名而變）', () => {
     const before = new Map<string, ClassAttributesView>([
       ['國小數學-四A', { classType: 'non_care', category: 'math', categorySource: 'manual', fixedFiveDays: false }],

@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { calculateStudentBilling } from '@/domain/billing/billing-calculator';
 import { buildClassSettingMap } from '@/application/calculate-run';
-import { buildSeedDraft } from '@/adapters/sqlite/settings-repository';
+import { buildSeedDraft, readStoredDraft } from '@/adapters/sqlite/settings-repository';
 import { resolveClassEnrollment } from '@/domain/classification/class-category';
 import type { SettingsDraft } from '@/contracts/settings';
 import type { StudentSnapshot } from '@/domain/students';
@@ -62,15 +62,26 @@ function makeStudent(baseNames: string[]): StudentSnapshot {
  */
 function asExistingDbDraft(): SettingsDraft {
   const draft = buildSeedDraft();
-  return {
+  const legacyContent = {
     ...draft,
-    classes: draft.classes.map((c) => {
-      const { category, categorySource, ...rest } = c as Record<string, unknown>;
-      void category;
-      void categorySource;
-      return rest as typeof c;
-    }),
+    classes: [
+      ...draft.classes.map((c) => {
+        const { category, categorySource, ...rest } = c as Record<string, unknown>;
+        void category;
+        void categorySource;
+        return rest as typeof c;
+      }),
+      {
+        baseName: '既有設定自建班-甲',
+        subject: '其他',
+        teacher: null,
+        active: true,
+        sessions: [],
+        classType: 'non_care' as const,
+      },
+    ],
   };
+  return readStoredDraft(JSON.stringify(legacyContent));
 }
 
 /** 依 draft 的 classSettings 計算（與 run 端同一條路徑：buildClassSettingMap → resolveClassEnrollment）。 */
@@ -82,9 +93,17 @@ function calc(draft: SettingsDraft, baseNames: string[]) {
 }
 
 describe('Ruling 4 要求 3-1：既有 DB 與全新 DB 算出相同的科數與基本折扣', () => {
-  it('同一組學生，既有 DB（無 manual 指定的 seed 班）與全新 DB（seed 草稿）的科數與基本折扣相同', () => {
+  it('buildSeedDraft 不把類別基準寫進草稿', () => {
+    const fresh = buildSeedDraft();
+    expect(
+      fresh.classes.some((c) => 'category' in c || 'categorySource' in c)
+    ).toBe(false);
+  });
+
+  it('不同形狀的既有 DB 設定版本與全新 DB seed 草稿，算出相同的科數與基本折扣', () => {
     const existing = asExistingDbDraft();
     const fresh = buildSeedDraft();
+    expect(JSON.stringify(existing)).not.toBe(JSON.stringify(fresh));
 
     const existingRes = calc(existing, SEED_CLASSES_USED);
     const freshRes = calc(fresh, SEED_CLASSES_USED);
