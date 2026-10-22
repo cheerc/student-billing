@@ -58,7 +58,9 @@ export async function GET(
      *
      * #157 Ruling 1 起 classSettings 尤其關鍵：類別不再由班名推導，沒有它，正式軌的
      * 類別式選班與科數會整組失效（正式軌天數會停在 5 天、compat 卻仍扣天 → 差異清單失真）。
-     * seed 快照的 draft 是 buildSeedDraft()，同樣帶有 seed 的明確類別。
+     * seed 快照的 draft 是 buildSeedDraft()，**不帶** category／categorySource（該草稿刻意不寫
+     * 使用者的設定內容）；seed 的類別基準由 effectiveCategoryOf 在讀取設定時套用，故
+     * buildClassSettingMap 的結果與已存設定版本走的是同一條解析路徑。
      */
     const snapshotContext = isSeedSnapshot
       ? { classSettings: buildClassSettingMap(snapshot.draft) }

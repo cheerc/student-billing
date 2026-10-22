@@ -65,23 +65,6 @@ async function setFirstStartTimeOfClass(page: Page, className: string, value: st
 }
 
 /**
- * 把某班的類別選回「（未設定）」並儲存，使同檔後續案例都從乾淨狀態開始。
- *
- * #157 Ruling 4：`auto` 來源與「恢復自動」按鈕已拆除；撤回一個指定的唯一路徑是
- * 在下拉中選回「（未設定）」（等於使用者尚未指定這個折扣類別）。
- */
-async function resetCategoryToUnsetAndSave(page: Page, className: string) {
-  const row = classRow(page, className);
-  await expect(row).toBeVisible();
-  await row.locator(`[data-category-select="${className}"]`).first().selectOption('unset');
-  await page.locator('button', { hasText: '確認變更' }).click();
-  const dialog = page.locator('dialog.impact-dialog');
-  await expect(dialog).toBeVisible({ timeout: 15000 });
-  await dialog.locator('button', { hasText: /儲存並更新結果|儲存課表/ }).click();
-  await expect(page.locator('#toast')).toContainText('課表已', { timeout: 15000 });
-}
-
-/**
  * D2b：課表設定 UI（不要求空 DB 的案例）。
  *
  * D2c N-1：要求空 DB 的三個案例（settings_only 影響預覽、Q11 升級動作、Q9 合併阻擋）

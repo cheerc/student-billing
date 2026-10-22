@@ -14,14 +14,20 @@ import type { SettingsDraft } from '@/contracts/settings';
  * 1. **本檔只涵蓋儲存層**：`previewSettingsChange`／`applySettingsPreview`／`readStoredDraft`，
  *    即「設定草稿進資料庫」這一段。它**不觸及 client 端** `settings-editor.tsx` 的
  *    `applyManualAttrsToClasses`（草稿序列化為 classes[] 的那一步）。
- * 2. **client 端序列化契約由 `web/tests/e2e/d2b-class-category.spec.ts` 承載**：
- *    那裡驗「手動指定 → 儲存 → reload 仍是該指定」與「選回（未設定）→ 儲存 → reload 仍是未設定」。
- *    原 `d2c-restore-auto.spec.ts`（驗「恢復自動」按鈕）已隨 #157 Ruling 4 廢除。
+ * 2. **client 端序列化契約由 `web/tests/e2e/issue-157-seed-category-lifecycle.spec.ts` 承載**：
+ *    那裡驗「選回（未設定）→ 儲存 → reload 仍是未設定」，以及 seed 班改名／同名合併後
+ *    「存檔再 reload 的值 ≡ 改名當下畫面顯示的值」。
+ *    原 `d2c-restore-auto.spec.ts`（驗「恢復自動」按鈕）已隨 #157 Ruling 4 廢除；
+ *    本 PR 曾把承載者改指向 `d2b-class-category.spec.ts`，但該檔並無任何存檔重載案例，
+ *    實際承載者是上列的 lifecycle spec。
  * 3. **為何不在本檔補單元層防護**：`applyManualAttrsToClasses` 是 module-private 純函式，
  *    沒有 export。要讓單元測試 import 它必須先在產品碼加 export 或搬檔，該 commit 便不再
  *    是 tests-only，且在未修 src 上會是編譯／載入失敗而非斷言失敗——與 brief 對 RED 形態的
  *    要求互斥。且 UI 操作 → draft → preview payload 才是 client 端序列化真正的 entry point，
  *    單元層只測抽出的純函式等同測試實作形狀（§3.9 所指的鏡像測試）。
+ *    （本 PR 的 client 端寫出閘門另由 `web/tests/unit/issue-157-seed-category-fallback.test.ts`
+ *    以 `gridRowsToClasses → 儲存形狀 → readStoredDraft → buildClassSettingMap → resolveClassEnrollment`
+ *    覆蓋——那是 contracts 層的公開轉換，不需 export 化產品程式碼。）
  * 4. 因此：本檔守「儲存層不得寫回 manual 欄位、舊快照不可變」；client 端守「使用者的指定
  *    必須持久化且 reload 後仍是同一個決定」。兩者不可互相替代。
  *
