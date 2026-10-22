@@ -3,7 +3,7 @@ import { calculateStudentBilling } from '@/domain/billing/billing-calculator';
 import { buildClassSettingMap } from '@/application/calculate-run';
 import { buildSeedDraft, readStoredDraft } from '@/adapters/sqlite/settings-repository';
 import { resolveClassEnrollment } from '@/domain/classification/class-category';
-import type { SettingsDraft } from '@/contracts/settings';
+import { gridRowsToClasses, type ScheduleGridRow, type SettingsDraft } from '@/contracts/settings';
 import type { StudentSnapshot } from '@/domain/students';
 
 /**
@@ -211,5 +211,41 @@ describe('Ruling 4 要求 3-3：使用者選回「（未設定）」並存檔後
     // 手算：math 被撤回 → 計入類別 = {care, english} = 2 科 → 9500
     expect(res.subjectCount).toBe(2);
     expect(res.baseDiscountBps).toBe(9500);
+  });
+
+  it('gridRowsToClasses → 儲存形狀 → readStoredDraft → 計算解析，撤回仍為 unset', () => {
+    const seed = buildSeedDraft();
+    const original = seed.classes.find((c) => c.baseName === '國小數學-四A')!;
+    const rows: ScheduleGridRow[] = [
+      {
+        rowId: 'synthetic-unset-row',
+        className: original.baseName,
+        teacher: null,
+        weekday: '三',
+        startTime: '13:30',
+        endTime: '15:00',
+        startMinutes: 810,
+        endMinutes: 900,
+        active: true,
+        skipDeduction: false,
+      },
+    ];
+    const savedClasses = gridRowsToClasses(rows, [
+      ...seed.classes.filter((c) => c.baseName !== original.baseName),
+      { ...original, teacher: null, category: 'unset', categorySource: 'unset' },
+    ]);
+    const stored = readStoredDraft(JSON.stringify({ ...seed, classes: savedClasses }));
+    const resolved = resolveClassEnrollment(
+      { rawToken: '國小數學-四A[團]', baseName: '國小數學-四A' },
+      undefined,
+      buildClassSettingMap(stored)
+    );
+
+    expect(stored.classes.find((c) => c.baseName === original.baseName)).toMatchObject({
+      category: 'unset',
+      categorySource: 'unset',
+    });
+    expect(resolved.category).toBe('unset');
+    expect(resolved.categorySource).toBe('unset');
   });
 });
