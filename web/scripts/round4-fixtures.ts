@@ -277,7 +277,7 @@ const CASES: Case[] = [
     // 基本率 10000（0 科），且一律產生 CLASS_NOT_MAPPED。
     // 原手算「名稱可判定即 1 科」引用的是已被 D53 廢除的自動偵測規則。
     expected: { after: { subjectCount: 0, baseDiscountBps: 10000 }, issueCodes: ['CLASS_NOT_MAPPED'] },
-    specRefs: ['specs/04 UX62', 'specs/06 D53 Ruling 1、Ruling 3', 'specs/02 §9B unset 語意'],
+    specRefs: ['specs/04 UX62', 'specs/06 D53 Ruling 1、Ruling 3', 'specs/02 §9A.6 unset 語意'],
   },
   {
     code: 'R4_FACET5',

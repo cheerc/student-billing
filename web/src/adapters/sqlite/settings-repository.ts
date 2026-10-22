@@ -220,8 +220,10 @@ export function draftToScheduleOverride(
 /**
  * 由 seed 預設產生初始草稿（攜帶全量 89 筆平鋪時段消空 sessions 雙義性）。
  *
- * #157 Ruling 1：`category` 不再由班名推導。若 seed 草稿不帶任何類別資訊，全新 DB 的
- * 每一班都會是「未設定」，學生的科數／折扣全部歸零（實測影響 92.7% 的學生）。
+ * #157 Ruling 1：`category` 不再由班名推導。若此草稿完全不採 seed 基準，seed 班會全落為「未設定」。
+ * 以同一份 rev 82 設定比較「舊 auto 班名偵測」與「全部 unset」，有報名者母體（372 位 distinct person_code）
+ * 有 345 位（92.7%）科數不同；全部匯入學生母體（431 位 loadStudentsForImport）有 345 位（80.0%）不同。
+ * 這是「不帶 seed 基準」的反事實量測，不是現行 seed 基準下的影響比例。
  *
  * seed 是**匯入前的既有機構設定**（不是使用者尚未填寫的空白），它在舊制下就對應到一組
  * 明確的類別。那組類別由 `seed-manifest` 的 `SEED_CLASS_CATEGORIES` 單一定義，並在

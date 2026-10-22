@@ -525,9 +525,9 @@ export default function SettingsEditor({
    * 留著只會是空殼按鈕。
    *
    * 撤回的結果**記成明確的未設定**（`categorySource: 'unset'`）而不是「刪掉這一筆」：
-   * 刪掉會讓整班改名時從 baseline 撈回舊值（seed 草稿帶的是使用者明確指定的類別），
-   * 使用者的撤回就被還原了。存檔時 `applyManualAttrsToClasses` 只寫 `categorySource === 'manual'`
-   * 的班，因此撤回後該班的草稿不帶 category 欄位（＝未設定，03 §5.2 版本界線規則第 2 點）。
+   * 刪掉會讓整班改名時從 baseline 撈回舊值，使用者的撤回就被還原了。存檔時
+   * `applyManualAttrsToClasses` 會寫出 `manual` 與 `unset`；`unset` 不可省略，否則下次讀取會套回 seed 基準
+   * （03 §5.3.4、14 §3.10）。
    */
   const handleSelectCategory = (className: string, category: ClassCategory) => {
     setManualAttrs((prev) => {
@@ -536,7 +536,7 @@ export default function SettingsEditor({
       if (category === 'unset') {
         // 撤回指定：記為**明確的未設定**，不是「刪掉這一筆」。
         // 若只是刪除，整班改名時 `carryAttributesOnRename` 會從 baseline 撈回舊值
-        // （seed 草稿帶的是使用者明確指定的 math），使用者的撤回就被還原了。
+        // （seed 班原本會套用機構基準 math），使用者的撤回就被還原了。
         next.set(className, { ...base, category: 'unset', categorySource: 'unset' });
         return next;
       }

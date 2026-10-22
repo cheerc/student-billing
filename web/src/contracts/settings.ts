@@ -239,7 +239,7 @@ function groupGridRowsToClasses<S>(
         (DEFAULT_CARE_CLASS_NAMES.has(className) || existing?.fixedFiveDays === true));
     const classType: ClassType = isCare ? 'care' : 'non_care';
 
-    // specs/14 §3.10：類別的使用者指定隨班保留；未指定者不寫這些欄位（＝未設定，03 §5.2 第 2 點）。
+    // 03 §5.3.4：草稿寫出使用者明確指定或撤回的類別；從未指定者不寫類別欄位。
     // 固定 5 天為純布林值（無 fixedSource），有設定值則隨班保留。
     //
     // #157：寫出 `manual`（使用者的決定）與 `unset`（使用者**明確撤回**）兩種來源。
