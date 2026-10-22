@@ -1,11 +1,10 @@
 /**
  * 班級類別與「天數固定 5 天」的有效值解析（D2b；06 D37 1、S manifest §7.3／§7.7）。
  *
- * #157 Ruling 1／4 之後，兩項屬性的來源狀態都只剩「使用者決定」與「未決定」：
+ * #157 後，類別來源分為使用者決定（`manual`）、機構既有基準（`seed`）與未決定（`unset`）：
  *  - 類別（`care`／`math`／`english`／`none`／`unset`）與固定 5 天不互相推導（D37）。
- *  - 來源為 `manual` 時，改班名不再重新判定；未指定時就是 `unset`，**不再有班名自動偵測**，
- *    因此也沒有「恢復自動」這種回退路徑（`specs/06` D53）。
- *  - 手動值恰等於舊自動偵測值時仍為 `manual`（來源是使用者意圖，不因值相同而降級）。
+ *  - 使用者決定與明確撤回隨班名生命週期處理；`seed` 依目標班名解析，非 seed 目標立即成為 `unset`。
+ *  - **不再有班名關鍵字自動偵測**，因此也沒有「恢復自動」這種回退路徑（`specs/06` D53）。
  *
  * 本模組是 domain 純函式，不依賴 DB／UI／規則版本。
  */
@@ -38,7 +37,7 @@ export const CATEGORY_LABELS: Record<ClassCategory, string> = {
  */
 export type AttributeSource = EffectiveCategorySource;
 
-/** 已儲存於設定草稿的類別欄位（皆可缺；缺＝未設定，讀取時即 unset）。 */
+/** 已儲存於設定草稿的類別欄位（皆可缺；category 缺值時由 seed 基準或 unset 決定）。 */
 export interface SavedClassAttributes {
   classType?: ClassType;
   category?: ClassCategory;
@@ -63,10 +62,10 @@ export interface ClassAttributesView {
 }
 
 /**
- * 有效值：已儲存欄位優先；類別缺值即 `unset`（**不再依班名偵測**，#157 Ruling 1）。
+ * 有效值：已儲存欄位優先；缺少類別欄位時套用 seed 基準，非 seed 班則為 `unset`（不依班名關鍵字偵測）。
  * specs/14 §3.1, §3.3, §3.9, §3.10：
  * - classType：優先取 saved.classType；若無，seed 8 班或歷史 fixedFiveDays===true 為 care，其餘為 non_care
- * - category：只有 `categorySource === 'manual'` 的已存值是使用者的決定，其餘一律 `unset`
+ * - category：`manual`／`unset` 儲存值優先；其餘依 `effectiveCategoryOf` 的 seed 基準或未設定解析
  * - fixedFiveDays：無自動偵測，預設恆為 false
  */
 export function resolveClassAttributes(
@@ -217,10 +216,11 @@ export function detectClassLifecycle(
 }
 
 /**
- * 整班改名帶走設定（D37：改名不再重新判定，因此原值必須跟著走）。
+ * 整班改名帶走使用者設定；seed 基準則依目標班名重新解析。
  *
- * #157 Ruling 4 之後「未指定」也是一種需要被保留的狀態：`unset` 隨班帶走仍是 `unset`，
- * **不得**因為新班名含「國小輔導」之類的字樣就變成 `care`。
+ * #157：`unset` 隨班帶走仍是 `unset`，不得因新班名含「國小輔導」等字樣而變成 `care`。
+ * `seed` 是原班名的既有機構基準，不是使用者決定；改名到非 seed 班時立即顯示並記錄 `unset`，
+ * 改名到另一個 seed 班時採目標班自己的 seed 基準，避免顯示值與儲存後重載值不同。
  */
 export function carryAttributesOnRename(
   renames: ClassRename[],
@@ -244,12 +244,14 @@ export function carryAttributesOnRename(
       continue;
     }
 
-    // specs/14 §3.10：整班改名時 classType、category 與 fixedFiveDays 原值直接隨班帶到新班名。
-    // category 不論 manual 或 unset 都原樣帶走（#157 Ruling 4：unset 不得依新名重新判定）。
+    // classType 與 fixedFiveDays 隨班帶走。類別若來自 seed 基準，目標班名不在 seed 表時
+    // 立即顯示並保存為 unset，避免先顯示來源班的 seed 值、重載後才靜默變成 unset。
+    const targetCategory =
+      before.categorySource === 'seed' ? resolveClassAttributes(to) : before;
     out.set(to, {
       classType: before.classType,
-      category: before.category,
-      categorySource: before.categorySource,
+      category: targetCategory.category,
+      categorySource: targetCategory.categorySource,
       fixedFiveDays: before.fixedFiveDays,
     });
   }
