@@ -65,6 +65,13 @@ describe('Issue #159 PR-1: historical actionable issue projection', () => {
     expect(options.issueCode.map((option) => option.value)).not.toContain(RETIRED_ONLY);
     expect(options.issueCode.map((option) => option.value)).toContain(REAL_ISSUE);
     expect(options.hasIssues.find((option) => option.value === 'true')?.count).toBe(2);
+    const blankIssueFacet = options.issueCode.find((option) => option.value === '~blank');
+    expect(blankIssueFacet?.count).toBe(3);
+    const blankIssueQuery = queryRunStudents(db, runId, { issueCode: '~blank', limit: 100 });
+    expect(blankIssueFacet?.count).toBe(blankIssueQuery.stats.totalStudents);
+    expect(blankIssueQuery.items.map((item) => item.personCode).sort())
+      .toEqual(['SYNTH_CLEAR', 'SYNTH_LEGACY', 'SYNTH_TIER_REVIEW']);
+    expect(blankIssueQuery.items.map((item) => item.personCode)).not.toContain('SYNTH_MIXED');
 
     const staleUrl = parseResultsState({ issueCode: RETIRED_ONLY });
     const restored = pruneResultsState(staleUrl, options);

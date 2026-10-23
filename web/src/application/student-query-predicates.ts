@@ -3,7 +3,7 @@ import type { NormalizedStudentQuery, QuerySelection } from '@/contracts/student
 import { parseTagDiscounts } from '@/domain/billing/discount-rules';
 import { getCalculationRun } from '@/adapters/sqlite/runs-repository';
 import { ruleSetCapabilities } from '@/domain/billing/rule-set';
-import { ACTIONABLE_HAS_ISSUES_SQL } from '@/domain/issues/actionable-issues';
+import { ACTIONABLE_HAS_ISSUES_SQL, NO_ACTIONABLE_ISSUE_CODES_SQL } from '@/domain/issues/actionable-issues';
 import { selectionPredicate, classPredicate, branchPredicate, applicableRateColumn, escapeLike, type QueryPredicate } from './student-query-sql';
 
 /** 同一次 request 共用特殊折扣集合；各欄 facet 不重複全 run 掃描。 */
@@ -94,7 +94,9 @@ export function createStudentPredicateBuilder(db: Database.Database, runId: stri
       const parts: string[] = [];
       const termArgs: Array<string | number> = [];
       for (const value of group.values) {
-        if (value === null) parts.push(`json_array_length(${source}) = 0`);
+        if (value === null) {
+          parts.push(key === 'issueCode' ? NO_ACTIONABLE_ISSUE_CODES_SQL : `json_array_length(${source}) = 0`);
+        }
         else { parts.push(`EXISTS (SELECT 1 FROM json_each(${source}) j WHERE ${column} = ?)`); termArgs.push(String(value)); }
       }
       add({ sql: `(${parts.join(' OR ')})`, args: termArgs });

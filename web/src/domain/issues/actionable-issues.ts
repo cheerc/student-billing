@@ -39,12 +39,17 @@ const retiredSqlValues = RETIRED_DIAGNOSTIC_ISSUE_CODES
   .map((code) => `'${code.replaceAll("'", "''")}'`)
   .join(', ');
 
-/** SQLite predicate kept in step with projectActionableIssues for filter and page-count behavior. */
+const ACTIONABLE_ISSUE_CODE_EXISTS_SQL = `EXISTS (
+  SELECT 1 FROM json_each(sc.issues) actionable_issue
+  WHERE COALESCE(json_extract(actionable_issue.value, '$.code'), '') NOT IN (${retiredSqlValues})
+)`;
+
+/** Matches rows whose UI issue-code facet has no actionable code; tier review is intentionally excluded. */
+export const NO_ACTIONABLE_ISSUE_CODES_SQL = `NOT (${ACTIONABLE_ISSUE_CODE_EXISTS_SQL})`;
+
+/** SQLite predicate kept in step with projectActionableIssues for has-issues filtering. */
 export const ACTIONABLE_HAS_ISSUES_SQL = `(
-  EXISTS (
-    SELECT 1 FROM json_each(sc.issues) actionable_issue
-    WHERE json_extract(actionable_issue.value, '$.code') NOT IN (${retiredSqlValues})
-  )
+  ${ACTIONABLE_ISSUE_CODE_EXISTS_SQL}
   OR EXISTS (
     SELECT 1 FROM json_each(sc.tier_comparisons) actionable_tier
     WHERE json_extract(actionable_tier.value, '$.needsReview') = 1
