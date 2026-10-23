@@ -90,10 +90,10 @@ describe('UX42：migration 0007——settings_previews.target_rule_set_version�
     fs.rmSync(tempDir, { recursive: true, force: true });
   });
 
-  it('fresh DB：跑完全部 migration 後，兩個物件都存在且 schema 符合契約（版本 1–7 依序套用）', () => {
+  it('fresh DB：跑完全部 migration 後，0007 物件符合契約（版本 1–8 依序套用）', () => {
     db = createDatabase(path.join(tempDir, 'fresh.sqlite'));
     runMigrations(db, REAL_DIR);
-    expect(getAppliedMigrations(db).map((m) => m.version)).toEqual([1, 2, 3, 4, 5, 6, 7]);
+    expect(getAppliedMigrations(db).map((m) => m.version)).toEqual([1, 2, 3, 4, 5, 6, 7, 8]);
 
     const target = col('settings_previews', 'target_rule_set_version');
     expect(target, 'settings_previews.target_rule_set_version').toBeDefined();
@@ -114,7 +114,7 @@ describe('UX42：migration 0007——settings_previews.target_rule_set_version�
     expect((db.prepare('SELECT COUNT(*) AS n FROM run_class_categories').get() as { n: number }).n).toBe(0);
   });
 
-  it('升級 DB（v6 有舊資料）：套用 0007 後所有舊列逐欄不變；新欄位對舊 preview 為 NULL；新表為空', () => {
+  it('升級 DB（v6 有舊資料）：套用 0007／0008 後舊列不變；新增欄位為 NULL；新表為空', () => {
     db = createDatabase(path.join(tempDir, 'legacy.sqlite'));
     runMigrations(db, migrationsDir(6));
     seedLegacyRows();
@@ -122,13 +122,20 @@ describe('UX42：migration 0007——settings_previews.target_rule_set_version�
     const before = dump();
 
     const result = runMigrations(db, REAL_DIR);
-    expect(result.applied).toEqual([expect.stringMatching(/^0007_/)]);
-    expect(dump()).toEqual(before);
+    expect(result.applied).toEqual([
+      expect.stringMatching(/^0007_/),
+      '0008_run_diagnostics.sql',
+    ]);
+    expect(dump()).toEqual({
+      ...before,
+      runs: (before.runs as Array<Record<string, unknown>>).map((run) => ({ ...run, diagnostic_algorithm_version: null })),
+    });
     expect(db.prepare('SELECT preview_id, target_rule_set_version AS t FROM settings_previews ORDER BY preview_id').all()).toEqual([
       { preview_id: 'setprev_a', t: null },
       { preview_id: 'setprev_b', t: null },
     ]);
     expect((db.prepare('SELECT COUNT(*) AS n FROM run_class_categories').get() as { n: number }).n).toBe(0);
+    expect((db.prepare('SELECT COUNT(*) AS n FROM run_diagnostics').get() as { n: number }).n).toBe(0);
   });
 
   it('可重跑：第二次 runMigrations 不再套用（idempotent），資料不變', () => {

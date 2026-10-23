@@ -1,12 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getDatabase } from '@/adapters/sqlite';
 import { getCalculationRun } from '@/adapters/sqlite/runs-repository';
-import { draftToAliasMap, draftToScheduleOverride } from '@/adapters/sqlite/settings-repository';
-import { buildClassSettingMap } from '@/application/calculate-run';
-import { loadRunSnapshot } from '@/application/run-snapshot';
-import { calculateStudentBilling } from '@/domain/billing/billing-calculator';
-import { StudentSnapshot, ParsedToken } from '@/domain/students';
+import { readRunDiagnostics } from '@/adapters/sqlite/run-diagnostics-repository';
+import { getSettingsVersionById } from '@/adapters/sqlite/settings-repository';
 import { sanitizePathParam, maskSensitiveInfo, SecurityError } from '@/contracts/security';
+
+// Kept local so loading this GET route never imports the calculation pipeline or seed parser.
+const SEED_SCHEDULE_VERSION_ID = 'seed-v250922';
+const DIAGNOSTIC_UNAVAILABLE_MESSAGE = '此歷史 run 未保存可驗證的診斷版本與內容，無法提供原始診斷。';
 
 export async function GET(
   request: NextRequest,
@@ -19,12 +20,8 @@ export async function GET(
     const againstRuleSet = url.searchParams.get('againstRuleSet');
 
     if (!againstRuleSet) {
-      return NextResponse.json(
-        { error: '缺少必要參數 againstRuleSet' },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: '缺少必要參數 againstRuleSet' }, { status: 400 });
     }
-
     if (againstRuleSet !== 'excel-v260922-compat') {
       return NextResponse.json(
         { error: `againstRuleSet 僅支援 'excel-v260922-compat'，不支援: ${againstRuleSet}` },
@@ -34,139 +31,32 @@ export async function GET(
 
     const db = getDatabase();
     const run = getCalculationRun(db, runId);
-    if (!run) {
-      return NextResponse.json({ error: `找不到 run: ${runId}` }, { status: 404 });
+    if (!run) return NextResponse.json({ error: `找不到 run: ${runId}` }, { status: 404 });
+
+    // Preserve UX38's missing-settings snapshot contract without decoding it with today's parser.
+    if (run.scheduleVersionId !== SEED_SCHEDULE_VERSION_ID && !getSettingsVersionById(db, run.scheduleVersionId)) {
+      return NextResponse.json({
+        error: `找不到該 run 當時的課表快照（版本 ${run.scheduleVersionId}）：資料不足，無法提供診斷。`,
+        code: 'SNAPSHOT_UNAVAILABLE',
+      }, { status: 409 });
     }
 
-    // 以該 run 當時的設定快照重算（D1 F-5）：alias 與時段覆寫與 run 實際計算所用的一致；
-    // seed 課表的 run（scheduleVersionId＝seed-v250922）不帶覆寫。快照缺失就回 409，不改用最新設定或 seed 補算
-    //（與 schedule-deductions 的既有契約相同）。
-    const snapshot = loadRunSnapshot(db, run.scheduleVersionId);
-    if (!snapshot) {
-      return NextResponse.json(
-        {
-          error: `找不到該 run 當時的課表快照（版本 ${run.scheduleVersionId}）：資料不足，無法重建，不會改用最新設定補算。`,
-          code: 'SNAPSHOT_UNAVAILABLE',
-        },
-        { status: 409 }
-      );
+    const diagnostic = readRunDiagnostics(db, run);
+    if (diagnostic.status === 'version-unavailable' || diagnostic.status === 'content-missing') {
+      return NextResponse.json({ error: DIAGNOSTIC_UNAVAILABLE_MESSAGE, code: 'DIAGNOSTIC_VERSION_UNAVAILABLE' }, { status: 409 });
     }
-    const isSeedSnapshot = snapshot.settingsRevision === null;
-    /**
-     * 重算必須帶三樣東西，才與該 run 當時的計算同源（specs/11 §3 D1 B1-D）：
-     * alias、scheduleOverride 與 **classSettings**。
-     *
-     * #157 Ruling 1 起 classSettings 尤其關鍵：類別不再由班名推導，沒有它，正式軌的
-     * 類別式選班與科數會整組失效（正式軌天數會停在 5 天、compat 卻仍扣天 → 差異清單失真）。
-     * seed 快照的 draft 是 buildSeedDraft()，**不帶** category／categorySource（該草稿刻意不寫
-     * 使用者的設定內容）；seed 的類別基準由 effectiveCategoryOf 在讀取設定時套用，故
-     * buildClassSettingMap 的結果與已存設定版本走的是同一條解析路徑。
-     */
-    const snapshotContext = isSeedSnapshot
-      ? { classSettings: buildClassSettingMap(snapshot.draft) }
-      : {
-          aliasMap: draftToAliasMap(snapshot.draft),
-          scheduleOverride: draftToScheduleOverride(snapshot.draft),
-          classSettings: buildClassSettingMap(snapshot.draft),
-        };
-
-    // 讀取該批次學生與報名
-    const studentRows = db
-      .prepare('SELECT * FROM imported_students WHERE import_id = ? ORDER BY source_row ASC')
-      .all(run.importId) as any[];
-
-    const enrollmentRows = db
-      .prepare('SELECT * FROM student_enrollments WHERE import_id = ? ORDER BY person_code ASC, token_index ASC')
-      .all(run.importId) as any[];
-
-    const enrollmentsMap: Record<string, ParsedToken[]> = {};
-    for (const r of enrollmentRows) {
-      if (!enrollmentsMap[r.person_code]) {
-        enrollmentsMap[r.person_code] = [];
-      }
-      enrollmentsMap[r.person_code].push({
-        rawToken: r.raw_token,
-        yearPrefix: r.year_prefix,
-        baseName: r.base_name,
-        groupFlag: r.group_flag,
-        modifiers: r.modifiers ? JSON.parse(r.modifiers) : [],
-        withdrawalDate: r.withdrawal_date,
-        erpBillingTierRaw: r.erp_billing_tier_raw,
-        erpBillingTier: r.erp_billing_tier,
-        tierParseStatus: r.tier_parse_status,
-        parseStatus: r.parse_status,
-      });
-    }
-
-    const differences: any[] = [];
-
-    for (const row of studentRows) {
-      const enrollments = enrollmentsMap[row.person_code] || [];
-      const student: StudentSnapshot = {
-        personCode: row.person_code,
-        name: row.name,
-        branch: row.branch,
-        gradeRaw: row.grade_raw,
-        grade: row.grade,
-        gradeStatus: row.grade_status,
-        contact: row.contact,
-        schoolInfo: row.school_info,
-        tagsRaw: row.tags_raw,
-        tags: row.tags_raw ? row.tags_raw.split(/[,;\s]+/).filter(Boolean) : [],
-        notesRaw: row.notes_raw,
-        enrollments,
-        sourceRow: row.source_row,
-      };
-
-      const formalRuleSet = (run.ruleSetVersion as any) || 'erp-tag-v2';
-      const formal = calculateStudentBilling(student, { ruleSetVersion: formalRuleSet, ...snapshotContext });
-      const compat = calculateStudentBilling(student, { ruleSetVersion: 'excel-v260922-compat', ...snapshotContext });
-
-      // 比較基本折扣率差異
-      if (formal.baseDiscountBps !== compat.baseDiscountBps) {
-        differences.push({
-          personCode: student.personCode,
-          name: student.name,
-          sourceRow: student.sourceRow,
-          field: 'baseDiscountBps',
-          formalValue: formal.baseDiscountBps,
-          compatValue: compat.baseDiscountBps,
-          category: 'DISCOUNT_DIFFERENCE',
-        });
-      }
-
-      // 比較安親天數差異
-      if (formal.careDays.anqin.days !== compat.careDays.anqin.days) {
-        differences.push({
-          personCode: student.personCode,
-          name: student.name,
-          sourceRow: student.sourceRow,
-          field: 'anqinDays',
-          formalValue: formal.careDays.anqin.days,
-          compatValue: compat.careDays.anqin.days,
-          category: 'CARE_DAYS_DIFFERENCE',
-        });
-      }
-
-      // 比較課輔天數差異
-      if (formal.careDays.tutoring.days !== compat.careDays.tutoring.days) {
-        differences.push({
-          personCode: student.personCode,
-          name: student.name,
-          sourceRow: student.sourceRow,
-          field: 'tutoringDays',
-          formalValue: formal.careDays.tutoring.days,
-          compatValue: compat.careDays.tutoring.days,
-          category: 'CARE_DAYS_DIFFERENCE',
-        });
-      }
+    if (diagnostic.status === 'corrupted') {
+      return NextResponse.json({
+        error: '此 run 的診斷快照內容無效，無法安全提供。',
+        code: 'DIAGNOSTIC_SNAPSHOT_CORRUPTED',
+      }, { status: 500 });
     }
 
     return NextResponse.json({
       runId,
-      diagnosticAlgorithmVersion: 'v1',
-      totalDifferences: differences.length,
-      differences,
+      diagnosticAlgorithmVersion: diagnostic.diagnosticAlgorithmVersion,
+      totalDifferences: diagnostic.totalDifferences,
+      differences: diagnostic.differences,
     });
   } catch (error) {
     if (error instanceof SecurityError) {

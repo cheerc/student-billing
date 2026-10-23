@@ -3,35 +3,31 @@ import { GET as comparisonGET } from '@/app/api/v1/runs/[runId]/comparison/route
 import { GET as classesGET } from '@/app/api/v1/classes/route';
 import { previewSettingsChange } from '@/application/settings-preview';
 import { applySettingsPreview } from '@/application/apply-settings';
-import { calculateStudentBilling } from '@/domain/billing/billing-calculator';
 import { buildSeedDraft } from '@/adapters/sqlite/settings-repository';
 import type { SettingsDraft } from '@/contracts/settings';
 import {
   activateBatch,
   activeState,
-  fixturePreview,
   getRequest,
   makeStudent,
   saveFixtureBatch,
   saveRun,
   saveSettings,
   saveSyntheticBatch,
-  setRunRuleSet,
   useGlobalTempDb,
 } from '../helpers/d1-test-kit';
 
 /**
  * D1 F-5／F-6（specs/11 §3 D1、04 §8 UX38、UX39；S manifest §1.3 #18–#19、§A F-5／F-6）：
- * 讀取歷史 run 的入口一律讀「該 run 當時的設定快照」，不用最新設定、也不退回 seed 猜。
- *  - F-5 comparison：以 run.scheduleVersionId 的快照（alias＋scheduleOverride）重算；快照缺失 → 409 SNAPSHOT_UNAVAILABLE
- *    （比照 schedule-deductions 的既有契約，不改用最新設定補算）。
+ * comparison 讀取建立當下保存的診斷快照，不從今天的設定、seed 或 calculator 重算。
+ * 已存設定版本缺失 → 409 SNAPSHOT_UNAVAILABLE（不改用最新設定補算）。
  *  - F-6 classes：帶 runId 時讀該 run 的快照；快照缺失 → 回「無法判定」（不猜）。不帶 runId 維持讀最新設定。
  */
 
 const comparisonUrl = (runId: string) => `http://127.0.0.1:3000/api/v1/runs/${runId}/comparison?againstRuleSet=excel-v260922-compat`;
 const callComparison = (runId: string) => comparisonGET(getRequest(comparisonUrl(runId)), { params: Promise.resolve({ runId }) });
 
-describe('F-5：comparison 以 run 的設定快照重算', () => {
+describe('F-5：comparison 讀取 run 建立時保存的診斷快照', () => {
   const ctx = useGlobalTempDb('sb-d1-cmp-');
 
   /** 三A 改成 週六 16:30–18:00＋週一 16:30–18:00（990–1080）。 */
@@ -124,27 +120,18 @@ describe('F-5：comparison 以 run 的設定快照重算', () => {
     expect((await res.json()).code).toBe('SNAPSHOT_UNAVAILABLE');
   });
 
-  it('特徵化：seed 課表的 run 維持與 seed 直接計算相同（正式軌 vs 診斷軌的差異清單逐筆相同）', async () => {
+  it('seed run 的 comparison 讀取建立當下保存的固定診斷內容', async () => {
     const db = ctx.db();
     await saveFixtureBatch(db, 'imp_a');
     const run = activateBatch(db, 'imp_a', 'k-act');
-    setRunRuleSet(db, run.runId, 'erp-tag-v2');
     const res = await callComparison(run.runId);
     expect(res.status).toBe(200);
     const body = await res.json();
-    expect(body.diagnosticAlgorithmVersion).toBe('v1');
-
-    // 獨立重算（不經 route）：seed 路徑＝不帶 alias／override
-    const students = (await fixturePreview()).students;
-    let expected = 0;
-    for (const s of students) {
-      const f = calculateStudentBilling(s, { ruleSetVersion: 'erp-tag-v2' });
-      const c = calculateStudentBilling(s, { ruleSetVersion: 'excel-v260922-compat' });
-      if (f.baseDiscountBps !== c.baseDiscountBps) expected++;
-      if (f.careDays.anqin.days !== c.careDays.anqin.days) expected++;
-      if (f.careDays.tutoring.days !== c.careDays.tutoring.days) expected++;
-    }
-    expect(body.totalDifferences).toBe(expected);
+    const saved = db.prepare('SELECT payload_json FROM run_diagnostics WHERE run_id = ?').get(run.runId) as { payload_json: string };
+    const payload = JSON.parse(saved.payload_json);
+    expect(body.diagnosticAlgorithmVersion).toBe('comparison-snapshot-v1');
+    expect(body.totalDifferences).toBe(payload.totalDifferences);
+    expect(body.differences).toEqual(payload.differences);
   });
 
   it('特徵化：缺 againstRuleSet 或值不是診斷軌 → 400；找不到 run → 404', async () => {

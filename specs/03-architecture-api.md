@@ -107,7 +107,7 @@ P1 整批重算可接受，5000 筆規模未證明有瓶頸前不實作複雜增
 |GET /settings/schedules|P1|排課版本及時段|
 |POST /settings/schedules|P1|建立新設定版本與 run；帶 expectedRevision，失敗保留舊版|
 |GET /runs/{runId}/issues|P1|可按學生／班級／規則篩選問題|
-|GET /runs/{runId}/comparison|P1|唯讀診斷；`againstRuleSet` 白名單目前只接受 excel-v260922-compat，其餘回 400。**以該 run 的設定快照（別名＋時段覆寫）重算，快照缺失回 409 SNAPSHOT_UNAVAILABLE，不改用最新設定或 seed 補算（§5.2）**。詳見本節後段|
+|GET /runs/{runId}/comparison|P1|唯讀診斷；`againstRuleSet` 白名單只接受 `excel-v260922-compat`，其餘回 400。讀取建立 run 時同輪保存的 immutable comparison snapshot，不重算；設定快照缺失回 409 `SNAPSHOT_UNAVAILABLE`，舊 run 缺診斷內容回 409 `DIAGNOSTIC_VERSION_UNAVAILABLE`，損毀內容回 500 `DIAGNOSTIC_SNAPSHOT_CORRUPTED`（§5.2）|
 |GET /settings/class-name-report|P1|班名比對報告（唯讀）；參數 `runId`／`importId`，見 §5.2.4|
 |GET /imports/{previewId}/students|P1|ready 批次預覽名單；與正式查詢共用篩選工具，但只接受不依賴計算的參數，其餘回 400。詳見本節後段|
 |GET /exports/review.csv?runId=...|P2|指定篩選核對清單，防公式注入|
@@ -118,7 +118,11 @@ P1 整批重算可接受，5000 筆規模未證明有瓶頸前不實作複雜增
 
 影響計算的設定保存需帶previewId與expectedRevision；預覽hash綁定草稿、import、設定、ruleSet，任一改變回409要求重預覽。預覽草稿設定 TTL 防止陳舊操作，且預覽只跑正式 erp-tag-v1 規則以保證反應速度。保存不得接收與預覽不同草稿。GET /classes 可含 mappingStatus=unmapped 的待設定項目及暫定候選鍵；GET /students 可用 enrollmentKey 查該清單，不因缺classId失去學生。列表 API 執行脫敏保護（不回傳完整電話與自由備註），單一學生明細抽屜 API（GET /students/{personCode}/calculation）按需查閱完整原文；學生資料字元一致性走依人員代碼排序之逐 key SHA-256 hash 比對。就學資料只存不篩。
 
-GET /runs/{runId}/comparison?againstRuleSet=excel-v260922-compat 為P1唯讀診斷，固定同輸入，列欄位前後值、來源與差異分類；不切換active。可先在明細／診斷頁顯示107筆率差，不要求P1做通用報表平台。診斷值是固定輸入的純函式，**預存或即時計算皆可**，兩者結果必須相同；P1預設即時計算不落庫，避免結果表多出一份與正式結果等大的資料，待bench顯示診斷頁影響操作再改預存。即時計算仍不得寫入任何資料。run 保存 diagnosticAlgorithmVersion 與必要浮點輸入；程式升級不得用另一版本診斷覆蓋舊run的意義。舊版本不支援時明確回409 DIAGNOSTIC_VERSION_UNAVAILABLE。正式 run 的 NUMERIC_POLICY_DIFFERENCE 與 hasIssues 在建立run時就計算、保存，不能等使用者開診斷頁才產生。只比較同來源／同映射／同取整規則下的兩種 numericPolicy 以判定此問題碼，來源、alias 或取整規則（D24）差異另分類。
+GET /runs/{runId}/comparison?againstRuleSet=excel-v260922-compat 為 P1 唯讀診斷；不切換 active。差異的歷史語意固定為同一 run 建立當下保存的正式值 `F_run` 與同一輪產生並保存的 compat 值 `C_run`：response 列出所有三個欄位中 `F_run != C_run` 的值，formalValue 必須等於 `student_calculations` 中該 run 的正式保存值。不得以今天重算的 `F_now`／`C_now` 取代歷史結果。
+
+正式 run 建立時，計算 application 在原有的一輪 formal／compat 計算後產生 `comparison-snapshot-v1`，並與 run、正式結果及 `run_class_categories` 在同一交易保存。快照包含每位學生三欄的正式／compat 投影、固定欄位與學生排序後的 differences、計數、有效輸入 evidence、正式投影 hash 與內容 hash；零差異仍是有效快照。有效輸入 evidence 記錄當時設定／seed 的內容 hash、實際採用的 alias、類別與展開時段、學生報名順序，以及 compat 從分鐘轉日分數、重疊分鐘與扣天的浮點運算順序、15 位有效數字比較政策。這些 evidence 供追溯，GET 仍只以保存的 projection／differences 作答，不從 evidence 重播或回推值。`diagnosticAlgorithmVersion`（此版為 `comparison-snapshot-v1`）、`payloadSchemaVersion`（此版為 1）、正式 `ruleSetVersion`、`numericPolicy` 及 generator provenance 是不同欄位，不得混用。會改變診斷值、來源、分類或排序語意的實作需評估新的 diagnosticAlgorithmVersion；payload 結構變動則維護 schema reader。此路線選擇預存，是為了讓 GET 不依賴今日 calculator、類別 parser、seed manifest、浮點 kernel 或 serializer，並能在保存時以交易保證完整性；資料量與延遲需以合成資料量測，不得複製完整學生結果或電話／備註等不必要個資。這是 #161 的選擇，取代本節原先的即時計算預設；不建立歷史 calculator registry，也不改 #157 類別規則或 #159 範圍。
+
+comparison GET 只讀 run／設定版本存在性／快照內容，做 schema、hash、唯一學生集合、排序、計數及正式投影一致性驗證；不得呼叫計算器、類別解析器、seed builder，不得重建差異或寫資料。hash 與有效輸入 evidence 用於追溯與內容完整性，不是重新計算歷史結果的授權。舊 run 的診斷版本維持 NULL，migration 不猜版本、不補內容；版本缺失、未知或不支援，或有版本卻無內容，回 409 `DIAGNOSTIC_VERSION_UNAVAILABLE`，不可 fallback／backfill。當 run 所引用的設定版本不存在時，保留 UX38 的 409 `SNAPSHOT_UNAVAILABLE`。版本支援但 JSON/schema/hash/學生集合/正式投影或保存 difference 不一致時回安全的 500 `DIAGNOSTIC_SNAPSHOT_CORRUPTED`。有效快照回原版本、`totalDifferences` 與原有序 `differences`；preview 及 `settings_only` apply 不建 run，亦不寫 diagnostics。正式 run 的 `NUMERIC_POLICY_DIFFERENCE` 與 `hasIssues` 仍在建立 run 時計算、保存，不能等使用者開診斷頁才產生；此 issue code 仍只比較同來源／同映射／同取整規則下的兩種 numericPolicy。
 
 GET /imports/{previewId}/students 供ready批次在啟用前查看名單，與正式查詢共用同一套篩選工具，資料入口不同。只接受參數：classId、enrollmentKey、subject、grade、branch、hasClass、q、sort、cursor、limit、erpBillingTier、mappingStatus。傳入正式 run 專用參數（runId、baseDiscountBps、applicableDiscountBps、billingTier、careType、sibling、specialDiscount、internalStudent、hasExtraDeduction、tierMismatch、tierComparison、hasIssues、scheduleStatus、issueCode）一律回400並指名該參數，不默默忽略、不回傳未計算的空值假裝已比對。其他未知參數亦回400。erpBillingTier 使用不可變解析值；classId／mappingStatus 依 preview 建立時固定的設定快照解析，只採已核准映射，候選不等於已對應。subject優先依核准班級，未映射時用02的已知token文法分類，未知列待設定、不猜科別。未映射者用 enrollmentKey 查名單。preview response 回設定版本，cursor 綁 previewId、設定版本與 filters/sort；後續設定改變不偷偷改舊預覽，新建 preview 才更新對照。此為中途預覽契約，不是第二套收費API。
 
