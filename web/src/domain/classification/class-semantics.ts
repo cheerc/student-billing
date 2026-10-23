@@ -3,7 +3,7 @@ import {
   type ClassSetting,
   type ClassTypeDefinition,
   type SettingsDraft,
-  SettingsDraftSchema,
+  SettingsDraftReadSchema,
   type SummaryDayRole,
 } from '@/contracts/settings';
 import { SEED_CLASS_CATEGORIES, SEED_CLASSES } from '@/domain/schedules/seed-manifest';
@@ -204,7 +204,7 @@ export function normalizeSettingsDraftSemantics(input: SettingsDraft | unknown):
   classTypeDefinitions: ClassTypeDefinition[];
   classes: SemanticClassSetting[];
 } {
-  const parsed = SettingsDraftSchema.parse(input);
+  const parsed = SettingsDraftReadSchema.parse(input);
   const definitions = parsed.classTypeDefinitions ?? DEFAULT_CLASS_TYPE_DEFINITIONS;
   const legacySettings = parsed.classTypeDefinitions === undefined;
   const normalized = parsed.classes.map((item) => {

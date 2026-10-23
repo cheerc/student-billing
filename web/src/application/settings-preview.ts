@@ -2,6 +2,7 @@ import Database from 'better-sqlite3';
 import crypto from 'crypto';
 import {
   SettingsDraft,
+  SettingsDraftSchema,
   SettingsPreviewRequestSchema,
 } from '@/contracts/settings';
 import {
@@ -159,6 +160,10 @@ export function previewSettingsChange(
   // New settings versions carry a bounded registry and explicit unset semantics. Legacy inputs
   // receive a read-only compatibility projection here, then the resulting version is complete.
   const draft = normalizeSettingsDraftSemantics(parsed.data.draft);
+  const normalizedDraftValidation = SettingsDraftSchema.safeParse(draft);
+  if (!normalizedDraftValidation.success) {
+    throw new SettingsPreviewError(400, `設定草稿格式錯誤：${normalizedDraftValidation.error.message}`, 'INVALID_DRAFT');
+  }
   // 窗口固定（D33）：draft.careWindows 只允許 ruleSet 值，不同即 400，不靜默忽略（09 §8.1）
   if (!careWindowsMatchRuleSet(draft)) {
     throw new SettingsPreviewError(400, CARE_WINDOWS_MISMATCH_MESSAGE, 'INVALID_DRAFT');

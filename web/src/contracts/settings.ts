@@ -599,7 +599,8 @@ function validateDraftSemantics(
     }>;
     classTypeDefinitions?: ClassTypeDefinition[];
   },
-  ctx: z.RefinementCtx
+  ctx: z.RefinementCtx,
+  allowUnsupportedValues = false
 ): void {
   const definitions = draft.classTypeDefinitions ?? DEFAULT_CLASS_TYPE_DEFINITIONS;
   const ids = new Set<string>();
@@ -643,6 +644,7 @@ function validateDraftSemantics(
         message: `相容課程類型與課程類型 ${id} 的排課形式不一致`,
       });
     }
+    if (allowUnsupportedValues) continue;
     if (cls.subject?.trim() && !definition.supportedAttributeKeys.includes('subject')) {
       ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['classes', index, 'subject'], message: `課程類型 ${id} 不支援科目` });
     }
@@ -675,6 +677,12 @@ function validateDraftSemantics(
 }
 
 export const SettingsDraftSchema = SettingsDraftObjectSchema.superRefine(validateDraftSemantics);
+
+/** Read-only hydration schema: validates registry references but allows legacy semantic values
+ * to reach the editor so users can explicitly clear them. Writes still use SettingsDraftSchema. */
+export const SettingsDraftReadSchema = SettingsDraftObjectSchema.superRefine((draft, ctx) =>
+  validateDraftSemantics(draft, ctx, true)
+);
 
 export type SettingsDraft = z.infer<typeof SettingsDraftSchema>;
 

@@ -179,12 +179,28 @@ describe('PR-3 bounded class semantics contract', () => {
     expect(SettingsDraftSchema.safeParse(newDraft).success).toBe(false);
   });
 
-  it('preserves historical fixedFiveDays on legacy settings and treats false as neutral on new timetable types', () => {
+  it('keeps legacy flags through repeated read normalization while writes keep unsupported true blocked', () => {
     const historical = normalizeSettingsDraftSemantics({
-      classes: [{ baseName: '舊非安親班', subject: '', classType: 'non_care', fixedFiveDays: false, sessions: [] }],
+      classes: [
+        { baseName: '舊非安親班 false', subject: '', classType: 'non_care', fixedFiveDays: false, sessions: [] },
+        { baseName: '舊非安親班 true', subject: '', classType: 'non_care', fixedFiveDays: true, sessions: [] },
+      ],
       aliases: [], careWindows: CARE_WINDOWS,
     });
-    expect(historical.classes[0].fixedFiveDays).toBe(false);
+    const editorDraft = normalizeSettingsDraftSemantics(historical);
+    expect(editorDraft.classes.map((item) => item.fixedFiveDays)).toEqual([false, true]);
+    expect(SettingsDraftSchema.safeParse(editorDraft).success).toBe(false);
+    const html = renderToStaticMarkup(React.createElement(ClassSemanticsPanel, {
+      classes: editorDraft.classes,
+      definitions: editorDraft.classTypeDefinitions,
+      onUpdateClass: () => {},
+      onClearUnsupported: () => {},
+      onUpdateDefinition: () => {},
+      onAddDefinition: () => {},
+      onDeleteDefinition: () => {},
+    }));
+    expect(html).toContain('此班已有未受課程類型支援的設定');
+    expect(html).toContain('清除未支援的設定');
 
     const neutral = {
       classes: [{ baseName: '合成課程', subject: '', classTypeId: 'non_care', classType: 'non_care', fixedFiveDays: false, sessions: [] }],
