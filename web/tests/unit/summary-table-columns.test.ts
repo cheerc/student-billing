@@ -197,7 +197,7 @@ describe('UX28／F05：恰選一班時的本班適用折扣欄（與基本率並
         item({ personCode: 'S1', grade: 1, baseDiscountBps: 10000, applicableAnqinBps: 9500, applicableTutoringBps: 7000 }),
         item({ personCode: 'S2', grade: 3, baseDiscountBps: 9500, applicableAnqinBps: 7000, applicableTutoringBps: 9000 }),
       ],
-      { singleClass: '國小輔導-一A' }
+      { singleClass: '國小輔導-一A', ruleSetVersion: 'erp-tag-v2' }
     );
     const h = headers(html);
     expect(h).toContain('本班適用折扣');
@@ -218,7 +218,7 @@ describe('UX28／F05：恰選一班時的本班適用折扣欄（與基本率並
 
   it('國小數學取 math、兒童美語取 english；年級未知的輔導班為「—」（null）；未配置班為「未設定」，兩者分開且不是 100%', () => {
     const local = (singleClass: string, over: Partial<StudentCalculationItem>) => {
-      const html = render([item(over)], { singleClass });
+      const html = render([item(over)], { singleClass, ruleSetVersion: 'erp-tag-v2' });
       const h = headers(html);
       const row = html.match(/<tr[^>]*>[\s\S]*?<\/tr>/g)!.find((r) => r.includes('<td'))!;
       const cells = (row.match(/<td[^>]*>[\s\S]*?<\/td>/g) ?? []).map((c) => c.replace(/<[^>]*>/g, '').trim());
@@ -229,6 +229,10 @@ describe('UX28／F05：恰選一班時的本班適用折扣欄（與基本率並
     expect(local('國小輔導-一A', { grade: null, applicableAnqinBps: 9500, applicableTutoringBps: 9500 })).toBe('—');
     expect(local('國語文-合成', { applicableMathBps: 9000 })).toBe('未設定');
     expect(local('國語文-合成', { applicableMathBps: 9000 })).not.toBe('無折扣');
+    const noRun = render([item({ applicableMathBps: 9000 })], { singleClass: '國小數學-三A' });
+    const noRunRow = noRun.match(/<tr[^>]*>[\s\S]*?<\/tr>/g)!.find((r) => r.includes('<td'))!;
+    const noRunCells = (noRunRow.match(/<td[^>]*>[\s\S]*?<\/td>/g) ?? []).map((c) => c.replace(/<[^>]*>/g, '').trim());
+    expect(noRunCells[headers(noRun).indexOf('本班適用折扣')]).toBe('未設定');
   });
 
   it('沒有 singleClass（未選班或選多班）：沒有本班適用折扣欄', () => {

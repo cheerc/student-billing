@@ -22,6 +22,7 @@ export function isFormalRuleSetVersion(v: unknown): v is FormalRuleSetVersion {
 export interface HistoricalRuleSetMetadata {
   known: boolean;
   hasClassCategorySnapshot: boolean;
+  hasClassSemanticsSnapshot: boolean;
   fixedFiveDaysAffectsRate: boolean;
   sameWeekdayOnly: boolean;
 }
@@ -30,15 +31,15 @@ export function historicalRuleSetMetadata(version: string): HistoricalRuleSetMet
   switch (version) {
     case 'erp-tag-v1':
     case 'excel-v260922-compat':
-      return { known: true, hasClassCategorySnapshot: false, fixedFiveDaysAffectsRate: true, sameWeekdayOnly: false };
+      return { known: true, hasClassCategorySnapshot: false, hasClassSemanticsSnapshot: false, fixedFiveDaysAffectsRate: true, sameWeekdayOnly: false };
     case 'erp-tag-v2':
-      return { known: true, hasClassCategorySnapshot: false, fixedFiveDaysAffectsRate: true, sameWeekdayOnly: true };
+      return { known: true, hasClassCategorySnapshot: false, hasClassSemanticsSnapshot: false, fixedFiveDaysAffectsRate: true, sameWeekdayOnly: true };
     case 'erp-tag-v3':
-      return { known: true, hasClassCategorySnapshot: true, fixedFiveDaysAffectsRate: true, sameWeekdayOnly: true };
+      return { known: true, hasClassCategorySnapshot: true, hasClassSemanticsSnapshot: false, fixedFiveDaysAffectsRate: true, sameWeekdayOnly: true };
     case 'erp-tag-v4':
-      return { known: true, hasClassCategorySnapshot: true, fixedFiveDaysAffectsRate: false, sameWeekdayOnly: true };
+      return { known: true, hasClassCategorySnapshot: true, hasClassSemanticsSnapshot: true, fixedFiveDaysAffectsRate: false, sameWeekdayOnly: true };
     default:
       // Unknown/corrupt historical version cannot authorize a snapshot or weekday-aware reconstruction.
-      return { known: false, hasClassCategorySnapshot: false, fixedFiveDaysAffectsRate: false, sameWeekdayOnly: false };
+      return { known: false, hasClassCategorySnapshot: false, hasClassSemanticsSnapshot: false, fixedFiveDaysAffectsRate: false, sameWeekdayOnly: false };
   }
 }

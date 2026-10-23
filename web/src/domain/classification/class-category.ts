@@ -58,9 +58,18 @@ export interface ResolvedClassEnrollment {
   category: ClassCategory;
   categorySource: EffectiveCategorySource;
   fixedFiveDays: boolean;
+  classTypeId: string | null;
+  subject: string;
+  subjectSource: 'manual' | 'seed' | 'legacy_migration' | 'unset';
+  summaryDayRoles: Array<'anqinDays' | 'tutoringDays' | 'englishDays' | 'mathDays' | 'chineseDays' | 'homeworkDays' | 'intensiveEnglishDays' | 'saturdayTutoringDays'>;
+  summaryDayRoleConditions: Array<{ role: 'saturdayTutoringDays'; condition: 'raw_token_contains_six' }>;
+  summaryDayRolesStatus: 'configured' | 'unset' | 'unavailable';
+  erpTierApplicability: 'applicable' | 'not_applicable' | 'unset';
+  erpTierApplicabilitySource: 'manual' | 'seed' | 'legacy_migration' | 'unset';
 }
 
 export interface ClassSettingLookup {
+  semanticOnly?: boolean;
   classType?: 'care' | 'non_care';
   classTypeId?: string;
   classTypeDefinition?: {
@@ -73,6 +82,7 @@ export interface ClassSettingLookup {
   subject?: string;
   subjectSource?: 'manual' | 'seed' | 'legacy_migration' | 'unset';
   summaryDayRoles?: Array<'anqinDays' | 'tutoringDays' | 'englishDays' | 'mathDays' | 'chineseDays' | 'homeworkDays' | 'intensiveEnglishDays' | 'saturdayTutoringDays'>;
+  summaryDayRoleConditions?: Array<{ role: 'saturdayTutoringDays'; condition: 'raw_token_contains_six' }>;
   summaryDayRolesStatus?: 'configured' | 'unset' | 'unavailable';
   summaryDayRolesSource?: 'manual' | 'seed' | 'legacy_migration' | 'unset';
   erpTierApplicability?: 'applicable' | 'not_applicable' | 'unset';
@@ -142,10 +152,18 @@ export function resolveClassEnrollment(
       rawToken: token.rawToken,
       baseName: token.baseName,
       resolvedBaseName,
-      mapped: true,
+      mapped: !cls.semanticOnly,
       category,
       categorySource,
       fixedFiveDays: cls.fixedFiveDays ?? false,
+      classTypeId: cls.classTypeId ?? cls.classType ?? null,
+      subject: cls.subject ?? '',
+      subjectSource: cls.subjectSource ?? 'unset',
+      summaryDayRoles: cls.summaryDayRoles ?? [],
+      summaryDayRoleConditions: cls.summaryDayRoleConditions ?? [],
+      summaryDayRolesStatus: cls.summaryDayRolesStatus ?? 'unavailable',
+      erpTierApplicability: cls.erpTierApplicability ?? 'unset',
+      erpTierApplicabilitySource: cls.erpTierApplicabilitySource ?? 'unset',
     };
   }
 
@@ -157,5 +175,13 @@ export function resolveClassEnrollment(
     category: 'unset',
     categorySource: 'unset',
     fixedFiveDays: false,
+    classTypeId: null,
+    subject: '',
+    subjectSource: 'unset',
+    summaryDayRoles: [],
+    summaryDayRoleConditions: [],
+    summaryDayRolesStatus: 'unavailable',
+    erpTierApplicability: 'unset',
+    erpTierApplicabilitySource: 'unset',
   };
 }

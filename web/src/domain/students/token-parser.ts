@@ -1,4 +1,5 @@
-import { ParsedToken, TierParseStatus, EnrollmentParseStatus } from './types';
+import { ParsedToken } from './types';
+import { legacyClassSemanticsOf } from '@/domain/classification/legacy-class-semantics';
 
 const KNOWN_TIERS_MAP: Record<string, number> = {
   '3': 3,
@@ -9,20 +10,7 @@ const KNOWN_TIERS_MAP: Record<string, number> = {
 };
 
 /**
- * 判斷該班名是否屬於「一般安親／課輔」班級（不含寫功課、美安、數學、美語等）。
- */
-export function isRegularCareClass(baseName: string): boolean {
-  if (!baseName.includes('國小輔導') && !baseName.includes('安親') && !baseName.includes('課輔')) {
-    return false;
-  }
-  if (baseName.includes('寫功課') || baseName.includes('美安')) {
-    return false;
-  }
-  return true;
-}
-
-/**
- * 解析單一班名 token 字串。
+ * Parse token syntax only. Tier meaning is projected later from the aliased run class setting.
  * 格式範例：
  * - 115國小輔導-四年級A[團][4_5] (2026-10-01離班)
  * - 兒童美語-EA[團][Starter]
@@ -64,39 +52,6 @@ export function parseSingleClassToken(rawToken: string): ParsedToken {
   const groupFlag = bracketMatches.length > 0 ? bracketMatches[0] : null;
   const modifiers = bracketMatches.slice(1);
 
-  // 4. 解析 ERP 登記級距 (U43)
-  let erpBillingTierRaw: string | null = null;
-  let erpBillingTier: number | null = null;
-  let tierParseStatus: TierParseStatus = 'not_applicable';
-  let parseStatus: EnrollmentParseStatus = 'ok';
-
-  if (isRegularCareClass(baseName)) {
-    if (modifiers.length === 0) {
-      // 無後綴且無未知修飾時預設 5
-      erpBillingTier = 5;
-      erpBillingTierRaw = null;
-      tierParseStatus = 'defaulted';
-    } else {
-      // 檢查是否符合已知級距
-      const tierMod = modifiers.find((mod) => KNOWN_TIERS_MAP[mod] !== undefined);
-      if (tierMod) {
-        erpBillingTier = KNOWN_TIERS_MAP[tierMod];
-        erpBillingTierRaw = tierMod;
-        tierParseStatus = 'parsed';
-      } else {
-        // 未知修飾不可當無後綴回 5
-        erpBillingTier = null;
-        erpBillingTierRaw = modifiers[0];
-        tierParseStatus = 'unavailable';
-        parseStatus = 'needs_review';
-      }
-    }
-  } else {
-    // 寫功課／美安／美語／數學 不套一般級距
-    tierParseStatus = 'not_applicable';
-    erpBillingTier = null;
-  }
-
   return {
     rawToken: trimmed,
     yearPrefix,
@@ -104,11 +59,75 @@ export function parseSingleClassToken(rawToken: string): ParsedToken {
     groupFlag,
     modifiers,
     withdrawalDate,
-    erpBillingTierRaw,
-    erpBillingTier,
-    tierParseStatus,
-    parseStatus,
+    erpBillingTierRaw: null,
+    erpBillingTier: null,
+    tierParseStatus: 'unavailable',
+    parseStatus: 'needs_review',
   };
+}
+
+/** Interpret tier modifiers from the class's resolved, run-specific metadata. */
+export function projectTierForApplicability(
+  token: ParsedToken,
+  applicability: 'applicable' | 'not_applicable' | 'unset'
+): ParsedToken {
+  if (applicability === 'not_applicable') {
+    return {
+      ...token,
+      erpBillingTierRaw: null,
+      erpBillingTier: null,
+      tierParseStatus: 'not_applicable',
+      parseStatus: 'ok',
+    };
+  }
+
+  if (applicability === 'unset') {
+    return {
+      ...token,
+      erpBillingTierRaw: token.modifiers[0] ?? null,
+      erpBillingTier: null,
+      tierParseStatus: 'unavailable',
+      parseStatus: 'needs_review',
+    };
+  }
+
+  if (token.modifiers.length === 0) {
+    return {
+      ...token,
+      erpBillingTierRaw: null,
+      erpBillingTier: 5,
+      tierParseStatus: 'defaulted',
+      parseStatus: 'ok',
+    };
+  }
+
+  const tierMod = token.modifiers.find((modifier) => KNOWN_TIERS_MAP[modifier] !== undefined);
+  if (tierMod) {
+    return {
+      ...token,
+      erpBillingTierRaw: tierMod,
+      erpBillingTier: KNOWN_TIERS_MAP[tierMod],
+      tierParseStatus: 'parsed',
+      parseStatus: 'ok',
+    };
+  }
+
+  return {
+    ...token,
+    erpBillingTierRaw: token.modifiers[0],
+    erpBillingTier: null,
+    tierParseStatus: 'unavailable',
+    parseStatus: 'needs_review',
+  };
+}
+
+/** Preserve the frozen import-time tier projection as read-back evidence only.
+ * New v4 Runs must call `projectTierForApplicability` with their saved semantic row instead. */
+export function projectLegacyImportTierEvidence(token: ParsedToken): ParsedToken {
+  return projectTierForApplicability(
+    token,
+    legacyClassSemanticsOf(token.baseName).erpTierApplicability
+  );
 }
 
 /**

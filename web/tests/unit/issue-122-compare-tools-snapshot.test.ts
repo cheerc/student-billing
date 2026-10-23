@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { compare, routeRateField, LEGACY_PRE_ISSUE122_CONTEXT } from '../../scripts/compare-session-pricing-report.mjs';
+import { compare, resolveApplicableRate, routeRateField, MISSING_RUN_CONTEXT } from '../../scripts/compare-session-pricing-report.mjs';
 import { compare as compareBilling } from '../../scripts/compare-billing-report.mjs';
+import { buildRunSnapshotContext } from '../../scripts/shared/rate-context';
 
 /**
  * issue #122 消費端（按堂計價工具）：工具必須走 v3 run 的類別快照，
@@ -58,11 +59,29 @@ function reportEntry({ rateDetail = '課程費 8折' } = {}) {
 }
 
 const V3_CONTEXT = (snapshots: Array<{ base_name: string; category: string; fixed_five_days: number }>) => ({
-  isV3Run: true,
-  classCategories: snapshots,
+  ...buildRunSnapshotContext({ ruleSetVersion: 'erp-tag-v3', classCategories: snapshots })!,
 });
 
 describe('issue #122：按堂計價工具走 v3 類別快照', () => {
+  it('unknown/corrupt run version is unavailable and never falls back to current class-name mapping', () => {
+    const result = resolveApplicableRate('兒童美語-Dommie', STUDENT, {
+      known: false,
+      isV3Run: false,
+      classCategories: null,
+      ruleSetVersion: 'erp-tag-v99',
+    });
+
+    expect(result).toMatchObject({ status: 'not_configured', bps: null, category: null });
+  });
+
+  it('missing context is unavailable; only explicit v1/v2 Run versions use frozen name mapping', () => {
+    expect(resolveApplicableRate('兒童美語-Dommie', STUDENT, undefined))
+      .toMatchObject({ status: 'not_configured', bps: null, category: null });
+    const legacy = buildRunSnapshotContext({ ruleSetVersion: 'erp-tag-v2' })!;
+    expect(resolveApplicableRate('兒童美語-Dommie', STUDENT, legacy))
+      .toMatchObject({ status: 'configured', bps: 8000, category: 'english' });
+  });
+
   it('(a) category 被手動覆寫為 care：走快照的 care 分支，結果不等於 applicableEnglishBps', () => {
     // 名冊班名「兒童美語-Dommie」的當前名稱映射是 english（→ 8000）；
     // 快照說這班手動覆寫成 care，四年級 → 課輔側 9000。
@@ -108,11 +127,25 @@ describe('issue #122：按堂計價工具走 v3 類別快照', () => {
     expect(records[0].statusCategory).toBe('MATCH');
   });
 
-  it('v1／v2 run（無快照概念）：維持當前班名映射，語意不變', () => {
-    const { records } = compare(reportEntry(), [STUDENT], '2026-10-01');
+  it('explicit v1／v2 Run uses the frozen historical projection', () => {
+    const legacy = buildRunSnapshotContext({ ruleSetVersion: 'erp-tag-v2' })!;
+    const { records } = compare(reportEntry(), [STUDENT], '2026-10-01', undefined, legacy);
 
     expect(records[0].web.rateBps).toBe(8000);
     expect(records[0].statusCategory).toBe('MATCH');
+  });
+
+  it('omitted/unknown and compat Run contexts fail closed instead of using name mapping', () => {
+    const missingContext = compare(reportEntry(), [STUDENT], '2026-10-01').records[0]!;
+    const compatContext = buildRunSnapshotContext({ ruleSetVersion: 'excel-v260922-compat' })!;
+    const compat = compare(reportEntry(), [STUDENT], '2026-10-01', undefined, compatContext).records[0]!;
+    const unknown = resolveApplicableRate('兒童美語-Dommie', STUDENT, undefined);
+
+    expect(missingContext.web!.rateBps).toBeNull();
+    expect(missingContext.statusCategory).toBe('WEB_RATE_NOT_CONFIGURED');
+    expect(compat.web!.rateBps).toBeNull();
+    expect(compat.statusCategory).toBe('WEB_RATE_NOT_CONFIGURED');
+    expect(unknown).toMatchObject({ status: 'not_configured', bps: null, category: null });
   });
 
   it('v3 但該 run 零快照列：同樣不得退回名稱映射', () => {
@@ -130,8 +163,9 @@ describe('issue #122：按堂計價工具走 v3 類別快照', () => {
     });
   });
 
-  it('LEGACY_PRE_ISSUE122_CONTEXT 顯式代表「未接快照」，讓未改的呼叫端看得見', () => {
-    expect(LEGACY_PRE_ISSUE122_CONTEXT.isV3Run).toBe(false);
+  it('MISSING_RUN_CONTEXT is explicitly unknown and cannot authorize a legacy fallback', () => {
+    expect(MISSING_RUN_CONTEXT.known).toBe(false);
+    expect(MISSING_RUN_CONTEXT.isV3Run).toBe(false);
   });
 });
 
@@ -178,7 +212,7 @@ describe('issue #122：國小輔導工具（billing:compare）的 v3 快照路�
 
   it('快照 fixed_five_days = 1 的輔導班 → 10000，不退回課輔側 8888', () => {
     const snapshots = [{ base_name: '國小輔導-三年級', category: 'care', fixed_five_days: 1 }];
-    const { records } = compareBilling(careReport(), [careStudent], '2026-10-01', { isV3Run: true, classCategories: snapshots });
+    const { records } = compareBilling(careReport(), [careStudent], '2026-10-01', V3_CONTEXT(snapshots));
 
     expect(records[0]!.web!.rateBps).toBe(10000);
     expect(records[0]!.web!.rateBps).not.toBe(8888);
@@ -186,7 +220,7 @@ describe('issue #122：國小輔導工具（billing:compare）的 v3 快照路�
 
   it('快照 category 被覆寫為 none（且無固定 5 天）→ 無法判定，標為需人工判讀', () => {
     const snapshots = [{ base_name: '國小輔導-三年級', category: 'none', fixed_five_days: 0 }];
-    const { records } = compareBilling(careReport(), [careStudent], '2026-10-01', { isV3Run: true, classCategories: snapshots });
+    const { records } = compareBilling(careReport(), [careStudent], '2026-10-01', V3_CONTEXT(snapshots));
 
     expect(records[0]!.statusCategory).toBe('WEB_RATE_NOT_CONFIGURED');
     expect(records[0]!.web!.rateBps).toBeNull();
@@ -195,7 +229,7 @@ describe('issue #122：國小輔導工具（billing:compare）的 v3 快照路�
 
   it('v3 但缺該班快照 → 同樣無法判定，嚴禁以年級猜測安親／課輔側', () => {
     const snapshots = [{ base_name: '別的班', category: 'care', fixed_five_days: 0 }];
-    const { records } = compareBilling(careReport(), [careStudent], '2026-10-01', { isV3Run: true, classCategories: snapshots });
+    const { records } = compareBilling(careReport(), [careStudent], '2026-10-01', V3_CONTEXT(snapshots));
 
     expect(records[0]!.statusCategory).toBe('WEB_RATE_NOT_CONFIGURED');
     expect(records[0]!.web!.rateBps).not.toBe(8888);
@@ -203,14 +237,15 @@ describe('issue #122：國小輔導工具（billing:compare）的 v3 快照路�
 
   it('快照 category = care 且無固定 5 天 → 三年級取課輔側 8888（與畫面同源）', () => {
     const snapshots = [{ base_name: '國小輔導-三年級', category: 'care', fixed_five_days: 0 }];
-    const { records } = compareBilling(careReport(), [careStudent], '2026-10-01', { isV3Run: true, classCategories: snapshots });
+    const { records } = compareBilling(careReport(), [careStudent], '2026-10-01', V3_CONTEXT(snapshots));
 
     expect(records[0]!.web!.rateBps).toBe(8888);
   });
 
-  it('v1／v2（不傳 context）：維持舊行為，且不因名冊無輔導班而變成無法判定', () => {
+  it('explicit v1／v2 context preserves historical student-side rate when no care enrollment exists', () => {
     const noCareEnrollment = { ...careStudent, enrollments: [] };
-    const { records } = compareBilling(careReport(), [noCareEnrollment], '2026-10-01');
+    const legacy = buildRunSnapshotContext({ ruleSetVersion: 'erp-tag-v2' })!;
+    const { records } = compareBilling(careReport(), [noCareEnrollment], '2026-10-01', legacy);
 
     // 舊行為在此仍顯示 8888；若改走 applicableRateForClass 的空班名會變成無法判定，
     // 那是未經裁決的行為變更，故 v1／v2 必須逐字維持原欄位選擇。
@@ -231,17 +266,113 @@ describe('issue #122：國小輔導工具（billing:compare）的 v3 快照路�
     const noCareEnrollment = { ...careStudent, enrollments: [] };
     const snapshots = [{ base_name: '國小輔導-三年級', category: 'care', fixed_five_days: 0 }];
     const { records } = compareBilling(careReport(), [noCareEnrollment], '2026-10-01', {
+      known: true,
+      usesClassCategorySnapshot: true,
+      usesClassSemanticsSnapshot: false,
       isV3Run: true,
       classCategories: snapshots,
+      ruleSetVersion: 'erp-tag-v3',
     });
 
     expect(records[0]!.web!.rateBps).toBe(8888);
     expect(records[0]!.statusCategory).not.toBe('WEB_RATE_NOT_CONFIGURED');
   });
+
+  it('v4 以 run semantic snapshot 找班級與 tier applicability，不以班名推論', () => {
+    const report = new Map([['測試生', {
+      name: '測試生',
+      tuition: '合成班[團][3] - 40 堂課',
+      discounts: ['1151234班[團] - 課程費 9折'],
+      otherDiscounts: [], other: [], billNo: 'B-SYNTH', billDate: '2026-10-01', billStatus: '已開立',
+    }]]);
+    const student = {
+      ...careStudent,
+      applicableTutoringBps: 9000,
+      enrollments: [{ rawToken: '合成班[團][3]', baseName: '合成班', erpBillingTier: null, withdrawalDate: null }],
+    };
+    const context = {
+      known: true,
+      usesClassCategorySnapshot: true,
+      usesClassSemanticsSnapshot: true,
+      isV3Run: true,
+      classCategories: [{ base_name: '合成班', category: 'care', fixed_five_days: 0 }],
+      classSemantics: [{
+        baseName: '合成班', resolvedBaseName: '合成班', category: 'care',
+        summaryDayRoles: [], erpTierApplicability: 'applicable' as const,
+      }],
+      ruleSetVersion: 'erp-tag-v4',
+    };
+    const { records } = compareBilling(report, [student], '2026-10-01', context);
+
+    expect(records[0]!.excel!.days).toBe(3);
+    expect(records[0]!.web!.rateBps).toBe(9000);
+    expect(records[0]!.statusCategory).toBe('DAY_DIFF');
+  });
+
+  it('v4 unset or missing class semantics does not parse tier or fall back to current names', () => {
+    const report = new Map([['測試生', {
+      name: '測試生',
+      tuition: '115國小輔導-三年級[團][3] - 40 堂課',
+      discounts: ['115國小輔導-三年級[團] - 課程費 9折'],
+      otherDiscounts: [], other: [], billNo: 'B-SYNTH', billDate: '2026-10-01', billStatus: '已開立',
+    }]]);
+    const base = {
+      known: true,
+      isV3Run: true,
+      classCategories: [{ base_name: '國小輔導-三年級', category: 'care', fixed_five_days: 0 }],
+      ruleSetVersion: 'erp-tag-v4',
+    };
+    const unset = compareBilling(report, [careStudent], '2026-10-01', {
+      ...base,
+      classSemantics: [{
+        baseName: '國小輔導-三年級', resolvedBaseName: '國小輔導-三年級', category: 'care',
+        summaryDayRoles: [], erpTierApplicability: 'unset' as const,
+      }],
+    }).records[0]!;
+    const missing = compareBilling(report, [careStudent], '2026-10-01', base).records[0]!;
+
+    expect(unset.excel!.days).toBeNull();
+    expect(unset.excel!.tierStatus).toBe('unavailable');
+    expect(missing.excel!.days).toBeNull();
+    expect(missing.web!.rateBps).toBeNull();
+
+    const omittedContext = compareBilling(report, [careStudent], '2026-10-01').records[0]!;
+    expect(omittedContext.excel!.days).toBeNull();
+    expect(omittedContext.excel!.tierStatus).toBe('unavailable');
+    expect(omittedContext.web!.rateBps).toBeNull();
+  });
+
+  it('session comparison rate fails closed when v4 semantic/category snapshots are missing or disagree', () => {
+    const categoryRows = [{ base_name: '兒童美語-Dommie', category: 'math', fixed_five_days: 0 }];
+    const missingSemantics = resolveApplicableRate('兒童美語-Dommie', STUDENT, {
+      known: true,
+      usesClassCategorySnapshot: true,
+      usesClassSemanticsSnapshot: true,
+      isV3Run: true,
+      classCategories: categoryRows,
+      classSemantics: undefined,
+      ruleSetVersion: 'erp-tag-v4',
+    });
+    const contradictorySemantics = resolveApplicableRate('兒童美語-Dommie', STUDENT, {
+      known: true,
+      usesClassCategorySnapshot: true,
+      usesClassSemanticsSnapshot: true,
+      isV3Run: true,
+      classCategories: categoryRows,
+      classSemantics: [{
+        baseName: '兒童美語-Dommie', resolvedBaseName: '兒童美語-Dommie', category: 'care',
+        summaryDayRoles: [], erpTierApplicability: 'not_applicable',
+      }],
+      ruleSetVersion: 'erp-tag-v4',
+    });
+
+    expect(missingSemantics).toMatchObject({ status: 'not_configured', bps: null, category: null });
+    expect(contradictorySemantics).toMatchObject({ status: 'not_configured', bps: null, category: null });
+  });
 });
 
 describe('issue #122：國小輔導工具既有簽章不變', () => {
-  it('compare() 既有簽章（3 參數）仍可用', () => {
+  it('explicit v2 context keeps the frozen historical compare behavior', () => {
     const report = new Map([
       [
         '測試生',
@@ -265,7 +396,8 @@ describe('issue #122：國小輔導工具既有簽章不變', () => {
       anqinDays: 0,
       anqinDisplay: '0',
     };
-    const { records } = compareBilling(report, [student], '2026-10-01');
+    const legacy = buildRunSnapshotContext({ ruleSetVersion: 'erp-tag-v2' })!;
+    const { records } = compareBilling(report, [student], '2026-10-01', legacy);
     // 四年級 → 課輔側 9000（9 折）
     expect(records[0]!.web!.rateBps).toBe(9000);
   });

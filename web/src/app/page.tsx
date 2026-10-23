@@ -58,6 +58,7 @@ export default async function HomePage({
             // 歷史讀取 metadata：v3／v4 有不可變類別快照；v1／v2 走舊名班 mapper。
             historicalRuleSetMetadata(activeRun.ruleSetVersion).hasClassCategorySnapshot ? loadRunClassCategories(db, activeRun.id) : null
           }
+          classSemanticSnapshots={activeRun.classSemantics ?? null}
           classCategoryRuleSetVersion={activeRun.ruleSetVersion}
           initialData={view.data}
           initialOptions={view.options}

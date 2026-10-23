@@ -2,7 +2,7 @@
 
 > **Issue #159 current status (PR-1 and PR-2):** New Runs and current calculation previews use only `erp-tag-v4`. Active old Runs require an explicit v4 upgrade; upgrade before reads persisted results and after calculates v4. Old Run outputs/snapshots are not recalculated or backfilled. Compatibility formulas and `ruleSetCapabilities` references below describe historical design only. New runs do not invoke compat/shadow-v2 or write comparison snapshots; comparison GET returns 404, while existing diagnostic schema/data and raw issues remain. See [03 §5.5–5.6](03-architecture-api.md), [04 UX98/UX99](04-tdd-acceptance.md), and [06 D56–D57](06-handoff-decisions.md).
 
-> **Issue #148 current status (PR-3):** The bounded registry is represented by `classTypeDefinitions` with `supportedAttributeKeys` and `summaryRoleOptions`; each class references a definition. Subject, category, fixed-five-days, existing eight summary fields and ERP tier applicability remain independent settings. A fixed synthetic fixture explicitly covers all 49 seed classes. Settings UI and schedule-workbook hidden metadata support editing and roundtrip; migration 0009 adds immutable per-run semantic snapshots with a run-level presence/schema marker. PR-3 does not wire roles or tier applicability into billing/report consumers and does not change v4 numeric output. Historical paragraphs below describe original design rationale; current acceptance is [03 §5.7](03-architecture-api.md), [04 UX100/UX101](04-tdd-acceptance.md), and [06 D58](06-handoff-decisions.md).
+> **Issue #148 current status (PR-3 / PR-4):** The bounded registry is represented by `classTypeDefinitions` with `supportedAttributeKeys` and `summaryRoleOptions`; each class references a definition. Subject, category, fixed-five-days, existing eight summary fields and ERP tier applicability remain independent settings. A fixed synthetic fixture explicitly covers all 49 seed classes. Settings UI and schedule-workbook hidden metadata support editing and roundtrip; migration 0009 adds immutable per-run semantic snapshots with a run-level presence/schema marker. PR-4 routes v4 calculation/read consumers through Run semantic snapshots, keeps v1–v3 as frozen read-only projections, and makes unknown/missing current snapshots fail closed. Operator-approved `legacy_migration` is explicit and one-time. PR-4 does not change the v4 formula or numeric output. Historical paragraphs below describe original design rationale; current acceptance is [03 §5.7–5.8](03-architecture-api.md), [04 UX100–UX102](04-tdd-acceptance.md), and [06 D58–D59](06-handoff-decisions.md).
 
 日期：2026-10-18。依據：operator 2026-10-18 對話裁示（§0、§6）。狀態（文件建立時）：**spec 定稿，當時計畫實作未開始**。
 
@@ -322,6 +322,8 @@ v3 的扣天候選以 `category==='math'|'english'` 篩選（`web/src/domain/bil
 
 ### 3.11 計算端與讀模型修改清單
 
+本節以下列出 #112 v4 調整時的原始修改面；#148 PR-4 已按同一資料契約完成 consumer 接線。現行契約見 [03 §5.8](03-architecture-api.md) 與 [06 D59](06-handoff-decisions.md)：v4 只讀 Run semantic snapshot，歷史 v1–v3 使用 frozen read projection，unknown/missing snapshot fail closed；PR-4 不更改 v4 formula/output。
+
 - **`web/src/domain/billing/care-days.ts` 的計算路徑已扁平為 v4-only**：移除非 v4 分支，但保留原 v4 天數公式與輸出；天數地板不變，額外扣天順序仍依 #147。這是 #159 PR-2 的實作整理，不是新的收費規則。
 - **歷史實作計畫**：原計畫要求新增正式軌版本 `erp-tag-v4`、更新 target version 並新增 `RuleSetCapabilities`。PR-2 現況移除 calculator capability table；歷史讀模型使用明確的 read-only `historicalRuleSetMetadata` mapping。
 - **`web/src/domain/billing/discount-rules.ts` 與 `web/src/domain/billing/billing-calculator.ts` 需修改**（§3.4）：在 `erp-tag-v4` 下不套用 `homeworkOverwriteApplies`（固定 5 天不將 `anqin`／`tutoring` 收費率覆蓋為 10000 bps）。
@@ -331,7 +333,7 @@ v3 的扣天候選以 `category==='math'|'english'` 篩選（`web/src/domain/bil
 ## 4. 不在範圍
 
 - **額外扣天與固定 5 天的套用順序**（operator 另案裁示）→ #147（已裁決於本案之前實作，見 §6 第 5 點）
-- **班名關鍵字 hard code 的全面清理** → #148（必須在 #112 之後）
+- **班名關鍵字 hard code 的全面清理** → #148 PR-4（本檔 §3.11；須先有 #112 v4 與 PR-3 semantic snapshot）
 - **SQLite 欄位、API JSON 欄位與內部程式碼變數之技術識別更名** → 依 §0.4／§6 第 6 點保留既有技術識別，僅更名使用者可見 UI 文案與當前規格文件
 - **`excel-v260922-compat` 診斷軌與舊版 `erp-tag-v1`／`v2`／`v3` 計算公式** → 依 CLAUDE.md §2 雙軌制度與版本不可變原則凍結，不隨本 spec 改寫
 

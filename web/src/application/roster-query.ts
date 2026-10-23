@@ -2,6 +2,10 @@ import Database from 'better-sqlite3';
 import { StudentSnapshot, ParsedToken } from '@/domain/students';
 import { normalizeStudentQuery, StudentQueryInputError, queryIdentity, decodeStudentCursor, encodeStudentCursor } from '@/contracts/student-query';
 import { classPredicate, selectionPredicate, branchPredicate, escapeLike, type QueryPredicate } from './student-query-sql';
+import { getLatestSettingsVersion, readStoredDraft, buildSeedDraft, draftToAliasMap } from '@/adapters/sqlite/settings-repository';
+import { buildClassSettingMap } from './calculate-run';
+import { resolveClassEnrollment } from '@/domain/classification/class-category';
+import { projectTierForApplicability } from '@/domain/students/token-parser';
 
 export class RosterQueryError extends Error {
   statusCode: number;
@@ -24,6 +28,7 @@ export const ALLOWED_IMPORT_QUERY_PARAMS = new Set([
   'cursor',
   'limit',
   'erpBillingTier',
+  'previewErpBillingTier',
   'mappingStatus',
 ]);
 
@@ -68,6 +73,7 @@ export interface RosterQueryResult {
   totalStudents: number;
   noCourseTotal: number;
   nextCursor: string | null;
+  tierPreviewSource: 'latest_settings' | 'seed';
   stats: {
     totalStudents: number;
     studentsWithClass: number;
@@ -102,11 +108,51 @@ export function queryImportStudents(db: Database.Database, importId: string, par
   const queryArgs: Array<string | number> = [importId];
   const add = (p: QueryPredicate) => { whereClauses.push(p.sql); queryArgs.push(...p.args); };
   const selected = query.selections;
+  const savedSettings = getLatestSettingsVersion(db);
+  const settingsDraft = savedSettings ? readStoredDraft(savedSettings.contentJson) : buildSeedDraft();
+  const aliasMap = draftToAliasMap(settingsDraft);
+  const classSettings = buildClassSettingMap(settingsDraft);
+  const projectEnrollmentTier = (row: any) => {
+    const token: ParsedToken = {
+      rawToken: row.raw_token,
+      yearPrefix: row.year_prefix,
+      baseName: row.base_name,
+      groupFlag: row.group_flag,
+      modifiers: row.modifiers ? JSON.parse(row.modifiers) : [],
+      withdrawalDate: row.withdrawal_date,
+      erpBillingTierRaw: row.erp_billing_tier_raw,
+      erpBillingTier: row.erp_billing_tier,
+      tierParseStatus: row.tier_parse_status,
+      parseStatus: row.parse_status,
+    };
+    const resolved = resolveClassEnrollment(token, aliasMap, classSettings);
+    return projectTierForApplicability(token, resolved.erpTierApplicability);
+  };
   add(classPredicate(importId, 's', selected.enrollmentKey));
   add(selectionPredicate(selected.grade, 's.grade'));
   add(branchPredicate('s.branch', selected.branch));
   const hasClass = 'EXISTS (SELECT 1 FROM student_enrollments e WHERE e.import_id = s.import_id AND e.person_code = s.person_code)';
   add(selectionPredicate(selected.hasClass, hasClass, '0'));
+  const previewTierSelection = selected.previewErpBillingTier;
+  if (previewTierSelection) {
+    if (previewTierSelection.none) {
+      whereClauses.push('0');
+    } else {
+      const matchingCodes = new Set<string>();
+      const rows = db.prepare('SELECT * FROM student_enrollments WHERE import_id = ?').all(importId) as any[];
+      for (const row of rows) {
+        const projected = projectEnrollmentTier(row);
+        if (previewTierSelection.values.includes(projected.erpBillingTier)) matchingCodes.add(row.person_code);
+      }
+      if (matchingCodes.size === 0) {
+        whereClauses.push('0');
+      } else {
+        const codes = [...matchingCodes];
+        whereClauses.push(`s.person_code IN (${codes.map(() => '?').join(',')})`);
+        queryArgs.push(...codes);
+      }
+    }
+  }
   if (query.q) {
     whereClauses.push("(s.name LIKE ? ESCAPE '\\' OR s.person_code LIKE ? ESCAPE '\\')");
     queryArgs.push(`%${escapeLike(query.q)}%`, `%${escapeLike(query.q)}%`);
@@ -156,7 +202,7 @@ export function queryImportStudents(db: Database.Database, importId: string, par
       if (!enrollmentsMap[er.person_code]) {
         enrollmentsMap[er.person_code] = [];
       }
-      enrollmentsMap[er.person_code].push({
+      const enrollment: ParsedToken = {
         rawToken: er.raw_token,
         yearPrefix: er.year_prefix,
         baseName: er.base_name,
@@ -167,6 +213,13 @@ export function queryImportStudents(db: Database.Database, importId: string, par
         erpBillingTier: er.erp_billing_tier,
         tierParseStatus: er.tier_parse_status,
         parseStatus: er.parse_status,
+      };
+      const preview = projectEnrollmentTier(er);
+      enrollmentsMap[er.person_code].push({
+        ...enrollment,
+        previewErpBillingTier: preview.erpBillingTier,
+        previewErpBillingTierRaw: preview.erpBillingTierRaw,
+        previewTierParseStatus: preview.tierParseStatus,
       });
     }
   }
@@ -192,6 +245,7 @@ export function queryImportStudents(db: Database.Database, importId: string, par
   return {
     items,
     totalStudents,
+    tierPreviewSource: savedSettings ? 'latest_settings' : 'seed',
     nextCursor,
     noCourseTotal,
     stats: {

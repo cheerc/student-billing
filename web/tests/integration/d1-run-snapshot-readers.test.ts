@@ -65,6 +65,16 @@ describe('F-6：classes 路由帶 runId 時讀該 run 的快照', () => {
     }
   });
 
+  it('v4 semantic snapshot 缺失時，classes API 不以 run 的設定快照回填當年 subject', async () => {
+    const db = await twoGenerations();
+    saveRun(db, 'run_missing_semantics', 'imp_a', 'setv_old', '2026-09-03T12:30:00.000Z', 'erp-tag-v4', [], []);
+    db.prepare('DELETE FROM run_class_semantics WHERE run_id = ?').run('run_missing_semantics');
+    db.prepare('DELETE FROM run_semantics_snapshots WHERE run_id = ?').run('run_missing_semantics');
+
+    const body = await (await callClasses('?runId=run_missing_semantics')).json();
+    expect(item(body, '國小數學-一').subject).toBe('未設定');
+  });
+
   it('特徵化：不帶 runId（現行 run）維持讀最新已存設定；回應仍有 baseName／studentCount／mappingStatus／isConfigured', async () => {
     const db = await twoGenerations();
     db.prepare('UPDATE active_state SET active_run_id = ?, active_import_id = ? WHERE id = 1').run('run_old', 'imp_a');

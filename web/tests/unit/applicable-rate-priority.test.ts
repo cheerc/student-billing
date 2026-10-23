@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { applicableRateForClass } from '@/application/applicable-rate';
 
-describe('Ruling 5: applicableRateForClass 旗標回退優先序（usesSnapshot > ruleSetVersion > isV3Run）', () => {
+describe('applicableRateForClass requires snapshots for snapshot-capable Run versions', () => {
   const rateFields = {
     grade: 4,
     applicableAnqinBps: 9500,
@@ -16,19 +16,24 @@ describe('Ruling 5: applicableRateForClass 旗標回退優先序（usesSnapshot 
     // 寫功課，fixed_five_days: 1
     ['國小輔導-寫功課', { base_name: '國小輔導-寫功課', category: 'none', fixed_five_days: 1 }],
   ]);
+  const semantics = new Map([
+    ['國小數學-四A', { baseName: '國小數學-四A', category: 'english' }],
+    ['國小輔導-寫功課', { baseName: '國小輔導-寫功課', category: 'none' }],
+  ]);
 
-  it('1. usesSnapshot: false 明確關閉時，即使 ruleSetVersion 為 v4 / isV3Run=true，仍退回名稱映射', () => {
+  it('v4 metadata cannot be overridden to re-enable name mapping', () => {
     const res = applicableRateForClass('國小數學-四A', rateFields, {
       usesSnapshot: false,
       ruleSetVersion: 'erp-tag-v4',
       isV3Run: true,
       findSnapshot: (n) => snapshots.get(n),
+      findSemanticSnapshot: (n) => semantics.get(n),
     });
-    // 名稱映射：國小數學 -> math (9000)，若讀快照則為 english (8500)
-    expect(res).toEqual({ status: 'configured', bps: 9000 });
+    // Run metadata requires the snapshot despite an explicit false hint.
+    expect(res).toEqual({ status: 'configured', bps: 8500 });
   });
 
-  it('2. usesSnapshot: true 明確開啟時，即使 isV3Run=false，仍優先讀取快照', () => {
+  it('usesSnapshot: true explicitly reads the snapshot', () => {
     const res = applicableRateForClass('國小數學-四A', rateFields, {
       usesSnapshot: true,
       isV3Run: false,
@@ -38,30 +43,66 @@ describe('Ruling 5: applicableRateForClass 旗標回退優先序（usesSnapshot 
     expect(res).toEqual({ status: 'configured', bps: 8500 });
   });
 
-  it('3. 未提供 usesSnapshot 時，依 ruleSetVersion 能力旗標判定：v4 不受固定 5 天覆寫，none 班為 not_configured', () => {
+  it('v4 none class remains not_configured when its snapshot row is present', () => {
     const res = applicableRateForClass('國小輔導-寫功課', rateFields, {
       ruleSetVersion: 'erp-tag-v4',
       isV3Run: true,
       findSnapshot: (n) => snapshots.get(n),
+      findSemanticSnapshot: (n) => semantics.get(n),
     });
     expect(res).toEqual({ status: 'not_configured' });
   });
 
-  it('4. fixedFiveDaysAffectsRate 明確指定優先於 ruleSetVersion：顯式 true 仍會強制 10000', () => {
+  it('fixedFiveDaysAffectsRate explicit override remains supported for a present row', () => {
     const res = applicableRateForClass('國小輔導-寫功課', rateFields, {
       ruleSetVersion: 'erp-tag-v4',
       fixedFiveDaysAffectsRate: true,
       findSnapshot: (n) => snapshots.get(n),
+      findSemanticSnapshot: (n) => semantics.get(n),
     });
     expect(res).toEqual({ status: 'configured', bps: 10000 });
   });
 
-  it('unknown historical version is unavailable even when the class name looks configured', () => {
+  it('v3/v4 version without a snapshot resolver fails closed', () => {
+    for (const ruleSetVersion of ['erp-tag-v3', 'erp-tag-v4']) {
+      expect(applicableRateForClass('國小數學-四A', rateFields, { ruleSetVersion }))
+        .toEqual({ status: 'not_configured' });
+    }
+  });
+
+  it('v4 requires a semantic row that agrees with the category row', () => {
+    const categoryOnly = applicableRateForClass('國小數學-四A', rateFields, {
+      ruleSetVersion: 'erp-tag-v4',
+      findSnapshot: (n) => snapshots.get(n),
+    });
+    const contradictory = applicableRateForClass('國小數學-四A', rateFields, {
+      ruleSetVersion: 'erp-tag-v4',
+      findSnapshot: (n) => snapshots.get(n),
+      findSemanticSnapshot: (n) => n === '國小數學-四A'
+        ? { baseName: n, category: 'care' }
+        : undefined,
+    });
+
+    expect(categoryOnly).toEqual({ status: 'not_configured' });
+    expect(contradictory).toEqual({ status: 'not_configured' });
+  });
+
+  it('only explicit v1/v2 versions use the frozen historical mapper', () => {
+    expect(applicableRateForClass('國小數學-四A', rateFields, { ruleSetVersion: 'erp-tag-v2' }))
+      .toEqual({ status: 'configured', bps: 9000 });
+    expect(applicableRateForClass('國小數學-四A', rateFields))
+      .toEqual({ status: 'not_configured' });
+  });
+
+  it('unknown or compatibility historical versions are unavailable even when the class name looks configured', () => {
     const res = applicableRateForClass('國小數學-四A', rateFields, {
       ruleSetVersion: 'corrupt-v99',
       usesSnapshot: false,
       findSnapshot: (n) => snapshots.get(n),
     });
     expect(res).toEqual({ status: 'not_configured' });
+    expect(applicableRateForClass('國小數學-四A', rateFields, {
+      ruleSetVersion: 'excel-v260922-compat',
+    })).toEqual({ status: 'not_configured' });
   });
 });

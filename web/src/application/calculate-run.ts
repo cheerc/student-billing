@@ -10,6 +10,7 @@ import { resolveClassEnrollment, ClassSettingLookup } from '@/domain/classificat
 import { TARGET_FORMAL_RULE_SET_VERSION } from '@/domain/billing/rule-set';
 import { normalizeSettingsDraftSemantics } from '@/domain/classification/class-semantics';
 import { SEED_CLASS_SEMANTICS } from '@/domain/classification/class-semantics';
+import { projectSummaryDayValues } from './summary-day-values';
 import {
   getLatestSettingsVersion,
   getSettingsPreview,
@@ -37,6 +38,7 @@ export function buildClassSettingMap(draft: SettingsDraft): Map<string, ClassSet
   for (const c of normalizedDraft.classes) {
     const definition = normalizedDraft.classTypeDefinitions.find((item) => item.id === c.classTypeId);
     map.set(c.baseName, {
+      semanticOnly: c.semanticOnly,
       classType: c.classType ?? (definition ? legacyClassTypeForDefinition(definition) : undefined),
       classTypeId: c.classTypeId,
       classTypeDefinition: definition,
@@ -46,6 +48,7 @@ export function buildClassSettingMap(draft: SettingsDraft): Map<string, ClassSet
       categorySource: c.categorySource,
       fixedFiveDays: c.fixedFiveDays,
       summaryDayRoles: c.summaryDayRoles,
+      summaryDayRoleConditions: c.summaryDayRoleConditions,
       summaryDayRolesStatus: c.summaryDayRolesStatus,
       summaryDayRolesSource: c.summaryDayRolesSource,
       erpTierApplicability: c.erpTierApplicability,
@@ -222,57 +225,20 @@ export function executeCalculationRun(
       classSettings,
     });
 
-    // 計算八項天數
-    // D2d B（04 §8 UX71；D40 Q10-A）：重複同類時取「選中班」的場次數，與天數計算同一份
-    // 選班結果（`formal.selection`），不得各自再取一次首班——否則同一學生會出現
-    // 「天數按 Chevady 算、englishDays 按 Gino 算」的鏡像不一致。
-    let englishDays: number | null = null;
-    const hasEnglish = enrollments.some((e) => e.baseName.includes('兒童美語'));
-    if (hasEnglish) {
-      if (formal.selection?.english) {
-        const selected = formal.selection.english.selectedBaseName;
-        const enSeed = seedMap.get(selected);
-        englishDays = enSeed ? enSeed.sessions.length : 2;
-      } else {
-        const enToken = enrollments.find((e) => e.baseName.includes('兒童美語'));
-        const enSeed = enToken ? seedMap.get(enToken.baseName) : null;
-        englishDays = enSeed ? enSeed.sessions.length : 2;
+    // Summary values follow the resolved semantic settings and selected class from this run.
+    const summaryDayValues = projectSummaryDayValues(
+      enrollments,
+      classSettings,
+      options.aliasMap,
+      (resolvedBaseName) => {
+        const seedClass = seedMap.get(resolvedBaseName);
+        return seedClass?.sessions.length;
+      },
+      {
+        english: formal.selection?.english?.selectedBaseName,
+        math: formal.selection?.math?.selectedBaseName,
       }
-    }
-
-    let mathDays: number | null = null;
-    const hasMath = enrollments.some((e) => e.baseName.includes('國小數學'));
-    if (hasMath) {
-      if (formal.selection?.math) {
-        const selected = formal.selection.math.selectedBaseName;
-        const maSeed = seedMap.get(selected);
-        mathDays = maSeed ? maSeed.sessions.length : 2;
-      } else {
-        const maToken = enrollments.find((e) => e.baseName.includes('國小數學'));
-        const maSeed = maToken ? seedMap.get(maToken.baseName) : null;
-        mathDays = maSeed ? maSeed.sessions.length : 2;
-      }
-    }
-
-    let chineseDays: number | null = null;
-    if (enrollments.some((e) => e.baseName.includes('國語文'))) {
-      chineseDays = 1;
-    }
-
-    let homeworkDays: number | null = null;
-    if (enrollments.some((e) => e.baseName.includes('寫功課'))) {
-      homeworkDays = 5;
-    }
-
-    let intensiveEnglishDays: number | null = null;
-    if (enrollments.some((e) => e.baseName.includes('加重美語') || e.baseName.includes('密集美語'))) {
-      intensiveEnglishDays = 2;
-    }
-
-    let saturdayTutoringDays: number | null = null;
-    if (enrollments.some((e) => e.baseName.includes('週六課輔') || (e.baseName.includes('加強班') && e.rawToken.includes('六')))) {
-      saturdayTutoringDays = 1;
-    }
+    );
 
     const tierMismatch = formal.tierComparisons.some((c) => c.status === 'mismatch');
     const hasIssues = formal.issues.length > 0 || formal.tierComparisons.some((c) => c.needsReview);
@@ -303,12 +269,7 @@ export function executeCalculationRun(
       anqinDisplay: formal.careDays.anqin.displayDays,
       tutoringDays: formal.careDays.tutoring.days,
       tutoringDisplay: formal.careDays.tutoring.displayDays,
-      englishDays,
-      mathDays,
-      chineseDays,
-      homeworkDays,
-      intensiveEnglishDays,
-      saturdayTutoringDays,
+      ...summaryDayValues,
       applicableAnqinBps: formal.applicableRates.anqin,
       applicableTutoringBps: formal.applicableRates.tutoring,
       applicableEnglishBps: formal.applicableRates.english,
@@ -375,7 +336,7 @@ export function executeCalculationRun(
         classSemanticMap.set(r.base_name, {
           baseName: r.base_name,
           resolvedBaseName: resolved.resolvedBaseName,
-          snapshotSchemaVersion: 1,
+          snapshotSchemaVersion: 2,
           classTypeId,
           classTypeDefinitionJson: definitionJson,
           classTypeDefinitionHash: definitionJson
@@ -387,6 +348,7 @@ export function executeCalculationRun(
           categorySource: resolved.categorySource,
           fixedFiveDays: resolved.fixedFiveDays ? 1 : 0,
           summaryDayRolesJson: JSON.stringify(roles),
+          summaryDayRoleConditionsJson: JSON.stringify(semanticSetting?.summaryDayRoleConditions ?? []),
           summaryDayRolesStatus: semanticSetting?.summaryDayRolesStatus ?? (seedSemantics ? 'configured' : 'unavailable'),
           summaryDayRolesSource: semanticSetting?.summaryDayRolesSource ?? (seedSemantics ? 'seed' : 'unset'),
           erpTierApplicability: semanticSetting?.erpTierApplicability ?? seedSemantics?.erpTierApplicability ?? 'unset',

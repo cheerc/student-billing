@@ -2,7 +2,7 @@ import { calculateStudentBilling, classMapFor, resolveClassSessions, Calculation
 import { calculateClassDeductionD24 } from '@/domain/schedules/overlap-calculator';
 import { StudentSnapshot } from '@/domain/students';
 import type { StudentBillingCalculation } from '@/domain/billing/types';
-import { applicableRateForClass } from '@/application/applicable-rate';
+import { applicableRateForCategory } from '@/application/applicable-rate';
 import { resolveClassEnrollment, type ClassCategory, type ClassSettingLookup } from '@/domain/classification/class-category';
 import { calculateSubjectCountByCategory } from '@/domain/billing/discount-rules';
 import { TARGET_FORMAL_RULE_SET_VERSION } from '@/domain/billing/rule-set';
@@ -246,7 +246,7 @@ function classSide(token: Token | undefined, ctx: RosterChangeContext) {
  *    否則明細會顯示 Gino 的扣天、而學生天數其實是按 Chevady 算出來的，屬鏡像不一致。
  * `selection` 沒有對應類別（學生沒報該類）時不列入，與 calculator 的候選集合一致。
  */
-function countedRawTokens(student: StudentSnapshot, calc: StudentBillingCalculation): Set<string> {
+function countedRawTokens(calc: StudentBillingCalculation): Set<string> {
   const out = new Set<string>();
   const sel = calc.selection;
   if (sel) {
@@ -254,10 +254,6 @@ function countedRawTokens(student: StudentSnapshot, calc: StudentBillingCalculat
     if (sel.english) out.add(sel.english.selectedRawToken);
     return out;
   }
-  const math = student.enrollments.find((e) => e.baseName.includes('國小數學'));
-  const english = student.enrollments.find((e) => e.baseName.includes('兒童美語'));
-  if (math) out.add(math.rawToken);
-  if (english) out.add(english.rawToken);
   return out;
 }
 
@@ -280,8 +276,8 @@ function buildClassBreakdown(
   };
   const beforeTokens = tokenOf(before);
   const afterTokens = tokenOf(after);
-  const beforeCounted = countedRawTokens(before, beforeCalc);
-  const afterCounted = countedRawTokens(after, afterCalc);
+  const beforeCounted = countedRawTokens(beforeCalc);
+  const afterCounted = countedRawTokens(afterCalc);
 
   const side = (tok: Token | undefined, counted: boolean, ctx: RosterChangeContext) =>
     counted ? classSide(tok, ctx) : { status: tok ? 'not_counted' : 'no_enrollment', anqin: null, tutoring: null };
@@ -487,10 +483,10 @@ function buildClassDiscountChanges(
     const category = discountCategoryOf(token, beforeCtx) ?? discountCategoryOf(token, afterCtx);
     if (category === null) continue; // not_configured：-68 不列
 
-    const rateOf = (calc: StudentBillingCalculation, grade: number | null) =>
-      applicableRateForClass(token.baseName, rateFieldsOf(calc, grade));
-    const beforeRate = rateOf(beforeCalc, gradeOf(before));
-    const afterRate = rateOf(afterCalc, gradeOf(after));
+    const beforeCategory = resolveClassEnrollment(token, beforeCtx.aliasMap, beforeCtx.classSettings).category;
+    const afterCategory = resolveClassEnrollment(token, afterCtx.aliasMap, afterCtx.classSettings).category;
+    const beforeRate = applicableRateForCategory(beforeCategory, rateFieldsOf(beforeCalc, gradeOf(before)));
+    const afterRate = applicableRateForCategory(afterCategory, rateFieldsOf(afterCalc, gradeOf(after)));
     if (beforeRate.status !== 'configured' || afterRate.status !== 'configured') continue;
     if (beforeRate.bps === afterRate.bps) continue; // 沒變不列
 

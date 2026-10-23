@@ -70,6 +70,7 @@ function rateContextOf(db: Db, runId: string) {
     isV3Run: true,
     ruleSetVersion: 'erp-tag-v4',
     classCategories: (run as { classCategories?: unknown }).classCategories,
+    classSemantics: (run as { classSemantics?: unknown }).classSemantics,
   };
 }
 
@@ -81,14 +82,21 @@ describe('issue #140 第 4 項：not_configured 分支的可達性（正式測�
     runMigrations(db);
     saveSyntheticBatch(db, 'imp', 'synthetic.xlsx', '2026-09-30T00:00:00.000Z', [
       makeStudent('S010', [ENGLISH_CLASS], { grade: 3, sourceRow: 1 }),
+      makeStudent('S012', [CARE_CLASS], { grade: 3, sourceRow: 3 }),
     ]);
     runV4(db, 'imp', 'run_v4');
 
-    // 前置狀態：該生名冊裡沒有輔導班，快照也就只有美語班
+    // Keep report-side semantics while removing only the category projection. The v4 rate must
+    // fail closed when its two snapshots disagree or are incomplete.
+    db.prepare('DELETE FROM run_class_categories WHERE run_id = ? AND base_name = ?').run('run_v4', CARE_CLASS);
+
+    // 前置狀態：該生名冊裡沒有輔導班；其 run 缺少這個班的 category projection
     const before = queryRunStudents(db, 'run_v4', { limit: 50 }).items[0]!;
     expect(before.enrollments.some((e) => e.baseName?.includes('國小輔導'))).toBe(false);
     const rows = (rateContextOf(db, 'run_v4').classCategories ?? []) as Array<{ base_name: string }>;
     expect(rows.some((r) => r.base_name.includes('國小輔導'))).toBe(false);
+    const semanticRows = (rateContextOf(db, 'run_v4').classSemantics ?? []) as Array<{ baseName: string }>;
+    expect(semanticRows.some((r) => r.baseName === CARE_CLASS)).toBe(true);
 
     // 事後補列：run 已凍結，但名冊的報名表可以再長出一筆（0002 的 FK 不阻止）
     db.prepare(

@@ -4,6 +4,7 @@ import { getCurrentActiveRun } from '@/adapters/sqlite/runs-repository';
 import { getLatestSettingsVersion, buildSeedDraft, readStoredDraft } from '@/adapters/sqlite/settings-repository';
 import { SEED_CLASSES, classifyErpDualTrack } from '@/domain/schedules/seed-manifest';
 import { normalizeSettingsDraftSemantics } from '@/domain/classification/class-semantics';
+import type { LegacySemanticMigrationCandidate } from '@/domain/classification/legacy-semantic-migration';
 import { SettingsDraft } from '@/contracts/settings';
 import SettingsEditor from '@/components/settings-editor';
 import { getClassNameMatchReport } from '@/application/class-name-match-report';
@@ -54,8 +55,29 @@ export default async function SettingsPage({
   }
 
   const latest = getLatestSettingsVersion(db);
-  const initialDraft: SettingsDraft = latest
-    ? normalizeSettingsDraftSemantics(readStoredDraft(latest.contentJson))
+  const storedDraft = latest ? readStoredDraft(latest.contentJson) : null;
+  const legacyCandidates = new Map<string, LegacySemanticMigrationCandidate>();
+  const savedClasses = new Map((storedDraft?.classes ?? []).map((item) => [item.baseName, item]));
+  for (const item of storedDraft?.classes ?? []) {
+    if (SEED_CLASSES.some((seed) => seed.baseName === item.baseName)) continue;
+    const migrateSummaryDayRoles = item.summaryDayRoles === undefined &&
+      item.summaryDayRolesStatus === undefined && item.summaryDayRolesSource === undefined;
+    const migrateErpTierApplicability = item.erpTierApplicability === undefined &&
+      item.erpTierApplicabilitySource === undefined;
+    if (migrateSummaryDayRoles || migrateErpTierApplicability) {
+      legacyCandidates.set(item.baseName, { baseName: item.baseName, migrateSummaryDayRoles, migrateErpTierApplicability });
+    }
+  }
+  const storedAliases = new Map((storedDraft?.aliases ?? []).map((alias) => [alias.rawBaseName, alias.targetBaseName]));
+  for (const rosterName of erpBaseNames) {
+    const baseName = storedAliases.get(rosterName) ?? rosterName;
+    if (savedClasses.has(baseName)) continue;
+    if (!storedDraft && SEED_CLASSES.some((seed) => seed.baseName === baseName)) continue;
+    legacyCandidates.set(baseName, { baseName, migrateSummaryDayRoles: true, migrateErpTierApplicability: true });
+  }
+  const legacySemanticMigrationCandidates = [...legacyCandidates.values()].sort((a, b) => a.baseName < b.baseName ? -1 : a.baseName > b.baseName ? 1 : 0);
+  const initialDraft: SettingsDraft = storedDraft
+    ? normalizeSettingsDraftSemantics(storedDraft)
     : buildSeedDraft(SEED_CLASSES, {
         anqin: { start: 780, end: 960 },
         tutoring: { start: 990, end: 1170 },
@@ -65,7 +87,7 @@ export default async function SettingsPage({
   // 候選由 D32-C 動態引擎以當批差集組裝（含去重人數／筆數，建議目標留空人工填）
   const dualTrack = classifyErpDualTrack(
     erpBaseNames,
-    initialDraft.classes.map((c) => c.baseName),
+    initialDraft.classes.filter((c) => !c.semanticOnly).map((c) => c.baseName),
     initialDraft.aliases,
     candidateCounts
   );
@@ -81,6 +103,7 @@ export default async function SettingsPage({
         importId={importId}
         currentRevision={active.revision}
         initialDraft={initialDraft}
+        legacySemanticMigrationCandidates={legacySemanticMigrationCandidates}
         unmatched={dualTrack.activeView.unmatched}
         classNameReport={classNameReport}
         reportImportId={reviewImportId}

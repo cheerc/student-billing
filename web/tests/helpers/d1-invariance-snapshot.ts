@@ -7,10 +7,12 @@ import { runMigrations } from '@/adapters/sqlite/migrator';
 import { saveImportBatch } from '@/adapters/sqlite/import-repository';
 import { buildSeedDraft, draftToAliasMap, draftToScheduleOverride } from '@/adapters/sqlite/settings-repository';
 import { generateImportPreview } from '@/application/import-preview';
-import { executeCalculationRun } from '@/application/calculate-run';
+import { buildClassSettingMap, executeCalculationRun } from '@/application/calculate-run';
 import { buildSchedulePreview } from '@/application/schedule-preview';
 import { calculateStudentBilling } from '@/domain/billing/billing-calculator';
 import { projectActionableIssues, projectActionableIssueCounts } from '@/domain/issues/actionable-issues';
+import { legacyClassSemanticsOf, legacySaturdayRoleRequiresSix } from '@/domain/classification/legacy-class-semantics';
+import { migrateLegacyClassSemantics } from '@/domain/classification/legacy-semantic-migration';
 import type { CalculateDraft, SettingsDraft } from '@/contracts/settings';
 
 /**
@@ -78,6 +80,58 @@ function contextOptions(ctx: Context): {
   return { aliasMap: draftToAliasMap(draft), scheduleOverride: draftToScheduleOverride(draft) };
 }
 
+function legacySemanticOnlySettings(
+  enrollments: Array<{ baseName: string }>,
+  aliasMap?: Map<string, string>
+): ReturnType<typeof buildClassSettingMap> {
+  const names = new Set(enrollments.map((item) => aliasMap?.get(item.baseName) ?? item.baseName));
+  // Characterize the pre-#148 output with explicit semantic-only rows. Categories and schedule
+  // mapping stay unset/unmapped as they were in the immutable PR-1 golden; only the legacy
+  // summary/tier projections are represented as the operator-approved migration would store.
+  const classes = [...names].sort().map((baseName) => {
+    const semantic = legacyClassSemanticsOf(baseName);
+    return {
+      baseName,
+      semanticOnly: true,
+      subject: '',
+      subjectSource: 'unset' as const,
+      teacher: null,
+      active: false,
+      sessions: [],
+      category: 'unset' as const,
+      categorySource: 'unset' as const,
+      fixedFiveDays: false,
+      summaryDayRoles: semantic.summaryDayRoles,
+      summaryDayRoleConditions: legacySaturdayRoleRequiresSix(baseName)
+        ? [{ role: 'saturdayTutoringDays' as const, condition: 'raw_token_contains_six' as const }]
+        : [],
+      summaryDayRolesStatus: 'configured' as const,
+      summaryDayRolesSource: 'legacy_migration' as const,
+      erpTierApplicability: semantic.erpTierApplicability,
+      erpTierApplicabilitySource: 'legacy_migration' as const,
+    };
+  });
+  return buildClassSettingMap({ ...buildSeedDraft(), classes });
+}
+
+function runContextOptions(ctx: Context, enrollments: Array<{ baseName: string }>) {
+  const contextDraft = ctx === 'seed' ? buildSeedDraft() : buildSavedContextDraft();
+  const settingsDraft = buildSeedDraft();
+  const aliasMap = draftToAliasMap(contextDraft);
+  const candidates = new Map([...new Set(enrollments.map((item) => aliasMap.get(item.baseName) ?? item.baseName))]
+    .map((baseName) => [baseName, {
+      baseName,
+      migrateSummaryDayRoles: true,
+      migrateErpTierApplicability: true,
+    }]));
+  const migrated = migrateLegacyClassSemantics(settingsDraft.classes, candidates);
+  const migratedDraft = { ...settingsDraft, classes: migrated.classes };
+  return {
+    classSettings: buildClassSettingMap(migratedDraft),
+    ...(ctx === 'saved' ? { aliasMap, scheduleOverride: draftToScheduleOverride(contextDraft) } : {}),
+  };
+}
+
 function calcTuple(c: ReturnType<typeof calculateStudentBilling>) {
   const care = (x: ReturnType<typeof calculateStudentBilling>['careDays']['anqin']) => [
     x.days,
@@ -132,14 +186,20 @@ export async function computeInvarianceSnapshot(): Promise<InvarianceSnapshot> {
   const students = preview.students;
 
   const calculator: InvarianceSnapshot['calculator'] = {};
+  const fixtureEnrollments = preview.students.flatMap((student) => student.enrollments);
   for (const ctx of CONTEXTS) {
     for (const version of VERSIONS) {
+      const context = contextOptions(ctx);
       const digests: string[] = [];
       const issueCodeCounts: Record<string, number> = {};
       let anqinDaysSum = 0;
       let tutoringDaysSum = 0;
       for (const s of students) {
-        const c = calculateStudentBilling(s, { ruleSetVersion: version, ...contextOptions(ctx) });
+        const c = calculateStudentBilling(s, {
+          ruleSetVersion: version,
+          ...context,
+          classSettings: legacySemanticOnlySettings(fixtureEnrollments, context.aliasMap),
+        });
         digests.push(sha16([s.sourceRow, ...calcTuple(c)]));
         for (const i of c.issues) issueCodeCounts[i.code] = (issueCodeCounts[i.code] ?? 0) + 1;
         anqinDaysSum += c.careDays.anqin.days ?? 0;
@@ -185,7 +245,7 @@ export async function computeInvarianceSnapshot(): Promise<InvarianceSnapshot> {
           ruleSetVersion: version,
           scheduleVersionId: ctx === 'seed' ? 'seed-v250922' : 'setv_inv',
           asOfDate: '2026-01-01',
-          ...contextOptions(ctx),
+          ...runContextOptions(ctx, preview.students.flatMap((student) => student.enrollments)),
         });
         const digests = out.results.map((r) => {
           const actionable = projectActionableIssues(r.issues, r.tierComparisons);

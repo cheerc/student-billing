@@ -267,6 +267,7 @@ export function ClassSemanticsPanel({
                             : roles.filter((value) => value !== role);
                           onUpdateClass(item.baseName, {
                             summaryDayRoles: SUMMARY_DAY_ROLES.filter((value) => nextRoles.includes(value)),
+                            summaryDayRoleConditions: (item.summaryDayRoleConditions ?? []).filter((condition) => condition.role !== role),
                             summaryDayRolesStatus: 'configured',
                             summaryDayRolesSource: 'manual',
                           });
@@ -281,6 +282,7 @@ export function ClassSemanticsPanel({
               </div>
               <small>
                 科目來源：{item.subjectSource ?? 'unset'} · 摘要角色：{item.summaryDayRolesStatus ?? 'unset'}（{item.summaryDayRolesSource ?? 'unset'}） · ERP 級距：{item.erpTierApplicabilitySource ?? 'unset'}
+                {(item.summaryDayRoleConditions ?? []).some((condition) => condition.condition === 'raw_token_contains_six') && ' · 週六角色沿用舊規則：原始 token 含「六」才適用'}
               </small>
               {unsupported.length > 0 && (
                 <p role="alert" data-unsupported-semantic="">

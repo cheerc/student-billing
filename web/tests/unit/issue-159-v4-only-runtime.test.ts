@@ -129,19 +129,19 @@ function setupLegacyActiveDb(): Database.Database {
 describe('Issue #159 PR-2: single v4 runtime and explicit legacy upgrade', () => {
   it('keeps historical read metadata explicit and fails closed for unknown versions', () => {
     expect(historicalRuleSetMetadata('erp-tag-v1')).toEqual({
-      known: true, hasClassCategorySnapshot: false, fixedFiveDaysAffectsRate: true, sameWeekdayOnly: false,
+      known: true, hasClassCategorySnapshot: false, hasClassSemanticsSnapshot: false, fixedFiveDaysAffectsRate: true, sameWeekdayOnly: false,
     });
     expect(historicalRuleSetMetadata('erp-tag-v2')).toEqual({
-      known: true, hasClassCategorySnapshot: false, fixedFiveDaysAffectsRate: true, sameWeekdayOnly: true,
+      known: true, hasClassCategorySnapshot: false, hasClassSemanticsSnapshot: false, fixedFiveDaysAffectsRate: true, sameWeekdayOnly: true,
     });
     expect(historicalRuleSetMetadata('erp-tag-v3')).toEqual({
-      known: true, hasClassCategorySnapshot: true, fixedFiveDaysAffectsRate: true, sameWeekdayOnly: true,
+      known: true, hasClassCategorySnapshot: true, hasClassSemanticsSnapshot: false, fixedFiveDaysAffectsRate: true, sameWeekdayOnly: true,
     });
     expect(historicalRuleSetMetadata('erp-tag-v4')).toEqual({
-      known: true, hasClassCategorySnapshot: true, fixedFiveDaysAffectsRate: false, sameWeekdayOnly: true,
+      known: true, hasClassCategorySnapshot: true, hasClassSemanticsSnapshot: true, fixedFiveDaysAffectsRate: false, sameWeekdayOnly: true,
     });
     expect(historicalRuleSetMetadata('unknown-corrupt-version')).toEqual({
-      known: false, hasClassCategorySnapshot: false, fixedFiveDaysAffectsRate: false, sameWeekdayOnly: false,
+      known: false, hasClassCategorySnapshot: false, hasClassSemanticsSnapshot: false, fixedFiveDaysAffectsRate: false, sameWeekdayOnly: false,
     });
   });
 

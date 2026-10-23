@@ -4,6 +4,7 @@ import {
   StudentSnapshot,
   parseGrade,
   parseClassTokens,
+  projectLegacyImportTierEvidence,
   matchHeaders,
   HeaderMatchResult,
 } from '@/domain/students';
@@ -289,7 +290,7 @@ export async function readErpWorkbook(
     seenPersonCodes.add(personCode);
 
     // 解析班名 Token
-    const enrollments = parseClassTokens(classText);
+    const enrollments = parseClassTokens(classText).map(projectLegacyImportTierEvidence);
     if (enrollments.length > 0) {
       studentsWithClass++;
     } else {

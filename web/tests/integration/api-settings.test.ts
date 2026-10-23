@@ -7,16 +7,16 @@ import { getDatabase } from '@/adapters/sqlite';
 import { saveImportBatch } from '@/adapters/sqlite/import-repository';
 import { generateImportPreview } from '@/application/import-preview';
 import { activateImport } from '@/application/activate-import';
-import { buildSeedDraft } from '@/adapters/sqlite/settings-repository';
+import { buildApprovedLegacyMigrationFixtureDraft, saveApprovedLegacyMigrationFixtureSettings } from '../helpers/d1-test-kit';
+import type { SettingsDraft } from '@/contracts/settings';
 import { POST as previewPOST } from '@/app/api/v1/settings/preview/route';
 import { POST as applyPOST } from '@/app/api/v1/settings/apply/route';
 
-/** 全量 seed draft＋一→一A 別名（D25／09 §8.2.4：空 sessions＝無時段，測試 draft 須攜 seed 明確時段）。 */
+/** v4 baseline after approved one-time migration, plus the D18 alias preview. */
+let migratedSeedDraft: SettingsDraft;
+
 function seedDraft() {
-  return {
-    ...buildSeedDraft(),
-    aliases: [{ rawBaseName: '國小數學-一', targetBaseName: '國小數學-一A' }],
-  };
+  return migratedSeedDraft;
 }
 
 describe('T05: 設定 preview/apply API 契約測試', () => {
@@ -54,6 +54,11 @@ describe('T05: 設定 preview/apply API 契約測試', () => {
       },
       preview.students
     );
+    const migratedBaseDraft = await saveApprovedLegacyMigrationFixtureSettings(db, 'approved-legacy-migration');
+    migratedSeedDraft = await buildApprovedLegacyMigrationFixtureDraft({
+      ...migratedBaseDraft,
+      aliases: [{ rawBaseName: '國小數學-一', targetBaseName: '國小數學-一A' }],
+    });
     activateImport(db, {
       importId: previewId,
       expectedRevision: 0,

@@ -35,11 +35,11 @@
 
 若文件內容或要求出現衝突，依下列優先順序判定：
 
-1. **使用者最新明確決策**：`specs/06-handoff-decisions.md`（D01–D58，特別是 D17、D24、D33 UI 重設方向、D52 雙審查與解耦裁決、D57 #159 PR-2 現行 v4-only runtime，以及 D58 #148 PR-3 bounded class semantics data contract）。
+1. **使用者最新明確決策**：`specs/06-handoff-decisions.md`（D01–D59，特別是 D17、D24、D33 UI 重設方向、D52 雙審查與解耦裁決、D57 #159 PR-2 現行 v4-only runtime、D58 #148 PR-3 bounded class semantics data contract，以及 D59 PR-4 semantic consumers）。
 2. **正式規則與契約規格**：
    - `specs/02-calculation-rules.md`（收費規則 R01–R18、§9A erp-tag-v4 解耦段、欄位契約、結構化班名）
    - `specs/03-architecture-api.md`（不可變快照、資料模型、交易與 API 契約）
-   - `specs/04-tdd-acceptance.md`（U01–U74、I01–I20、UX01–UX101、原生 Excel 實測錨點）
+   - `specs/04-tdd-acceptance.md`（U01–U74、I01–I20、UX01–UX102、原生 Excel 實測錨點）
    - `specs/09-ui-workflow-redesign-spec.md`（先課表→匯入→核對的畫面與操作流程，及其必要 API／設定生命週期放寬；授權來源為 D33，不改 02 計費規則）
 3. **執行計畫**：
    - `specs/07-p1-implementation-plan.md`（T00–T07 依序執行，展示 A/B/C 交付節點）
@@ -180,7 +180,7 @@
 
 - 不視為產品功能、不列入交付範圍、不隨產品版本演進維護。
 - 維護優先度等同一般開發工具：能用、能重跑即可，不追求與產品同級別的覆蓋。實際防護只有 `tests/unit/compare-billing-report-parse.test.ts` 與 `tests/unit/compare-session-pricing-report.test.ts`。**不得**宣稱「型別或未定義變數由 lint 守護」：eslint 對 `.mjs` 未啟用 `no-undef`／`no-unused-vars`，且 `tsconfig` 未開 `checkJs`，`.mjs` 內的型別錯誤不會被 `npm run typecheck` 攔下（review F-NEW-5／F-minor-4 已實測確認兩者皆放行）。
-- **不得複寫產品的班名／級距／離班解析**：級距一律取 `parseSingleClassToken`，班別類別一律取 `rateCategoryOfClass`，離班標記一律取 API 已解析的 `enrollment.withdrawalDate`。複寫必然漂移——review F-NEW-2 曾漏 `[5]` 並把 `[Starter]` 默默當成 5 天；F-minor-2 又以自訂 regex 重複偵測離班而與產品錨定行尾的寫法分歧。按堂計價工具的「折扣分派到哪一門課」同樣取 `parseSingleClassToken` 的 `baseName`（去方括號修飾），不自寫剝方括號的 regex。
+- **不得自行推測 Run 語意**：兩支工具都先用 `parseSingleClassToken` 解析原始 token 語法；v4 級距適用性取所選 Run 的 `classSemantics.erpTierApplicability`，由 `projectTierForApplicability` 投影。v3/v4 費率類別取該 Run 的 `classCategories`；v4 課程語意取 `classSemantics`。已知 v1–v3 formal Run 歷史讀取僅走明確凍結的 historical projection；`excel-v260922-compat`、omitted/unknown context 或應有而缺少的快照必須警告並顯示 unavailable，不能回退現行班名規則。離班標記取 API 已解析的 `enrollment.withdrawalDate`。複寫解析必然漂移——review F-NEW-2 曾漏 `[5]` 並把 `[Starter]` 默默當成 5 天；F-minor-2 又以自訂 regex 重複偵測離班而與產品錨定行尾的寫法分歧。按堂計價工具的「折扣分派到哪一門課」同樣取 `parseSingleClassToken` 的 `baseName`（去方括號修飾），不自寫剝方括號的 regex。見 [03 §5.8](specs/03-architecture-api.md) 與 [06 D59](specs/06-handoff-decisions.md)。
 - 執行一律走 `npm run billing:compare` 或 `npm run billing:compare:sessions`（走既有 `tsx`）。裸 `node` 無法解析產品 TS 內部的無副檔名 import（`./types`），會 `ERR_MODULE_NOT_FOUND`。
 - 若日後確認有長期需求，經 operator 決定後**另案**檢討是否正式納入專案；在此之前維持現狀。
 

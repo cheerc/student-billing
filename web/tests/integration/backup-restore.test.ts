@@ -9,6 +9,7 @@ import { generateImportPreview } from '@/application/import-preview';
 import { activateImport } from '@/application/activate-import';
 import { queryRunStudents } from '@/application/query-students';
 import { backupData, restoreData, verifyDataIntegrity } from '../../scripts/backup-restore';
+import { saveApprovedLegacyMigrationFixtureSettings } from '../helpers/d1-test-kit';
 
 describe('T06: 停機備份與災難還原實測 (I12, specs/07 §6)', () => {
   let sourceDir: string;
@@ -47,6 +48,8 @@ describe('T06: 停機備份與災難還原實測 (I12, specs/07 §6)', () => {
       },
       preview.students
     );
+
+    await saveApprovedLegacyMigrationFixtureSettings(db, 'approved-legacy-migration');
 
     const actRes = activateImport(db, {
       importId: preview.previewId,

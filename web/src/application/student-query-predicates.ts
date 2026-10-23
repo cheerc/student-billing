@@ -13,6 +13,7 @@ export function createStudentPredicateBuilder(db: Database.Database, runId: stri
   const snapshots = run?.classCategories;
   const ruleSetVersion = run?.ruleSetVersion;
   const runMetadata = historicalRuleSetMetadata(ruleSetVersion ?? '');
+  const semanticSnapshotExpected = runMetadata.known && runMetadata.hasClassSemanticsSnapshot;
   const usesSnapshot = runMetadata.hasClassCategorySnapshot && Array.isArray(snapshots);
 
   const getApplicableColumn = (className: string): string | null => {
@@ -82,10 +83,18 @@ export function createStudentPredicateBuilder(db: Database.Database, runId: stri
       add(column ? selectionPredicate(selected.applicableDiscountBps, column) : { sql: '0', args: [] });
     }
     if (query.q) add({ sql: "(sc.name LIKE ? ESCAPE '\\' OR sc.person_code LIKE ? ESCAPE '\\')", args: [`%${escapeLike(query.q)}%`, `%${escapeLike(query.q)}%`] });
-    if (query.subject) add({
-      sql: "EXISTS (SELECT 1 FROM student_enrollments e WHERE e.import_id = ? AND e.person_code = sc.person_code AND (e.base_name LIKE ? ESCAPE '\\' OR e.raw_token LIKE ? ESCAPE '\\'))",
-      args: [importId, `%${escapeLike(query.subject)}%`, `%${escapeLike(query.subject)}%`],
-    });
+    if (query.subject) add(semanticSnapshotExpected
+      ? {
+        sql: "EXISTS (SELECT 1 FROM student_enrollments e JOIN run_class_semantics sem ON sem.run_id = ? AND sem.base_name = e.base_name WHERE e.import_id = ? AND e.person_code = sc.person_code AND sem.subject LIKE ? ESCAPE '\\')",
+        args: [runId, importId, `%${escapeLike(query.subject)}%`],
+      }
+      : !runMetadata.known
+        ? { sql: '0', args: [] }
+        : {
+        // Pre-semantics historical runs retain their original read-only text search.
+        sql: "EXISTS (SELECT 1 FROM student_enrollments e WHERE e.import_id = ? AND e.person_code = sc.person_code AND (e.base_name LIKE ? ESCAPE '\\' OR e.raw_token LIKE ? ESCAPE '\\'))",
+        args: [importId, `%${escapeLike(query.subject)}%`, `%${escapeLike(query.subject)}%`],
+      });
     for (const [key, column, source] of [
       ['issueCode', "json_extract(j.value, '$.code')", 'sc.issues'],
       ['tierComparison', "json_extract(j.value, '$.status')", 'sc.tier_comparisons'],

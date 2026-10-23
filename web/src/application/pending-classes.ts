@@ -14,7 +14,7 @@ export function findPendingClassNames(db: Database.Database, erpBaseNames: strin
   const draft: SettingsDraft = latest ? readStoredDraft(latest.contentJson) : buildSeedDraft();
   const result = classifyErpDualTrack(
     Array.from(new Set(erpBaseNames)),
-    draft.classes.map((c) => c.baseName),
+    draft.classes.filter((c) => !c.semanticOnly).map((c) => c.baseName),
     draft.aliases
   );
   return result.activeView.unmatched;

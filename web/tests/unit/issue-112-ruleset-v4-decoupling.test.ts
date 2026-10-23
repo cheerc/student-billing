@@ -69,12 +69,14 @@ describe('specs/14 §3.11: erp-tag-v4 規則版本定義與能力旗標', () => 
     expect(historicalRuleSetMetadata('erp-tag-v4')).toEqual({
       known: true,
       hasClassCategorySnapshot: true,
+      hasClassSemanticsSnapshot: true,
       fixedFiveDaysAffectsRate: false,
       sameWeekdayOnly: true,
     });
     expect(historicalRuleSetMetadata('erp-tag-v3')).toEqual({
       known: true,
       hasClassCategorySnapshot: true,
+      hasClassSemanticsSnapshot: false,
       fixedFiveDaysAffectsRate: true,
       sameWeekdayOnly: true,
     });
@@ -83,6 +85,7 @@ describe('specs/14 §3.11: erp-tag-v4 規則版本定義與能力旗標', () => 
     expect(historicalRuleSetMetadata('unknown-version')).toEqual({
       known: false,
       hasClassCategorySnapshot: false,
+      hasClassSemanticsSnapshot: false,
       fixedFiveDaysAffectsRate: false,
       sameWeekdayOnly: false,
     });
@@ -224,13 +227,22 @@ describe('specs/14 A16: 逐班層「本班適用折扣」完全由「列入多�
       ['國小輔導-寫功課', { base_name: '國小輔導-寫功課', category: 'none', fixed_five_days: 1 }],
       ['國小輔導-四年級', { base_name: '國小輔導-四年級', category: 'care', fixed_five_days: 1 }],
     ]);
+    const semanticSnapshotMap = new Map([
+      ['國小輔導-寫功課', { baseName: '國小輔導-寫功課', category: 'none' }],
+      ['國小輔導-四年級', { baseName: '國小輔導-四年級', category: 'care' }],
+    ]);
+    const v4Context = {
+      ruleSetVersion: 'erp-tag-v4',
+      findSnapshot: (name: string) => snapshotMap.get(name),
+      findSemanticSnapshot: (name: string) => semanticSnapshotMap.get(name),
+    };
 
     // 在 erp-tag-v4 下：
     // (a) none 類別班即使 fixed_five_days = 1，也回傳 not_configured
     const noneRateV4 = applicableRateForClass(
       '國小輔導-寫功課',
       rateFields,
-      { ruleSetVersion: 'erp-tag-v4', findSnapshot: (name) => snapshotMap.get(name) }
+      v4Context
     );
     expect(noneRateV4).toEqual({ status: 'not_configured' });
 
@@ -238,7 +250,7 @@ describe('specs/14 A16: 逐班層「本班適用折扣」完全由「列入多�
     const careRateV4 = applicableRateForClass(
       '國小輔導-四年級',
       rateFields,
-      { ruleSetVersion: 'erp-tag-v4', findSnapshot: (name) => snapshotMap.get(name) }
+      v4Context
     );
     expect(careRateV4).toEqual({ status: 'configured', bps: 9500 });
 

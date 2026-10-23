@@ -33,6 +33,13 @@ export const SUMMARY_DAY_ROLES = [
 export const SummaryDayRoleSchema = z.enum(SUMMARY_DAY_ROLES);
 export type SummaryDayRole = z.infer<typeof SummaryDayRoleSchema>;
 
+/** One frozen legacy condition retained only when migrating the old Saturday summary rule. */
+export const SummaryDayRoleConditionSchema = z.object({
+  role: z.literal('saturdayTutoringDays'),
+  condition: z.literal('raw_token_contains_six'),
+}).strict();
+export type SummaryDayRoleCondition = z.infer<typeof SummaryDayRoleConditionSchema>;
+
 /** 明確設定資料，不對應公式。`unset` 表示目前沒有核准的級距適用性。 */
 export const ErpTierApplicabilitySchema = z.enum(['applicable', 'not_applicable', 'unset']);
 export type ErpTierApplicability = z.infer<typeof ErpTierApplicabilitySchema>;
@@ -182,6 +189,8 @@ export function isCompleteTimeRange<T extends { startMinutes: number | null; end
 /** 單一班級設定 */
 export const ClassSettingSchema = z.object({
   baseName: z.string().min(1),
+  /** Semantic-only roster entry created by the explicit legacy migration; it is not a schedule mapping. */
+  semanticOnly: z.boolean().optional(),
   /** Independent display/filter dimension; empty means explicitly not configured. */
   subject: z.string().default(''),
   subjectSource: SemanticSettingSourceSchema.optional(),
@@ -200,6 +209,7 @@ export const ClassSettingSchema = z.object({
   categorySource: z.enum(['auto', 'manual', 'unset', 'seed']).optional(),
   fixedFiveDays: z.boolean().optional(),
   summaryDayRoles: z.array(SummaryDayRoleSchema).max(SUMMARY_DAY_ROLES.length).optional(),
+  summaryDayRoleConditions: z.array(SummaryDayRoleConditionSchema).max(1).optional(),
   summaryDayRolesStatus: z.enum(['configured', 'unset', 'unavailable']).optional(),
   summaryDayRolesSource: SemanticSettingSourceSchema.optional(),
   erpTierApplicability: ErpTierApplicabilitySchema.optional(),
@@ -372,6 +382,12 @@ function groupGridRowsToClasses<S>(
     });
   }
 
+  for (const item of existingClasses ?? []) {
+    if (item.semanticOnly && !grouped.has(item.baseName)) {
+      classes.push(item as Omit<ClassSetting, 'sessions'> & { sessions: S[] });
+    }
+  }
+
   return classes;
 }
 
@@ -381,6 +397,7 @@ export function classesToGridRows(classes: ClassSetting[]): ScheduleGridRow[] {
   let rowSeq = 1;
 
   for (const c of classes) {
+    if (c.semanticOnly) continue;
     if (c.sessions.length > 0) {
       for (const s of c.sessions) {
         rows.push({
@@ -481,6 +498,7 @@ export interface ClassAttributeSetting {
   fixedFiveDays?: boolean;
   subject?: string;
   summaryDayRoles?: SummaryDayRole[];
+  summaryDayRoleConditions?: SummaryDayRoleCondition[];
   summaryDayRolesStatus?: 'configured' | 'unset' | 'unavailable';
   summaryDayRolesSource?: SemanticSettingSource;
   erpTierApplicability?: ErpTierApplicability;
@@ -549,6 +567,7 @@ export function isSettingsDirty(
         ca.fixedFiveDays !== ba.fixedFiveDays ||
         ca.subject !== ba.subject ||
         JSON.stringify(ca.summaryDayRoles ?? []) !== JSON.stringify(ba.summaryDayRoles ?? []) ||
+        JSON.stringify(ca.summaryDayRoleConditions ?? []) !== JSON.stringify(ba.summaryDayRoleConditions ?? []) ||
         ca.summaryDayRolesStatus !== ba.summaryDayRolesStatus ||
         ca.summaryDayRolesSource !== ba.summaryDayRolesSource ||
         ca.erpTierApplicability !== ba.erpTierApplicability ||
@@ -587,12 +606,14 @@ const SettingsDraftObjectSchema = z.object({
 function validateDraftSemantics(
   draft: {
     classes: Array<{
+      semanticOnly?: boolean;
       classTypeId?: string;
       classType?: ClassType;
       subject?: string;
       category?: ClassCategory;
       fixedFiveDays?: boolean;
       summaryDayRoles?: SummaryDayRole[];
+      summaryDayRoleConditions?: SummaryDayRoleCondition[];
       summaryDayRolesStatus?: 'configured' | 'unset' | 'unavailable';
       erpTierApplicability?: ErpTierApplicability;
       sessions?: Array<{ skipDeduction?: boolean }>;
@@ -626,6 +647,12 @@ function validateDraftSemantics(
     }
   }
   for (const [index, cls] of draft.classes.entries()) {
+    if (cls.semanticOnly) {
+      if ((cls.classTypeId ?? cls.classType) !== undefined || cls.sessions?.length) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['classes', index], message: '僅語意列不得包含課程類型或排課時段' });
+      }
+      continue;
+    }
     const id = cls.classTypeId ?? cls.classType;
     if (!id && draft.classTypeDefinitions !== undefined) {
       ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['classes', index, 'classTypeId'], message: '新設定班級必須明確選擇課程類型' });
@@ -661,6 +688,9 @@ function validateDraftSemantics(
       ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['classes', index, 'sessions'], message: `課程類型 ${id} 不支援不計扣天` });
     }
     const roles = cls.summaryDayRoles ?? [];
+    if ((cls.summaryDayRoleConditions ?? []).some((condition) => !roles.includes(condition.role))) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['classes', index, 'summaryDayRoleConditions'], message: '摘要角色條件必須對應已設定的摘要角色' });
+    }
     for (const role of roles) {
       if (!definition.summaryRoleOptions.includes(role)) {
         ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['classes', index, 'summaryDayRoles'], message: `課程類型 ${id} 不支援 ${role}` });

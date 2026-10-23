@@ -26,6 +26,7 @@ export interface TierCompareInput {
   baseName?: string;
   computedTier: number | null;
   erpDeclaredTier: number | null;
+  tierParseStatus?: 'parsed' | 'defaulted' | 'not_applicable' | 'unavailable';
   scheduleStatus?: string;
 }
 
@@ -124,7 +125,11 @@ export function compareTier(input: TierCompareInput): TierComparison {
 
   let status: 'match' | 'mismatch' | 'not_applicable' | 'unavailable' = 'unavailable';
 
-  if (input.erpDeclaredTier === null) {
+  if (input.tierParseStatus === 'unavailable') {
+    status = 'unavailable';
+    needsReview = true;
+    issues.push('TIER_PARSE_UNAVAILABLE');
+  } else if (input.erpDeclaredTier === null) {
     status = 'not_applicable';
   } else if (input.computedTier === null) {
     status = 'unavailable';

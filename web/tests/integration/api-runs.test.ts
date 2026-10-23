@@ -10,6 +10,7 @@ import { POST as activatePOST } from '@/app/api/v1/imports/[previewId]/activate/
 import { GET as currentGET } from '@/app/api/v1/runs/current/route';
 import { GET as studentsGET } from '@/app/api/v1/runs/[runId]/students/route';
 import { GET as studentDetailGET } from '@/app/api/v1/runs/[runId]/students/[personCode]/route';
+import { saveApprovedLegacyMigrationFixtureSettings } from '../helpers/d1-test-kit';
 
 describe('T04: 正式 Run 相關 API 整合測試 (03 §5)', () => {
   let tempDir: string;
@@ -50,6 +51,7 @@ describe('T04: 正式 Run 相關 API 整合測試 (03 §5)', () => {
       },
       preview.students
     );
+    await saveApprovedLegacyMigrationFixtureSettings(db, 'approved-legacy-migration');
 
     // 透過 activate API 啟用
     const activateReq = new NextRequest(

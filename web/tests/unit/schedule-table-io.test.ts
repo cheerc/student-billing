@@ -741,7 +741,7 @@ describe('#81：課表 Excel 全量匯出／匯入', () => {
       label: '自習教室',
       scheduleMode: 'timetable',
       supportedAttributeKeys: ['subject', 'category', 'skipDeduction', 'summaryDayRoles', 'erpTierApplicability'],
-      summaryRoleOptions: ['mathDays', 'homeworkDays'],
+      summaryRoleOptions: ['mathDays', 'homeworkDays', 'saturdayTutoringDays'],
     };
     const workbookRows: ScheduleGridRow[] = [{
       rowId: 'synthetic-row-1',
@@ -763,11 +763,25 @@ describe('#81：課表 Excel 全量匯出／匯入', () => {
       fixedFiveDays: false,
       subject: '合成科目',
       subjectSource: 'manual',
-      summaryDayRoles: ['homeworkDays'],
+      summaryDayRoles: ['homeworkDays', 'saturdayTutoringDays'],
+      summaryDayRoleConditions: [{ role: 'saturdayTutoringDays', condition: 'raw_token_contains_six' }],
       summaryDayRolesStatus: 'configured',
       summaryDayRolesSource: 'manual',
       erpTierApplicability: 'not_applicable',
       erpTierApplicabilitySource: 'manual',
+    }, {
+      className: '未對應名冊班',
+      semanticOnly: true,
+      category: 'unset',
+      fixedFiveDays: false,
+      subject: '',
+      subjectSource: 'unset',
+      summaryDayRoles: ['saturdayTutoringDays'],
+      summaryDayRoleConditions: [{ role: 'saturdayTutoringDays', condition: 'raw_token_contains_six' }],
+      summaryDayRolesStatus: 'configured',
+      summaryDayRolesSource: 'legacy_migration',
+      erpTierApplicability: 'not_applicable',
+      erpTierApplicabilitySource: 'legacy_migration',
     }];
     const definitions = [...DEFAULT_CLASS_TYPE_DEFINITIONS, definition];
     const buffer = await buildScheduleWorkbook(workbookRows, attrs, definitions);
@@ -780,6 +794,9 @@ describe('#81：課表 Excel 全量匯出／匯入', () => {
     expect(imported.classAttrs).toEqual([{
       ...attrs[0],
       categorySource: 'manual',
+    }, {
+      ...attrs[1],
+      categorySource: 'unset',
     }]);
     const importedSettings = imported.classAttrs.map((item) => ClassSettingSchema.parse({
       ...item,
@@ -792,6 +809,7 @@ describe('#81：課表 Excel 全量匯出／匯入', () => {
     const roundtrippedClasses = gridRowsToClasses(
       scheduleImportRowsToGridRows(imported), importedSettings, imported.classTypeDefinitions
     );
+    expect(roundtrippedClasses.some((item) => item.semanticOnly && item.baseName === '未對應名冊班')).toBe(true);
     expect(SettingsDraftSchema.safeParse({
       classes: roundtrippedClasses,
       classTypeDefinitions: imported.classTypeDefinitions,

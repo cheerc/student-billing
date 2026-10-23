@@ -466,16 +466,19 @@ export function ImportsWorkflow({
                               {stu.enrollments.map((enr, eIdx) => (
                                 <div key={eIdx} className="token-item">
                                   <span className="badge badge-class">{enr.rawToken}</span>
-                                  {enr.erpBillingTier !== null && (
+                                  {enr.previewErpBillingTier !== undefined && enr.previewErpBillingTier !== null && (
                                     <span className="badge badge-tier">
-                                      級距: {enr.erpBillingTier} 天
+                                      設定預覽級距: {enr.previewErpBillingTier} 天
                                       {/*
                                         Rework B2：(預設) 表示該級距是解析失敗後採用的預設值，
                                         非 米豆奶 原始登記值。移除此標記會讓使用者把預設值
                                         誤認為實登值，直接影響級距差異的判讀基礎。
                                       */}
-                                      {enr.tierParseStatus === 'defaulted' ? ' (預設)' : ''}
+                                      {enr.previewTierParseStatus === 'defaulted' ? ' (預設)' : ''}
                                     </span>
+                                  )}
+                                  {enr.previewErpBillingTier === null && enr.previewTierParseStatus === 'unavailable' && (
+                                    <span className="badge badge-warn">級距待設定／無法判定</span>
                                   )}
                                   {/*
                                     Rework B2：離班徽章。篩選器與統計卡雖有離班資訊，

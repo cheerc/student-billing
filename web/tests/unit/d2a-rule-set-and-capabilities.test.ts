@@ -18,24 +18,28 @@ describe('historical rule-set metadata is separate from the v4 calculation targe
     expect(historicalRuleSetMetadata('erp-tag-v1')).toEqual({
       known: true,
       hasClassCategorySnapshot: false,
+      hasClassSemanticsSnapshot: false,
       fixedFiveDaysAffectsRate: true,
       sameWeekdayOnly: false,
     });
     expect(historicalRuleSetMetadata('erp-tag-v2')).toEqual({
       known: true,
       hasClassCategorySnapshot: false,
+      hasClassSemanticsSnapshot: false,
       fixedFiveDaysAffectsRate: true,
       sameWeekdayOnly: true,
     });
     expect(historicalRuleSetMetadata('erp-tag-v3')).toEqual({
       known: true,
       hasClassCategorySnapshot: true,
+      hasClassSemanticsSnapshot: false,
       fixedFiveDaysAffectsRate: true,
       sameWeekdayOnly: true,
     });
     expect(historicalRuleSetMetadata('erp-tag-v4')).toEqual({
       known: true,
       hasClassCategorySnapshot: true,
+      hasClassSemanticsSnapshot: true,
       fixedFiveDaysAffectsRate: false,
       sameWeekdayOnly: true,
     });
@@ -43,6 +47,7 @@ describe('historical rule-set metadata is separate from the v4 calculation targe
     expect(historicalRuleSetMetadata('unknown-version')).toEqual({
       known: false,
       hasClassCategorySnapshot: false,
+      hasClassSemanticsSnapshot: false,
       fixedFiveDaysAffectsRate: false,
       sameWeekdayOnly: false,
     });

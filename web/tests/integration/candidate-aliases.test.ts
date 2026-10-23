@@ -15,15 +15,16 @@ import {
   type CandidateCounts,
   classifyErpDualTrack,
 } from '@/domain/schedules/seed-manifest';
-import { buildSeedDraft } from '@/adapters/sqlite/settings-repository';
 import { POST as previewPOST } from '@/app/api/v1/settings/preview/route';
 import { POST as applyPOST } from '@/app/api/v1/settings/apply/route';
+import { buildApprovedLegacyMigrationFixtureDraft, saveApprovedLegacyMigrationFixtureSettings } from '../helpers/d1-test-kit';
 
 describe('D2 Task 3 → D32-C: 動態候選引擎與雙軌對照整合測試 (candidate-aliases)', () => {
   let tempDir: string;
   let tempDbPath: string;
   let previewId: string;
   let erpBaseNames: string[];
+  let migratedSeedDraft: Awaited<ReturnType<typeof buildApprovedLegacyMigrationFixtureDraft>>;
 
   beforeEach(async () => {
     tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sb-pr2-cand-'));
@@ -55,6 +56,7 @@ describe('D2 Task 3 → D32-C: 動態候選引擎與雙軌對照整合測試 (ca
       },
       preview.students
     );
+    migratedSeedDraft = await saveApprovedLegacyMigrationFixtureSettings(db, 'approved-legacy-migration');
     activateImport(db, {
       importId: previewId,
       expectedRevision: 0,
@@ -141,11 +143,13 @@ describe('D2 Task 3 → D32-C: 動態候選引擎與雙軌對照整合測試 (ca
   });
 
   it('5. 逐 token 勾選後發起一次整表 dry-run preview 衝擊驗證（D18 13人/-0.5天/5→18，D22 不改天數）', async () => {
-    const draft = buildSeedDraft();
-    draft.aliases = [
+    const draft = await buildApprovedLegacyMigrationFixtureDraft({
+      ...migratedSeedDraft,
+      aliases: [
       { rawBaseName: '國小數學-一', targetBaseName: '國小數學-一A' },
       { rawBaseName: '小六國文加強班', targetBaseName: '小六加強班-國文' },
-    ];
+      ],
+    });
 
     const req = new NextRequest('http://127.0.0.1:3000/api/v1/settings/preview', {
       method: 'POST',

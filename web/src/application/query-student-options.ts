@@ -3,7 +3,7 @@ import { getCalculationRun } from '@/adapters/sqlite/runs-repository';
 import { parseTagDiscounts } from '@/domain/billing/discount-rules';
 import { normalizeStudentQuery, type QueryValue } from '@/contracts/student-query';
 import { createStudentPredicateBuilder } from './student-query-predicates';
-import { rateCategoryOfClass } from './applicable-rate';
+import { historicalRateCategoryOfClass } from './applicable-rate';
 import { historicalRuleSetMetadata } from '@/domain/billing/rule-set';
 import { projectActionableIssues } from '@/domain/issues/actionable-issues';
 import { ALLOWED_RUN_QUERY_PARAMS, validateRunQueryParams, QueryStudentError } from './query-students';
@@ -53,7 +53,7 @@ export function queryStudentOptions(db: Database.Database, runId: string, params
   const selected = query.selections.enrollmentKey;
   const classKey = selected && !selected.none && selected.values.length === 1 && typeof selected.values[0] === 'string' ? selected.values[0] : null;
 
-  // Ruling 3: 優先自 run.classCategories 快照讀取班級類別（非快照 run 才退回 rateCategoryOfClass）
+  // Ruling 3: 優先讀 run.classCategories；只對無類別快照的歷史 run 使用唯讀舊映射。
   let category: 'care' | 'math' | 'english' | null = null;
   let isFixedFiveV3 = false;
   const runMetadata = historicalRuleSetMetadata(run.ruleSetVersion);
@@ -71,7 +71,7 @@ export function queryStudentOptions(db: Database.Database, runId: string, params
         }
       }
     } else if (runMetadata.known) {
-      category = rateCategoryOfClass(classKey);
+      category = historicalRateCategoryOfClass(classKey);
     }
   }
 

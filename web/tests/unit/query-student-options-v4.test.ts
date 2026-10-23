@@ -103,6 +103,20 @@ describe('Ruling 3: queryStudentOptions 與表格欄位一致性（優先讀快�
     expect(matched).toHaveLength(0);
   });
 
+  it('v4 semantics marker 缺失時，subject filter 不會退回今日的 enrollment 名稱搜尋', () => {
+    db.prepare('DELETE FROM run_class_semantics WHERE run_id = ?').run(RUN_ID);
+    db.prepare('DELETE FROM run_semantics_snapshots WHERE run_id = ?').run(RUN_ID);
+
+    const query = normalizeStudentQuery(
+      { subject: ['寫功課'] },
+      ALLOWED_RUN_QUERY_PARAMS
+    );
+    const { where } = createStudentPredicateBuilder(db, RUN_ID, 'imp_hw')(query);
+    const matched = db.prepare(`SELECT person_code FROM student_calculations sc WHERE ${where.sql}`).all(...where.args);
+
+    expect(matched).toHaveLength(0);
+  });
+
   it('unknown historical version does not fall back to class-name rate mapping in facets or SQL filters', () => {
     const now = '2026-10-23T00:00:00.000Z';
     const run: CalculationRunRecord = {

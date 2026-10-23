@@ -23,6 +23,10 @@ export interface ParsedToken {
   erpBillingTier: number | null;
   /** 級距解析狀態 */
   tierParseStatus: TierParseStatus;
+  /** Temporary preview projection from the latest saved settings; never persisted to the import row. */
+  previewErpBillingTier?: number | null;
+  previewErpBillingTierRaw?: string | null;
+  previewTierParseStatus?: TierParseStatus;
   /** token 總體解析狀態 */
   parseStatus: EnrollmentParseStatus;
 }

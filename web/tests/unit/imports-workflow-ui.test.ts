@@ -63,6 +63,8 @@ const mockPreview: ImportPreviewResult = {
           erpBillingTierRaw: '4',
           erpBillingTier: 4,
           tierParseStatus: 'defaulted',
+          previewErpBillingTier: 5,
+          previewTierParseStatus: 'defaulted',
           parseStatus: 'ok',
         },
       ],
@@ -436,6 +438,8 @@ describe('R3 匯入頁工作流程與 UI 元件（RED 測試）', () => {
                   {
                     ...mockPreview.students[0].enrollments[0],
                     tierParseStatus: 'parsed' as never,
+                    previewErpBillingTier: 4,
+                    previewTierParseStatus: 'parsed',
                   },
                 ],
               },

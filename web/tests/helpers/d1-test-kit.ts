@@ -6,11 +6,12 @@ import { NextRequest } from 'next/server';
 import { getDatabase } from '@/adapters/sqlite';
 import { saveImportBatch } from '@/adapters/sqlite/import-repository';
 import { saveCalculationRun } from '@/adapters/sqlite/runs-repository';
-import { hashSettingsDraft, saveSettingsVersion } from '@/adapters/sqlite/settings-repository';
+import { buildSeedDraft, hashSettingsDraft, saveSettingsVersion } from '@/adapters/sqlite/settings-repository';
 import { generateImportPreview } from '@/application/import-preview';
 import { activateImport } from '@/application/activate-import';
 import type { SettingsDraft } from '@/contracts/settings';
 import type { StudentSnapshot } from '@/domain/students';
+import { migrateLegacyClassSemantics } from '@/domain/classification/legacy-semantic-migration';
 
 /**
  * D1 測試共用工具（只用 8961c03 已存在的公開函式；新模組一律以 loadModule 動態載入，
@@ -57,6 +58,29 @@ export async function fixturePreview() {
     fixtureCache = await generateImportPreview(buf, 'fixture.xlsx');
   }
   return fixtureCache;
+}
+
+/**
+ * Synthetic 477-student baseline after the explicitly approved one-time legacy semantic
+ * migration. Categories remain unchanged; roster-only names become semantic-only settings.
+ */
+export async function buildApprovedLegacyMigrationFixtureDraft(
+  draft: SettingsDraft = buildSeedDraft()
+): Promise<SettingsDraft> {
+  const preview = await fixturePreview();
+  const aliases = new Map(draft.aliases.map((item) => [item.rawBaseName, item.targetBaseName]));
+  const rosterNames = new Set(preview.students.flatMap((student) =>
+    student.enrollments.map((item) => aliases.get(item.baseName) ?? item.baseName)
+  ));
+  const candidates = new Map([...rosterNames].map((baseName) => [baseName, {
+    baseName,
+    migrateSummaryDayRoles: true,
+    migrateErpTierApplicability: true,
+  }]));
+  return {
+    ...draft,
+    classes: migrateLegacyClassSemantics(draft.classes, candidates).classes,
+  };
 }
 
 /** 把合成 fixture 存成一批 ready 名單。 */
@@ -184,6 +208,18 @@ export function saveSettings(db: ReturnType<typeof getDatabase>, id: string, rev
     createdFromPreviewId: null,
     revision,
   });
+}
+
+/** Persist the one-time migration as an initial settings version for legacy-baseline tests. */
+export async function saveApprovedLegacyMigrationFixtureSettings(
+  db: ReturnType<typeof getDatabase>,
+  id: string,
+  revision = 1,
+  draft: SettingsDraft = buildSeedDraft()
+): Promise<SettingsDraft> {
+  const migrated = await buildApprovedLegacyMigrationFixtureDraft(draft);
+  saveSettings(db, id, revision, migrated);
+  return migrated;
 }
 
 export function saveRun(
