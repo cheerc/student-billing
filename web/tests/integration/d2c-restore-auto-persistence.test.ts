@@ -40,7 +40,8 @@ describe('D2c 使用者指定／撤回指定的設定快照持久化', () => {
     try {
       runMigrations(db);
       const manual = buildSeedDraft();
-      const cls = manual.classes.find((c) => c.baseName === '國小數學-四A')!;
+      // Care class keeps fixedFiveDays in its supported semantic domain.
+      const cls = manual.classes.find((c) => c.baseName === '國小輔導-四年級')!;
       Object.assign(cls, { category: 'none', categorySource: 'manual', fixedFiveDays: true });
       const save = (draft: SettingsDraft, revision: number) => {
         const preview = previewSettingsChange(db, null, { draft, expectedRevision: revision });

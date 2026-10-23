@@ -16,6 +16,7 @@ import {
   classesToGridRows,
   gridRowsToClasses,
   gridRowsToCalculateClasses,
+  SettingsDraftSchema,
   DEFAULT_CARE_CLASS_NAMES,
 } from '@/contracts/settings';
 import { CARE_WINDOWS } from '@/domain/schedules/overlap-calculator';
@@ -143,7 +144,7 @@ describe('POST /api/v1/settings/calculate（唯讀計算 read model）', () => {
       })
     );
     expect((await prev.json()).inputHash).toBe(calc.draftHash);
-    expect(calc.draftHash).toBe(hashSettingsDraft(draft));
+    expect(calc.draftHash).toBe(hashSettingsDraft(SettingsDraftSchema.parse(draft)));
   });
 
   it('UX08：requestKey 原樣回傳；班名／老師／星期／起／迄任一改動都使 draftHash 改變（client 可據以丟棄晚到的舊回應）', async () => {
@@ -295,7 +296,18 @@ describe('POST /api/v1/settings/calculate（唯讀計算 read model）', () => {
     getDatabase();
     const rows = editedGridRows();
     const seed = buildSeedDraft();
-    const res = await calculatePOST(calcReq({ draft: { ...seed, classes: gridRowsToCalculateClasses(rows) }, requestKey: 'grid-1' }));
+    const configuredNewClass = {
+      baseName: '新班', subject: '', teacher: null, active: true, sessions: [],
+      classTypeId: 'non_care', classType: 'non_care' as const,
+    };
+    const existingClasses = [...seed.classes, configuredNewClass];
+    const res = await calculatePOST(calcReq({
+      draft: {
+        ...seed,
+        classes: gridRowsToCalculateClasses(rows, existingClasses, seed.classTypeDefinitions),
+      },
+      requestKey: 'grid-1',
+    }));
     expect(res.status).toBe(200);
     const body = await res.json();
     // specs/14 §3.6：非安親課輔班保留 grid 的 rowId；安親課輔班之 sessions 為 []，回傳佔位列
@@ -320,18 +332,44 @@ describe('POST /api/v1/settings/calculate（唯讀計算 read model）', () => {
     const db = getDatabase() as any;
     const rows = editedGridRows();
     const seed = buildSeedDraft();
-    const calc = await (await calculatePOST(calcReq({ draft: { ...seed, classes: gridRowsToCalculateClasses(rows) }, requestKey: 'h-1' }))).json();
-    const saveDraft: SettingsDraft = { ...seed, classes: gridRowsToClasses(rows) };
+    const configuredNewClass = {
+      baseName: '新班', subject: '', teacher: null, active: true, sessions: [],
+      classTypeId: 'non_care', classType: 'non_care' as const,
+    };
+    const existingClasses = [...seed.classes, configuredNewClass];
+    const calc = await (await calculatePOST(calcReq({
+      draft: {
+        ...seed,
+        classes: gridRowsToCalculateClasses(rows, existingClasses, seed.classTypeDefinitions),
+      },
+      requestKey: 'h-1',
+    }))).json();
+    const saveDraft: SettingsDraft = {
+      ...seed,
+      classes: gridRowsToClasses(rows, existingClasses, seed.classTypeDefinitions),
+    };
     const prev = previewSettingsChange(db, undefined, { draft: saveDraft, expectedRevision: 0 });
     expect(prev.inputHash).toBe(calc.draftHash);
-    expect(calc.draftHash).toBe(hashSettingsDraft(saveDraft));
+    expect(calc.draftHash).toBe(hashSettingsDraft(SettingsDraftSchema.parse(saveDraft)));
 
     // 只改 rowId 或只改不完整列的內容，都不改變存檔結果，draftHash 也不變；改完整列才變
     const renamedIds = rows.map((r) => ({ ...r, rowId: `x-${r.rowId}` }));
-    const again = await (await calculatePOST(calcReq({ draft: { ...seed, classes: gridRowsToCalculateClasses(renamedIds) }, requestKey: 'h-2' }))).json();
+    const again = await (await calculatePOST(calcReq({
+      draft: {
+        ...seed,
+        classes: gridRowsToCalculateClasses(renamedIds, existingClasses, seed.classTypeDefinitions),
+      },
+      requestKey: 'h-2',
+    }))).json();
     expect(again.draftHash).toBe(calc.draftHash);
     const changed = rows.map((r) => (r.className === '國小數學-三A' && r.endMinutes !== null ? { ...r, endMinutes: r.endMinutes - 10, endTime: '' } : r));
-    const diff = await (await calculatePOST(calcReq({ draft: { ...seed, classes: gridRowsToCalculateClasses(changed) }, requestKey: 'h-3' }))).json();
+    const diff = await (await calculatePOST(calcReq({
+      draft: {
+        ...seed,
+        classes: gridRowsToCalculateClasses(changed, existingClasses, seed.classTypeDefinitions),
+      },
+      requestKey: 'h-3',
+    }))).json();
     expect(diff.draftHash).not.toBe(calc.draftHash);
   });
 
