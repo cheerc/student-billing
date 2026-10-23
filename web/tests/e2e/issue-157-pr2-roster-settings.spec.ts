@@ -1,12 +1,13 @@
 import { test, expect } from '@playwright/test';
-import { activateFixture } from './helpers/c-batch';
-import { reloadSettings, saveSettings } from './helpers/d2c-settings';
+import { activateFixture, editStart } from './helpers/c-batch';
+import { reloadSettings, resetSeedSettings, saveSettings } from './helpers/d2c-settings';
 
 const ROSTER_ONLY_CLASS = '國小數學-一';
 
 test.describe('Issue #157 PR-2：從課表頁設定 roster-only 班級', () => {
   test.beforeEach(async ({ page }) => {
     await activateFixture(page);
+    await resetSeedSettings(page);
     await page.goto('/settings');
     await expect(page.locator('h1', { hasText: '課表設定' })).toBeVisible({ timeout: 15000 });
   });
@@ -70,5 +71,30 @@ test.describe('Issue #157 PR-2：從課表頁設定 roster-only 班級', () => {
     const reportAfterResponse = await page.request.get('/api/v1/settings/class-name-report');
     expect(reportAfterResponse.ok()).toBe(true);
     expect((await reportAfterResponse.json()).aliasCoveredCount).toBe(aliasCoveredCountBefore);
+  });
+
+  test('報告在待新增表單開啟後過期時，不能提交舊清單中的班級', async ({ page }) => {
+    await editStart(page);
+    const rosterOnly = page.getByRole('region', { name: '名單中尚未加入課表設定的班級' });
+    const rosterRow = rosterOnly.locator(`[data-roster-only-class="${ROSTER_ONLY_CLASS}"]`);
+    await rosterRow.getByRole('button', { name: '加入課表設定' }).click();
+
+    const form = page.getByRole('form', { name: '新增班級表單' });
+    await expect(form).toBeVisible();
+    await expect(form.getByRole('button', { name: '確認新增' })).toBeEnabled();
+
+    // Save the unrelated edit while the roster-only form remains open.
+    await page.route('**/api/v1/settings/class-name-report**', (route) =>
+      route.fulfill({ status: 503, contentType: 'application/json', body: '{"error":"unavailable"}' })
+    );
+    await saveSettings(page);
+
+    await expect(page.locator('[data-roster-only-stale]')).toBeVisible({ timeout: 10000 });
+    await expect(form).toBeVisible();
+    await expect(form.getByRole('button', { name: '確認新增' })).toBeDisabled();
+
+    // Exercise the submit handler too: a scripted submit must not bypass the disabled control.
+    await form.evaluate((element: HTMLFormElement) => element.requestSubmit());
+    await expect(page.locator(`[data-category-select="${ROSTER_ONLY_CLASS}"]`)).toHaveCount(0);
   });
 });

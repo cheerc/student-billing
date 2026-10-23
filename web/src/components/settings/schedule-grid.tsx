@@ -277,6 +277,12 @@ export function ScheduleGrid({
   const currentTabRowCount = activeTypeTab === 'non_care' ? displayedNonCareRows.length : displayedCareRows.length;
   const currentTabClassCount = activeTypeTab === 'non_care' ? nonCareClassesCount : careClassesCount;
 
+  const pendingRosterOnlyClassUnavailable =
+    pendingRosterOnlyClass !== null &&
+    (rosterOnlyLocked ||
+      !rosterOnlyClasses.some((item) => item.baseName === pendingRosterOnlyClass) ||
+      rows.some((row) => row.className.trim() === pendingRosterOnlyClass));
+
   const clearFocus = () => {
     setFocus(null);
     try {
@@ -290,6 +296,8 @@ export function ScheduleGrid({
 
   const handleCreateSession = (e: React.FormEvent) => {
     e.preventDefault();
+    if (pendingRosterOnlyClassUnavailable) return;
+
     const name = newClassName.trim();
     // #82：只有班名必填，其餘可留空（佔位列）
     if (!name) return;
@@ -600,7 +608,7 @@ export function ScheduleGrid({
               </>
             )}
             <div className="form-actions">
-              <button type="submit" className="btn-primary">確認新增</button>
+              <button type="submit" className="btn-primary" disabled={pendingRosterOnlyClassUnavailable}>確認新增</button>
             </div>
           </div>
           <span className="note">
