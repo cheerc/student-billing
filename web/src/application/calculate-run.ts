@@ -4,6 +4,19 @@ import { calculateStudentBilling, RuleSetVersion, ResolvedClassSession } from '@
 import { ruleSetCapabilities } from '@/domain/billing/rule-set';
 import { CalculationRunRecord, StudentCalculationRecord, RunClassCategoryRecord } from '@/adapters/sqlite/runs-repository';
 import seedData from '@/domain/schedules/schedule-seed.json';
+import { CARE_WINDOWS } from '@/domain/schedules/overlap-calculator';
+import {
+  RUN_DIAGNOSTIC_ALGORITHM_VERSION,
+  RUN_DIAGNOSTIC_PAYLOAD_SCHEMA_VERSION,
+  compareDiagnosticValues,
+  projectDiagnosticValues,
+  sha256,
+  sortDiagnosticDifferences,
+  sortDiagnosticStudents,
+  stableJson,
+  type RunDiagnosticEffectiveInputs,
+  type RunDiagnosticStudentProjection,
+} from '@/contracts/run-diagnostics';
 import { SettingsDraft } from '@/contracts/settings';
 import { todayInTaipei } from '@/lib/datetime';
 import { resolveClassEnrollment, ClassSettingLookup } from '@/domain/classification/class-category';
@@ -118,6 +131,8 @@ export function executeCalculationRun(
   const enrollmentRows = db
     .prepare('SELECT * FROM student_enrollments WHERE import_id = ? ORDER BY person_code ASC, token_index ASC')
     .all(importId) as any[];
+
+  const diagnosticStudents: RunDiagnosticStudentProjection[] = [];
 
   const enrollmentsMap: Record<string, ParsedToken[]> = {};
   for (const r of enrollmentRows) {
@@ -322,6 +337,21 @@ export function executeCalculationRun(
       },
       createdAt: now,
     });
+
+    diagnosticStudents.push({
+      personCode: student.personCode,
+      sourceRow: student.sourceRow,
+      formal: projectDiagnosticValues({
+        baseDiscountBps: formal.baseDiscountBps,
+        anqinDays: formal.careDays.anqin.days,
+        tutoringDays: formal.careDays.tutoring.days,
+      }),
+      compat: projectDiagnosticValues({
+        baseDiscountBps: compat.baseDiscountBps,
+        anqinDays: compat.careDays.anqin.days,
+        tutoringDays: compat.careDays.tutoring.days,
+      }),
+    });
   }
 
   const run: CalculationRunRecord = {
@@ -335,6 +365,7 @@ export function executeCalculationRun(
     issueCounts,
     totalStudents: results.length,
     createdAt: now,
+    diagnosticAlgorithmVersion: RUN_DIAGNOSTIC_ALGORITHM_VERSION,
   };
 
   // R2-1 & R2-2: 產生 run_class_categories 快照物件，供 saveCalculationRun 持久化
@@ -370,5 +401,126 @@ export function executeCalculationRun(
     // 呼叫端契約不變：executeCalculationRun 仍在回傳物件中帶 classCategories。
   }
 
+  const resultByCode = new Map(results.map((result) => [result.personCode, result]));
+  const sortedDiagnosticStudents = sortDiagnosticStudents(diagnosticStudents);
+  const differences = sortDiagnosticDifferences(sortedDiagnosticStudents.flatMap((student) => {
+    const result = resultByCode.get(student.personCode);
+    if (!result) throw new Error(`找不到正式結果：${student.personCode}`);
+    return compareDiagnosticValues(student, result.name);
+  }));
+
+  const settingsVersion = scheduleVersionId === SEED_SCHEDULE_VERSION_ID
+    ? null
+    : getSettingsVersionById(db, scheduleVersionId);
+  const importedContent = {
+    students: studentRows,
+    enrollments: enrollmentRows,
+  };
+  const uniqueScheduleNames = new Set<string>();
+  for (const row of enrollmentRows) {
+    uniqueScheduleNames.add(options.aliasMap?.get(row.base_name) ?? row.base_name);
+  }
+  const effectiveSessions = [...uniqueScheduleNames].sort(compareText).map((baseName) => {
+    const override = options.scheduleOverride?.get(baseName);
+    if (override !== undefined) {
+      return {
+        baseName,
+        source: 'saved-setting' as const,
+        sessions: override.map((session) => ({
+          start: session.start,
+          end: session.end,
+          weekday: session.weekday ?? null,
+          skipDeduction: session.skipDeduction === true,
+        })),
+      };
+    }
+    const seed = seedMap.get(baseName);
+    if (options.scheduleOverride === undefined && seed) {
+      return {
+        baseName,
+        source: 'seed' as const,
+        sessions: (seed.sessions || []).map((session: any) => ({
+          start: session.startMinutes ?? null,
+          end: session.endMinutes ?? null,
+          weekday: session.weekday ?? null,
+          skipDeduction: session.skipDeduction === true,
+        })),
+      };
+    }
+    return { baseName, source: 'missing' as const, sessions: [] };
+  });
+  const effectiveInputs: RunDiagnosticEffectiveInputs = {
+    evidenceSchemaVersion: 1,
+    importId,
+    importSnapshotHash: sha256(stableJson(importedContent)),
+    scheduleVersionId,
+    settingsSnapshotHash: settingsVersion ? sha256(settingsVersion.contentJson) : null,
+    seedScheduleHash: sha256(stableJson(seedData)),
+    calculationPolicies: {
+      formalRuleSetVersion: String(ruleSetVersion),
+      numericPolicy,
+      compatRuleSetVersion: 'excel-v260922-compat',
+      overlapWindows: {
+        anqin: { start: CARE_WINDOWS.anqin.start, end: CARE_WINDOWS.anqin.end, weekdays: [...CARE_WINDOWS.anqin.weekdays] },
+        tutoring: { start: CARE_WINDOWS.tutoring.start, end: CARE_WINDOWS.tutoring.end, weekdays: [...CARE_WINDOWS.tutoring.weekdays] },
+        minutesPerBillingDay: 180,
+        tutoringSpecialRule: { minimumOverlapMinutes: 120, exclusiveEndAfter: 1110, exclusiveEndBefore: 1170 },
+        comparisonPrecision: '15-significant-digits',
+        formalRounding: { zeroBelow: 0.3, fullAtOrAbove: 0.8, epsilon: 1e-9 },
+      },
+      compatNumericKernel: {
+        sessionTimeConversion: 'minute-value-divided-by-1440',
+        overlapOperationOrder: 'max-0-min-end-windowEnd-minus-max-start-windowStart',
+        overlapMinutesOperationOrder: 'day-overlap-times-24-times-60',
+        perSessionRawOrder: 'negative-overlap-divided-by-60-then-3',
+        accumulationOrder: 'persisted-enrollment-and-session-order',
+        specialTutoringThreshold: '15-significant-digit-overlap-at-least-120',
+        negativeRounding: 'floor-total-then-fraction-thresholds-0.3-and-0.8',
+        comparisonPrecision: '15-significant-digits',
+      },
+    },
+    aliases: [...(options.aliasMap || new Map<string, string>()).entries()]
+      .map(([rawBaseName, targetBaseName]) => ({ rawBaseName, targetBaseName }))
+      .sort((a, b) => compareText(a.rawBaseName, b.rawBaseName)),
+    effectiveClassSettings: [...(classSettings || new Map()).entries()]
+      .map(([baseName, setting]) => ({
+        baseName,
+        classType: setting.classType ?? '',
+        category: setting.category ?? 'unset',
+        categorySource: setting.categorySource ?? 'unset',
+        fixedFiveDays: setting.fixedFiveDays === true,
+      }))
+      .sort((a, b) => compareText(a.baseName, b.baseName)),
+    effectiveSessions,
+    enrollmentOrder: studentRows.map((row) => ({
+      personCode: row.person_code,
+      sourceRow: row.source_row,
+      baseNames: enrollmentRows.filter((enrollment) => enrollment.person_code === row.person_code)
+        .sort((a, b) => a.token_index - b.token_index)
+        .map((enrollment) => enrollment.base_name),
+    })),
+  };
+  const generatorRevision = process.env.GITHUB_SHA || process.env.VERCEL_GIT_COMMIT_SHA || 'local-unversioned';
+  run.diagnostics = {
+    algorithmVersion: RUN_DIAGNOSTIC_ALGORITHM_VERSION,
+    payload: {
+      runId,
+      diagnosticAlgorithmVersion: RUN_DIAGNOSTIC_ALGORITHM_VERSION,
+      payloadSchemaVersion: RUN_DIAGNOSTIC_PAYLOAD_SCHEMA_VERSION,
+      againstRuleSet: 'excel-v260922-compat',
+      generatorRevision,
+      totalStudents: studentRows.length,
+      projectionCount: sortedDiagnosticStudents.length,
+      totalDifferences: differences.length,
+      students: sortedDiagnosticStudents,
+      differences,
+    },
+    effectiveInputs,
+  };
+
   return { run, results, classCategories };
+}
+
+function compareText(a: string, b: string): number {
+  return a < b ? -1 : a > b ? 1 : 0;
 }

@@ -1,0 +1,61 @@
+{
+  "provenance": {
+    "kind": "synthetic hand-calculated contract fixture",
+    "issueShape": "non-seed class is unset under #157; historical snapshot preserves the old formal result",
+    "notAProductionRun": true,
+    "expectedSemantics": "SYNTH_FP had equal saved formal and compat values although today's recalculation reports a difference; SYNTH_FN had three saved differences that today's recalculation would hide"
+  },
+  "payload": {
+    "runId": "run_161_golden",
+    "diagnosticAlgorithmVersion": "comparison-snapshot-v1",
+    "payloadSchemaVersion": 1,
+    "againstRuleSet": "excel-v260922-compat",
+    "generatorRevision": "issue-161-independent-golden",
+    "totalStudents": 2,
+    "projectionCount": 2,
+    "totalDifferences": 3,
+    "students": [
+      {
+        "personCode": "SYNTH_FP",
+        "sourceRow": 1,
+        "formal": { "baseDiscountBps": 9500, "anqinDays": 5, "tutoringDays": null },
+        "compat": { "baseDiscountBps": 9500, "anqinDays": 5, "tutoringDays": null }
+      },
+      {
+        "personCode": "SYNTH_FN",
+        "sourceRow": 2,
+        "formal": { "baseDiscountBps": 9500, "anqinDays": 4.5, "tutoringDays": null },
+        "compat": { "baseDiscountBps": 10000, "anqinDays": 5, "tutoringDays": 0 }
+      }
+    ],
+    "differences": [
+      {
+        "personCode": "SYNTH_FN",
+        "name": "學生SYNTH_FN",
+        "sourceRow": 2,
+        "field": "baseDiscountBps",
+        "formalValue": 9500,
+        "compatValue": 10000,
+        "category": "DISCOUNT_DIFFERENCE"
+      },
+      {
+        "personCode": "SYNTH_FN",
+        "name": "學生SYNTH_FN",
+        "sourceRow": 2,
+        "field": "anqinDays",
+        "formalValue": 4.5,
+        "compatValue": 5,
+        "category": "CARE_DAYS_DIFFERENCE"
+      },
+      {
+        "personCode": "SYNTH_FN",
+        "name": "學生SYNTH_FN",
+        "sourceRow": 2,
+        "field": "tutoringDays",
+        "formalValue": null,
+        "compatValue": 0,
+        "category": "CARE_DAYS_DIFFERENCE"
+      }
+    ]
+  }
+}

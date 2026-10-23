@@ -137,7 +137,7 @@ describe('T04: 正式 Run 相關 API 整合測試 (03 §5)', () => {
     expect(resOk.status).toBe(200);
     const comp = await resOk.json();
     expect(comp.runId).toBe(runId);
-    expect(comp.diagnosticAlgorithmVersion).toBe('v1');
+    expect(comp.diagnosticAlgorithmVersion).toBe('comparison-snapshot-v1');
     expect(comp.differences.length).toBeGreaterThan(0);
 
     const reqBad = new NextRequest(
