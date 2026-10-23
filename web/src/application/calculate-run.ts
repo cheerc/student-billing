@@ -19,7 +19,7 @@ import {
 } from '@/contracts/run-diagnostics';
 import { SettingsDraft } from '@/contracts/settings';
 import { todayInTaipei } from '@/lib/datetime';
-import { resolveClassEnrollment, ClassSettingLookup } from '@/domain/classification/class-category';
+import { resolveClassEnrollment, effectiveCategoryOf, ClassSettingLookup } from '@/domain/classification/class-category';
 import {
   getLatestSettingsVersion,
   getSettingsVersionById,
@@ -483,13 +483,16 @@ export function executeCalculationRun(
       .map(([rawBaseName, targetBaseName]) => ({ rawBaseName, targetBaseName }))
       .sort((a, b) => compareText(a.rawBaseName, b.rawBaseName)),
     effectiveClassSettings: [...(classSettings || new Map()).entries()]
-      .map(([baseName, setting]) => ({
-        baseName,
-        classType: setting.classType ?? '',
-        category: setting.category ?? 'unset',
-        categorySource: setting.categorySource ?? 'unset',
-        fixedFiveDays: setting.fixedFiveDays === true,
-      }))
+      .map(([baseName, setting]) => {
+        const effectiveCategory = effectiveCategoryOf(baseName, setting);
+        return {
+          baseName,
+          classType: setting.classType ?? '',
+          category: effectiveCategory.category,
+          categorySource: effectiveCategory.categorySource,
+          fixedFiveDays: setting.fixedFiveDays === true,
+        };
+      })
       .sort((a, b) => compareText(a.baseName, b.baseName)),
     effectiveSessions,
     enrollmentOrder: studentRows.map((row) => ({

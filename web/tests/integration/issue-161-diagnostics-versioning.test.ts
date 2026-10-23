@@ -55,6 +55,67 @@ describe('Issue #161: run comparison uses immutable diagnostic snapshots', () =>
     });
   });
 
+  it('effective input evidence records seed fallback and legacy auto/manual/unset resolution actually used by billing', async () => {
+    const db = ctx.db();
+    const seedDraft = buildSeedDraft();
+    const draft: SettingsDraft = {
+      ...seedDraft,
+      classes: seedDraft.classes.map((entry) => {
+        if (entry.baseName === '國小輔導-四年級') {
+          // Legacy auto values are ignored; the declared seed category remains effective.
+          return { ...entry, category: 'math', categorySource: 'auto' };
+        }
+        if (entry.baseName === '國小數學-四A') {
+          // A stale stored category is ignored when the operator explicitly marks it unset.
+          return { ...entry, category: 'care', categorySource: 'unset' };
+        }
+        if (entry.baseName === '國小國語文-小五') {
+          return { ...entry, category: 'care', categorySource: 'manual' };
+        }
+        return entry;
+      }),
+    };
+    saveSyntheticBatch(db, 'imp_161_effective_categories', 'synthetic.xlsx', '2026-10-20T08:00:00.000Z', [
+      makeStudent('SYNTH_EFFECTIVE_CATEGORIES', [
+        '兒童美語-Gino',
+        '國小輔導-四年級',
+        '國小數學-四A',
+        '國小國語文-小五',
+      ], { grade: 1 }),
+    ]);
+    saveSettings(db, 'setv_161_effective_categories', 1, draft);
+    const created = activateBatch(db, 'imp_161_effective_categories', 'k-161-effective-categories');
+
+    const evidenceRow = db.prepare('SELECT effective_inputs_json FROM run_diagnostics WHERE run_id = ?')
+      .get(created.runId) as { effective_inputs_json: string };
+    const evidence = JSON.parse(evidenceRow.effective_inputs_json);
+    const expected = [
+      { baseName: '兒童美語-Gino', category: 'english', categorySource: 'seed' },
+      { baseName: '國小國語文-小五', category: 'care', categorySource: 'manual' },
+      { baseName: '國小數學-四A', category: 'unset', categorySource: 'unset' },
+      { baseName: '國小輔導-四年級', category: 'care', categorySource: 'seed' },
+    ];
+    expect(evidence.effectiveClassSettings.filter((entry: any) => expected.some((item) => item.baseName === entry.baseName)))
+      .toEqual(expected.map((item) => {
+        const setting = draft.classes.find((entry) => entry.baseName === item.baseName)!;
+        return {
+          ...item,
+          classType: setting.classType ?? '',
+          fixedFiveDays: setting.fixedFiveDays === true,
+        };
+      }));
+
+    const savedCategories = db.prepare(`
+      SELECT base_name, category, source FROM run_class_categories
+      WHERE run_id = ? AND base_name IN (?, ?, ?, ?) ORDER BY base_name
+    `).all(created.runId, ...expected.map((item) => item.baseName)) as Array<{ base_name: string; category: string; source: string }>;
+    expect(savedCategories).toEqual(expected.map((item) => ({
+      base_name: item.baseName,
+      category: item.category,
+      source: item.categorySource,
+    })).sort((a, b) => a.base_name < b.base_name ? -1 : a.base_name > b.base_name ? 1 : 0));
+  });
+
   it('an old run without a diagnostic version returns 409 and is not backfilled', async () => {
     const db = ctx.db();
     saveSyntheticBatch(db, 'imp_161_old', 'synthetic.xlsx', '2026-10-20T08:00:00.000Z', [
