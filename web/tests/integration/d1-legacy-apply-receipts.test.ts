@@ -1,6 +1,10 @@
 import { describe, it, expect } from 'vitest';
 import { activateBatch, activeState, makeStudent, saveRun, saveSyntheticBatch, useGlobalTempDb } from '../helpers/d1-test-kit';
 import { getClassNameMatchReport, resolvePreviousRosterProvenance } from '@/application/class-name-match-report';
+import { previewSettingsChange } from '@/application/settings-preview';
+import { applySettingsPreview } from '@/application/apply-settings';
+import { buildSeedDraft } from '@/adapters/sqlite/settings-repository';
+import { saveCalculationRun, type StudentCalculationRecord } from '@/adapters/sqlite/runs-repository';
 
 /**
  * D1 r2 B3：舊版 apply receipt 的溯源（specs/03 §5.2.4、Q12）。
@@ -39,7 +43,29 @@ interface LegacyOpts {
 
 /** 依舊版 apply-settings.ts 的行為寫入一筆 legacy apply：run、收據、active_state。 */
 function insertLegacyApply(db: ReturnType<ReturnType<typeof useGlobalTempDb>['db']>, o: LegacyOpts) {
-  if (!o.skipRun) saveRun(db, o.runId, o.importId, 'seed-v250922', T(o.revision));
+  if (!o.skipRun) {
+    const now = T(o.revision);
+    const students = db.prepare(
+      'SELECT person_code, name, branch, grade, grade_raw, source_row FROM imported_students WHERE import_id = ? ORDER BY source_row'
+    ).all(o.importId) as Array<{
+      person_code: string; name: string; branch: string | null; grade: number | null; grade_raw: string | null; source_row: number;
+    }>;
+    const results: StudentCalculationRecord[] = students.map((student) => ({
+      id: `${o.runId}_${student.person_code}`, runId: o.runId, personCode: student.person_code, name: student.name,
+      branch: student.branch, grade: student.grade, gradeRaw: student.grade_raw, subjectCount: 1,
+      baseDiscountBps: 10000, anqinDays: null, anqinDisplay: null, tutoringDays: 5, tutoringDisplay: '5',
+      englishDays: null, mathDays: null, chineseDays: null, homeworkDays: null, intensiveEnglishDays: null,
+      saturdayTutoringDays: null, applicableAnqinBps: 10000, applicableTutoringBps: 10000,
+      applicableEnglishBps: 10000, applicableMathBps: 10000, tierMismatch: false, tierComparisons: [],
+      issues: [], hasIssues: false, trace: { sourceRow: student.source_row, rawTags: '', rawNotes: '', enrollments: [] },
+      createdAt: now,
+    }));
+    saveCalculationRun(db, {
+      id: o.runId, importId: o.importId, scheduleVersionId: 'seed-v250922', ruleSetVersion: 'erp-tag-v2',
+      numericPolicy: 'integer-minute-rational-v1', asOfDate: '2026-09-15', status: 'completed', issueCounts: {},
+      totalStudents: results.length, createdAt: now,
+    }, results);
+  }
   const payload: Record<string, unknown> = {
     settingsVersionId: `setv_${o.key}`,
     runId: o.runId,
@@ -63,6 +89,23 @@ function insertLegacyApply(db: ReturnType<ReturnType<typeof useGlobalTempDb>['db
   }
 }
 
+/** Explicitly upgrade historical synthetic runs before a later ordinary activation. */
+function explicitlyUpgradeActiveRun(db: ReturnType<ReturnType<typeof useGlobalTempDb>['db']>, key: string) {
+  const state = activeState(db);
+  const importId = state.active_import_id;
+  if (!importId) throw new Error('Expected a synthetic active import before upgrade');
+  const preview = previewSettingsChange(db, importId, {
+    draft: buildSeedDraft(),
+    expectedRevision: state.revision,
+    targetRuleSetVersion: 'erp-tag-v4',
+  });
+  applySettingsPreview(db, {
+    previewId: preview.previewId,
+    expectedRevision: state.revision,
+    idempotencyKey: `explicit-v4-upgrade-${key}`,
+  });
+}
+
 describe('D1 r2 B3：舊版 apply receipt 的名冊溯源', () => {
   const ctx = useGlobalTempDb('sb-d1-legacy-');
 
@@ -78,6 +121,7 @@ describe('D1 r2 B3：舊版 apply receipt 的名冊溯源', () => {
     activateBatch(db, 'imp_A', 'k-act-A'); // rev 1（真實 activate 收據）
     insertLegacyApply(db, { key: 'legacy-1', revision: 2, runId: 'run_legacy_1', importId: 'imp_A' });
     insertLegacyApply(db, { key: 'legacy-2', revision: 3, runId: 'run_legacy_2', importId: 'imp_A', appliedAt: null });
+    explicitlyUpgradeActiveRun(db, 'legacy-receipt-sequence-a');
 
     const resA = resolvePreviousRosterProvenance(db, 'imp_A', { kind: 'latest' });
     expect(resA, '舊 apply 收據不得讓整段歷史變成 unavailable；A 是第一份現行名冊 → none').toEqual({ status: 'none', importId: null });
@@ -88,9 +132,9 @@ describe('D1 r2 B3：舊版 apply receipt 的名冊溯源', () => {
     expect(resolvePreviousRosterProvenance(db, 'imp_A', { kind: 'run', runId: 'run_legacy_1' })).toEqual({ status: 'none', importId: null });
     expect(resolvePreviousRosterProvenance(db, 'imp_A', { kind: 'run', runId: 'run_legacy_2' })).toEqual({ status: 'none', importId: null });
 
-    // 舊收據之後再啟用 C（真實 activate 收據，revision 接續 3 → 4）：C 的前份是 A
+    // 舊收據之後明確升級 A，再啟用 C：C 的前份是 A。
     activateBatch(db, 'imp_C', 'k-act-C');
-    expect(activeState(db).revision).toBe(4);
+    expect(activeState(db).revision).toBe(5);
     expect(resolvePreviousRosterProvenance(db, 'imp_C', { kind: 'latest' })).toEqual({ status: 'ok', importId: 'imp_A' });
     // 舊 apply 的 run 仍錨定在 A 的 episode，不隨現在 active 漂移
     expect(resolvePreviousRosterProvenance(db, 'imp_A', { kind: 'run', runId: 'run_legacy_2' })).toEqual({ status: 'none', importId: null });
@@ -120,18 +164,13 @@ describe('D1 r2 B3：舊版 apply receipt 的名冊溯源', () => {
     expect(resolvePreviousRosterProvenance(db, 'imp_C', { kind: 'latest' })).toEqual({ status: 'none', importId: null });
   });
 
-  it('(a) 舊版切換但無法佐證：legacy apply 把名單換成 C，之後又啟用 D → 無法證明 legacy apply 是否切換（無版本標記）→ fail-closed unavailable，不猜', () => {
+  it('(a) 仍為 v2 的 legacy switch 後，普通 activate 必須先要求明確 v4 升級', () => {
     const db = seedAC();
     saveSyntheticBatch(db, 'imp_D', 'D.xlsx', T(3), [makeStudent('d1', ['國小數學-一A'])]);
     activateBatch(db, 'imp_A', 'k-act-A'); // rev 1
     insertLegacyApply(db, { key: 'legacy-switch', revision: 2, runId: 'run_legacy_C', importId: 'imp_C', switchesRoster: true });
-    activateBatch(db, 'imp_D', 'k-act-D'); // rev 3
-
-    expect(resolvePreviousRosterProvenance(db, 'imp_D', { kind: 'latest' })).toEqual({ status: 'unavailable', importId: null });
-    const report = getClassNameMatchReport(db, { importId: 'imp_D', scope: { kind: 'latest' } });
-    expect(report.previousRosterStatus).toBe('unavailable');
-    expect(report.previousRoster).toBeNull();
-    expect(report.systemOnlyPreviousRosterStudents).toBeNull();
+    expect(() => activateBatch(db, 'imp_D', 'k-act-D')).toThrow(/預覽並確認升級至 erp-tag-v4/);
+    expect(activeState(db).active_import_id).toBe('imp_C');
   });
 
   it('(a) 反例：payload.runId 有值但 run 不存在 → unavailable（不因「無 mode」就信任）', () => {
@@ -545,7 +584,7 @@ describe('D1 r2 B3：舊版 apply receipt 的名冊溯源', () => {
 
     it('N-G 反例：activate 混入 mode 欄位時不得被接受為 activate，必須 fail-closed unavailable', () => {
       const db = seedAC();
-      saveRun(db, 'run_A_act1', 'imp_A', 'seed-v250922', T(1));
+      saveRun(db, 'run_A_act1', 'imp_A', 'seed-v250922', T(1), 'erp-tag-v4');
 
       // activate 收據混入 mode: 'with_students'
       db.prepare(
@@ -569,7 +608,7 @@ describe('D1 r2 B3：舊版 apply receipt 的名冊溯源', () => {
         'run_A_act1'
       );
 
-      activateBatch(db, 'imp_C', 'k-act-C'); // rev 2
+      activateBatch(db, 'imp_C', 'k-act-C');
       expect(
         resolvePreviousRosterProvenance(db, 'imp_C', { kind: 'latest' }),
         'activate 混入 mode 欄位屬畸形收據，C 的前份名冊必須 unavailable'
@@ -581,7 +620,7 @@ describe('D1 r2 B3：舊版 apply receipt 的名冊溯源', () => {
       activateBatch(db, 'imp_A', 'k-act-A'); // rev 1 (episode A)
 
       // 在 imp_A 上建全新 run_A_app2，runId 不重複且名冊等於 episode A
-      saveRun(db, 'run_A_app2', 'imp_A', 'seed-v250922', T(2));
+      saveRun(db, 'run_A_app2', 'imp_A', 'seed-v250922', T(2), 'erp-tag-v4');
       db.prepare(
         'INSERT INTO idempotency_records (idempotency_key, request_body_hash, run_id, response_payload, created_at) VALUES (?, ?, ?, ?, ?)'
       ).run(
@@ -605,7 +644,7 @@ describe('D1 r2 B3：舊版 apply receipt 的名冊溯源', () => {
       expect(resolvePreviousRosterProvenance(db, 'imp_A', { kind: 'latest' })).toEqual({ status: 'none', importId: null });
       expect(resolvePreviousRosterProvenance(db, 'imp_A', { kind: 'run', runId: 'run_A_app2' })).toEqual({ status: 'none', importId: null });
 
-      // 其後啟用 C（rev 3）：C 的前份為 A
+      // 其後啟用 C：C 的前份為 A
       activateBatch(db, 'imp_C', 'k-act-C');
       expect(resolvePreviousRosterProvenance(db, 'imp_C', { kind: 'latest' })).toEqual({ status: 'ok', importId: 'imp_A' });
       const reportC = getClassNameMatchReport(db, { importId: 'imp_C', scope: { kind: 'latest' } });

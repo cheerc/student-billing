@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { calculateStudentBilling } from '@/domain/billing/billing-calculator';
-import { calculateSubjectCountV3 } from '@/domain/billing/discount-rules';
+import { calculateSubjectCountByCategory } from '@/domain/billing/discount-rules';
 import {
   resolveClassEnrollment,
   type ClassCategory,
@@ -182,13 +182,13 @@ describe('Ruling 1 & 2：已對應但未指定類別 → unset，且不計入科
     expect(r.categorySource).toBe('seed');
   });
 
-  it('calculateSubjectCountV3 對 unset 與 none 皆不計入（兩者的計算結果相同）', () => {
+  it('current category count excludes unset and none from the discount subject set', () => {
     // 手算：care + math + english = 3 科；再加 unset 與 none 不會增加
-    expect(calculateSubjectCountV3(['care', 'math', 'english'])).toBe(3);
-    expect(calculateSubjectCountV3(['care', 'math', 'english', 'unset'])).toBe(3);
-    expect(calculateSubjectCountV3(['care', 'unset', 'none'])).toBe(1);
-    expect(calculateSubjectCountV3(['unset'])).toBe(0);
-    expect(calculateSubjectCountV3(['unset', 'none'])).toBe(0);
+    expect(calculateSubjectCountByCategory(['care', 'math', 'english'])).toBe(3);
+    expect(calculateSubjectCountByCategory(['care', 'math', 'english', 'unset'])).toBe(3);
+    expect(calculateSubjectCountByCategory(['care', 'unset', 'none'])).toBe(1);
+    expect(calculateSubjectCountByCategory(['unset'])).toBe(0);
+    expect(calculateSubjectCountByCategory(['unset', 'none'])).toBe(0);
   });
 });
 

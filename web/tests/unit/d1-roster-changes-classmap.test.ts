@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { computeRosterChanges } from '@/application/roster-changes';
+import { buildClassSettingMap } from '@/application/calculate-run';
+import { buildSeedDraft } from '@/adapters/sqlite/settings-repository';
 import { calculateStudentBilling } from '@/domain/billing/billing-calculator';
 import { makeStudent } from '../helpers/d1-test-kit';
 
@@ -22,15 +24,21 @@ const session = [{ start: 780, end: 870, weekday: '一' }];
 
 describe('F-7：roster-changes classSide 與 calculator 的課表來源一致', () => {
   const s = makeStudent('S1', ['國小數學-一A'], { grade: 1 });
+  const classSettings = buildClassSettingMap(buildSeedDraft());
 
   it('before 設定（有 override）不含該班 → 明細 statusBefore＝schedule_not_found、扣除量 null；after 設定含該班 → 0.5', () => {
     // 前提：calculator 對 before／after 的判斷
     const beforeOverride = new Map([['國小數學-二A', session]]);
     const afterOverride = new Map([['國小數學-一A', session]]);
-    expect(calculateStudentBilling(s, { ruleSetVersion: 'erp-tag-v2', scheduleOverride: beforeOverride }).careDays.anqin.days).toBe(5);
-    expect(calculateStudentBilling(s, { ruleSetVersion: 'erp-tag-v2', scheduleOverride: afterOverride }).careDays.anqin.days).toBe(4.5);
+    expect(calculateStudentBilling(s, { ruleSetVersion: 'erp-tag-v4', scheduleOverride: beforeOverride, classSettings }).careDays.anqin.days).toBe(5);
+    expect(calculateStudentBilling(s, { ruleSetVersion: 'erp-tag-v4', scheduleOverride: afterOverride, classSettings }).careDays.anqin.days).toBe(4.5);
 
-    const result = computeRosterChanges([s], [s], { scheduleOverride: beforeOverride }, { scheduleOverride: afterOverride });
+    const result = computeRosterChanges(
+      [s],
+      [s],
+      { scheduleOverride: beforeOverride, classSettings },
+      { scheduleOverride: afterOverride, classSettings }
+    );
     expect(result.changes).toHaveLength(1);
     const change = result.changes[0];
     expect(change.dayChange).toMatchObject({ beforeAnqinDays: 5, afterAnqinDays: 4.5 });
@@ -50,7 +58,7 @@ describe('F-7：roster-changes classSide 與 calculator 的課表來源一致', 
     // 年級 1：before 沒有數學班 → 5 天；after 報一A → max(3.5, 5−0.5)＝4.5
     const before = makeStudent('S1', ['國小輔導-一A'], { grade: 1 });
     const after = makeStudent('S1', ['國小輔導-一A', '國小數學-一A'], { grade: 1 });
-    const result = computeRosterChanges([before], [after], {}, {});
+    const result = computeRosterChanges([before], [after], { classSettings }, { classSettings });
     const change = result.changes[0];
     expect(change.dayChange).toMatchObject({ beforeAnqinDays: 5, afterAnqinDays: 4.5 });
     const row = change.dayChange!.classBreakdown.find((r) => r.baseName === '國小數學-一A')!;

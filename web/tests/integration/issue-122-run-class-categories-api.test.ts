@@ -2,27 +2,26 @@ import { describe, it, expect } from 'vitest';
 import { GET as runGET } from '@/app/api/v1/runs/[runId]/route';
 import { GET as currentGET } from '@/app/api/v1/runs/current/route';
 import { applicableRateForClass, loadRunClassCategories } from '@/application/applicable-rate';
-import { executeCalculationRun } from '@/application/calculate-run';
 import { runMigrations } from '@/adapters/sqlite/migrator';
-import { getCalculationRun, saveCalculationRun } from '@/adapters/sqlite/runs-repository';
+import { getCalculationRun, saveCalculationRun, type CalculationRunRecord } from '@/adapters/sqlite/runs-repository';
 import { useGlobalTempDb, getRequest, saveSyntheticBatch, makeStudent } from '../helpers/d1-test-kit';
 
 /**
- * issue #122：v3 run 的類別快照必須經由讀模型（`getCalculationRun`）曝光，
+ * issue #122：舊 v3 run 的類別快照必須經由讀模型（`getCalculationRun`）曝光，
  * 讓 `GET /api/v1/runs/{id}` 與 `/api/v1/runs/current` 兩條路徑都能取得。
  *
  * 規格錨點：03 §5.3.4（快照優先；v3 run 缺該班快照時嚴禁以當前班名猜測）。
  *
- * ## 為什麼一定要走 `executeCalculationRun` → `saveCalculationRun` 的完整鏈
+ * ## 歷史資料 fixture
  *
  * 這是本 repo 自己的判例（`d2a-run-class-categories-persistence.test.ts:11-16`，D2a N-6）：
  * 該案的「讀模型」測試只呼叫了 `executeCalculationRun`，沒有 run 列，
  * 於是 `applicableRateForClass` 的 v3 分支**從未真正被驗到**——實際驗到的是
  * v2 名稱映射，而 fixture 傳入 10000 讓斷言誤通過。
  *
- * 因此本檔：快照一律由**生產路徑的唯一寫入點**產生，且學生層適用率刻意用
- * **非 10000** 的值（見 `RATES`），否則漏載快照時名稱映射也會給出同樣的數字，
- * 斷言會靜默通過。
+ * PR-2 no longer creates old-version calculations. This suite persists synthetic historical
+ * v3/v2 rows directly, then checks the same read-model/API contract. Student rate fields stay
+ * deliberately distinct so a missing snapshot cannot silently pass through name mapping.
  */
 
 const RATES = {
@@ -54,21 +53,37 @@ function seedRoster(db: Db, importId: string) {
   ]);
 }
 
-/** 走完整生產呼叫鏈：executeCalculationRun → saveCalculationRun。 */
-function runV3(db: Db, importId: string, runId: string) {
-  const res = executeCalculationRun(db, importId, runId, { ruleSetVersion: 'erp-tag-v3' as never });
-  saveCalculationRun(db, res.run, res.results, res.classCategories);
-  return res;
+/** Fixed synthetic pre-#159 row; history readers must not invoke a retired calculator. */
+function saveHistoricalRun(db: Db, importId: string, runId: string, version: 'erp-tag-v2' | 'erp-tag-v3') {
+  const run: CalculationRunRecord = {
+    id: runId,
+    importId,
+    scheduleVersionId: 'seed-v250922',
+    ruleSetVersion: version,
+    numericPolicy: 'integer-minute-rational-v1',
+    asOfDate: '2026-09-30',
+    status: 'completed',
+    issueCounts: {},
+    totalStudents: 2,
+    createdAt: '2026-09-30T00:00:00.000Z',
+  };
+  const categories = version === 'erp-tag-v3'
+    ? [
+        { baseName: '國小數學-三A', category: 'math', fixedFiveDays: 0, mapped: 1, source: 'auto' },
+        { baseName: '兒童美語-A', category: 'english', fixedFiveDays: 0, mapped: 1, source: 'auto' },
+      ]
+    : undefined;
+  saveCalculationRun(db, run, [], categories);
 }
 
 describe('issue #122：run 類別快照的 API 可見性（03 §5.3.4）', () => {
   const ctx = useGlobalTempDb('sb-issue122-');
 
-  it('v3 run（完整生產鏈）：GET /api/v1/runs/{id} 回應含底線命名的 classCategories 快照', async () => {
+  it('persisted v3 run：GET /api/v1/runs/{id} 回應含底線命名的 classCategories 快照', async () => {
     const db = ctx.db();
     runMigrations(db);
     seedRoster(db, 'imp_v3');
-    runV3(db, 'imp_v3', 'run_v3');
+    saveHistoricalRun(db, 'imp_v3', 'run_v3', 'erp-tag-v3');
 
     const res = await callRun('run_v3');
     expect(res.status).toBe(200);
@@ -92,7 +107,7 @@ describe('issue #122：run 類別快照的 API 可見性（03 §5.3.4）', () =>
     const db = ctx.db();
     runMigrations(db);
     seedRoster(db, 'imp_v3');
-    runV3(db, 'imp_v3', 'run_v3');
+    saveHistoricalRun(db, 'imp_v3', 'run_v3', 'erp-tag-v3');
     db.prepare('UPDATE active_state SET active_run_id = ?, revision = revision + 1 WHERE id = 1').run('run_v3');
 
     const res = await callCurrent();
@@ -107,7 +122,7 @@ describe('issue #122：run 類別快照的 API 可見性（03 §5.3.4）', () =>
     const db = ctx.db();
     runMigrations(db);
     seedRoster(db, 'imp_v3');
-    runV3(db, 'imp_v3', 'run_v3');
+    saveHistoricalRun(db, 'imp_v3', 'run_v3', 'erp-tag-v3');
 
     // `/api/v1/classes` 等第三條路徑也是經由同一個 getCalculationRun，
     // 若改在 route 層補欄位，這些消費端就會各自漂移。
@@ -122,8 +137,7 @@ describe('issue #122：run 類別快照的 API 可見性（03 §5.3.4）', () =>
     const db = ctx.db();
     runMigrations(db);
     seedRoster(db, 'imp_v2');
-    const res2 = executeCalculationRun(db, 'imp_v2', 'run_v2', { ruleSetVersion: 'erp-tag-v2' as never });
-    saveCalculationRun(db, res2.run, res2.results, res2.classCategories);
+    saveHistoricalRun(db, 'imp_v2', 'run_v2', 'erp-tag-v2');
 
     const body = (await (await callRun('run_v2')).json()) as { classCategories?: unknown };
     // undefined＝走名稱映射；[]＝v3 但查無此班。兩者語意不可混用。
@@ -134,7 +148,7 @@ describe('issue #122：run 類別快照的 API 可見性（03 §5.3.4）', () =>
     const db = ctx.db();
     runMigrations(db);
     seedRoster(db, 'imp_v3');
-    runV3(db, 'imp_v3', 'run_v3');
+    saveHistoricalRun(db, 'imp_v3', 'run_v3', 'erp-tag-v3');
 
     // 模擬維護者把「國小數學-三A」手動覆寫成 english（自動偵測為 math）。
     db.prepare('UPDATE run_class_categories SET category = ?, source = ? WHERE run_id = ? AND base_name = ?')
@@ -144,7 +158,7 @@ describe('issue #122：run 類別快照的 API 可見性（03 §5.3.4）', () =>
     expect(body.classCategories.find((r) => r.base_name === '國小數學-三A')!.category).toBe('english');
 
     const rate = applicableRateForClass('國小數學-三A', { grade: 4, ...STUDENT_RATE_FIELDS }, {
-      isV3Run: true,
+      ruleSetVersion: 'erp-tag-v3',
       findSnapshot: (name) => body.classCategories.find((r) => r.base_name === name) as never,
     });
     // 快照說 english → 取 English 側；退回當前班名會取 Math 側 8500。
@@ -156,7 +170,7 @@ describe('issue #122：run 類別快照的 API 可見性（03 §5.3.4）', () =>
     const db = ctx.db();
     runMigrations(db);
     seedRoster(db, 'imp_v3');
-    runV3(db, 'imp_v3', 'run_v3');
+    saveHistoricalRun(db, 'imp_v3', 'run_v3', 'erp-tag-v3');
 
     db.prepare('UPDATE run_class_categories SET fixed_five_days = ?, source = ? WHERE run_id = ? AND base_name = ?')
       .run(1, 'manual', 'run_v3', '兒童美語-A');
@@ -167,7 +181,7 @@ describe('issue #122：run 類別快照的 API 可見性（03 §5.3.4）', () =>
     expect(row.fixed_five_days).toBe(1);
 
     const rate = applicableRateForClass('兒童美語-A', { grade: 4, ...STUDENT_RATE_FIELDS }, {
-      isV3Run: true,
+      ruleSetVersion: 'erp-tag-v3',
       findSnapshot: (name) => body.classCategories.find((r) => r.base_name === name) as never,
     });
     expect(rate).toEqual({ status: 'configured', bps: 10000 });
@@ -177,13 +191,13 @@ describe('issue #122：run 類別快照的 API 可見性（03 §5.3.4）', () =>
     const db = ctx.db();
     runMigrations(db);
     seedRoster(db, 'imp_v3');
-    runV3(db, 'imp_v3', 'run_v3');
+    saveHistoricalRun(db, 'imp_v3', 'run_v3', 'erp-tag-v3');
 
     const body = (await (await callRun('run_v3')).json()) as { classCategories: Array<Record<string, unknown>> };
 
     // 「國小數學-三B」班名本身會映射到 math（→ 8500），但快照沒有這一班。
     const rate = applicableRateForClass('國小數學-三B', { grade: 4, ...STUDENT_RATE_FIELDS }, {
-      isV3Run: true,
+      ruleSetVersion: 'erp-tag-v3',
       findSnapshot: (name) => body.classCategories.find((r) => r.base_name === name) as never,
     });
     expect(rate).toEqual({ status: 'not_configured' });
@@ -194,7 +208,7 @@ describe('issue #122：run 類別快照的 API 可見性（03 §5.3.4）', () =>
     const db = ctx.db();
     runMigrations(db);
     seedRoster(db, 'imp_v3');
-    runV3(db, 'imp_v3', 'run_v3');
+    saveHistoricalRun(db, 'imp_v3', 'run_v3', 'erp-tag-v3');
     db.prepare('DELETE FROM run_class_categories WHERE run_id = ?').run('run_v3');
 
     const body = (await (await callRun('run_v3')).json()) as { classCategories: unknown };
@@ -202,7 +216,7 @@ describe('issue #122：run 類別快照的 API 可見性（03 §5.3.4）', () =>
     expect(loadRunClassCategories(db, 'run_v3')).toEqual([]);
 
     const rate = applicableRateForClass('國小數學-三A', { grade: 4, ...STUDENT_RATE_FIELDS }, {
-      isV3Run: true,
+      ruleSetVersion: 'erp-tag-v3',
       findSnapshot: () => undefined,
     });
     expect(rate).toEqual({ status: 'not_configured' });
@@ -212,11 +226,11 @@ describe('issue #122：run 類別快照的 API 可見性（03 §5.3.4）', () =>
     const db = ctx.db();
     runMigrations(db);
     seedRoster(db, 'imp_v3');
-    runV3(db, 'imp_v3', 'run_v3');
+    saveHistoricalRun(db, 'imp_v3', 'run_v3', 'erp-tag-v3');
 
     const before = (await (await callRun('run_v3')).json()) as { classCategories: unknown[] };
     // 再算一次（新的 run）不應回頭改動既有 run 的快照列。
-    runV3(db, 'imp_v3', 'run_v3b');
+    saveHistoricalRun(db, 'imp_v3', 'run_v3b', 'erp-tag-v3');
     const after = (await (await callRun('run_v3')).json()) as { classCategories: unknown[] };
 
     expect(after.classCategories).toEqual(before.classCategories);

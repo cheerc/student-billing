@@ -61,8 +61,15 @@ export function assertIsolatedE2eTarget(target: IsolatedE2eTarget): void {
     throw new Error(`DATABASE_PATH 必須是絕對路徑，收到 ${databasePath}`);
   }
 
-  const tmpRoot = fs.realpathSync(os.tmpdir());
   const resolved = resolveThroughExistingAncestor(databasePath);
+  // A worktree may itself live under os.tmpdir() in CI or review environments. The project's
+  // own data/ subtree is still not an isolated E2E target in that case.
+  const projectDataRoot = resolveThroughExistingAncestor(path.resolve(process.cwd(), '..', 'data'));
+  if (resolved === projectDataRoot || isInside(resolved, projectDataRoot)) {
+    throw new Error(`DATABASE_PATH 不可指向專案預設 data/ 目錄：${resolved}`);
+  }
+
+  const tmpRoot = fs.realpathSync(os.tmpdir());
   if (!isInside(resolved, tmpRoot)) {
     throw new Error(
       `DATABASE_PATH 必須位於系統臨時目錄（${tmpRoot}）下，收到 ${resolved}；不得使用預設資料庫或專案 data/ 目錄`

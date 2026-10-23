@@ -55,4 +55,13 @@ describe('Ruling 5: applicableRateForClass 旗標回退優先序（usesSnapshot 
     });
     expect(res).toEqual({ status: 'configured', bps: 10000 });
   });
+
+  it('unknown historical version is unavailable even when the class name looks configured', () => {
+    const res = applicableRateForClass('國小數學-四A', rateFields, {
+      ruleSetVersion: 'corrupt-v99',
+      usesSnapshot: false,
+      findSnapshot: (n) => snapshots.get(n),
+    });
+    expect(res).toEqual({ status: 'not_configured' });
+  });
 });

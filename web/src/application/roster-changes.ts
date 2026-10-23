@@ -4,8 +4,8 @@ import { StudentSnapshot } from '@/domain/students';
 import type { StudentBillingCalculation } from '@/domain/billing/types';
 import { applicableRateForClass } from '@/application/applicable-rate';
 import { resolveClassEnrollment, type ClassCategory, type ClassSettingLookup } from '@/domain/classification/class-category';
-import { calculateSubjectCount, calculateSubjectCountV3 } from '@/domain/billing/discount-rules';
-import { ruleSetCapabilities } from '@/domain/billing/rule-set';
+import { calculateSubjectCountByCategory } from '@/domain/billing/discount-rules';
+import { TARGET_FORMAL_RULE_SET_VERSION } from '@/domain/billing/rule-set';
 
 /**
  * 名單異動判定（operator 裁決 d-20260929111803466480-4 / d-20260929111814541876-5）。
@@ -228,9 +228,9 @@ function classSide(token: Token | undefined, ctx: RosterChangeContext) {
   if (!token || resolved.status !== 'calculated') {
     return { status: resolved.status, anqin: null as number | null, tutoring: null as number | null };
   }
-  const ruleSetVersion = ctx.ruleSetVersion ?? 'erp-tag-v2';
+  const ruleSetVersion = ctx.ruleSetVersion ?? TARGET_FORMAL_RULE_SET_VERSION;
   // 以 domain 的 D24 單班扣除取逐堂天數，不另推公式（與 billing-calculator 同一套規則）
-  const options = { sameWeekdayOnly: ruleSetVersion !== 'excel-v260922-compat' };
+  const options = { sameWeekdayOnly: true };
   return {
     status: resolved.status,
     anqin: Math.abs(calculateClassDeductionD24(resolved.sessions, 'anqin', options).rounded),
@@ -242,9 +242,8 @@ function classSide(token: Token | undefined, ctx: RosterChangeContext) {
  * 學生名單中實際參與扣天計算的 token（rawToken 集合）。
  *
  * D2d B（04 §8 UX71；D40 Q10-A）：**鏡像 calculator 的選班結果，不再各自取首班**。
- *  - v3：讀 `calc.selection` 的選中班（取正量最多、平手取報名順序在前者）——
+ *  - v4：讀 `calc.selection` 的選中班（取正量最多、平手取報名順序在前者）——
  *    否則明細會顯示 Gino 的扣天、而學生天數其實是按 Chevady 算出來的，屬鏡像不一致。
- *  - v1／v2／compat：無 `selection`，維持首班語意。
  * `selection` 沒有對應類別（學生沒報該類）時不列入，與 calculator 的候選集合一致。
  */
 function countedRawTokens(student: StudentSnapshot, calc: StudentBillingCalculation): Set<string> {
@@ -324,31 +323,17 @@ function discountCategoryOf(
 }
 
 /**
- * 讓 `hasHomeworkOrMeian` 改變的班（寫功課／美安），與 billing-calculator 同源判定。
- * v3：該生任一報名班 fixedFiveDays 為真（billing-calculator:433-435）；v1／v2：名稱含寫功課或美安。
- * **不另寫一套字串規則**：此處只用來判斷「這個 none 類別班是否值得作為原因」，
- * 實際數值仍由 calculator 的 hasHomeworkOrMeian 決定。
- */
-function affectsHomeworkOrMeian(token: Token | undefined, ctx: RosterChangeContext): boolean {
-  if (!token) return false;
-  const resolved = resolveClassEnrollment(token, ctx.aliasMap, ctx.classSettings);
-  return resolved.fixedFiveDays || token.baseName.includes('寫功課') || token.baseName.includes('美安');
-}
-
-/**
  * 某人某側的「計入科數」值——**與 calculator 同一條規則**：
- * v3 走類別式（R03 calculateSubjectCountV3），v1／v2／compat 走名稱式（R09 calculateSubjectCount）。
- * 這裡不重寫規則，只挑對應的函式。
+ * Current v4 uses category-based subject counting (R03).
  */
 function countedSubjectCount(
   student: StudentSnapshot | undefined,
   ctx: RosterChangeContext
 ): number | null {
   const tokens = student?.enrollments ?? [];
-  const version = ctx.ruleSetVersion ?? 'erp-tag-v2';
-  return ruleSetCapabilities(version).categoryBasedBilling
-    ? calculateSubjectCountV3(tokens.map((t) => resolveClassEnrollment(t, ctx.aliasMap, ctx.classSettings).category))
-    : calculateSubjectCount(tokens);
+  return calculateSubjectCountByCategory(
+    tokens.map((t) => resolveClassEnrollment(t, ctx.aliasMap, ctx.classSettings).category)
+  );
 }
 
 /**
@@ -359,7 +344,7 @@ function countedSubjectCount(
  *  - 唯一一個數學班的新增／退出：拿掉後數學類別消失 → 計入下降 → 是決定者。
  *  - 同時加入兩個數學班：拿掉任一個，另一個仍在 → 兩個都不是決定者（誠實呈現，reasons 可能為空）。
  *
- * 實作直接呼叫 calculator 用的同一組規則函式（v3 類別式／v1、v2 名稱式含寫功課減 1），不另推規則。
+ * 實作直接呼叫 calculator 用的同一組 v4 類別式規則函式，不另推規則。
  */
 function decidesSubjectCount(
   allTokens: Token[],
@@ -517,23 +502,15 @@ function buildClassDiscountChanges(
     for (const change of addedTokens) {
       const token = afterTokens.get(change.rawToken);
       if (!token) continue;
-      // 決定了計入科數 → 原因；或改變 hasHomeworkOrMeian 且本班是 care（安親／課輔會回到 10000；v4 解耦後不適用）
-      const homeworkAffectsDiscount = !ruleSetCapabilities(afterCtx.ruleSetVersion ?? 'erp-tag-v2').homeworkDiscountDecoupled;
-      if (
-        decidesSubjectCount([...before.enrollments, ...after.enrollments], beforeCtx, token) ||
-        (isCare && homeworkAffectsDiscount && affectsHomeworkOrMeian(token, afterCtx))
-      ) {
+      // 固定 5 天與課程學費折扣在 v4 解耦，因此只有計入科數的類別變化會影響折扣。
+      if (decidesSubjectCount([...before.enrollments, ...after.enrollments], beforeCtx, token)) {
         reasons.push({ kind: 'enrollment_added', className: change.baseName, rawToken: change.rawToken });
       }
     }
     for (const change of removedTokens) {
       const token = beforeTokens.get(change.rawToken);
       if (!token) continue;
-      const homeworkAffectsDiscount = !ruleSetCapabilities(beforeCtx.ruleSetVersion ?? 'erp-tag-v2').homeworkDiscountDecoupled;
-      if (
-        decidesSubjectCount([...before.enrollments, ...after.enrollments], beforeCtx, token) ||
-        (isCare && homeworkAffectsDiscount && affectsHomeworkOrMeian(token, beforeCtx))
-      ) {
+      if (decidesSubjectCount([...before.enrollments, ...after.enrollments], beforeCtx, token)) {
         reasons.push({ kind: 'enrollment_removed', className: change.baseName, rawToken: change.rawToken });
       }
     }
@@ -576,15 +553,20 @@ export function computeRosterChanges(
   beforeCtx: RosterChangeContext,
   afterCtx: RosterChangeContext
 ): RosterChangesResult {
+  for (const ctx of [beforeCtx, afterCtx]) {
+    if (ctx.ruleSetVersion && ctx.ruleSetVersion !== TARGET_FORMAL_RULE_SET_VERSION) {
+      throw new Error(`名單異動計算只支援 ${TARGET_FORMAL_RULE_SET_VERSION}；舊版 Run 僅供讀取。`);
+    }
+  }
   const changes: RosterChange[] = [];
   let newCount = 0, removedCount = 0, changedCount = 0, dayChangedCount = 0, discountChangedCount = 0, unchangedCount = 0;
 
   const beforeByCode = uniqueByPersonCode(beforeStudents);
   const afterByCode = uniqueByPersonCode(afterStudents);
   const calcBefore = (s: StudentSnapshot) =>
-    calculateStudentBilling(s, { ...beforeCtx, ruleSetVersion: beforeCtx.ruleSetVersion ?? 'erp-tag-v2' });
+    calculateStudentBilling(s, { ...beforeCtx, ruleSetVersion: beforeCtx.ruleSetVersion ?? TARGET_FORMAL_RULE_SET_VERSION });
   const calcAfter = (s: StudentSnapshot) =>
-    calculateStudentBilling(s, { ...afterCtx, ruleSetVersion: afterCtx.ruleSetVersion ?? 'erp-tag-v2' });
+    calculateStudentBilling(s, { ...afterCtx, ruleSetVersion: afterCtx.ruleSetVersion ?? TARGET_FORMAL_RULE_SET_VERSION });
 
   for (const after of afterByCode.values()) {
     const before = beforeByCode.get(after.personCode);

@@ -18,8 +18,8 @@ import {
 } from '@/domain/schedules/overlap-calculator';
 import { resolveClassAttributes } from '@/domain/classification/class-attributes';
 import type { CareStatus } from './care-status';
-import { FormalRuleSetVersion, ruleSetCapabilities } from '@/domain/billing/rule-set';
-import { resolveFormalRuleSetVersion } from './rule-set-resolver';
+import { FormalRuleSetVersion, historicalRuleSetMetadata } from '@/domain/billing/rule-set';
+import { resolveTargetRuleSetVersion, RuleSetResolutionError } from './rule-set-resolver';
 
 /**
  * 唯讀計算 read model（09 §8.1／04 §8 UX05–UX08、UX19、UX24）。
@@ -220,7 +220,11 @@ function aggregateStatus(a: {
  * 每個 draft 班級、每一個輸入列都有結果（不漏掉不能計算的班／列）；班級不在 draft 內不會出現（run 端落 schedule_not_found）。
  */
 export function buildSchedulePreview(draft: CalculateDraft, ruleSetVersion: FormalRuleSetVersion): SchedulePreviewCore {
-  const options: RuleSetOptions = { sameWeekdayOnly: ruleSetCapabilities(ruleSetVersion).sameWeekdayOnly };
+  const metadata = historicalRuleSetMetadata(ruleSetVersion);
+  if (!metadata.known) {
+    throw new SchedulePreviewError(422, '無法辨識歷史 Run 的規則版本，無法安全重建班級扣天。', 'UNSUPPORTED_RULESET');
+  }
+  const options: RuleSetOptions = { sameWeekdayOnly: metadata.sameWeekdayOnly };
   // 與 run 計算（apply／activate）同一個轉換，且輸入是存檔等價 draft：停用、空 sessions 皆為空覆寫（不扣天，09 §8.2.4）
   const override = draftToScheduleOverride(toSaveEquivalentDraft(draft));
 
@@ -400,7 +404,8 @@ export function calculateSchedulePreview(db: Database.Database, rawBody: unknown
     throw new SchedulePreviewError(400, '請求內容必須是 JSON 物件', 'INVALID_REQUEST');
   }
   const body = rawBody as Record<string, unknown>;
-  // ruleSetVersion 由 server 決定，client 不得指定（尤其不得指定診斷軌）
+  // ruleSetVersion 由 server 決定，client 不得指定（尤其不得指定診斷軌）。
+  // 舊 active Run 僅在 UI 明確勾選 v4 升級後接受該 preview；不帶 target 時 fail closed。
   if ('ruleSetVersion' in body) {
     throw new SchedulePreviewError(400, 'ruleSetVersion 由伺服器決定，請勿帶入', 'INVALID_REQUEST');
   }
@@ -426,7 +431,16 @@ export function calculateSchedulePreview(db: Database.Database, rawBody: unknown
     names.add(c.baseName);
   }
 
-  const core = buildSchedulePreview(draft, resolveFormalRuleSetVersion(db));
+  let targetVersion: FormalRuleSetVersion;
+  try {
+    targetVersion = resolveTargetRuleSetVersion(db, body.targetRuleSetVersion as string | null | undefined);
+  } catch (e) {
+    if (e instanceof RuleSetResolutionError) {
+      throw new SchedulePreviewError(409, e.message, e.code);
+    }
+    throw e;
+  }
+  const core = buildSchedulePreview(draft, targetVersion);
 
   // rowId 必須唯一，結果才能一對一掛回畫面的列（含 client 給的與 server 補的撞名）
   const seenRowIds = new Set<string>();

@@ -6,7 +6,10 @@ import { getDatabase } from '@/adapters/sqlite';
 import { saveImportBatch } from '@/adapters/sqlite/import-repository';
 import { generateImportPreview } from '@/application/import-preview';
 import { POST as previewPOST } from '@/app/api/v1/imports/preview/route';
-import { calculateSubjectCount, calculateBaseDiscountBps, parseTagDiscounts } from '@/domain/billing/discount-rules';
+import { calculateSubjectCountByCategory, calculateBaseDiscountBps, parseTagDiscounts } from '@/domain/billing/discount-rules';
+import { resolveClassEnrollment } from '@/domain/classification/class-category';
+import { buildSeedDraft } from '@/adapters/sqlite/settings-repository';
+import { buildClassSettingMap } from '@/application/calculate-run';
 import { StudentSnapshot } from '@/domain/students';
 
 /**
@@ -18,6 +21,11 @@ import { StudentSnapshot } from '@/domain/students';
  */
 
 const fixturePath = path.resolve(__dirname, '../fixtures/conforming-erp-fixture.xlsx');
+const seedClassSettings = buildClassSettingMap(buildSeedDraft());
+
+const subjectCountFor = (student: StudentSnapshot) => calculateSubjectCountByCategory(
+  student.enrollments.map((enrollment) => resolveClassEnrollment(enrollment, undefined, seedClassSettings).category)
+);
 
 function uploadRequest(): Request {
   const blob = new Blob([fs.readFileSync(fixturePath)], {
@@ -66,12 +74,12 @@ describe('API: POST /api/v1/imports/preview 回傳以計算結果判定的名單
     // 挑一位「科數 1 或 2、沒有特殊折扣／兄弟姊妹標籤」的學生：加上兄弟姊妹標籤後基本折扣一定不同
     //（科數 k=1：10000→9500；k=2：9500→9000；k≥3 兩者皆 9000 → 不可用）。
     const target = incomingStudents.find((s) => {
-      const k = calculateSubjectCount(s.enrollments);
+      const k = subjectCountFor(s);
       const tags = parseTagDiscounts(s.tagsRaw);
       return (k === 1 || k === 2) && !tags.sibling && tags.specialDiscount === null;
     });
     expect(target, 'fixture 內需有一位科數 1–2 的學生').toBeDefined();
-    const k = calculateSubjectCount(target!.enrollments)!;
+    const k = subjectCountFor(target!)!;
     // 獨立手算（R10）：基準名單版本帶兄弟姊妹標籤 → effective=k+1；本次上傳版本無標籤 → effective=k
     const expectedBefore = calculateBaseDiscountBps(k, true, null);
     const expectedAfter = calculateBaseDiscountBps(k, false, null);

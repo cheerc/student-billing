@@ -74,14 +74,67 @@ function seedStudents(db: Database.Database, importId: string) {
   );
 }
 
-function activate(db: Database.Database, importId: string, runId: string, version: string) {
-  const res = executeCalculationRun(db, importId, runId, { ruleSetVersion: version as any });
+function activateV4(db: Database.Database, importId: string, runId: string) {
+  const res = executeCalculationRun(db, importId, runId, { ruleSetVersion: 'erp-tag-v4' });
   saveCalculationRun(db, res.run, res.results, res.classCategories);
   db.prepare('UPDATE active_state SET active_run_id = ?, active_import_id = ? WHERE id = 1').run(runId, importId);
   return res;
 }
 
-describe('D2b 4: 升級流程（Q11／D37／S manifest §2）— 空 DB 預設 v3、既有 v2 不動直到明確確認', () => {
+/** 固定合成歷史列：只驗證 saved-run reader/明確升級，不呼叫已退役的舊計算器。 */
+function activateSyntheticHistoricalRun(db: Database.Database, importId: string, runId: string, version: string) {
+  const now = '2026-10-23T00:00:00.000Z';
+  saveCalculationRun(
+    db,
+    {
+      id: runId,
+      importId,
+      scheduleVersionId: 'seed-v250922',
+      ruleSetVersion: version,
+      numericPolicy: 'integer-minute-rational-v1',
+      asOfDate: '2026-10-23',
+      status: 'completed',
+      issueCounts: {},
+      totalStudents: 1,
+      createdAt: now,
+    },
+    [{
+      id: `${runId}_S001`,
+      runId,
+      personCode: 'S001',
+      name: '合成歷史學生',
+      branch: '本部',
+      grade: 4,
+      gradeRaw: '4',
+      subjectCount: 2,
+      baseDiscountBps: 9500,
+      anqinDays: 4,
+      anqinDisplay: '4',
+      tutoringDays: null,
+      tutoringDisplay: null,
+      englishDays: null,
+      mathDays: null,
+      chineseDays: null,
+      homeworkDays: null,
+      intensiveEnglishDays: null,
+      saturdayTutoringDays: null,
+      applicableAnqinBps: null,
+      applicableTutoringBps: null,
+      applicableEnglishBps: null,
+      applicableMathBps: null,
+      tierMismatch: false,
+      tierComparisons: [],
+      issues: [],
+      hasIssues: false,
+      trace: { syntheticHistoricalFixture: true },
+      createdAt: now,
+    }],
+    version === 'erp-tag-v3' ? [] : undefined
+  );
+  db.prepare('UPDATE active_state SET active_run_id = ?, active_import_id = ? WHERE id = 1').run(runId, importId);
+}
+
+describe('D2b 4: 升級流程（Q11／D37／S manifest §2）— 空 DB 預設 v4、歷史 run 僅明確升級', () => {
   let db: Database.Database;
 
   beforeEach(() => {
@@ -91,39 +144,40 @@ describe('D2b 4: 升級流程（Q11／D37／S manifest §2）— 空 DB 預設 v
 
   afterEach(() => db.close());
 
-  it('空 DB（無 active run）的目標版本為 erp-tag-v4（#112 起目標正式軌）', () => {
+  it('空 DB（無 active run）的目標版本為 erp-tag-v4', () => {
     expect(resolveFormalRuleSetVersion(db)).toBe('erp-tag-v4');
     expect(resolveTargetRuleSetVersion(db, undefined)).toBe('erp-tag-v4');
   });
 
-  it('已有 v2 active run 時，現行版本維持 v2，且未明確要求升級的目標版本也維持 v2（不靜默切換）', () => {
+  it('已有 v2 active run 時保留歷史版本；一般新計算 fail-closed，明確 v4 升級可用', () => {
     seedStudents(db, 'imp_a');
-    activate(db, 'imp_a', 'run_v2', 'erp-tag-v2');
+    activateSyntheticHistoricalRun(db, 'imp_a', 'run_v2', 'erp-tag-v2');
 
     expect(resolveFormalRuleSetVersion(db)).toBe('erp-tag-v2');
-    expect(resolveTargetRuleSetVersion(db, undefined)).toBe('erp-tag-v2');
-    expect(resolveTargetRuleSetVersion(db, null)).toBe('erp-tag-v2');
+    expect(() => resolveTargetRuleSetVersion(db, undefined)).toThrow(/升級至 erp-tag-v4/);
+    expect(() => resolveTargetRuleSetVersion(db, null)).toThrow(/升級至 erp-tag-v4/);
+    expect(resolveTargetRuleSetVersion(db, 'erp-tag-v4')).toBe('erp-tag-v4');
   });
 
-  it('明確要求升級（targetRuleSetVersion=erp-tag-v3）時目標版本為 v3', () => {
+  it('v3 已退役；明確升級目標只接受 v4', () => {
     seedStudents(db, 'imp_a');
-    activate(db, 'imp_a', 'run_v2', 'erp-tag-v2');
-
-    expect(resolveTargetRuleSetVersion(db, 'erp-tag-v3')).toBe('erp-tag-v3');
+    activateSyntheticHistoricalRun(db, 'imp_a', 'run_v2', 'erp-tag-v2');
+    expect(() => resolveTargetRuleSetVersion(db, 'erp-tag-v3')).toThrow(/v4/);
+    expect(resolveTargetRuleSetVersion(db, 'erp-tag-v4')).toBe('erp-tag-v4');
   });
 
-  it('明確要求升級到現行版本（v2）不視為錯誤，仍為 v2', () => {
+  it('明確要求已退役的 v2 不會建立新 run', () => {
     seedStudents(db, 'imp_a');
-    activate(db, 'imp_a', 'run_v2', 'erp-tag-v2');
-    expect(resolveTargetRuleSetVersion(db, 'erp-tag-v2')).toBe('erp-tag-v2');
+    activateSyntheticHistoricalRun(db, 'imp_a', 'run_v2', 'erp-tag-v2');
+    expect(() => resolveTargetRuleSetVersion(db, 'erp-tag-v2')).toThrow(/v4/);
   });
 
-  it('Ruling 1: 已有 v3 active run 時，未明確要求升級維持 v3；明確要求升級（targetRuleSetVersion=erp-tag-v4）時目標版本為 v4', () => {
+  it('已有 v3 active run 時，一般新計算 fail-closed；明確升級目標為 v4', () => {
     seedStudents(db, 'imp_a');
-    activate(db, 'imp_a', 'run_v3', 'erp-tag-v3');
+    activateSyntheticHistoricalRun(db, 'imp_a', 'run_v3', 'erp-tag-v3');
 
     expect(resolveFormalRuleSetVersion(db)).toBe('erp-tag-v3');
-    expect(resolveTargetRuleSetVersion(db, undefined)).toBe('erp-tag-v3');
+    expect(() => resolveTargetRuleSetVersion(db, undefined)).toThrow(/升級至 erp-tag-v4/);
     expect(resolveTargetRuleSetVersion(db, 'erp-tag-v4')).toBe('erp-tag-v4');
   });
 
@@ -139,41 +193,39 @@ describe('D2b 4: preview 記錄目標版本、apply 用同一版本、產生新 
     db = new Database(':memory:');
     runMigrations(db);
     seedStudents(db, 'imp_a');
-    activate(db, 'imp_a', 'run_v2', 'erp-tag-v2');
+    activateSyntheticHistoricalRun(db, 'imp_a', 'run_v2', 'erp-tag-v2');
   });
 
   afterEach(() => db.close());
 
-  it('preview 接受 targetRuleSetVersion=erp-tag-v3，並把目標版本記錄在 preview 列', () => {
+  it('preview 接受明確 v4 升級，並把目標版本記錄在 preview 列', () => {
     const draft = buildSeedDraft();
     const preview = previewSettingsChange(db, 'imp_a', {
       draft,
       expectedRevision: (db.prepare('SELECT revision FROM active_state WHERE id = 1').get() as any).revision,
-      targetRuleSetVersion: 'erp-tag-v3',
+      targetRuleSetVersion: 'erp-tag-v4',
     });
 
     const row = db.prepare('SELECT target_rule_set_version FROM settings_previews WHERE preview_id = ?').get(preview.previewId) as any;
-    expect(row.target_rule_set_version).toBe('erp-tag-v3');
+    expect(row.target_rule_set_version).toBe('erp-tag-v4');
   });
 
-  it('未帶 targetRuleSetVersion 時，preview 記錄現行版本（v2），不會靜默升級', () => {
+  it('舊版 active run 未帶 targetRuleSetVersion 時，preview fail-closed', () => {
     const draft = buildSeedDraft();
-    const preview = previewSettingsChange(db, 'imp_a', {
+    expect(() => previewSettingsChange(db, 'imp_a', {
       draft,
       expectedRevision: (db.prepare('SELECT revision FROM active_state WHERE id = 1').get() as any).revision,
-    });
-    const row = db.prepare('SELECT target_rule_set_version FROM settings_previews WHERE preview_id = ?').get(preview.previewId) as any;
-    expect(row.target_rule_set_version).toBe('erp-tag-v2');
+    })).toThrow(SettingsPreviewError);
   });
 
-  it('升級 apply 後：新 run 為 v3 並成為 active，舊 v2 run 的值與分類完全不變', () => {
+  it('升級 apply 後：新 run 為 v4 並成為 active，舊 v2 run 的值與分類完全不變', () => {
     const revision = (db.prepare('SELECT revision FROM active_state WHERE id = 1').get() as any).revision as number;
     const oldRowsBefore = db.prepare('SELECT * FROM student_calculations WHERE run_id = ?').all('run_v2') as any[];
 
     const preview = previewSettingsChange(db, 'imp_a', {
       draft: buildSeedDraft(),
       expectedRevision: revision,
-      targetRuleSetVersion: 'erp-tag-v3',
+      targetRuleSetVersion: 'erp-tag-v4',
     });
     const applied = applySettingsPreview(db, {
       previewId: preview.previewId,
@@ -183,7 +235,7 @@ describe('D2b 4: preview 記錄目標版本、apply 用同一版本、產生新 
 
     expect(applied.runId).not.toBe('run_v2');
     const newRun = db.prepare('SELECT rule_set_version FROM calculation_runs WHERE id = ?').get(applied.runId) as any;
-    expect(newRun.rule_set_version).toBe('erp-tag-v3');
+    expect(newRun.rule_set_version).toBe('erp-tag-v4');
     const active = db.prepare('SELECT active_run_id FROM active_state WHERE id = 1').get() as any;
     expect(active.active_run_id).toBe(applied.runId);
 
@@ -195,7 +247,7 @@ describe('D2b 4: preview 記錄目標版本、apply 用同一版本、產生新 
   });
 
   it('Ruling 1: v3 active run 升級 apply 後：新 run 為 v4 並成為 active，舊 v3 run 的值完全不變', () => {
-    activate(db, 'imp_a', 'run_v3', 'erp-tag-v3');
+    activateSyntheticHistoricalRun(db, 'imp_a', 'run_v3', 'erp-tag-v3');
     const rev = (db.prepare('SELECT revision FROM active_state WHERE id = 1').get() as any).revision as number;
     const oldRowsBefore = db.prepare('SELECT * FROM student_calculations WHERE run_id = ?').all('run_v3') as any[];
 
@@ -228,7 +280,7 @@ describe('D2b 4: preview 記錄目標版本、apply 用同一版本、產生新 
     const preview = previewSettingsChange(db, 'imp_a', {
       draft: buildSeedDraft(),
       expectedRevision: revision,
-      targetRuleSetVersion: 'erp-tag-v3',
+      targetRuleSetVersion: 'erp-tag-v4',
     });
     const first = applySettingsPreview(db, { previewId: preview.previewId, expectedRevision: revision, idempotencyKey: 'idem-2' });
     const second = applySettingsPreview(db, { previewId: preview.previewId, expectedRevision: revision, idempotencyKey: 'idem-2' });
@@ -266,8 +318,8 @@ describe('D2b 6: 類別／固定 5 天變更進完整影響預覽（人數、天
     db = new Database(':memory:');
     runMigrations(db);
     seedStudents(db, 'imp_b');
-    // 以 v3 啟用，讓 after 計算使用類別式科數
-    activate(db, 'imp_b', 'run_v3', 'erp-tag-v3');
+    // 使用目前正式軌 v4 計算類別式科數。
+    activateV4(db, 'imp_b', 'run_v4');
   });
 
   afterEach(() => db.close());
@@ -282,7 +334,7 @@ describe('D2b 6: 類別／固定 5 天變更進完整影響預覽（人數、天
     const preview: any = previewSettingsChange(db, 'imp_b', {
       draft,
       expectedRevision: revision,
-      targetRuleSetVersion: 'erp-tag-v3',
+      targetRuleSetVersion: 'erp-tag-v4',
     });
 
     // 學生原本報兩類（care + math = 2 科 → 9500）；改成 none 後只剩 care = 1 科 → 10000
@@ -302,7 +354,7 @@ describe('D2b 6: 類別／固定 5 天變更進完整影響預覽（人數、天
     const preview: any = previewSettingsChange(db, 'imp_b', {
       draft,
       expectedRevision: revision,
-      targetRuleSetVersion: 'erp-tag-v3',
+      targetRuleSetVersion: 'erp-tag-v4',
     }) as any;
 
     expect(preview.dayDeltas).toHaveLength(0);
@@ -328,7 +380,7 @@ describe('D2b 6: 類別／固定 5 天變更進完整影響預覽（人數、天
     const preview: any = previewSettingsChange(db, 'imp_b', {
       draft,
       expectedRevision: revision,
-      targetRuleSetVersion: 'erp-tag-v3',
+      targetRuleSetVersion: 'erp-tag-v4',
     }) as any;
 
     // 撤回決定 → 該科不再計入 → 科數 2 → 1、折扣 9500 → 10000（1 科無折扣）
@@ -416,7 +468,7 @@ describe('D2b 1: 設定草稿 hash 涵蓋類別與固定 5 天（取消修改可
     db = new Database(':memory:');
     runMigrations(db);
     seedStudents(db, 'imp_d');
-    activate(db, 'imp_d', 'run_v3', 'erp-tag-v3');
+    activateV4(db, 'imp_d', 'run_v4');
   });
 
   afterEach(() => db.close());
@@ -428,13 +480,13 @@ describe('D2b 1: 設定草稿 hash 涵蓋類別與固定 5 天（取消修改可
     const unsetTarget = unsetDraft.classes.find((c) => c.baseName === '國小數學-四A')!;
     delete unsetTarget.category;
     delete unsetTarget.categorySource;
-    const unset = previewSettingsChange(db, 'imp_d', { draft: unsetDraft, expectedRevision: revision, targetRuleSetVersion: 'erp-tag-v3' });
+    const unset = previewSettingsChange(db, 'imp_d', { draft: unsetDraft, expectedRevision: revision, targetRuleSetVersion: 'erp-tag-v4' });
 
     const manualDraft: SettingsDraft = buildSeedDraft();
     const t = manualDraft.classes.find((c) => c.baseName === '國小數學-四A')!;
     t.category = 'math';
     t.categorySource = 'manual';
-    const manual = previewSettingsChange(db, 'imp_d', { draft: manualDraft, expectedRevision: revision, targetRuleSetVersion: 'erp-tag-v3' });
+    const manual = previewSettingsChange(db, 'imp_d', { draft: manualDraft, expectedRevision: revision, targetRuleSetVersion: 'erp-tag-v4' });
 
     // 兩份草稿的有效值相同（都是 math），但來源狀態不同 → hash 必須不同，
     // 否則「未設定」與「使用者指定」在草稿層就分不出來。

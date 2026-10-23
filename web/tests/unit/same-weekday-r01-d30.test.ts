@@ -245,27 +245,21 @@ describe('D30 / R01: 衝堂計算改為同星期才算（新 ruleSet 版本 erp-
       ['國小數學-特設班', [{ start: 780, end: 900, weekday: '六' }]],
     ]);
 
-    it('舊版本 erp-tag-v1: 週六時段照算扣天 (安親自 5 天扣 0.5 天變為 4.5 天)', () => {
-      const resV1 = calculateStudentBilling(mockStudent, {
+    it('retired v1 calculation is rejected; saved historical projections use their own reader', () => {
+      expect(() => calculateStudentBilling(mockStudent, {
         ruleSetVersion: 'erp-tag-v1',
         scheduleOverride: scheduleOverride as any,
-      });
-
-      // 120 分鐘 -> raw -2/3 -> rounded -0.5 -> 5 - 0.5 = 4.5
-      expect(resV1.careDays.anqin.days).toBe(4.5);
+      })).toThrow(/請以 v4 明確升級/);
     });
 
-    it('新版本 erp-tag-v2: 同星期才算衝堂，週六時段不計入安親窗口 (安親維持 5 天)', () => {
-      const resV2 = calculateStudentBilling(mockStudent, {
+    it('retired v2 calculation is rejected', () => {
+      expect(() => calculateStudentBilling(mockStudent, {
         ruleSetVersion: 'erp-tag-v2',
         scheduleOverride: scheduleOverride as any,
-      });
-
-      // 週六重疊為 0 -> 不扣天 -> 維持 5 天
-      expect(resV2.careDays.anqin.days).toBe(5);
+      })).toThrow(/請以 v4 明確升級/);
     });
 
-    it('預設 ruleSetVersion 應為 erp-tag-v2 (未帶參數時套用新正式規則)', () => {
+    it('new calculation defaults to current v4 rules and excludes Saturday from the weekday window', () => {
       const resDefault = calculateStudentBilling(mockStudent, {
         scheduleOverride: scheduleOverride as any,
       });
@@ -274,7 +268,7 @@ describe('D30 / R01: 衝堂計算改為同星期才算（新 ruleSet 版本 erp-
     });
   });
 
-  describe('4. F3/K2: v2 未知星期告警＋needs_review（不靜默）', () => {
+  describe('4. F3/K2: v4 未知星期告警＋needs_review（不靜默）', () => {
     const unknownStudent: StudentSnapshot = {
       personCode: 'TEST002',
       name: '未知星期生',
@@ -316,13 +310,14 @@ describe('D30 / R01: 衝堂計算改為同星期才算（新 ruleSet 版本 erp-
       sourceRow: 11,
     };
 
-    it('v2: 星期缺失（null）時段 fail-closed 為 0，並出 UNKNOWN_WEEKDAY 告警＋needs_review', () => {
+    it('v4: 星期缺失（null）時段 fail-closed 為 0，並出 UNKNOWN_WEEKDAY 告警＋needs_review', () => {
       const override = new Map<string, Array<{ start: number; end: number; weekday?: string | null }>>([
         ['國小數學-未知班', [{ start: 780, end: 900, weekday: null }]],
       ]);
       const res = calculateStudentBilling(unknownStudent, {
-        ruleSetVersion: 'erp-tag-v2',
+        ruleSetVersion: 'erp-tag-v4',
         scheduleOverride: override as any,
+        classSettings: new Map([['國小數學-未知班', { category: 'math', categorySource: 'manual' }]]),
       });
 
       // 未知星期 fail-closed：不扣天
@@ -335,13 +330,14 @@ describe('D30 / R01: 衝堂計算改為同星期才算（新 ruleSet 版本 erp-
       expect(res.tierComparisons.every((c) => c.issues.includes('SCHEDULE_INCOMPLETE'))).toBe(true);
     });
 
-    it('v2: 非法星期字串時段 fail-closed 為 0，並出 UNKNOWN_WEEKDAY 告警＋needs_review', () => {
+    it('v4: 非法星期字串時段 fail-closed 為 0，並出 UNKNOWN_WEEKDAY 告警＋needs_review', () => {
       const override = new Map<string, Array<{ start: number; end: number; weekday?: string | null }>>([
         ['國小數學-未知班', [{ start: 780, end: 900, weekday: '未知' }]],
       ]);
       const res = calculateStudentBilling(unknownStudent, {
-        ruleSetVersion: 'erp-tag-v2',
+        ruleSetVersion: 'erp-tag-v4',
         scheduleOverride: override as any,
+        classSettings: new Map([['國小數學-未知班', { category: 'math', categorySource: 'manual' }]]),
       });
 
       expect(res.careDays.anqin.days).toBe(5);
@@ -350,18 +346,14 @@ describe('D30 / R01: 衝堂計算改為同星期才算（新 ruleSet 版本 erp-
       expect(res.tierComparisons.every((c) => c.needsReview)).toBe(true);
     });
 
-    it('v1: 同一未知星期時段不告警、不改 needs_review（舊版本行為凍結）', () => {
+    it('v1 cannot be used to calculate a new result', () => {
       const override = new Map<string, Array<{ start: number; end: number; weekday?: string | null }>>([
         ['國小數學-未知班', [{ start: 780, end: 900, weekday: null }]],
       ]);
-      const res = calculateStudentBilling(unknownStudent, {
+      expect(() => calculateStudentBilling(unknownStudent, {
         ruleSetVersion: 'erp-tag-v1',
         scheduleOverride: override as any,
-      });
-
-      // v1 照時刻算：120 分鐘 -> -0.5 -> 4.5 天
-      expect(res.careDays.anqin.days).toBe(4.5);
-      expect(res.issues.some((i) => i.code === 'UNKNOWN_WEEKDAY')).toBe(false);
+      })).toThrow(/請以 v4 明確升級/);
     });
   });
 });

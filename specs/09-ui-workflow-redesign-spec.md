@@ -4,9 +4,11 @@
 
 > 2026-09-30修訂（[11](11-ui-acceptance-fix-plan.md) PR-0）：operator第一次人工驗收後，§2、§3.1、§3.2、§3.3、§4、§5.1、§5.2、§7依[06 D34–D39](06-handoff-decisions.md)改寫為**目標契約**。標「（目標，11 X）」處尚未實作到產品，以11對應批次（A、B1、B2、C、D）合併為完成；標「（11 B2 已實作）」「（11 C 已實作）」「（11 D1 已實作）」處為該批落地的現況；未標者為已交付現況。
 
+> **Issue #159 PR-2 current behavior:** 新計算與 calculation preview 固定 v4。一般 activate／recalculate／preview/apply 遇 active 任一非 v4（v1/v2/v3、compat 或 unknown）Run 時 fail-closed；設定頁明確勾選 v4 upgrade 後才產生新結果。Before 顯示已保存舊結果；缺少 saved result 時 fail-closed，不以舊 calculator 重建。下方 D1/Q11 的版本沿用文字是歷史設計記錄，現行契約見 [03 §5.6](03-architecture-api.md)、[04 UX98/UX99](04-tdd-acceptance.md)、[06 D57](06-handoff-decisions.md)。
+
 ## 1. 目的、範圍與依據
 
-行政人員不用理解開發術語，就能先維護課表、匯入學生，再按班級核對收費資訊。此次使用者抽樣未見計算異常；保留現有domain、D24／D25–D32、erp-tag-v2及舊run結果。本文件依D33補充01的畫面流程，並在§8明定03設定生命週期需放寬之處（無學生儲存、activate採已儲存設定）；02計費規則不變，權威層級見根CLAUDE.md §2。
+行政人員不用理解開發術語，就能先維護課表、匯入學生，再按班級核對收費資訊。本文件依D33補充01的畫面流程，並在§8明定03設定生命週期需放寬之處（無學生儲存、activate採已儲存設定）。版本沿用與計算契約已由 #159 PR-2 更新：目前新計算固定 v4，active 舊 run 需明確升級；權威層級見根 CLAUDE.md §2 與 03 §5.6。
 
 交付：[實作plan](10-ui-workflow-redesign-plan.md)、[可點選示意稿](design/ui-workflow-prototype.html)。示意使用虛構資料、不連API，不是新計算基準；正式契約以本文件為準。不做財務匯入、自動開單、點名表、登入或雲端部署。**不在範圍**：安親／課輔窗口編輯（operator已決定窗口固定、不可編輯）、設定有效日期（窗口固定，無需依日期選版）（D33；見§3.1、§8.2.1）。
 
@@ -72,7 +74,7 @@
 - **跨類別別名提示（Q13）已於 #157 廢除**（06 D53 Ruling 4）：該提示的內容是「米豆奶班名與系統班名各自會被**自動偵測**成什麼類別，兩者不同」——自動偵測既已不存在，提示沒有可比較的對象，保留它只會是空殼。別名機制本身（把米豆奶班名對到系統班）不受影響，仍照常對應、預覽與儲存。
 - **名單中尚未加入課表設定的班級（#157 PR-2）**：課表頁使用班名比對報告同一份 `report.rosterOnly` 顯示名冊有報名但目前沒有課表列的班名、學生數與報名筆數。［加入課表設定］帶入原班名並開啟一般新增班級流程；初始折扣類別為「（未設定）」且固定 5 天未勾，課程類型可由使用者選擇。此動作不建立 alias、不依班名推測類別或課程類型；候選已在草稿列中出現時隱藏，報告過期時停用操作，直到重新取得最新報告。
 
-**升級確認（Q11；D2b 已實作；#112 起目標版本為 v4）**：現行 run 尚未達目標版本時（如 v2 或 v3），課表頁顯示「改用新規則（v4）」勾選（未勾選＝維持現行規則，既有結果不受影響）。勾選後的「確認變更」以 v4 目標版本預覽與儲存，產生新的核對結果；已產生的舊結果不會被改寫。空 DB（尚無啟用的 run）不顯示此勾選——該次啟用即建立於目標版本。保留D25/D28逐列獨立改名，不改為只能整班改名。同名多列以細分隔分組；班名搜尋保留該班全部時段。新增時段在工具列，刪列在列尾選單、只改草稿且可取消；整班停用仍active=false。影響學生／別名的刪改在確認視窗呈現，不因有學生就禁止刪列。
+**升級確認（Q11；現況依 #159 PR-2 更新）**：active run 若為任一非 v4 版本（v1/v2/v3、compat 或無法辨識版本），設定頁顯示「改用新規則（v4）」勾選。未勾選時普通 preview/apply 與 activate/recalculate fail-closed，要求先明確授權升級；勾選後 schedule/settings preview 的 after 固定 v4，before 顯示持久化舊 Run 結果，不呼叫舊 calculator。確認後建立新的 v4 Run，舊 Run 完整保留；若缺少可讀取的 persisted before，preview fail-closed。空 DB 不顯示升級勾選，初次 Run 固定 v4。保留D25/D28逐列獨立改名，不改為只能整班改名。同名多列以細分隔分組；班名搜尋保留該班全部時段。新增時段在工具列，刪列在列尾選單、只改草稿且可取消；整班停用仍active=false。影響學生／別名的刪改在確認視窗呈現，不因有學生就禁止刪列。
 
 右側只讀欄：課程時長（分）、安親重疊（分）、安親扣除（未取整／天）、課輔重疊（分）、課輔扣除（未取整／天）。兩個安親／課輔欄各自分組。單堂不能顯成已取整扣天。
 
@@ -287,7 +289,7 @@ tooltip短句、數值；hover/focus/click均可開、Esc可關。多步說明�
 
 建議POST /api/v1/settings/calculate：輸入draft（`CalculateDraft`，允許帶可選`rowId`，且`startMinutes`／`endMinutes`允許為null或end≤start的不完整列，`weekday`允許空白或過長〔≤64字元〕，回該列`unknown_weekday`，見§3.1）、requestKey（**不含ruleSetVersion**）；回requestKey、draftHash、ruleSetVersion、windows、rows、classes、issues。rows含rowId/classKey/durationMinutes、兩組overlapMinutes/rawDeduction/status；classes含兩組totalOverlapMinutes/raw/rounded/status/rowIds。rowId保持穩定（client帶來的原樣回傳，未帶才補序號），不完整列回null＋`missing_time`與`SCHEDULE_INCOMPLETE`問題；班級含不完整列時標為`incomplete`，扣天只計完整列；`draftHash`取去掉不完整列與rowId之「存檔等價draft」計算，確保與存檔時之preview `inputHash`完全同源；星期空白或過長的列存不了（settings/preview回400），同樣不入hash；此時hash對應移除這些列後的草稿，可能與該可存檔草稿的`inputHash`相同，不代表原草稿可提交，也不取代列狀態與問題。這個POST僅純計算，不建立preview／run、不寫DB，仍驗same-origin與payload限制。
 
-**ruleSetVersion由server決定**，做法同`web/src/application/settings-preview.ts:125-132`：有active run採其ruleSetVersion，無則採目標正式軌 `erp-tag-v3`（D2 起，見 [03 §5.4.4](03-architecture-api.md#544-升級確認q11s-manifest-2)）；既有正式軌 active 版本不被靜默切換。新增要求：值必須是正式軌；若active run為診斷軌excel-v260922-compat（activate現未限制版本，`web/src/application/calculate-run.ts:29`）則改採現行正式軌。client不得指定，任何情況不得選compat（診斷軌不作正式值，根CLAUDE.md §2）。
+**現行 `ruleSetVersion` 入口（#159 PR-2）**：server 新計算一律選 `erp-tag-v4`，client 不得指定。active 舊版不會沿用；未明確勾選 v4 upgrade 時 fail-closed。原 D1 resolver 選版說明留作歷史記錄，現在由 [03 §5.6](03-architecture-api.md) 覆蓋。
 
 新增GET /api/v1/settings/deductions?runId=：指定run讀固定快照；無指定有active則active，無active才saved settings；回scope及版本，不寫DB。不可用最新課表補舊run。
 
@@ -297,7 +299,7 @@ tooltip短句、數值；hover/focus/click均可開、Esc可關。多步說明�
 
 現況：roster-view送出activate只帶expectedRevision／idempotencyKey／asOfDate（`web/src/components/roster-view.tsx:84-91`）；route只轉交asOfDate／scheduleVersionId／ruleSetVersion（`web/src/app/api/v1/imports/[previewId]/activate/route.ts:22-32`）；activateImport以此options呼叫executeCalculationRun（`activate-import.ts:112`），options沒有aliasMap／scheduleOverride（`web/src/application/calculate-run.ts:92-93,99-100`皆為undefined），scheduleVersionId預設`seed-v250922`（同檔28）。結果：「套用設定→匯入新名單→啟用」的新run計算退回seed課表、不套班名對應，且run.scheduleVersionId（同檔200）標成seed。D17要求照實呈現，這是靜默丟失人工設定。apply路徑則正確傳入（`web/src/application/apply-settings.ts:129-135`）。
 
-目標契約：**每一次**activate，server於同一交易內解析最新已儲存settings version（`getLatestSettingsVersion`，`settings-repository.ts:62-69`，取revision最大者，不依日期）：有則經draftToAliasMap／draftToScheduleOverride（同apply）計算，run.scheduleVersionId＝該version id；尚無任何已儲存設定才用seed（scheduleVersionId維持`seed-v250922`）。client傳入的scheduleVersionId一律忽略（現況它只被寫成run標籤，會讓run宣稱用了實際沒用的版本），冪等hash不含它。activate的ruleSetVersion原可由client指定正式軌；**11 D1 起改為 server 決定（[06 D40](06-handoff-decisions.md)）**：body 帶 `ruleSetVersion`（含 null）一律 400 `INVALID_REQUEST`，application 層也拒絕；新 run 的版本沿用現行 run 的正式軌版本，沒有現行 run 或現行 run 是診斷軌則用目標正式軌 `erp-tag-v3`（D2 起，見 [03 §5.4.4](03-architecture-api.md#544-升級確認q11s-manifest-2)）；冪等 hash 不含版本（D1 前的紀錄同 key 同內容重送仍回原結果）。細節見[03 §5.2.1](03-architecture-api.md)，驗收 UX36。activate與設定變更之間的競爭由revision CAS擋下（apply與settings_only皆遞增revision）。
+目標契約：**每一次**activate，server於同一交易內解析最新已儲存settings version（`getLatestSettingsVersion`，取revision最大者，不依日期）：有則經draftToAliasMap／draftToScheduleOverride（同apply）計算，run.scheduleVersionId＝該version id；尚無任何已儲存設定才用seed（scheduleVersionId維持`seed-v250922`）。client傳入的scheduleVersionId一律忽略，冪等hash不含它。activate body 帶 `ruleSetVersion`（含 null）一律 400 `INVALID_REQUEST`，application 層也拒絕；新 Run 固定 v4。Active 舊版需先明確勾選 v4 upgrade，否則 fail-closed；舊成功 idempotency replay 仍先回原 response。activate與設定變更之間的競爭由revision CAS擋下。原 D1 resolver 版本沿用說明保留為歷史記錄；現況見[03 §5.6](03-architecture-api.md)，驗收見UX98。
 
 `effectiveFrom／effectiveTo`現況只在apply寫入（`apply-settings.ts:121-122`），沒有任何選版或計算讀取，設定編輯器也無此欄；operator已決定窗口固定（D33），無需依日期選版，有效日期**不在範圍**：欄位保留於schema但不使用，本文件不描述、UI不提供有效日期能力；核對基準日asOfDate是既有概念（§2、§4），與有效日期無關。
 

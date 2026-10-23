@@ -1,6 +1,6 @@
 import Database from 'better-sqlite3';
 import { loadRunClassCategories, type RunClassCategorySnapshot } from '@/application/applicable-rate';
-import { ruleSetCapabilities } from '@/domain/billing/rule-set';
+import { historicalRuleSetMetadata } from '@/domain/billing/rule-set';
 import type { RunDiagnosticsSnapshot } from '@/contracts/run-diagnostics';
 
 export interface CalculationRunRecord {
@@ -149,7 +149,7 @@ export function saveCalculationRun(
   }
 
   // R2-1: 類別快照持久化 (categoryBasedBilling)，置於 calculation_runs 確定存在後執行，避免級聯刪除
-  if (ruleSetCapabilities(run.ruleSetVersion).categoryBasedBilling && classCategories && classCategories.length > 0) {
+  if (historicalRuleSetMetadata(run.ruleSetVersion).hasClassCategorySnapshot && classCategories && classCategories.length > 0) {
     const insertCategory = db.prepare(`
       INSERT OR REPLACE INTO run_class_categories (
         run_id, base_name, category, fixed_five_days, mapped, source
@@ -200,7 +200,7 @@ export function getCalculationRun(
   // 判定用能力旗標而非字面比較（03 §5.3.1 禁止 `=== 'erp-tag-v3'`）：
   // v3 但零列必須是 `[]`，否則讀模型會退回當前班名映射，
   // 正是 03 §5.3.4 明文禁止的猜測。v1／v2 沒有快照概念，維持 `undefined`。
-  if (ruleSetCapabilities(record.ruleSetVersion).categoryBasedBilling) {
+  if (historicalRuleSetMetadata(record.ruleSetVersion).hasClassCategorySnapshot) {
     record.classCategories = loadRunClassCategories(db, runId);
   }
 

@@ -1,14 +1,15 @@
 import Database from 'better-sqlite3';
 import { StudentSnapshot, ParsedToken } from '@/domain/students';
 import { calculateStudentBilling, RuleSetVersion, ResolvedClassSession } from '@/domain/billing/billing-calculator';
-import { ruleSetCapabilities } from '@/domain/billing/rule-set';
 import { CalculationRunRecord, StudentCalculationRecord, RunClassCategoryRecord } from '@/adapters/sqlite/runs-repository';
 import seedData from '@/domain/schedules/schedule-seed.json';
 import { SettingsDraft } from '@/contracts/settings';
 import { todayInTaipei } from '@/lib/datetime';
 import { resolveClassEnrollment, ClassSettingLookup } from '@/domain/classification/class-category';
+import { TARGET_FORMAL_RULE_SET_VERSION } from '@/domain/billing/rule-set';
 import {
   getLatestSettingsVersion,
+  getSettingsPreview,
   getSettingsVersionById,
   buildSeedDraft,
   draftToAliasMap,
@@ -49,6 +50,8 @@ export interface CalculateRunOptions {
   aliasMap?: Map<string, string>;
   scheduleOverride?: Map<string, ResolvedClassSession[]>;
   classSettings?: Map<string, ClassSettingLookup>;
+  /** Stored, unexpired v4 preview authorization, supplied only by settings apply. */
+  upgradePreviewId?: string;
 }
 
 /**
@@ -84,7 +87,44 @@ export function executeCalculationRun(
   options: CalculateRunOptions = {}
 ): { run: CalculationRunRecord; results: StudentCalculationRecord[]; classCategories?: RunClassCategoryRecord[] } {
   const scheduleVersionId = options.scheduleVersionId || SEED_SCHEDULE_VERSION_ID;
-  const ruleSetVersion = options.ruleSetVersion || 'erp-tag-v2';
+  const ruleSetVersion = options.ruleSetVersion || TARGET_FORMAL_RULE_SET_VERSION;
+  if (ruleSetVersion !== TARGET_FORMAL_RULE_SET_VERSION) {
+    throw new Error(
+      `新計算 Run 僅支援 ${TARGET_FORMAL_RULE_SET_VERSION}；舊版資料請透過課表設定明確預覽並確認升級。`
+    );
+  }
+
+  // The low-level run boundary is also used by application callers, so a caller-supplied v4
+  // version cannot bypass the active-run upgrade gate. An old/unknown active run is writable
+  // only when settings apply forwards the ID of the same stored, current, v4-target preview.
+  const active = db.prepare('SELECT active_run_id, active_import_id, revision FROM active_state WHERE id = 1').get() as
+    | { active_run_id: string | null; active_import_id: string | null; revision: number }
+    | undefined;
+  if (active?.active_run_id) {
+    const activeRun = db.prepare('SELECT rule_set_version FROM calculation_runs WHERE id = ?').get(active.active_run_id) as
+      | { rule_set_version: string }
+      | undefined;
+    if (!activeRun) {
+      throw new Error(`現行 active Run「${active.active_run_id}」不存在，無法安全建立新 Run。`);
+    }
+    if (activeRun.rule_set_version !== TARGET_FORMAL_RULE_SET_VERSION) {
+      const preview = options.upgradePreviewId ? getSettingsPreview(db, options.upgradePreviewId) : null;
+      const expiresAtMs = preview?.expiresAt ? Date.parse(preview.expiresAt) : Number.NaN;
+      const hasValidFutureExpiry = Number.isFinite(expiresAtMs) && expiresAtMs > Date.now();
+      if (
+        !preview ||
+        !hasValidFutureExpiry ||
+        preview.targetRuleSetVersion !== TARGET_FORMAL_RULE_SET_VERSION ||
+        preview.importId !== importId ||
+        preview.importId !== active.active_import_id ||
+        preview.expectedRevision !== active.revision
+      ) {
+        throw new Error(
+          `現行 Run 使用 ${activeRun.rule_set_version}；建立新 Run 必須經由未過期、版本一致的 v4 明確升級預覽。`
+        );
+      }
+    }
+  }
   const numericPolicy = options.numericPolicy || 'integer-minute-rational-v1';
   const asOfDate = options.asOfDate || todayInTaipei();
   const now = new Date().toISOString();
@@ -169,14 +209,13 @@ export function executeCalculationRun(
     });
 
     // 計算八項天數
-    // D2d B（04 §8 UX71；D40 Q10-A）：v3 重複同類時取「選中班」的場次數，與天數計算同一份
+    // D2d B（04 §8 UX71；D40 Q10-A）：重複同類時取「選中班」的場次數，與天數計算同一份
     // 選班結果（`formal.selection`），不得各自再取一次首班——否則同一學生會出現
     // 「天數按 Chevady 算、englishDays 按 Gino 算」的鏡像不一致。
-    // v1／v2／compat 無 selection（仍是首班語意），名稱判斷與 seed 場次數來源皆不變。
     let englishDays: number | null = null;
     const hasEnglish = enrollments.some((e) => e.baseName.includes('兒童美語'));
     if (hasEnglish) {
-      if (ruleSetCapabilities(ruleSetVersion).categoryBasedBilling && formal.selection?.english) {
+      if (formal.selection?.english) {
         const selected = formal.selection.english.selectedBaseName;
         const enSeed = seedMap.get(selected);
         englishDays = enSeed ? enSeed.sessions.length : 2;
@@ -190,7 +229,7 @@ export function executeCalculationRun(
     let mathDays: number | null = null;
     const hasMath = enrollments.some((e) => e.baseName.includes('國小數學'));
     if (hasMath) {
-      if (ruleSetCapabilities(ruleSetVersion).categoryBasedBilling && formal.selection?.math) {
+      if (formal.selection?.math) {
         const selected = formal.selection.math.selectedBaseName;
         const maSeed = seedMap.get(selected);
         mathDays = maSeed ? maSeed.sessions.length : 2;
@@ -291,7 +330,7 @@ export function executeCalculationRun(
 
   // R2-1 & R2-2: 產生 run_class_categories 快照物件，供 saveCalculationRun 持久化
   let classCategories: RunClassCategoryRecord[] | undefined;
-  if (ruleSetCapabilities(ruleSetVersion).categoryBasedBilling) {
+  {
     const classCategoryMap = new Map<string, RunClassCategoryRecord>();
 
     for (const r of enrollmentRows) {

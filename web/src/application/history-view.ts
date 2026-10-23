@@ -125,12 +125,12 @@ export type RunDeductionsResult =
 const UNAVAILABLE_MESSAGES = {
   SNAPSHOT_UNAVAILABLE:
     '找不到當時的課表資料，資料不足，無法重建。系統不會改用最新課表補算，以免與當時的結果不一致。',
-  UNSUPPORTED_RULESET: '這筆結果使用診斷用的計算規則，不提供班級扣天。',
+  UNSUPPORTED_RULESET: '這筆結果的規則版本無法辨識或不支援，無法安全重建班級扣天。',
 } as const;
 
 /**
  * 歷史 run 的班級扣天：讀該 run 當時的課表快照（scope=run），絕不用最新設定補算。
- * 快照不存在或屬診斷軌時回 unavailable 與可直接顯示的說明；其餘錯誤照常丟出（畫面走失敗態）。
+ * 快照不存在或版本無法安全重建時回 unavailable 與可直接顯示的說明；其餘錯誤照常丟出（畫面走失敗態）。
  */
 export function getRunDeductionsOrReason(db: Database.Database, runId: string): RunDeductionsResult {
   if (!getCalculationRun(db, runId)) return { status: 'not_found' };

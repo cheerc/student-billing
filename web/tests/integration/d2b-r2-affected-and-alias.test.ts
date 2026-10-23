@@ -85,7 +85,7 @@ function seedTwoStudents(db: Database.Database, importId: string) {
 }
 
 function activate(db: Database.Database, importId: string, runId: string) {
-  const res = executeCalculationRun(db, importId, runId, { ruleSetVersion: 'erp-tag-v3' as any });
+  const res = executeCalculationRun(db, importId, runId, { ruleSetVersion: 'erp-tag-v4' as any });
   saveCalculationRun(db, res.run, res.results, res.classCategories);
   db.prepare('UPDATE active_state SET active_run_id = ?, active_import_id = ? WHERE id = 1').run(runId, importId);
   return res;
@@ -102,7 +102,7 @@ describe('D2b r2 R2-1: affectedStudents 為三類 delta 的 personCode 聯集去
     db = new Database(':memory:');
     runMigrations(db);
     seedTwoStudents(db, 'imp_r2');
-    activate(db, 'imp_r2', 'run_r2_v3');
+    activate(db, 'imp_r2', 'run_r2_v4');
   });
 
   afterEach(() => db.close());
@@ -120,7 +120,7 @@ describe('D2b r2 R2-1: affectedStudents 為三類 delta 的 personCode 聯集去
     const preview: any = previewSettingsChange(db, 'imp_r2', {
       draft,
       expectedRevision: revision(db),
-      targetRuleSetVersion: 'erp-tag-v3',
+      targetRuleSetVersion: 'erp-tag-v4',
     });
 
     // 前置確認：必須同時產生多類 delta，否則本測試會重複 r1 的盲點
@@ -147,7 +147,7 @@ describe('D2b r2 R2-1: affectedStudents 為三類 delta 的 personCode 聯集去
     const preview: any = previewSettingsChange(db, 'imp_r2', {
       draft,
       expectedRevision: revision(db),
-      targetRuleSetVersion: 'erp-tag-v3',
+      targetRuleSetVersion: 'erp-tag-v4',
     });
 
     // 關鍵：只有科數與折扣變化、天數不變
@@ -175,7 +175,7 @@ describe('D2b r2 R2-1: affectedStudents 為三類 delta 的 personCode 聯集去
     const preview: any = previewSettingsChange(db, 'imp_r2', {
       draft,
       expectedRevision: revision(db),
-      targetRuleSetVersion: 'erp-tag-v3',
+      targetRuleSetVersion: 'erp-tag-v4',
     });
 
     // 前置確認：三種 delta 都非空，且涵蓋同樣的 2 人
@@ -196,7 +196,7 @@ describe('D2b r2 R2-1: affectedStudents 為三類 delta 的 personCode 聯集去
     const preview: any = previewSettingsChange(db, 'imp_r2', {
       draft: buildSeedDraft(),
       expectedRevision: revision(db),
-      targetRuleSetVersion: 'erp-tag-v3',
+      targetRuleSetVersion: 'erp-tag-v4',
     });
     expect(preview.dayDeltas).toHaveLength(0);
     expect(preview.subjectCountDeltas).toHaveLength(0);

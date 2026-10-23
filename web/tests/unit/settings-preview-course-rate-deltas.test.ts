@@ -2,8 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import Database from 'better-sqlite3';
 import { runMigrations } from '@/adapters/sqlite/migrator';
 import { saveImportBatch } from '@/adapters/sqlite/import-repository';
-import { executeCalculationRun } from '@/application/calculate-run';
-import { saveCalculationRun } from '@/adapters/sqlite/runs-repository';
+import { saveCalculationRun, type CalculationRunRecord, type StudentCalculationRecord } from '@/adapters/sqlite/runs-repository';
 import { previewSettingsChange } from '@/application/settings-preview';
 import { buildSeedDraft, saveSettingsVersion } from '@/adapters/sqlite/settings-repository';
 import type { SettingsDraft } from '@/contracts/settings';
@@ -83,15 +82,36 @@ function seedFourGradeStudent(db: Database.Database, importId: string) {
   );
 }
 
-function activate(db: Database.Database, importId: string, runId: string, version: string = 'erp-tag-v3') {
-  const classSettings = new Map([
-    ['國小輔導-四年級', { category: 'care' as const, fixedFiveDays: true }],
-    ['國小數學-四A', { category: 'math' as const, fixedFiveDays: false }],
+function activateHistoricalV3(db: Database.Database, importId: string, runId: string) {
+  const now = '2026-10-23T00:00:00.000Z';
+  const run: CalculationRunRecord = {
+    id: runId,
+    importId,
+    scheduleVersionId: 'setv_test',
+    ruleSetVersion: 'erp-tag-v3',
+    numericPolicy: 'integer-minute-rational-v1',
+    asOfDate: '2026-10-23',
+    status: 'completed',
+    issueCounts: {},
+    totalStudents: 1,
+    createdAt: now,
+  };
+  const result: StudentCalculationRecord = {
+    id: `${runId}_S_FOURTH`, runId, personCode: 'S_FOURTH', name: '四年級生', branch: '本校',
+    grade: 4, gradeRaw: '四年級', subjectCount: 2, baseDiscountBps: 9500,
+    anqinDays: null, anqinDisplay: null, tutoringDays: 5, tutoringDisplay: '5',
+    englishDays: null, mathDays: 2, chineseDays: null, homeworkDays: null,
+    intensiveEnglishDays: null, saturdayTutoringDays: null,
+    applicableAnqinBps: 10000, applicableTutoringBps: 10000,
+    applicableEnglishBps: 9500, applicableMathBps: 9500,
+    tierMismatch: false, tierComparisons: [], issues: [], hasIssues: false,
+    trace: { sourceRow: 1, rawTags: '', rawNotes: '', enrollments: [] }, createdAt: now,
+  };
+  saveCalculationRun(db, run, [result], [
+    { baseName: '國小輔導-四年級', category: 'care', fixedFiveDays: 1, mapped: 1, source: 'manual' },
+    { baseName: '國小數學-四A', category: 'math', fixedFiveDays: 0, mapped: 1, source: 'manual' },
   ]);
-  const res = executeCalculationRun(db, importId, runId, { ruleSetVersion: version as any, classSettings });
-  saveCalculationRun(db, res.run, res.results, res.classCategories);
   db.prepare('UPDATE active_state SET active_run_id = ?, active_import_id = ?, revision = 1 WHERE id = 1').run(runId, importId);
-  return res;
 }
 
 describe('Ruling 2: settings-preview 納入課程學費折扣差異（courseRateDeltas 方案 a）', () => {
@@ -101,7 +121,7 @@ describe('Ruling 2: settings-preview 納入課程學費折扣差異（courseRate
     db = new Database(':memory:');
     runMigrations(db);
     seedFourGradeStudent(db, 'imp_four');
-    activate(db, 'imp_four', 'run_v3', 'erp-tag-v3');
+    activateHistoricalV3(db, 'imp_four', 'run_v3');
   });
 
   afterEach(() => db.close());
@@ -146,29 +166,12 @@ describe('Ruling 2: settings-preview 納入課程學費折扣差異（courseRate
     expect(preview.affectedStudents).toBe(1);
   });
 
-  it('2. 日常設定編輯（非升級）：在 v3 下切換固定 5 天亦會改變收費率 → courseRateDeltas 正常觸發', () => {
+  it('2. 舊版 active 時未明確確認升級 v4，預覽必須 fail-closed', () => {
     const draft: SettingsDraft = buildSeedDraft();
-    const care = draft.classes.find((c) => c.baseName === '國小輔導-四年級')!;
-    // 已存設定為 true，編輯草稿取消勾選為 false
-    care.fixedFiveDays = false;
-
-    const preview = previewSettingsChange(db, 'imp_four', {
+    expect(() => previewSettingsChange(db, 'imp_four', {
       draft,
       expectedRevision: 1,
-      targetRuleSetVersion: 'erp-tag-v3', // 維持 v3
-    });
-
-    // 在 v3 下，取消固定 5 天會讓課輔收費率由 10000 回到 9500
-    expect(preview.courseRateDeltas).toBeDefined();
-    expect(preview.courseRateDeltas).toContainEqual({
-      personCode: 'S_FOURTH',
-      name: '四年級生',
-      course: 'tutoring',
-      courseLabel: '課輔',
-      before: 10000,
-      after: 9500,
-    });
-    expect(preview.affectedStudents).toBe(1);
+    })).toThrow(/erp-tag-v4|upgrade/i);
   });
 
   it('3. settings_only 模式下：courseRateDeltas 與 affectedStudents 必須維持 null，不可為 [] 或 0', () => {

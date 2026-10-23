@@ -9,7 +9,7 @@ import { executeCalculationRun } from '@/application/calculate-run';
 import { saveCalculationRun } from '@/adapters/sqlite/runs-repository';
 
 /**
- * D2d B（RED）：八項總表的 englishDays／mathDays 在重複同類時必須取**選中班**。
+ * D2d B：八項總表的 englishDays／mathDays 在重複同類時取**選中班**。
  *
  * D40 Q10-A：「維持現狀（名稱判斷與 seed 場次數），只在重複同類時改取選中班。」
  * 現行 calculate-run.ts:218-231 用 `enrollments.find(...)`（**首班**）的 seed 場次數。
@@ -23,11 +23,9 @@ import { saveCalculationRun } from '@/adapters/sqlite/runs-repository';
  *   ② 兒童美語-Chevady：2 堂各 120 分重疊、end 1130∈(1110,1170) → 課輔特例
  *        → raw −2 → rounded −2，sessions 2
  *
- * v2 首班語意 → 選 Gino（扣 0.5）→ 天數 max(3, 5−0.5) = 4.5；englishDays = 3
- * v3 取正量最多 → 選 Chevady（扣 2.0）→ 天數 max(3, 5−2) = 3.0；englishDays 應 = 2
+ * v4 取扣除量最多 → 選 Chevady（扣 2.0）→ 天數 max(3, 5−2) = 3.0；englishDays = 2
  *
- * 現行實作 v3 的 englishDays 仍取首班 → 3，與應有值 2 不同。
- * 本檔以 production 呼叫鏈（executeCalculationRun + saveCalculationRun）觀察。
+ * 本檔以 v4 production 呼叫鏈（executeCalculationRun + saveCalculationRun）觀察。
  */
 
 function makeStudent(personCode: string, baseNames: string[], grade: number): StudentSnapshot {
@@ -70,26 +68,26 @@ describe('D2d B: 八項總表重複同類取選中班（Q10-A）', () => {
     classSettings: manualCategories({ english: ['兒童美語-Gino', '兒童美語-Chevady'] }),
   } as const;
 
-  it('calculator 的 v3 結果必須輸出選中班（selection）供下游共用', () => {
+  it('v4 calculator 輸出選中班（selection）供下游共用', () => {
     const student = makeStudent('S-EN-DUP', ['兒童美語-Gino', '兒童美語-Chevady'], 4);
-    const v3 = calculateStudentBilling(student, {
+    const v4 = calculateStudentBilling(student, {
       ...SEED_PATH,
-      ruleSetVersion: 'erp-tag-v3',
+      ruleSetVersion: 'erp-tag-v4',
     });
 
     // 前置手算（以產品 overlap-calculator 實算確認）：
     //   兒童美語-Gino（首班）：3 堂，課輔窗口（990–1170）重疊 20/30/20 分 → raw −0.389 → D24 rounded −0.5
     //   兒童美語-Chevady：2 堂各 120 分重疊且 end 1130∈(1110,1170) → 課輔特例 −1 兩次 → rounded −2
-    // v2 首班語意 → Gino 扣 0.5 → max(3, 5−0.5) = 4.5；v3 取正量最多 → Chevady 扣 2 → max(3, 5−2) = 3
-    expect(v3.careDays.tutoring.days).toBe(3);
+    // v4 選 Chevady 扣 2 → max(3, 5−2) = 3
+    expect(v4.careDays.tutoring.days).toBe(3);
 
     // 預期契約（S §7.5 第 6 點）：calculator 輸出 selection
-    const selection = (v3 as unknown as { selection?: Record<string, unknown> }).selection;
+    const selection = (v4 as unknown as { selection?: Record<string, unknown> }).selection;
     expect(selection).toBeDefined();
     expect(selection!.english).toMatchObject({ selectedBaseName: '兒童美語-Chevady' });
   });
 
-  it('production 呼叫鏈：v3 run 的 englishDays 應為選中班場次數 2（現行為首班 3）', () => {
+  it('production 呼叫鏈：v4 run 的 englishDays 為選中班場次數 2', () => {
     const db = new Database(':memory:');
     try {
       runMigrations(db);
@@ -139,12 +137,12 @@ describe('D2d B: 八項總表重複同類取選中班（Q10-A）', () => {
       );
 
       const res = executeCalculationRun(db, 'imp_en', 'run_d2d_b', {
-        ruleSetVersion: 'erp-tag-v3',
+        ruleSetVersion: 'erp-tag-v4',
       });
       saveCalculationRun(db, res.run, res.results, res.classCategories);
 
       const rec = res.results.find((r) => r.personCode === 'S-EN-DUP')!;
-      // 預期：englishDays = Chevady 的 2（選中班）；現行實作為首班 Gino 的 3
+      // englishDays = Chevady 的 2（選中班）。
       expect(rec.englishDays).toBe(2);
     } finally {
       db.close();

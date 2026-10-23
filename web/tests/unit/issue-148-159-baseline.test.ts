@@ -12,7 +12,7 @@ import {
   resolveClassEnrollment,
   type ClassSettingLookup,
 } from '@/domain/classification/class-category';
-import { calculateSubjectCountV3 } from '@/domain/billing/discount-rules';
+import { calculateSubjectCountByCategory } from '@/domain/billing/discount-rules';
 import { parseSingleClassToken } from '@/domain/students/token-parser';
 import type { StudentSnapshot } from '@/domain/students/types';
 
@@ -102,7 +102,7 @@ describe('Issues #148 + #159 PR-0: post-#157 synthetic v4 characterization', () 
     expect(unmappedByNameOnly).toMatchObject({
       mapped: false, category: 'unset', categorySource: 'unset', fixedFiveDays: false,
     });
-    expect(calculateSubjectCountV3(['none', 'unset'])).toBe(0);
+    expect(calculateSubjectCountByCategory(['none', 'unset'])).toBe(0);
 
     const tier = parseSingleClassToken('115國小輔導-合成班[團][4_5] (2026-10-01離班)');
     expect(tier).toMatchObject({

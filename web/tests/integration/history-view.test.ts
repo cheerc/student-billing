@@ -223,7 +223,7 @@ describe('歷史 run 的班級扣天：讀當時快照，資料不足要明示�
     }
   });
 
-  it('診斷軌（excel-v260922-compat）run → unavailable：說明不提供班級扣天', () => {
+  it('compat 歷史 run → unavailable：不以正式規則猜測班級扣天', () => {
     saveCalculationRun(db, run('run_diag', 'imp_1', '2026-09-02T02:00:00.000Z', { ruleSetVersion: 'excel-v260922-compat' }), []);
 
     const result = getRunDeductionsOrReason(db, 'run_diag');
@@ -231,8 +231,21 @@ describe('歷史 run 的班級扣天：讀當時快照，資料不足要明示�
     expect(result.status).toBe('unavailable');
     if (result.status === 'unavailable') {
       expect(result.code).toBe('UNSUPPORTED_RULESET');
-      expect(result.message).toContain('不提供班級扣天');
+      expect(result.message).toContain('無法辨識或不支援');
       expect(result.message).not.toContain('excel-v260922-compat');
+    }
+  });
+
+  it('未知的歷史規則版本 → unavailable，不以 v1/v2 的星期語意猜測重建', () => {
+    saveCalculationRun(db, run('run_unknown_rules', 'imp_1', '2026-09-02T02:00:00.000Z', { ruleSetVersion: 'erp-tag-v999-corrupt' }), []);
+
+    const result = getRunDeductionsOrReason(db, 'run_unknown_rules');
+
+    expect(result.status).toBe('unavailable');
+    if (result.status === 'unavailable') {
+      expect(result.code).toBe('UNSUPPORTED_RULESET');
+      expect(result.message).toContain('無法辨識或不支援');
+      expect(result.message).not.toContain('erp-tag-v999-corrupt');
     }
   });
 

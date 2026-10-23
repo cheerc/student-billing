@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  calculateSubjectCount,
+  calculateSubjectCountByCategory,
   calculateBaseDiscountBps,
   parseTagDiscounts,
 } from '@/domain/billing/discount-rules';
@@ -8,47 +8,39 @@ import { calculateCareDays } from '@/domain/billing/care-days';
 import { parseClassTokens } from '@/domain/students/token-parser';
 
 describe('U15–U30: 科數、基本率、標籤優惠與安親課輔天數測試', () => {
-  it('U15: 只美語、數學＋美語、輔導＋數學＋美語 → 科數 1/2/3，基本率 10000/9500/9000', () => {
-    const t1 = parseClassTokens('兒童美語-EA[團]');
-    expect(calculateSubjectCount(t1)).toBe(1);
+  it('U15: current v4 counts distinct resolved categories, then applies R10 rates', () => {
+    expect(calculateSubjectCountByCategory(['english'])).toBe(1);
     expect(calculateBaseDiscountBps(1, false, null)).toBe(10000);
 
-    const t2 = parseClassTokens('國小數學-三A[團]\n兒童美語-EA[團]');
-    expect(calculateSubjectCount(t2)).toBe(2);
+    expect(calculateSubjectCountByCategory(['math', 'english'])).toBe(2);
     expect(calculateBaseDiscountBps(2, false, null)).toBe(9500);
 
-    const t3 = parseClassTokens('國小輔導-三年級[團]\n國小數學-三A[團]\n兒童美語-EA[團]');
-    expect(calculateSubjectCount(t3)).toBe(3);
+    expect(calculateSubjectCountByCategory(['care', 'math', 'english'])).toBe(3);
     expect(calculateBaseDiscountBps(3, false, null)).toBe(9000);
   });
 
-  it('U16: 兩個美語班 → 科數 1', () => {
-    const t = parseClassTokens('兒童美語-EA[團]\n兒童美語-EB[團]');
-    expect(calculateSubjectCount(t)).toBe(1);
+  it('U16: multiple classes in one category count once', () => {
+    expect(calculateSubjectCountByCategory(['english', 'english'])).toBe(1);
   });
 
-  it('U17: 國小輔導-寫功課＋數學＋美語 → 科數 2，基本率 9500', () => {
-    const t = parseClassTokens('國小輔導-寫功課[團]\n國小數學-三A[團]\n兒童美語-EA[團]');
-    expect(calculateSubjectCount(t)).toBe(2);
+  it('U17: explicitly non-discount categories do not add to subject count', () => {
+    expect(calculateSubjectCountByCategory(['none', 'math', 'english'])).toBe(2);
     expect(calculateBaseDiscountBps(2, false, null)).toBe(9500);
   });
 
-  it('U18: 只有國小輔導-寫功課 → 科數 0，基本率 10000', () => {
-    const t = parseClassTokens('國小輔導-寫功課[團]');
-    expect(calculateSubjectCount(t)).toBe(0);
+  it('U18: none category has zero effective subjects', () => {
+    expect(calculateSubjectCountByCategory(['none'])).toBe(0);
     expect(calculateBaseDiscountBps(0, false, null)).toBe(10000);
   });
 
-  it('U19: 無目標三類科別，但其他班名含寫功課 → 科數 0，不減為 -1', () => {
-    const t = parseClassTokens('其他班級-寫功課[團]');
-    expect(calculateSubjectCount(t)).toBe(0);
+  it('U19: empty enrollment set remains null while an explicit none set is zero', () => {
+    expect(calculateSubjectCountByCategory([])).toBeNull();
+    expect(calculateSubjectCountByCategory(['none'])).toBe(0);
   });
 
-  it('U20: 一般輔導＋寫功課＋數學 → 科數 1，基本率 10000', () => {
-    const t = parseClassTokens('國小輔導-三年級[團]\n國小輔導-寫功課[團]\n國小數學-三A[團]');
-    // k = 2 (輔導算1次，數學算1次), 含寫功課減1 -> 1
-    expect(calculateSubjectCount(t)).toBe(1);
-    expect(calculateBaseDiscountBps(1, false, null)).toBe(10000);
+  it('U20: v4 classification counts care and math independently from class names', () => {
+    expect(calculateSubjectCountByCategory(['care', 'none', 'math'])).toBe(2);
+    expect(calculateBaseDiscountBps(2, false, null)).toBe(9500);
   });
 
   it('U21: 1 科＋兄弟姊妹、2 科＋兄弟姊妹 → 基本率 9500、9000', () => {
@@ -100,7 +92,6 @@ describe('U15–U30: 科數、基本率、標籤優惠與安親課輔天數測�
       englishDeductionTutoring: 0,
       extraDeduction: null,
       hasHomeworkOrMeian: false,
-      extraDeductionAfterFloor: false,
     });
     expect(res.anqin.days).toBe(4);
     expect(res.anqin.status).toBe('calculated');
@@ -116,7 +107,6 @@ describe('U15–U30: 科數、基本率、標籤優惠與安親課輔天數測�
       englishDeductionTutoring: 0,
       extraDeduction: 1,
       hasHomeworkOrMeian: false,
-      extraDeductionAfterFloor: false,
     });
     // 5 - 2 - 1 = 2 < 3.5 -> 3.5
     expect(res.anqin.days).toBe(3.5);
@@ -133,7 +123,6 @@ describe('U15–U30: 科數、基本率、標籤優惠與安親課輔天數測�
       englishDeductionTutoring: -1.0,
       extraDeduction: 1,
       hasHomeworkOrMeian: false,
-      extraDeductionAfterFloor: false,
     });
     // 5 - 2.5 - 1 = 1.5 < 3 -> 3
     expect(res.tutoring.days).toBe(3);
@@ -141,38 +130,20 @@ describe('U15–U30: 科數、基本率、標籤優惠與安親課輔天數測�
     expect(res.tutoring.displayDays).toBe('3*額');
   });
 
-  it('U29: 寫功課且有衝堂和 extra → 歷史軌 (false) MAX 第三參數令天數 5；新規則 (true) 為 4.5', () => {
-    // 歷史軌 (v1 / v2 / compat)
-    const resHistorical = calculateCareDays({
+  it('U29: v4 applies fixed-five floor first, then extra deduction, subject to grade floor', () => {
+    const result = calculateCareDays({
       grade: 1,
       mathDeductionAnqin: -0.5,
       mathDeductionTutoring: 0,
       englishDeductionAnqin: -0.5,
       englishDeductionTutoring: 0,
       extraDeduction: 0.5,
-      hasHomeworkOrMeian: true, // 寫功課
-      extraDeductionAfterFloor: false,
-    });
-    // MAX(3.5, 5 - 0.5 - 0.5 - 0.5 = 3.5, 5) -> 5
-    expect(resHistorical.anqin.days).toBe(5);
-    expect(resHistorical.anqin.hasExtraFlag).toBe(true);
-    expect(resHistorical.anqin.displayDays).toBe('5*額');
-
-    // 正式軌 (v3 起，#147 修正)
-    const resV3 = calculateCareDays({
-      grade: 1,
-      mathDeductionAnqin: -0.5,
-      mathDeductionTutoring: 0,
-      englishDeductionAnqin: -0.5,
-      englishDeductionTutoring: 0,
-      extraDeduction: 0.5,
-      hasHomeworkOrMeian: true, // 寫功課
-      extraDeductionAfterFloor: true,
+      hasHomeworkOrMeian: true,
     });
     // baseVal = MAX(5 - 0.5 - 0.5, 5) = 5; MAX(3.5, 5 - 0.5) = 4.5
-    expect(resV3.anqin.days).toBe(4.5);
-    expect(resV3.anqin.hasExtraFlag).toBe(true);
-    expect(resV3.anqin.displayDays).toBe('4.5*額');
+    expect(result.anqin.days).toBe(4.5);
+    expect(result.anqin.hasExtraFlag).toBe(true);
+    expect(result.anqin.displayDays).toBe('4.5*額');
   });
 
   it('U30: 小一沒有安親報名，只有美語 → 原年級天數可算，enrolled=false', () => {
@@ -188,7 +159,6 @@ describe('U15–U30: 科數、基本率、標籤優惠與安親課輔天數測�
       englishDeductionTutoring: 0,
       extraDeduction: null,
       hasHomeworkOrMeian: false,
-      extraDeductionAfterFloor: false,
     });
     expect(res.anqin.days).toBe(4.5);
     expect(res.anqin.status).toBe('calculated');

@@ -35,7 +35,7 @@
 
 若文件內容或要求出現衝突，依下列優先順序判定：
 
-1. **使用者最新明確決策**：`specs/06-handoff-decisions.md`（D01–D52，特別是 D17、D24、D33 UI 重設方向與 D52 雙審查與解耦裁決）。
+1. **使用者最新明確決策**：`specs/06-handoff-decisions.md`（D01–D57，特別是 D17、D24、D33 UI 重設方向、D52 雙審查與解耦裁決，以及 D57 #159 PR-2 現行 v4-only runtime）。
 2. **正式規則與契約規格**：
    - `specs/02-calculation-rules.md`（收費規則 R01–R18、§9A erp-tag-v4 解耦段、欄位契約、結構化班名）
    - `specs/03-architecture-api.md`（不可變快照、資料模型、交易與 API 契約）
@@ -60,7 +60,8 @@
   最後轉為負扣天。原 Excel 負數 INT/MOD 公式導致實質門檻變為 0.2 / 0.7，屬歷史缺陷。
 - **正式規則與歷史相容版本**：
   - 正式軌：使用 run 保存的正式 rule set（目前目標為 `erp-tag-v4`）；優惠標記只讀「標籤」欄，不從備註 fallback，備註原文完整保留。
-  - `excel-v260922-compat`：凍結保留供歷史版本與舊資料解讀；#159 PR-1 起新 run 不呼叫 compat 或 shadow-v2，也不產生兩軌差異警告。比較頁與 `GET /runs/{runId}/comparison` 已移除（GET 回 404）；既有 run、診斷表列與 raw issue 值不重寫。兩個舊診斷碼仍保留於 `KNOWN_ISSUE_CODES` 及明確 raw API 篩選，結果頁 UI 的 actionable projection 則排除 `NUMERIC_POLICY_DIFFERENCE`／`RULESET_POLICY_DIFFERENCE`，保留其他問題與 `needsReview` 級距警告。這不代表 compat 計算路徑已於 PR-1 全面刪除，也不改寫歷史決策 D55。
+  - `excel-v260922-compat`：PR-2 移除舊 calculators 與 compat float kernel，僅保留已保存的歷史 run 結果供 read-only 呈現。PR-1 已停止新 run diagnostics，移除比較頁與 `GET /runs/{runId}/comparison`（GET 回 404）；既有 run、診斷表列與 raw issue 值不重寫。兩個舊診斷碼仍保留於 `KNOWN_ISSUE_CODES` 及明確 raw API 篩選，結果頁 UI 的 actionable projection 則排除 `NUMERIC_POLICY_DIFFERENCE`／`RULESET_POLICY_DIFFERENCE`，保留其他問題與 `needsReview` 級距警告。歷史決策 D55 保留原文。
+  - #159 PR-2 起，所有新 Run 與新計算預覽固定使用 `erp-tag-v4`。active run 為任一非 v4 版本（v1／v2／v3、compat 或未知版本）時，普通 activate／recalculate／apply 不會沿用或猜測版本，會要求使用者明確預覽並確認升級 v4；升級前值只讀舊 Run 已保存的結果，升級後才計算 v4。舊 Run、歷史 issue、設定與類別快照不重算、不回填；歷史 read-model 用獨立的 read-only 版本 metadata，不能用新計算能力表推導舊結果。舊成功 idempotency replay 仍先回傳原回應。
 - **規則參數化**：每日 180 分鐘、0.3/0.8 門檻、課輔整日特例集中於 `ruleSet` 參數；變更參數需建立新版本並重算，舊 Run 結果不可變。P1 不做參數編輯 UI。
 
 ---

@@ -84,7 +84,7 @@ describe('D2c N-1：快照寫入點唯一（executeCalculationRun 不寫 run_cla
     `).run();
     expect(categoryRows('run_pre')).toHaveLength(0);
 
-    const res = executeCalculationRun(db, 'imp_n1', 'run_pre', { ruleSetVersion: 'erp-tag-v3' as never });
+    const res = executeCalculationRun(db, 'imp_n1', 'run_pre', { ruleSetVersion: 'erp-tag-v4' });
 
     // 計算結果仍帶著快照（呼叫端契約未變）
     expect((res.classCategories ?? []).length).toBeGreaterThan(0);
@@ -93,13 +93,13 @@ describe('D2c N-1：快照寫入點唯一（executeCalculationRun 不寫 run_cla
   });
 
   it('run 列不存在時，executeCalculationRun 也不寫入（該分支一律不生效）', () => {
-    const res = executeCalculationRun(db, 'imp_n1', 'run_absent', { ruleSetVersion: 'erp-tag-v3' as never });
+    const res = executeCalculationRun(db, 'imp_n1', 'run_absent', { ruleSetVersion: 'erp-tag-v4' });
     expect((res.classCategories ?? []).length).toBeGreaterThan(0);
     expect(categoryRows('run_absent')).toHaveLength(0);
   });
 
   it('唯一寫入點 saveCalculationRun：走完整生產呼叫鏈後快照存在', () => {
-    const res = executeCalculationRun(db, 'imp_n1', 'run_prod', { ruleSetVersion: 'erp-tag-v3' as never });
+    const res = executeCalculationRun(db, 'imp_n1', 'run_prod', { ruleSetVersion: 'erp-tag-v4' });
     saveCalculationRun(db, res.run, res.results, res.classCategories);
     expect(categoryRows('run_prod').length).toBeGreaterThan(0);
   });

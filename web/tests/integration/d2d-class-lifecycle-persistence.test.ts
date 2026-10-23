@@ -121,7 +121,7 @@ describe('D2d H: UX54／UX55 班級生命週期的完整儲存→讀回（真實
     db = new Database(':memory:');
     runMigrations(db);
     seedStudents(db, 'imp_lifecycle');
-    activate(db, 'imp_lifecycle', 'run_v3', 'erp-tag-v3');
+    activate(db, 'imp_lifecycle', 'run_v4', 'erp-tag-v4');
 
     baseDraft = buildSeedDraft();
     saveSettingsVersion(db, {

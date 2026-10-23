@@ -61,6 +61,7 @@ export const SETTINGS_FAILED_MESSAGE = '暫時無法完成，請稍後再試；�
 export function describeSettingsPreviewError(f: RawFailure): UserFacingError {
   let message = SETTINGS_FAILED_MESSAGE;
   if (f.status === undefined) message = CONNECTION_FAILED_MESSAGE;
+  else if (f.code === 'UPGRADE_REQUIRED') message = '目前核對結果使用舊版規則。請勾選「改用新規則（v4）」完成升級預覽，再確認設定。';
   else if (f.status === 409 || f.code === 'REVISION_CONFLICT') message = SETTINGS_CONFLICT_MESSAGE;
   else if (f.status === 400 && f.code === 'INVALID_DRAFT') message = DRAFT_INVALID_MESSAGE;
   else if (f.status === 400 && f.code === 'IMPORT_MISMATCH') message = '目前使用的名單已經變了，請重新整理頁面後再確認變更。';
@@ -71,6 +72,7 @@ export function describeSettingsPreviewError(f: RawFailure): UserFacingError {
 export function describeSettingsApplyError(f: RawFailure): UserFacingError {
   let message = SETTINGS_FAILED_MESSAGE;
   if (f.status === undefined) message = CONNECTION_FAILED_MESSAGE;
+  else if (f.code === 'UPGRADE_REQUIRED') message = '目前核對結果使用舊版規則。請勾選「改用新規則（v4）」並完成升級預覽，再儲存設定。';
   else if (f.status === 409 || f.code === 'REVISION_CONFLICT') message = SETTINGS_CONFLICT_MESSAGE;
   else if (f.code === 'PREVIEW_EXPIRED' || /PREVIEW_EXPIRED/.test(f.raw ?? '')) message = PREVIEW_EXPIRED_MESSAGE;
   return { message, detail: detailOf(f) };
@@ -88,6 +90,9 @@ export function describeImportUploadError(f: RawFailure): UserFacingError {
     case 'INVALID_XLSX':
     case 'ZIP_BOMB_DETECTED':
       message = IMPORT_CORRUPT_MESSAGE;
+      break;
+    case 'UPGRADE_REQUIRED':
+      message = '目前核對結果使用舊版規則。請先到課表設定預覽並確認改用 v4，再上傳名單。';
       break;
     case 'MISSING_REQUIRED_HEADERS':
       message = IMPORT_MISSING_HEADERS_MESSAGE;
@@ -118,6 +123,7 @@ export function describeImportUploadError(f: RawFailure): UserFacingError {
 export function describeActivateError(f: RawFailure): UserFacingError {
   let message = '暫時無法使用這份名單，請稍後再試；名單仍保留在畫面上，沒有遺失。';
   if (f.status === undefined) message = CONNECTION_FAILED_MESSAGE;
+  else if (f.code === 'UPGRADE_REQUIRED') message = '目前核對結果使用舊版規則。請先在課表設定預覽並確認升級 v4，再啟用名單。';
   else if (f.status === 409) message = ACTIVATE_CONFLICT_MESSAGE;
   return { message, detail: detailOf(f) };
 }

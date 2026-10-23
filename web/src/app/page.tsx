@@ -11,7 +11,7 @@ import ActiveRunView from '@/components/active-run-view';
 import { findUnmappedClasses, getScheduleDeductions } from '@/application/schedule-deductions';
 import { getImportBatch } from '@/adapters/sqlite/import-repository';
 import { loadRunClassCategories } from '@/application/applicable-rate';
-import { ruleSetCapabilities } from '@/domain/billing/rule-set';
+import { historicalRuleSetMetadata } from '@/domain/billing/rule-set';
 
 export const dynamic = 'force-dynamic';
 
@@ -55,8 +55,8 @@ export default async function HomePage({
           }}
           unmappedClasses={findUnmappedClasses(db, activeRun.id, availableClasses)}
           classCategorySnapshots={
-            // 類別快照：以能力旗標判斷，categoryBasedBilling 為真時載入快照；v1／v2 為 null → 走名稱映射
-            ruleSetCapabilities(activeRun.ruleSetVersion).categoryBasedBilling ? loadRunClassCategories(db, activeRun.id) : null
+            // 歷史讀取 metadata：v3／v4 有不可變類別快照；v1／v2 走舊名班 mapper。
+            historicalRuleSetMetadata(activeRun.ruleSetVersion).hasClassCategorySnapshot ? loadRunClassCategories(db, activeRun.id) : null
           }
           classCategoryRuleSetVersion={activeRun.ruleSetVersion}
           initialData={view.data}

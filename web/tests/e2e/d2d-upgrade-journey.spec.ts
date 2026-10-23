@@ -4,10 +4,8 @@ import { test, expect } from '@playwright/test';
  * D2d E（RED → GREEN）：v2 active 時只勾「改用新規則」、不改其他設定，也能走完整升級旅程。
  *
  * Q11：升級必須是明確動作，但**不得**要求使用者為了開預覽而先做無關的課表修改。
- * 本檔依 Lead 裁定 (d) 使用 `--seed-v2-active` 執行：
- * 每輪 server 啟動前，scripts/e2e-seed-v2-active.ts 以既有 application／adapter
- * 函式建立「一名年級 4、重複報名兩班數學」的 v2 active run（課輔 4.5 天；
- * 同一份草稿在 v3 下為 4 天 → 升級前後必有差異）。
+ * 本檔使用 `--seed-v2-active` 執行：每輪 server 啟動前，seed helper 會寫入固定的合成 v2
+ * 歷史 Run（課輔 4.5 天）；v4 預覽選扣天最多的數學班後為 4 天 → 升級前後必有差異。
  *
  * **前置相依**：本檔必須在「既有 v2 DB」上跑，否則 `[data-upgrade-banner]` 不存在、
  * 升級勾選也不會出現。因此沒有 `--seed-v2-active` 時**自我跳過**，而不是失敗——
@@ -41,7 +39,7 @@ test.beforeEach(async ({ page }) => {
 });
 
   test.describe('D2d E: v2 active 升級旅程（只勾升級即可預覽）', () => {
-  test('只勾升級、不改課表 → 可進入預覽並看到 v2→v3 差異', async ({ page }) => {
+  test('只勾升級、不改課表 → 可進入預覽並看到 v2→v4 差異', async ({ page }) => {
     await page.locator('[data-upgrade-confirm]').check();
 
     // 斷言點：只勾升級（不改任何課表設定）就必須能開預覽
@@ -51,7 +49,7 @@ test.beforeEach(async ({ page }) => {
 
     const dialog = page.locator('dialog.impact-dialog');
     await expect(dialog).toBeVisible({ timeout: 15000 });
-    // v2（課輔 4.5）→ v3（課輔 4）：一名學生受影響
+    // 保存的 v2（課輔 4.5）→ v4（課輔 4）：一名學生受影響
     await expect(dialog.locator('.metric-card', { hasText: '受影響學生數' }).locator('.metric-value')).toHaveText('1 人');
     await expect(dialog).toContainText('天數變動明細');
   });

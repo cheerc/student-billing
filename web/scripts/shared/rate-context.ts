@@ -22,7 +22,7 @@
 
 import type { ApplicableRateContext, RunClassCategorySnapshot } from '../../src/application/applicable-rate.ts';
 // 值匯入不能帶 `.ts`（TS5097 只在 `import type` 上放行）；不帶副檔名與 scripts/*.ts 一致，tsx 可解析。
-import { ruleSetCapabilities } from '../../src/domain/billing/rule-set';
+import { historicalRuleSetMetadata } from '../../src/domain/billing/rule-set';
 
 /** API `/runs/{id}` 回應中本工具需要的部分。 */
 export interface RunSnapshotPayload {
@@ -34,19 +34,16 @@ export interface RunSnapshotPayload {
 /**
  * 這個 run 是否「以類別快照計費」（issue #140 第 2 項）。
  *
- * 判定**一律取產品端** `ruleSetCapabilities(version).categoryBasedBilling`，
- * 與載入層（`runs-repository.ts`）同一套判準（CLAUDE.md §9.0 複寫禁令）。
+ * 判定**一律取產品端** `historicalRuleSetMetadata(version).hasClassCategorySnapshot`，
+ * 與載入層（`runs-repository.ts`）同一套只讀歷史 metadata（CLAUDE.md §9.0 複寫禁令）。
  *
  * ## 為什麼不能寫 `ruleSetVersion === 'erp-tag-v3'`
  *
- * `specs/03 §5.3.1` 禁止字面版本比較：行為差異必須走能力旗標。字面比較在
- * **新增 v4 且同具 `categoryBasedBilling` 時會靜默漏判**——工具不會警告、
- * 也不會報錯，只是從此不再提醒「這個 run 本該有快照卻沒帶」。
- * 這個旗標是產品的單一定義處，v4 註冊時自動跟上。
+ * 歷史快照 presence 由獨立 read-only metadata 決定，不能依賴新 calculator 的 capability table。
  */
 export function runUsesClassCategorySnapshot(ruleSetVersion: string | null | undefined): boolean {
   if (!ruleSetVersion) return false;
-  return ruleSetCapabilities(ruleSetVersion).categoryBasedBilling;
+  return historicalRuleSetMetadata(ruleSetVersion).hasClassCategorySnapshot;
 }
 
 /** 工具端 `main()` 收到的最小 run 形狀（`RunInfoLike` 的子集，見 `roster-api.ts`）。 */

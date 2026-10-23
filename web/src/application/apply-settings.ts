@@ -140,7 +140,10 @@ export function applySettingsPreview(
       targetRuleSetVersion = resolveRuleSetForApply(db, preview.targetRuleSetVersion);
     } catch (e) {
       if (e instanceof RuleSetResolutionError) {
-        throw new SettingsApplyError(500, '預覽記錄的規則版本不是正式軌版本，預覽資料損毀，請重新預覽', 'PREVIEW_CORRUPTED');
+        if (e.code === 'UPGRADE_REQUIRED') {
+          throw new SettingsApplyError(409, e.message, 'UPGRADE_REQUIRED');
+        }
+        throw new SettingsApplyError(500, '預覽記錄的規則版本無效，預覽資料損毀，請重新預覽', 'PREVIEW_CORRUPTED');
       }
       throw e;
     }
@@ -183,6 +186,7 @@ export function applySettingsPreview(
     const { run, results, classCategories } = executeCalculationRun(db, preview.importId, runId, {
       scheduleVersionId: settingsVersionId,
       ruleSetVersion: targetRuleSetVersion,
+      upgradePreviewId: previewId,
       // 儲存課表不是重新啟用名單；核對基準日沿用交易內的現行 run（UX75）。
       asOfDate: getCurrentActiveRun(db).run?.asOfDate,
       aliasMap,

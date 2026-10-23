@@ -10,7 +10,7 @@ import { activateImport } from '../src/application/activate-import.js';
 import { queryRunStudents } from '../src/application/query-students.js';
 import { executeCalculationRun, resolveLatestSavedSettings } from '../src/application/calculate-run.js';
 import { saveCalculationRun } from '../src/adapters/sqlite/runs-repository.js';
-import { resolveFormalRuleSetVersion } from '../src/application/rule-set-resolver.js';
+import { resolveTargetRuleSetVersion } from '../src/application/rule-set-resolver.js';
 import {
   summarizeTimings, assertRecomputePerformanceBudget, assertImportToQueryablePerformanceBudget,
 } from './perf-contract.js';
@@ -83,7 +83,7 @@ function measureRecompute(db: Database.Database, importId: string, index: number
   const runId = `gate_recompute_${index}`;
   const started = performance.now();
   const { run, results, classCategories } = executeCalculationRun(db, importId, runId, {
-    ruleSetVersion: resolveFormalRuleSetVersion(db),
+    ruleSetVersion: resolveTargetRuleSetVersion(db),
     asOfDate: '2026-10-04',
     ...resolveLatestSavedSettings(db),
   });

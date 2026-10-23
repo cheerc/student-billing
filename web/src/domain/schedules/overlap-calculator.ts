@@ -58,7 +58,7 @@ export function normalizeWeekday(w: string | null | undefined): string | null {
  * 計算兩個時間區間之重疊分鐘數 (R01)。
  * 若提供 windowWeekdays（v2 同星期路徑），則強制星期檢查 (D30/K2 fail-closed)：
  * session 星期缺失（null/undefined）或無法識別皆視為未知，一律重疊為 0。
- * 未提供 windowWeekdays 時（v1/compat 舊呼叫）保持純時刻比對。
+ * 未提供 windowWeekdays 時保持純時刻比對；新計算一律提供固定 weekday 清單。
  */
 export function calculateOverlapMinutes(
   start: number,
@@ -130,7 +130,7 @@ export function calculateSessionDeduction(
 }
 
 /**
- * 正式軌 erp-tag-v1 取整 (D24):
+ * D24 正式取整規則：
  * 同班各堂扣天先累加為 d = -raw >= 0。
  * n = floor(d)
  * f = d - n
@@ -173,83 +173,6 @@ export function calculateClassDeductionD24(
 
   const roundedDeduction = n + fracDeduction;
   const rounded = roundedDeduction === 0 ? 0 : -roundedDeduction;
-
-  return {
-    totalOverlapMinutes,
-    raw: totalRaw,
-    rounded,
-  };
-}
-
-/**
- * 輔助函式：取 Excel 15 位有效數字 (04 §3 DIFF-01 模型)
- */
-function roundTo15Digits(num: number): number {
-  return parseFloat(num.toPrecision(15));
-}
-
-/**
- * 診斷軌 excel-v260922-compat 取整:
- * 保留 Excel 日分數與原負數 INT/MOD 公式，以及 15 位有效數字比較模型。
- */
-export function calculateClassDeductionCompat(
-  sessions: SessionTime[],
-  careType: 'anqin' | 'tutoring',
-  options: RuleSetOptions = {}
-): ClassDeductionResult {
-  let totalOverlapMinutes = 0;
-  let totalRaw = 0;
-
-  const window =
-    careType === 'anqin'
-      ? options.anqinWindow ?? CARE_WINDOWS.anqin
-      : options.tutoringWindow ?? CARE_WINDOWS.tutoring;
-
-  const dayWindowStart = window.start / 1440;
-  const dayWindowEnd = window.end / 1440;
-
-  for (const s of sessions) {
-    const dayStart = s.start / 1440;
-    const dayEnd = s.end / 1440;
-    const dayOverlap = Math.max(0, Math.min(dayEnd, dayWindowEnd) - Math.max(dayStart, dayWindowStart));
-    const overlapMinutes = dayOverlap * 24 * 60; // 原生浮點運算
-
-    totalOverlapMinutes += Math.round(overlapMinutes);
-
-    // 特殊課輔在 Excel 實測 17:00-19:00 (119.99999999999989 >= 120 成立)
-    // 依據 04 §3 15 位有效數字模型：roundTo15Digits(overlapMinutes) >= 120
-    const overlap15 = roundTo15Digits(overlapMinutes);
-    if (careType === 'tutoring' && overlap15 >= 120 && s.end > 1110 && s.end < 1170) {
-      totalRaw += -1;
-    } else {
-      const sessionRaw = -overlapMinutes / 60 / 3;
-      totalRaw += sessionRaw;
-    }
-  }
-
-  // 套用 Excel INT/MOD 模型 (04 §3)
-  const x = totalRaw;
-  if (Math.abs(x) < 1e-12) {
-    return { totalOverlapMinutes, raw: 0, rounded: 0 };
-  }
-
-  const n = Math.floor(x);
-  const f = x - n;
-
-  // 比較時套用 15 位有效數字模型 (04 §3)
-  const f15 = roundTo15Digits(f);
-
-  let frac = 0;
-  if (f15 < 0.3) {
-    frac = 0;
-  } else if (f15 < 0.8) {
-    frac = 0.5;
-  } else {
-    frac = 1.0;
-  }
-
-  const rawRounded = n + frac;
-  const rounded = Math.abs(rawRounded) < 1e-12 ? 0 : rawRounded;
 
   return {
     totalOverlapMinutes,

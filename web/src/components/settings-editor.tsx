@@ -48,7 +48,7 @@ import {
   readRawFailure,
   type UserFacingError,
 } from '@/lib/user-messages';
-import { isFormalRuleSetVersion, TARGET_FORMAL_RULE_SET_VERSION } from '@/domain/billing/rule-set';
+import { TARGET_FORMAL_RULE_SET_VERSION } from '@/domain/billing/rule-set';
 
 interface SettingsEditorProps {
   importId: string | null;
@@ -298,7 +298,6 @@ export default function SettingsEditor({
   const [appliedRuleSetVersion, setAppliedRuleSetVersion] = useState<string | null>(currentRuleSetVersion);
   const canUpgrade =
     appliedRuleSetVersion !== null &&
-    isFormalRuleSetVersion(appliedRuleSetVersion) &&
     appliedRuleSetVersion !== TARGET_FORMAL_RULE_SET_VERSION;
   const isUpgrading = canUpgrade && upgradeConfirmed;
 
@@ -623,7 +622,11 @@ export default function SettingsEditor({
         const res = await fetch('/api/v1/settings/calculate', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ requestKey, draft: calcDraft }),
+          body: JSON.stringify({
+            requestKey,
+            draft: calcDraft,
+            ...(isUpgrading ? { targetRuleSetVersion: TARGET_FORMAL_RULE_SET_VERSION } : {}),
+          }),
         });
 
         if (!res.ok) {
@@ -649,7 +652,7 @@ export default function SettingsEditor({
     }, 250);
 
     return () => clearTimeout(timer);
-  }, [rows, draft, effectiveManualAttrs]);
+  }, [rows, draft, effectiveManualAttrs, isUpgrading]);
 
   // 更新時段列
   const handleUpdateRow = (rowId: string, updates: Partial<ScheduleGridRow>) => {
@@ -985,7 +988,7 @@ export default function SettingsEditor({
           {/* 唯讀照顧窗口摘要 */}
           <WindowSummary />
 
-          {/* D2b 4（Q11）：首次改用新規則的明確確認——不靜默切換 */}
+          {/* #159：舊版 active Run 必須明確確認升級後才能預覽或儲存；舊結果維持不變。 */}
           {canUpgrade && (
             <div
               className={isUpgrading ? 'notice-inline' : 'notice-warn'}
@@ -1005,10 +1008,8 @@ export default function SettingsEditor({
                   }}
                 />
                 <span>
-                  <strong>改用新規則（v4）</strong>：勾選後，本次確認變更會改用新的計算規則重新計算全部學生
-                  （折扣類別、天數下限與重複報名的判定方式不同），並產生新的核對結果。
-                  <br />
-                  未勾選時維持現行規則，既有結果不受影響；已產生的舊結果不會被改寫。
+                  <strong>改用新規則（v4）</strong>：現行 Run 使用舊版規則，必須先勾選並預覽，才能套用課表變更。
+                  確認後會以 v4 重新計算現行名單並建立新 Run；既有舊結果會保留，不會改寫。
                 </span>
               </label>
             </div>
@@ -1112,7 +1113,7 @@ export default function SettingsEditor({
           <button
             type="button"
             className="btn-primary"
-            disabled={!isDirty || calculating || mergeConflicts.length > 0}
+            disabled={!isDirty || calculating || mergeConflicts.length > 0 || (canUpgrade && hasActiveImport && !isUpgrading)}
             onClick={handleOpenReview}
           >
             確認變更

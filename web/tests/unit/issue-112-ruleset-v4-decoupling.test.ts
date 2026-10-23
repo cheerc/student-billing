@@ -7,7 +7,7 @@ import {
   FORMAL_RULE_SET_VERSIONS,
   TARGET_FORMAL_RULE_SET_VERSION,
   isFormalRuleSetVersion,
-  ruleSetCapabilities,
+  historicalRuleSetMetadata,
 } from '@/domain/billing/rule-set';
 import type { StudentSnapshot } from '@/domain/students';
 import type { ClassSettingLookup } from '@/domain/classification/class-category';
@@ -65,17 +65,27 @@ describe('specs/14 §3.11: erp-tag-v4 規則版本定義與能力旗標', () => 
     expect(TARGET_FORMAL_RULE_SET_VERSION).toBe('erp-tag-v4');
   });
 
-  it('erp-tag-v4 的能力旗標中 homeworkDiscountDecoupled 為 true，歷史版本皆為 false', () => {
-    const v4 = ruleSetCapabilities('erp-tag-v4');
-    expect(v4.homeworkDiscountDecoupled).toBe(true);
-    expect(v4.categoryBasedBilling).toBe(true);
-    expect(v4.maxDeductionSelection).toBe(true);
-    expect(v4.extraDeductionAfterFloor).toBe(true);
-
-    expect(ruleSetCapabilities('erp-tag-v3').homeworkDiscountDecoupled).toBe(false);
-    expect(ruleSetCapabilities('erp-tag-v2').homeworkDiscountDecoupled).toBe(false);
-    expect(ruleSetCapabilities('erp-tag-v1').homeworkDiscountDecoupled).toBe(false);
-    expect(ruleSetCapabilities('excel-v260922-compat').homeworkDiscountDecoupled).toBe(false);
+  it('historical metadata is read-only and unknown versions fail closed', () => {
+    expect(historicalRuleSetMetadata('erp-tag-v4')).toEqual({
+      known: true,
+      hasClassCategorySnapshot: true,
+      fixedFiveDaysAffectsRate: false,
+      sameWeekdayOnly: true,
+    });
+    expect(historicalRuleSetMetadata('erp-tag-v3')).toEqual({
+      known: true,
+      hasClassCategorySnapshot: true,
+      fixedFiveDaysAffectsRate: true,
+      sameWeekdayOnly: true,
+    });
+    expect(historicalRuleSetMetadata('erp-tag-v2').hasClassCategorySnapshot).toBe(false);
+    expect(historicalRuleSetMetadata('erp-tag-v1').sameWeekdayOnly).toBe(false);
+    expect(historicalRuleSetMetadata('unknown-version')).toEqual({
+      known: false,
+      hasClassCategorySnapshot: false,
+      fixedFiveDaysAffectsRate: false,
+      sameWeekdayOnly: false,
+    });
   });
 });
 
@@ -116,13 +126,10 @@ describe('specs/14 A15: 固定 5 天旗標不影響學生層課程學費折扣�
     expect(resFixedV4.applicableRates.math).toBe(9500);
     expect(resFixedV4.applicableRates.english).toBe(9500);
 
-    // 對照組：在 v3 下，勾選固定 5 天會使 tutoring 被強制覆蓋為 10000
-    const resFixedV3 = calculateStudentBilling(student, {
-      ruleSetVersion: 'erp-tag-v3' as any,
+    expect(() => calculateStudentBilling(student, {
+      ruleSetVersion: 'erp-tag-v3',
       classSettings: settingsFixed,
-    });
-    expect(resFixedV3.applicableRates.tutoring).toBe(10000);
-    expect(resFixedV3.applicableRates.math).toBe(9500);
+    })).toThrow(/請以 v4 明確升級/);
   });
 
   it('A15-2: 小一安親園內生：v4 下勾固定 5 天仍享有園內生優惠（9500 - 500 = 9000），不被強制 10000', () => {
@@ -147,12 +154,10 @@ describe('specs/14 A15: 固定 5 天旗標不影響學生層課程學費折扣�
     expect(resV4.applicableRates.anqin).toBe(9000);
     expect(resV4.applicableRates.math).toBe(9500);
 
-    // 對照組：在 v3 下，勾選固定 5 天會抹除園內生優惠強制回 10000
-    const resV3 = calculateStudentBilling(student, {
-      ruleSetVersion: 'erp-tag-v3' as any,
+    expect(() => calculateStudentBilling(student, {
+      ruleSetVersion: 'erp-tag-v3',
       classSettings: settings,
-    });
-    expect(resV3.applicableRates.anqin).toBe(10000);
+    })).toThrow(/請以 v4 明確升級/);
   });
 
   it('A15-3: roster-changes 在 v4 下不再將寫功課/固定 5 天班級列為折扣變動原因', () => {
@@ -171,28 +176,15 @@ describe('specs/14 A15: 固定 5 天旗標不影響學生層課程學費折扣�
     const stuChangeV4 = changesV4.changes.find((c) => c.personCode === 'A15-3');
     expect(stuChangeV4?.classDiscountChanges ?? []).toHaveLength(0);
 
-    // 對照組：在 v3 下，寫功課使 hasHomeworkOrMeian=true -> 課輔由 9500 變動為 10000
-    const ctxV3: RosterChangeContext = { classSettings, ruleSetVersion: 'erp-tag-v3' };
-    const changesV3 = computeRosterChanges([before], [after], ctxV3, ctxV3);
-    const stuChangeV3 = changesV3.changes.find((c) => c.personCode === 'A15-3');
-    const careChangeV3 = stuChangeV3?.classDiscountChanges.find((c) => c.baseName === '國小輔導-一A');
-    expect(careChangeV3).toBeDefined();
-    expect(careChangeV3?.beforeBps).toBe(9500);
-    expect(careChangeV3?.afterBps).toBe(10000);
-    expect(careChangeV3?.reasons).toEqual([
-      { kind: 'enrollment_added', className: '國小輔導-寫功課', rawToken: '國小輔導-寫功課[團]' },
-    ]);
+    expect(() => computeRosterChanges([before], [after], { classSettings, ruleSetVersion: 'erp-tag-v3' }, { classSettings, ruleSetVersion: 'erp-tag-v3' }))
+      .toThrow(/只支援 erp-tag-v4/);
   });
 
-  it('A15-4: calculateApplicableRate 單元層級支援 homeworkDiscountDecoupled 解耦', () => {
+  it('A15-4: v4 course-rate helper has no historical-version switches', () => {
     // 2 科有效科數基本率 9500 bps，非園內生
     // 解耦 (v4): 即使 hasHomeworkOrMeian = true，仍回傳 9500
-    expect(calculateApplicableRate('anqin', 9500, false, true, false, true)).toBe(9500);
-    expect(calculateApplicableRate('tutoring', 9500, false, true, false, true)).toBe(9500);
-
-    // 未解耦 (v1/v2/v3): hasHomeworkOrMeian = true 仍強制覆蓋為 10000
-    expect(calculateApplicableRate('anqin', 9500, false, true, false, false)).toBe(10000);
-    expect(calculateApplicableRate('tutoring', 9500, false, true, false, false)).toBe(10000);
+    expect(calculateApplicableRate('anqin', 9500, false)).toBe(9500);
+    expect(calculateApplicableRate('tutoring', 9500, false)).toBe(9500);
   });
 });
 
@@ -267,8 +259,8 @@ describe('specs/14 A16: 逐班層「本班適用折扣」完全由「列入多�
   });
 });
 
-describe('specs/14 A17: 版本隔離（v1/v2/v3/compat 計算結果與改動前逐欄相同）', () => {
-  it('同一組輸入在歷史各版本下的計算結果嚴格保持歷史行為', () => {
+describe('specs/14 A17: historical runs are read-only and cannot invoke a calculator', () => {
+  it('retained historical identifiers fail closed at the new-calculation boundary', () => {
     const student = makeStudent({
       personCode: 'A17-1',
       grade: 4,
@@ -280,24 +272,10 @@ describe('specs/14 A17: 版本隔離（v1/v2/v3/compat 計算結果與改動前�
       ['國小數學-四A', { category: 'math', categorySource: 'manual', fixedFiveDays: false }],
     ]);
 
-    // v3: 固定 5 天強制 tutoring 回 10000
-    const resV3 = calculateStudentBilling(student, { ruleSetVersion: 'erp-tag-v3' as any, classSettings: settings });
-    expect(resV3.applicableRates.tutoring).toBe(10000);
-    expect(resV3.applicableRates.math).toBe(9500);
+    for (const version of ['erp-tag-v1', 'erp-tag-v2', 'erp-tag-v3', 'excel-v260922-compat']) {
+      expect(() => calculateStudentBilling(student, { ruleSetVersion: version, classSettings: settings })).toThrow(/請以 v4 明確升級/);
+    }
 
-    // v2: 名稱比對，輔導 1 + 數學 1 = 2 科，9500
-    const resV2 = calculateStudentBilling(student, { ruleSetVersion: 'erp-tag-v2' as any, classSettings: settings });
-    expect(resV2.baseDiscountBps).toBe(9500);
-
-    // v1: 相同
-    const resV1 = calculateStudentBilling(student, { ruleSetVersion: 'erp-tag-v1' as any, classSettings: settings });
-    expect(resV1.baseDiscountBps).toBe(9500);
-
-    // compat: 相同
-    const resCompat = calculateStudentBilling(student, { ruleSetVersion: 'excel-v260922-compat' as any, classSettings: settings });
-    expect(resCompat.baseDiscountBps).toBe(9500);
-
-    // v4: tutoring 解耦為 9500
     const resV4 = calculateStudentBilling(student, { ruleSetVersion: 'erp-tag-v4' as any, classSettings: settings });
     expect(resV4.applicableRates.tutoring).toBe(9500);
     expect(resV4.applicableRates.math).toBe(9500);

@@ -12,18 +12,20 @@ import {
 
 /** 記錄的目標規則版本不是正式軌版本（apply 端轉成 500 PREVIEW_CORRUPTED）。 */
 export class RuleSetResolutionError extends Error {
-  constructor(message: string) {
+  code: 'UPGRADE_REQUIRED' | 'INVALID_RULE_SET' = 'INVALID_RULE_SET';
+  constructor(message: string, code: 'UPGRADE_REQUIRED' | 'INVALID_RULE_SET' = 'INVALID_RULE_SET') {
     super(message);
     this.name = 'RuleSetResolutionError';
+    this.code = code;
   }
 }
 
 /**
- * 正式軌 ruleSetVersion（09 §8.1）：有 active run 且其版本為正式軌則採其值；
- * 否則（無 active run，或 active run 為診斷軌 compat）採現行預設版本 TARGET_FORMAL_RULE_SET_VERSION。
+ * 歷史／展示用途取得 active formal ruleSetVersion；這個 accessor 不得用來授權建立新 run。
+ * 新計算必須使用 resolveTargetRuleSetVersion，並在舊 active run 上要求明確升級。
  *
  * D2b（Q11）：空 DB 直接預設目標正式軌（D2b 時為 erp-tag-v3；#112 起為 erp-tag-v4），解析器層即可回傳目標版本；
- * 既有 v2 DB 走 activate／apply 沿用其 active run 的 v2，直到使用者明確確認升級。
+ * 舊版 active run 不會沿用到新計算；它的結果仍只讀取已保存的 run 列。
  */
 export function resolveFormalRuleSetVersion(db: Database.Database): FormalRuleSetVersion {
   const active = db.prepare('SELECT active_run_id FROM active_state WHERE id = 1').get() as
@@ -40,10 +42,27 @@ export function resolveFormalRuleSetVersion(db: Database.Database): FormalRuleSe
   return TARGET_FORMAL_RULE_SET_VERSION;
 }
 
+function readActiveRunRuleSetVersion(db: Database.Database): string | null {
+  const active = db.prepare('SELECT active_run_id FROM active_state WHERE id = 1').get() as
+    | { active_run_id: string | null }
+    | undefined;
+  if (!active?.active_run_id) return null;
+  const run = db.prepare('SELECT rule_set_version FROM calculation_runs WHERE id = ?').get(active.active_run_id) as
+    | { rule_set_version: string }
+    | undefined;
+  if (!run) {
+    throw new RuleSetResolutionError(
+      `現行 active Run「${active.active_run_id}」不存在，無法安全建立新 Run。`,
+      'INVALID_RULE_SET'
+    );
+  }
+  return run.rule_set_version;
+}
+
 /**
  * 目標規則版本（Q11／S manifest §2.3）：
- *  - `requested` 明確指定 → 必須是正式軌版本，否則拋錯（不猜、不靜默降級）；
- *  - 未指定（undefined／null）→ 沿用現行正式軌版本，既有 v2 DB 因此不動、空 DB 得 v3。
+ *  - 新預覽僅允許目標 v4；傳入舊版明確拒絕；
+ *  - 未指定時，v4 active / 空 DB 使用 v4；v1／v2／v3 active 必須先明確選擇升級 v4。
  *
  * 這個值記錄在 preview 列（target_rule_set_version），apply 只讀它建 run；
  * 因此「使用者在預覽看到的版本」與「實際套用產生的 run 版本」必然一致（D1 F-3 契約延伸）。
@@ -52,9 +71,21 @@ export function resolveTargetRuleSetVersion(
   db: Database.Database,
   requested?: string | null
 ): FormalRuleSetVersion {
-  if (requested === null || requested === undefined) return resolveFormalRuleSetVersion(db);
-  if (isFormalRuleSetVersion(requested)) return requested;
-  throw new RuleSetResolutionError(`目標規則版本「${requested}」不是正式軌版本`);
+  if (requested !== null && requested !== undefined && requested !== TARGET_FORMAL_RULE_SET_VERSION) {
+    throw new RuleSetResolutionError(
+      `新計算只支援 ${TARGET_FORMAL_RULE_SET_VERSION}；請選擇明確升級至 v4。`,
+      'UPGRADE_REQUIRED'
+    );
+  }
+  if (requested === TARGET_FORMAL_RULE_SET_VERSION) return TARGET_FORMAL_RULE_SET_VERSION;
+  const activeVersion = readActiveRunRuleSetVersion(db);
+  if (activeVersion !== null && activeVersion !== TARGET_FORMAL_RULE_SET_VERSION) {
+    throw new RuleSetResolutionError(
+      `現行 Run 使用 ${activeVersion}。請先在課表設定中預覽並確認升級至 ${TARGET_FORMAL_RULE_SET_VERSION}。`,
+      'UPGRADE_REQUIRED'
+    );
+  }
+  return TARGET_FORMAL_RULE_SET_VERSION;
 }
 
 /**
@@ -68,7 +99,12 @@ export function resolveRuleSetForApply(
   db: Database.Database,
   recorded: string | null | undefined
 ): FormalRuleSetVersion {
-  if (recorded === null || recorded === undefined) return resolveFormalRuleSetVersion(db);
-  if (isFormalRuleSetVersion(recorded)) return recorded;
-  throw new RuleSetResolutionError(`預覽記錄的目標規則版本「${recorded}」不是正式軌版本`);
+  if (recorded === TARGET_FORMAL_RULE_SET_VERSION) return TARGET_FORMAL_RULE_SET_VERSION;
+  if (recorded === null || recorded === undefined) {
+    return resolveTargetRuleSetVersion(db);
+  }
+  throw new RuleSetResolutionError(
+    `預覽記錄的規則版本「${recorded}」已停止建立新 Run；請重新預覽並明確升級至 ${TARGET_FORMAL_RULE_SET_VERSION}。`,
+    'UPGRADE_REQUIRED'
+  );
 }

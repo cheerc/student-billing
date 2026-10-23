@@ -10,6 +10,8 @@ import { activateImport } from '@/application/activate-import';
 import { queryRunStudents } from '@/application/query-students';
 import { queryStudentOptions } from '@/application/query-student-options';
 import { computeRosterChanges } from '@/application/roster-changes';
+import { buildClassSettingMap } from '@/application/calculate-run';
+import { buildSeedDraft } from '@/adapters/sqlite/settings-repository';
 import { parseClassTokens, type StudentSnapshot } from '@/domain/students';
 import { formatBaseDiscount } from '@/components/summary-table';
 
@@ -41,6 +43,7 @@ function makeStudent(
 }
 
 describe('Round3 PR-F / operator 裁決 d-20261002160111112854-66：無報名學生合計折扣預設 10000', () => {
+  const classSettings = buildClassSettingMap(buildSeedDraft());
   let tempDir: string;
   let db: Database.Database;
   let runId: string;
@@ -128,8 +131,8 @@ describe('Round3 PR-F / operator 裁決 d-20261002160111112854-66：無報名學
     const res1 = computeRosterChanges(
       [s1Before],
       [s1After],
-      { scheduleOverride: new Map() },
-      { scheduleOverride: new Map() }
+      { scheduleOverride: new Map(), classSettings },
+      { scheduleOverride: new Map(), classSettings }
     );
     expect(res1.changes).toHaveLength(1);
     expect(res1.changes[0].reasons).toContain('適用率變動');
@@ -144,8 +147,8 @@ describe('Round3 PR-F / operator 裁決 d-20261002160111112854-66：無報名學
     const res2 = computeRosterChanges(
       [s2Before],
       [s2After],
-      { scheduleOverride: new Map() },
-      { scheduleOverride: new Map() }
+      { scheduleOverride: new Map(), classSettings },
+      { scheduleOverride: new Map(), classSettings }
     );
     expect(res2.changes).toHaveLength(1);
     expect(res2.changes[0].discountChange).toEqual({

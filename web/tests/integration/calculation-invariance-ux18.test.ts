@@ -12,12 +12,12 @@ import { GET as deductionsGET } from '@/app/api/v1/settings/deductions/route';
 import golden from '../fixtures/ux18-seed-deductions-golden.json';
 
 /**
- * 04 §8 UX18（regression）：相同 input 的計算前後比對——erp-tag-v2／v1 的值不變，不藉 R1b／UI 改 D24／D30。
+ * 04 §8 UX18（regression）：v4 的同一 input 在 seed 與等價 full-seed override 路徑輸出相同。
  *
  * golden（tests/fixtures/ux18-seed-deductions-golden.json）由 dd9f08d 版 overlap-calculator（其後至本 PR 未改）
  * ＋ schedule-seed.json 直接算出，未經 R1b 的 read model、draft 轉換與 billing-calculator，是「改動前」的獨立基準。
  * 以「全量 seed 預設草稿」（40 個有完整時段的班）為 input，逐班對照：
- *   ① 讀模型核心（v1／v2）② calculate API ③ deductions API（seed scope）④ 學生 run：舊路徑（無 override，退回 seed）
+ *   ① 固定 historical D24/D30 characterization ② calculate API ③ deductions API（seed scope）④ 學生 run：無 override
  *   與新路徑（override＝全量 seed 草稿）天數逐班相同（classMapFor／override 調整不得造成靜默漂移）。
  * 這是特徵化測試（characterization）：在 R1b 之前就成立，目的是釘住不變量，故不是 RED 測試。
  */
@@ -88,7 +88,7 @@ describe('UX18：全量 seed 預設草稿的計算值與改動前 golden 逐班�
     });
   }
 
-  it('④ 學生 run：舊路徑（無 override，退回 seed 課表）與新路徑（override＝全量 seed 草稿）天數逐班相同（v1／v2、小一安親／小三課輔）', () => {
+  it('④ v4 學生計算：無 override（seed）與等價全量 seed override 天數逐班相同', () => {
     const mk = (baseName: string, grade: number): StudentSnapshot => ({
       personCode: `T-${baseName}-${grade}`,
       name: '合成',
@@ -119,14 +119,13 @@ describe('UX18：全量 seed 預設草稿的計算值與改動前 golden 逐班�
     });
     const override = draftToScheduleOverride(buildSeedDraft());
     let compared = 0;
-    for (const v of ['v2', 'v1'] as const) {
-      for (const name of Object.keys(G[v]).filter((n) => /國小數學|兒童美語/.test(n))) {
-        for (const grade of [1, 3]) {
-          const legacy = calculateStudentBilling(mk(name, grade), { ruleSetVersion: ruleSetOf(v) });
-          const now = calculateStudentBilling(mk(name, grade), { ruleSetVersion: ruleSetOf(v), scheduleOverride: override });
-          expect(now.careDays, `${v} ${name} 小${grade}`).toEqual(legacy.careDays);
-          compared += 1;
-        }
+    for (const name of Object.keys(G.v2).filter((n) => /國小數學|兒童美語/.test(n))) {
+      for (const grade of [1, 3]) {
+        const student = mk(name, grade);
+        const seedPath = calculateStudentBilling(student, { ruleSetVersion: 'erp-tag-v4' });
+        const overridePath = calculateStudentBilling(student, { ruleSetVersion: 'erp-tag-v4', scheduleOverride: override });
+        expect(overridePath.careDays, `${name} 小${grade}`).toEqual(seedPath.careDays);
+        compared += 1;
       }
     }
     expect(compared).toBeGreaterThan(60);

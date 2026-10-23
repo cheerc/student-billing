@@ -62,7 +62,7 @@ function makeStudent(enrollments: string[], grade = 4): StudentSnapshot {
 
 function run(enrollments: string[], override: Override) {
   return calculateStudentBilling(makeStudent(enrollments), {
-    ruleSetVersion: 'erp-tag-v3',
+    ruleSetVersion: 'erp-tag-v4',
     aliasMap: new Map(),
     // #157 Ruling 1：本檔驗的是「選班邊界」，候選班必須是使用者指定過的類別。
     // 舊制靠班名自動判定，現在由測試明確宣告（只宣告本檔用到的虛構班名）。

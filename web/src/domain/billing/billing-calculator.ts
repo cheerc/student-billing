@@ -7,8 +7,7 @@ import {
 } from './types';
 import {
   parseTagDiscounts,
-  calculateSubjectCount,
-  calculateSubjectCountV3,
+  calculateSubjectCountByCategory,
   calculateBaseDiscountBps,
   calculateApplicableRate,
 } from './discount-rules';
@@ -16,11 +15,9 @@ import { calculateCareDays } from './care-days';
 import { detectStudentIssues, compareTier } from './issues-detector';
 import {
   calculateClassDeductionD24,
-  calculateClassDeductionCompat,
   isUnknownWeekday,
 } from '../schedules/overlap-calculator';
 import seedData from '../schedules/schedule-seed.json';
-import { ruleSetCapabilities } from './rule-set';
 import { resolveClassEnrollment, ClassSettingLookup, ClassCategory } from '../classification/class-category';
 
 /**
@@ -35,10 +32,11 @@ export interface ResolvedClassSession {
   skipDeduction?: boolean;
 }
 
-export type RuleSetVersion = 'erp-tag-v1' | 'excel-v260922-compat' | 'erp-tag-v2' | 'erp-tag-v3' | 'erp-tag-v4';
+export type RuleSetVersion = 'erp-tag-v4';
 
 export interface CalculationOptions {
-  ruleSetVersion?: RuleSetVersion;
+  /** Runtime accepts string for boundary validation, but only v4 is calculable. */
+  ruleSetVersion?: string;
   /** T05: alias 覆寫（rawToken baseName → seed baseName），不自動批准時為空 */
   aliasMap?: Map<string, string>;
   /** T05: schedule 覆寫（seed baseName → 時段 sessions），供設定維護自訂時段。
@@ -163,29 +161,18 @@ export function resolveClassSessions(
  * 整班都勾選 → 扣天 0、未知星期也不計（該時段既不扣天，就不該因星期無法識別而擾動警示），
  * 而且時段仍存在、status 仍是 calculated，因此不會產生 SCHEDULE_EMPTY。
  */
-function deductSessions(
-  sessions: ResolvedClassSession[],
-  ruleSetVersion: RuleSetVersion = 'erp-tag-v2'
-): { anqin: number; tutoring: number; unknownWeekdayCount: number } {
-  const isCompat = ruleSetVersion === 'excel-v260922-compat';
-  const { sameWeekdayOnly } = ruleSetCapabilities(ruleSetVersion);
-  const options = { sameWeekdayOnly };
+function deductSessions(sessions: ResolvedClassSession[]): { anqin: number; tutoring: number; unknownWeekdayCount: number } {
+  const options = { sameWeekdayOnly: true };
 
   const deductibleSessions = sessions.filter((s) => s.skipDeduction !== true);
   if (deductibleSessions.length === 0) {
     return { anqin: 0, tutoring: 0, unknownWeekdayCount: 0 };
   }
 
-  const unknownWeekdayCount = sameWeekdayOnly
-    ? deductibleSessions.filter((s) => isUnknownWeekday(s.weekday)).length
-    : 0;
+  const unknownWeekdayCount = deductibleSessions.filter((s) => isUnknownWeekday(s.weekday)).length;
 
-  const anqinRes = isCompat
-    ? calculateClassDeductionCompat(deductibleSessions, 'anqin')
-    : calculateClassDeductionD24(deductibleSessions, 'anqin', options);
-  const tutoringRes = isCompat
-    ? calculateClassDeductionCompat(deductibleSessions, 'tutoring')
-    : calculateClassDeductionD24(deductibleSessions, 'tutoring', options);
+  const anqinRes = calculateClassDeductionD24(deductibleSessions, 'anqin', options);
+  const tutoringRes = calculateClassDeductionD24(deductibleSessions, 'tutoring', options);
   return { anqin: anqinRes.rounded, tutoring: tutoringRes.rounded, unknownWeekdayCount };
 }
 
@@ -196,25 +183,20 @@ export function calculateStudentBilling(
   student: StudentSnapshot,
   options: CalculationOptions = {}
 ): StudentBillingCalculation {
-  const ruleSetVersion: RuleSetVersion = options.ruleSetVersion || 'erp-tag-v2';
-  const isCompat = ruleSetVersion === 'excel-v260922-compat';
-  const capabilities = ruleSetCapabilities(ruleSetVersion);
+  const requestedRuleSetVersion = options.ruleSetVersion ?? 'erp-tag-v4';
+  if (requestedRuleSetVersion !== 'erp-tag-v4') {
+    throw new Error(`歷史規則版本 ${requestedRuleSetVersion} 不提供新計算；請以 v4 明確升級。`);
+  }
 
-  // 1. 標籤 / 備註折扣來源解析 (02 §1 & §5: formal 讀標籤, compat 讀備註)
-  const discountSourceText = isCompat ? student.notesRaw : student.tagsRaw;
-  const tagDiscounts = parseTagDiscounts(discountSourceText);
+  // 新計算一律走 v4 正式規則，只讀標籤欄。
+  const tagDiscounts = parseTagDiscounts(student.tagsRaw);
 
-  const isV3 = capabilities.categoryBasedBilling;
-  const resolvedEnrollments = isV3
-    ? student.enrollments.map((e) =>
-        resolveClassEnrollment(e, options.aliasMap, options.classSettings)
-      )
-    : null;
+  const resolvedEnrollments = student.enrollments.map((e) =>
+    resolveClassEnrollment(e, options.aliasMap, options.classSettings)
+  );
 
-  // 2. 科數 (R09 / v3 R03) 與基本折扣 (R10)
-  const subjectCount = isV3
-    ? calculateSubjectCountV3(resolvedEnrollments!.map((r) => r.category))
-    : calculateSubjectCount(student.enrollments);
+  // 2. 科數 (v4 R03) 與基本折扣 (R10)
+  const subjectCount = calculateSubjectCountByCategory(resolvedEnrollments.map((r) => r.category));
   const baseDiscountBps = calculateBaseDiscountBps(
     subjectCount,
     tagDiscounts.sibling,
@@ -248,7 +230,7 @@ export function calculateStudentBilling(
    */
   const statusByRawToken = new Map<string, string>();
 
-  if (capabilities.maxDeductionSelection) {
+  {
     // v3 依類別選扣天最多 (正量最多)
     const isAnqinSide = student.grade === 1 || student.grade === 2;
     const isTutoringSide = student.grade !== null && student.grade >= 3 && student.grade <= 6;
@@ -268,7 +250,7 @@ export function calculateStudentBilling(
           // #113 follow-up（逐時段）：扣天只由**未勾選**的時段構成（deductSessions 內部處理）。
           // 整班都勾選 → 扣天 0，但時段仍存在、status 仍是 calculated（不是缺課表），
           // 這是刻意的政策結果，不是算不出來。
-          const ded = deductSessions(ses.sessions, ruleSetVersion);
+          const ded = deductSessions(ses.sessions);
           const pos = isAnqinSide ? -ded.anqin : isTutoringSide ? -ded.tutoring : 0;
           evals.push({
             enr: cand.enr,
@@ -356,7 +338,7 @@ export function calculateStudentBilling(
         statusByRawToken.set(cand.enr.rawToken, ses.status);
         if (ses.status === 'calculated') {
           // #113 follow-up（逐時段）：與數學候選同一規則——扣天只由未勾選的時段構成。
-          const ded = deductSessions(ses.sessions, ruleSetVersion);
+          const ded = deductSessions(ses.sessions);
           const pos = isAnqinSide ? -ded.anqin : isTutoringSide ? -ded.tutoring : 0;
           evals.push({
             enr: cand.enr,
@@ -382,7 +364,7 @@ export function calculateStudentBilling(
           // 仍只守 `schedule_not_found`（F-8：v3 才補美語缺課表警告），但 `schedule_empty`
           // 是本班自己時段為空、與 F-8 無關，故不受該旗標限制——只要走到 v3 選班區塊
           // 就必須保留這則需確認警告。
-          if (ses.status === 'schedule_not_found' && capabilities.missingEnglishScheduleWarning) {
+          if (ses.status === 'schedule_not_found') {
             additionalIssues.push({
               code: 'SCHEDULE_NOT_FOUND',
               message: `學生報名之美語班級「${cand.enr.rawToken}」未於${
@@ -424,54 +406,16 @@ export function calculateStudentBilling(
         selection.english = toClassSelection(first, evals.length, 0, 'no_calculable_candidate');
       }
     }
-  } else {
-    // v1 / v2 / compat 首班邏輯
-    const mathToken = student.enrollments.find((e) => e.baseName.includes('國小數學'));
-    const mathSessions = resolveClassSessions(
-      mathToken, options.aliasMap, options.scheduleOverride, classMapFor(options)
-    );
-    mathScheduleStatus = mathSessions.status;
-    if (mathSessions.status === 'calculated') {
-      // #113 follow-up（逐時段）：與 v3 同一規則，扣天只由未勾選的時段構成。
-      const ded = deductSessions(mathSessions.sessions, ruleSetVersion);
-      mathAnqinDed = ded.anqin;
-      mathTutoringDed = ded.tutoring;
-      unknownWeekdayCount += ded.unknownWeekdayCount;
-    } else if (mathSessions.status === 'schedule_not_found') {
-      additionalIssues.push({
-        code: 'SCHEDULE_NOT_FOUND',
-        message: `學生報名之數學班級「${mathToken?.rawToken}」未於${
-          options.scheduleOverride ? '現行已儲存排課設定' : '排課種子'
-        }中找到，天數採 0 扣天 fallback，待確認排課或 alias 對應。`,
-      });
-    }
-
-    const englishToken = student.enrollments.find((e) => e.baseName.includes('兒童美語'));
-    const englishSessions = resolveClassSessions(
-      englishToken, options.aliasMap, options.scheduleOverride, classMapFor(options)
-    );
-    englishScheduleStatus = englishSessions.status;
-    if (englishSessions.status === 'calculated') {
-      // #113 follow-up（逐時段）：與數學同一規則。
-      const ded = deductSessions(englishSessions.sessions, ruleSetVersion);
-      englishAnqinDed = ded.anqin;
-      englishTutoringDed = ded.tutoring;
-      unknownWeekdayCount += ded.unknownWeekdayCount;
-    }
   }
 
-  // 4. 計算安親與課輔每週收費天數 (R11, R12, v3 R17)
-  const hasHomeworkOrMeian = isV3
-    ? resolvedEnrollments!.some((r) => r.fixedFiveDays)
-    : student.enrollments.some((e) => e.baseName.includes('寫功課') || e.baseName.includes('美安'));
+  // 4. 計算安親與課輔每週收費天數 (R11, R12)
+  const hasHomeworkOrMeian = resolvedEnrollments.some((r) => r.fixedFiveDays);
 
-  const isEnrolledAnqin = isV3
-    ? (student.grade === 1 || student.grade === 2) && resolvedEnrollments!.some((r) => r.category === 'care')
-    : (student.grade === 1 || student.grade === 2) && student.enrollments.some((e) => e.baseName.includes('國小輔導'));
+  const isEnrolledAnqin =
+    (student.grade === 1 || student.grade === 2) && resolvedEnrollments.some((r) => r.category === 'care');
 
-  const isEnrolledTutoring = isV3
-    ? student.grade !== null && student.grade >= 3 && student.grade <= 6 && resolvedEnrollments!.some((r) => r.category === 'care')
-    : student.grade !== null && student.grade >= 3 && student.grade <= 6 && student.enrollments.some((e) => e.baseName.includes('國小輔導'));
+  const isEnrolledTutoring =
+    student.grade !== null && student.grade >= 3 && student.grade <= 6 && resolvedEnrollments.some((r) => r.category === 'care');
 
   const careDays = calculateCareDays({
     grade: student.grade,
@@ -483,13 +427,9 @@ export function calculateStudentBilling(
     hasHomeworkOrMeian,
     isEnrolledAnqin,
     isEnrolledTutoring,
-    extraDeductionAfterFloor: capabilities.extraDeductionAfterFloor,
   });
 
   // 5. 計算各課程適用折扣 (R13–R15)
-  // #124：特殊折扣優先於寫功課固定 100%（operator 裁示）。診斷軌 excel-v260922-compat
-  // 刻意保留原 Excel 公式，因此固定傳 false（CLAUDE.md §2 雙軌制度）。
-  const hasSpecialDiscount = !isCompat && tagDiscounts.specialDiscount !== null;
   // 無報名學生（subjectCount === null）各課程適用率為 null（U39；適用率「—」維持）
   const applicableRates =
     subjectCount === null
@@ -502,12 +442,12 @@ export function calculateStudentBilling(
           chinese: null,
         }
       : {
-          anqin: calculateApplicableRate('anqin', baseDiscountBps, tagDiscounts.internalStudent, hasHomeworkOrMeian, hasSpecialDiscount, capabilities.homeworkDiscountDecoupled),
-          tutoring: calculateApplicableRate('tutoring', baseDiscountBps, tagDiscounts.internalStudent, hasHomeworkOrMeian, hasSpecialDiscount, capabilities.homeworkDiscountDecoupled),
-          english: calculateApplicableRate('english', baseDiscountBps, tagDiscounts.internalStudent, hasHomeworkOrMeian, hasSpecialDiscount, capabilities.homeworkDiscountDecoupled),
-          math: calculateApplicableRate('math', baseDiscountBps, tagDiscounts.internalStudent, hasHomeworkOrMeian, hasSpecialDiscount, capabilities.homeworkDiscountDecoupled),
-          enrichment: calculateApplicableRate('enrichment', baseDiscountBps, tagDiscounts.internalStudent, hasHomeworkOrMeian, hasSpecialDiscount, capabilities.homeworkDiscountDecoupled),
-          chinese: calculateApplicableRate('chinese', baseDiscountBps, tagDiscounts.internalStudent, hasHomeworkOrMeian, hasSpecialDiscount, capabilities.homeworkDiscountDecoupled),
+          anqin: calculateApplicableRate('anqin', baseDiscountBps, tagDiscounts.internalStudent),
+          tutoring: calculateApplicableRate('tutoring', baseDiscountBps, tagDiscounts.internalStudent),
+          english: calculateApplicableRate('english', baseDiscountBps, tagDiscounts.internalStudent),
+          math: calculateApplicableRate('math', baseDiscountBps, tagDiscounts.internalStudent),
+          enrichment: calculateApplicableRate('enrichment', baseDiscountBps, tagDiscounts.internalStudent),
+          chinese: calculateApplicableRate('chinese', baseDiscountBps, tagDiscounts.internalStudent),
         };
 
   // 6. 級距比較 (Tier Comparisons, U43, U47)
@@ -521,14 +461,14 @@ export function calculateStudentBilling(
     }
 
     // D2d D（04 §8 UX73）：優先用**這一列自己**的課表狀態；沒有逐列資訊
-    // （v1／v2／compat，或非數學／美語候選）時才退回原本的全班共用值。
+    // （或非數學／美語候選）時才退回原本的全班共用值。
     let schStatus = 'calculated';
     const ownStatus = statusByRawToken.get(enr.rawToken);
     if (ownStatus && ownStatus !== 'calculated' && ownStatus !== 'no_enrollment') {
       schStatus = ownStatus;
     } else if (mathScheduleStatus !== 'calculated' && mathScheduleStatus !== 'no_enrollment') {
       schStatus = mathScheduleStatus;
-    } else if (capabilities.scheduleIncompleteOnUnknownWeekday && unknownWeekdayCount > 0) {
+    } else if (unknownWeekdayCount > 0) {
       schStatus = 'schedule_incomplete';
     }
 
@@ -553,7 +493,7 @@ export function calculateStudentBilling(
     internalStudent: tagDiscounts.internalStudent,
     specialDiscount: tagDiscounts.specialDiscount,
     isStaffFamily: tagDiscounts.isStaffFamily,
-    categoryEnrollments: isV3 ? resolvedEnrollments! : undefined,
+    categoryEnrollments: resolvedEnrollments,
   });
 
   issues.push(...additionalIssues);
@@ -562,7 +502,7 @@ export function calculateStudentBilling(
   // #157 Ruling 3：範圍改為「所有未對應班」，不再限 care/math/english。舊制下被自動偵測成
   // none 的班名（交通車、正音班…）靜默不計入折扣，使用者無法從結果反推「這班根本沒被收錄」；
   // 現在未對應一律警告，且快照的類別一律是 unset（不是使用者指定的 none）。
-  if (capabilities.unmappedClassWarning && resolvedEnrollments) {
+  if (resolvedEnrollments) {
     const unmappedSeen = new Set<string>();
     for (const r of resolvedEnrollments) {
       if (!r.mapped) {
@@ -578,7 +518,7 @@ export function calculateStudentBilling(
   }
 
   // F3/K2: v2 同星期路徑下未知星期（缺失或無法識別）一律 fail-closed 為 0，並出告警＋needs_review，不靜默
-  if (capabilities.unknownWeekdayWarning && unknownWeekdayCount > 0) {
+  if (unknownWeekdayCount > 0) {
     issues.push({
       code: 'UNKNOWN_WEEKDAY',
       message: `排課時段含 ${unknownWeekdayCount} 筆未知星期（缺失或無法識別），v2 同星期規則下該時段衝堂一律計為 0，請核對排課星期欄。`,
@@ -594,7 +534,7 @@ export function calculateStudentBilling(
     tierComparisons,
     issues,
     hasIssues: issues.length > 0,
-    // D2d B：只有 v3 有「選班」這件事，v1／v2／compat 維持首班語意、不輸出 selection。
-    ...(isV3 ? { selection } : {}),
+    // v4 對外輸出選班結果，供八欄摘要與逐班扣天共用。
+    selection,
   };
 }

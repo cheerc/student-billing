@@ -12,32 +12,28 @@ import { parseClassTokens } from '@/domain/students/token-parser';
 describe('U33–U49: 課程適用折扣、排課狀態與問題診斷測試', () => {
   it('U34: 安親園內生 basic=10000/9500/9000/8500 → 適用率 9500/9000/9000/9000 (max(0.9, basic - 0.05))', () => {
     // 安親情境: max(9000, basic - 500)
-    expect(calculateApplicableRate('anqin', 10000, true, false, false)).toBe(9500);
-    expect(calculateApplicableRate('anqin', 9500, true, false, false)).toBe(9000);
-    expect(calculateApplicableRate('anqin', 9000, true, false, false)).toBe(9000);
-    expect(calculateApplicableRate('anqin', 8500, true, false, false)).toBe(9000); // 8500 - 500 = 8000 < 9000 -> 9000
+    expect(calculateApplicableRate('anqin', 10000, true)).toBe(9500);
+    expect(calculateApplicableRate('anqin', 9500, true)).toBe(9000);
+    expect(calculateApplicableRate('anqin', 9000, true)).toBe(9000);
+    expect(calculateApplicableRate('anqin', 8500, true)).toBe(9000); // 8500 - 500 = 8000 < 9000 -> 9000
   });
 
   it('U35: 課輔園內生 basic=9500 → 不額外減 500，仍為 9500', () => {
     // 課輔無園內生額外優惠
-    expect(calculateApplicableRate('tutoring', 9500, true, false, false)).toBe(9500);
-    expect(calculateApplicableRate('tutoring', 10000, true, false, false)).toBe(10000);
+    expect(calculateApplicableRate('tutoring', 9500, true)).toBe(9500);
+    expect(calculateApplicableRate('tutoring', 10000, true)).toBe(10000);
   });
 
-  it('U36: 寫功課／歷史美安 ＋ 無特殊折扣 → 安親情境優先 10000；有特殊折扣時不覆蓋（#124）', () => {
-    // #124 operator 裁示：寫功課 10000 覆蓋僅在「無特殊折扣」時套用。
-    expect(calculateApplicableRate('anqin', 9500, true, true, false)).toBe(10000);
-    expect(calculateApplicableRate('tutoring', 9500, true, true, false)).toBe(10000);
-    // 寫功課 ＋ 特殊折扣 → 不覆蓋，改走各課程型態的一般規則
-    expect(calculateApplicableRate('anqin', 9500, true, true, true)).toBe(9000); // max(9000, 9500 - 500)
-    expect(calculateApplicableRate('tutoring', 9500, true, true, true)).toBe(9500);
+  it('U36: current course rates use only base rate and internal-student status', () => {
+    expect(calculateApplicableRate('anqin', 9500, true)).toBe(9000);
+    expect(calculateApplicableRate('tutoring', 9500, true)).toBe(9500);
   });
 
   it('U37: 美語／數學 vs 國語文／加強班 → 前者基本率，後者 not_configured', () => {
-    expect(calculateApplicableRate('english', 9500, false, false, false)).toBe(9500);
-    expect(calculateApplicableRate('math', 9000, false, false, false)).toBe(9000);
-    expect(calculateApplicableRate('enrichment', 9500, false, false, false)).toBeNull();
-    expect(calculateApplicableRate('chinese', 9500, false, false, false)).toBeNull();
+    expect(calculateApplicableRate('english', 9500, false)).toBe(9500);
+    expect(calculateApplicableRate('math', 9000, false)).toBe(9000);
+    expect(calculateApplicableRate('enrichment', 9500, false)).toBeNull();
+    expect(calculateApplicableRate('chinese', 9500, false)).toBeNull();
   });
 
   it('U38: 無班級、有姓名 → 科數 null，基本率 10000（operator 裁決 d-20261002160111112854-66）', () => {
@@ -56,6 +52,7 @@ describe('U33–U49: 課程適用折扣、排課狀態與問題診斷測試', ()
       tagsRaw: '',
       notesRaw: '家長表示非園內生',
       enrollments: [],
+      categoryEnrollments: [],
       sibling: false,
       internalStudent: false,
       specialDiscount: null,
@@ -72,6 +69,7 @@ describe('U33–U49: 課程適用折扣、排課狀態與問題診斷測試', ()
       tagsRaw: '',
       notesRaw: '園內生 (弟弟園內幼幼班)',
       enrollments: [],
+      categoryEnrollments: [],
       sibling: false,
       internalStudent: false,
       specialDiscount: null,
@@ -85,6 +83,7 @@ describe('U33–U49: 課程適用折扣、排課狀態與問題診斷測試', ()
       tagsRaw: '園內生',
       notesRaw: '曾就讀園內生',
       enrollments: [],
+      categoryEnrollments: [],
       sibling: false,
       internalStudent: true,
       specialDiscount: null,
@@ -99,6 +98,7 @@ describe('U33–U49: 課程適用折扣、排課狀態與問題診斷測試', ()
       tagsRaw: '有搭車, 需月繳',
       notesRaw: '',
       enrollments: [],
+      categoryEnrollments: [],
       sibling: false,
       internalStudent: false,
       specialDiscount: null,
@@ -127,6 +127,7 @@ describe('U33–U49: 課程適用折扣、排課狀態與問題診斷測試', ()
       tagsRaw: '',
       notesRaw: '',
       enrollments: tokensEnglish2,
+      categoryEnrollments: tokensEnglish2.map((token) => ({ ...token, category: 'english', fixedFiveDays: false })),
       sibling: false,
       internalStudent: false,
       specialDiscount: null,
@@ -148,6 +149,7 @@ describe('U33–U49: 課程適用折扣、排課狀態與問題診斷測試', ()
       tagsRaw: '',
       notesRaw: '',
       enrollments: tokensCare2,
+      categoryEnrollments: tokensCare2.map((token) => ({ ...token, category: 'care', fixedFiveDays: false })),
       sibling: false,
       internalStudent: false,
       specialDiscount: null,
@@ -169,6 +171,7 @@ describe('U33–U49: 課程適用折扣、排課狀態與問題診斷測試', ()
       tagsRaw: '',
       notesRaw: '',
       enrollments: tokensMix,
+      categoryEnrollments: tokensMix.map((token, index) => ({ ...token, category: index === 0 ? 'care' : 'none', fixedFiveDays: index === 1 })),
       sibling: false,
       internalStudent: false,
       specialDiscount: null,
@@ -184,6 +187,7 @@ describe('U33–U49: 課程適用折扣、排課狀態與問題診斷測試', ()
       tagsRaw: '員工家屬',
       notesRaw: '',
       enrollments: [],
+      categoryEnrollments: [],
       sibling: false,
       internalStudent: false,
       specialDiscount: null,
@@ -197,6 +201,7 @@ describe('U33–U49: 課程適用折扣、排課狀態與問題診斷測試', ()
       tagsRaw: '員工家屬, 特殊折扣8折',
       notesRaw: '',
       enrollments: [],
+      categoryEnrollments: [],
       sibling: false,
       internalStudent: false,
       specialDiscount: 0.8,
@@ -210,6 +215,7 @@ describe('U33–U49: 課程適用折扣、排課狀態與問題診斷測試', ()
       tagsRaw: '員工家屬, 有兄弟姊妹折扣',
       notesRaw: '',
       enrollments: [],
+      categoryEnrollments: [],
       sibling: true,
       internalStudent: false,
       specialDiscount: null,
@@ -223,6 +229,7 @@ describe('U33–U49: 課程適用折扣、排課狀態與問題診斷測試', ()
       tagsRaw: '有搭車',
       notesRaw: '',
       enrollments: [],
+      categoryEnrollments: [],
       sibling: false,
       internalStudent: false,
       specialDiscount: null,

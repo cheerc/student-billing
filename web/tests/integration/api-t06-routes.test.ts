@@ -157,8 +157,8 @@ describe('T06: 剩餘 P1 讀取端點整合測試 (03 §5)', () => {
 
   // D1 契約改寫（F-1／F-2；specs/11 §3 D1、04 §8 UX35、UX36）：
   //   舊斷言：activate 帶 ruleSetVersion: 'erp-tag-v1' → 200，建立 erp-tag-v1 的 run（client 指定規則版本）。
-  //   新斷言：client 不得指定規則版本（帶了就 400 INVALID_REQUEST，不建 run）；版本由 server 決定：
-  //           現行 run 為 erp-tag-v1 時，新啟用沿用 erp-tag-v1（舊版本不可變契約改由「沿用現行版本」保證）。
+  //   新斷言：client 不得指定規則版本（帶了就 400 INVALID_REQUEST，不建 run）；歷史 active Run
+  //           的一般新啟用 fail-closed，須經設定頁明確升級 v4。
   //   原因：client 可指定版本會讓同一份名單被任意改版重算；calculate 路由早已拒絕 client 版本（schedule-preview.ts），
   //         activate 是唯一漏網之處。
   it('POST /api/v1/imports/[previewId]/activate 帶 ruleSetVersion（client 指定）→ 400 INVALID_REQUEST，不建 run、現行資料不變', async () => {
@@ -189,10 +189,11 @@ describe('T06: 剩餘 P1 讀取端點整合測試 (03 §5)', () => {
     expect((db.prepare('SELECT COUNT(*) AS n FROM calculation_runs').get() as any).n).toBe(runsBefore);
   });
 
-  it('現行 run 為 erp-tag-v1 時，再次啟用（不帶版本）建立的新 run 沿用 erp-tag-v1（版本由 server 決定）', async () => {
+  it('現行歷史 run 為 erp-tag-v1 時，普通再次啟用 fail-closed 且不建立新 run', async () => {
     const db = getDatabase();
     db.prepare('UPDATE calculation_runs SET rule_set_version = ? WHERE id = ?').run('erp-tag-v1', runId);
-    const active = db.prepare('SELECT revision FROM active_state WHERE id = 1').get() as any;
+    const active = db.prepare('SELECT revision, active_run_id, active_import_id FROM active_state WHERE id = 1').get() as any;
+    const runsBefore = (db.prepare('SELECT COUNT(*) AS n FROM calculation_runs').get() as any).n;
 
     const activateReq = new NextRequest(
       `http://127.0.0.1:3000/api/v1/imports/${previewId}/activate`,
@@ -208,15 +209,9 @@ describe('T06: 剩餘 P1 讀取端點整合測試 (03 §5)', () => {
     const activateRes = await activatePOST(activateReq, {
       params: Promise.resolve({ previewId }),
     });
-    expect(activateRes.status).toBe(200);
-    const actBody = await activateRes.json();
-    expect(actBody.runId).not.toBe(runId);
-
-    const req = new NextRequest(`http://127.0.0.1:3000/api/v1/runs/${actBody.runId}`);
-    const res = await singleRunGET(req, { params: Promise.resolve({ runId: actBody.runId }) });
-    expect(res.status).toBe(200);
-    const body = await res.json();
-    expect(body.id).toBe(actBody.runId);
-    expect(body.ruleSetVersion).toBe('erp-tag-v1');
+    expect(activateRes.status).toBe(409);
+    expect((await activateRes.json()).code).toBe('UPGRADE_REQUIRED');
+    expect(db.prepare('SELECT revision, active_run_id, active_import_id FROM active_state WHERE id = 1').get()).toEqual(active);
+    expect((db.prepare('SELECT COUNT(*) AS n FROM calculation_runs').get() as any).n).toBe(runsBefore);
   });
 });

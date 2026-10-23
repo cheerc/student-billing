@@ -2,7 +2,8 @@
 
 日期：2026-09-23。依據：spec v2、P1 review、D17–D23 業務決策與 2026-09-23 最終複核修正。狀態：**計畫完成，以下實作工作均未開始**。
 
-> **後續狀態（#159 PR-1）：** 本文件是 P1 啟動前的歷史 plan；其中「comparison 即時計算／run 中保存雙軌診斷」不再是現行契約。新 run 只執行 formal，不呼叫 compat／shadow-v2、不寫 diagnostics；comparison link／GET 已移除並回 404。舊 rows 與 raw issue API 保留。現行工程契約見 [03 §5.5](03-architecture-api.md)、[06 D56](06-handoff-decisions.md)；本 PR 不代表 PR-2 單一 v4 收斂。
+> **後續狀態（#159 PR-1）：** 本文件是 P1 啟動前的歷史 plan；其中「comparison 即時計算／run 中保存雙軌診斷」不再是現行契約。新 run 只執行 formal，不呼叫 compat／shadow-v2、不寫 diagnostics；comparison link／GET 已移除並回 404。舊 rows 與 raw issue API 保留。現行工程契約見 [03 §5.5](03-architecture-api.md)、[06 D56](06-handoff-decisions.md)。
+> **後續狀態（#159 PR-2）：** 新 Run 與新計算預覽固定 `erp-tag-v4`；active 舊版要先在設定頁明確選取 v4 升級，普通 activate／recalculate／apply fail-closed。upgrade before 只讀舊 Run 持久化結果，after 才計 v4；不重算／回填舊 run。舊版計算能力表與 calculator 在本 plan 中僅為歷史記錄，現行契約見 [03 §5.6](03-architecture-api.md)、[04 UX98/UX99](04-tdd-acceptance.md)、[06 D57](06-handoff-decisions.md)。
 
 ## 1. 交付目標與範圍
 

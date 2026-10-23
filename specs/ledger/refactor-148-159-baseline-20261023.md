@@ -100,3 +100,63 @@ The D1 run golden added for this PR contains only synthetic student/class fixtur
 - From `web/`: `npx vitest run tests/unit/issue-148-159-baseline.test.ts tests/integration/issue-159-actionable-history.test.ts tests/unit/issue-159-actionable-ui.test.ts tests/integration/issue-159-comparison-404.test.ts tests/integration/history-view.test.ts tests/integration/issue-161-diagnostics-atomicity.test.ts tests/integration/issue-161-diagnostics-audit.test.ts tests/integration/api-runs.test.ts tests/integration/d1-run-snapshot-readers.test.ts tests/unit/d1-invariance.test.ts tests/unit/d2a-diagnostics-decomposition.test.ts` → 11 files, 46 tests passed. This includes an actual Next.js request to the removed route, which returned 404, plus separate unavailable-new-run and manually inserted synthetic historical-snapshot audit cases.
 - `git diff --check` → passed.
 - Real local roster comparison remains separate and unverified by CI. `data/app.sqlite` was not accessed; no private source data was used.
+
+## PR-2 implementation result: single-v4 runtime and explicit legacy upgrade
+
+**Branch:** `refactor/159-v4-only-runtime`
+
+**Worktree:** `/tmp/issue159-pr2`
+
+**Base:** `99de0e7f23c57d3129bcf9c93d69db5f7069d078` (PR-1 #166 squash merge on main)
+**Decision:** D57, Issue #159 PR-2. This records only v4 runtime convergence and explicit upgrade/read-model behavior; it does not implement PR-3/#148.
+
+All paths that create a new calculation now target `erp-tag-v4`: activate/apply and direct application calls, settings preview `after`, schedule calculation preview, roster-diff before/after calculations, and the shared `executeCalculationRun` boundary. Ordinary writes against any non-v4 active run (v1/v2/v3, compat, or unknown) fail closed; an explicit v4 preview and confirmed apply authorizes upgrade. The settings UI exposes this action for all non-v4 active versions. Upgrade `before` is projected from persisted `student_calculations`; fields that were not persisted remain unavailable. Confirmed apply retains TTL, revision CAS, idempotency replay, and transaction rollback. No existing run is recalculated, backfilled, or rewritten.
+
+Old calculator implementations and the compat float kernel were removed after synthetic persisted-v2 upgrade, idempotency, rollback, restore, and history-reader coverage was in place. History consumers use explicit read-only `historicalRuleSetMetadata`; unknown metadata is unavailable. Known v1/v2 legacy rate/name mapping, compat saved-run fixed-five-day projection, v3/v4 category snapshots, and saved schedule snapshots remain historical read paths. Legacy version strings still present in source describe persisted IDs, idempotency compatibility, raw issue/schema contracts, or read-only history; they do not select a calculator.
+
+### Golden provenance
+
+`web/tests/fixtures/d1-v4-current-golden.json` contains synthetic fixtures and per-student digests only; it contains no names, person codes, workbook content, or local DB rows. Its source is the exact PR-1 base above, generated in detached worktree `/tmp/issue159-pr2-base`. Only `tests/helpers/d1-invariance-snapshot.ts` was adapted to compute the v4 path in that detached worktree; application/runtime code remained at the exact base. The recorded generation command is:
+
+```sh
+cd web && npx tsx tests/helpers/generate-d1-invariance-golden.ts tests/fixtures/d1-v4-current-golden.json
+```
+
+The generator refuses to overwrite the historical legacy golden and refuses generation unless `HEAD` is the exact PR-1 base SHA. Each per-student digest keeps every current numeric, display, summary, tier, and trace field. Run-output normalization removes only `NUMERIC_POLICY_DIFFERENCE`, `RULESET_POLICY_DIFFERENCE`, their issue-count entries, and the derived `hasIssues` change; direct-calculator golden output remains fully fixed. This preserves the PR-0/PR-1 mutation-sensitive current-output characterization while retiring only the two approved diagnostics.
+
+### RED evidence
+
+- Before adding the direct active-version check, the PR-2 regression executed `executeCalculationRun` with `ruleSetVersion: 'erp-tag-v4'` against an active persisted v2 run and unexpectedly created a run. This was RED because caller-supplied v4 bypassed the ordinary old-active guard; the shared direct-application boundary now rejects it unless settings apply carries a valid stored v4 preview authorization.
+- Before requiring a finite future preview expiry, a synthetic legacy-upgrade preview with missing/unparseable `expires_at` was accepted (`Date.parse` yielded `NaN`, for which a simple `now > expiresAt` check is false). The regression was RED; the authorization now requires a finite timestamp greater than `Date.now()`.
+- Before persisted-before projection, legacy-only retired warning rows could affect preview `issueDelta` through raw `has_issues`. The synthetic regression was RED; preview now uses the same actionable issue projection as the UI and does not recalculate history.
+- Historical metadata regression tests exposed a changed fixed-five-day saved-run projection for v1/v2/compat; exact-base behavior was restored and tested, with no change to new v4 calculations.
+- The first final full-suite attempt found four D1 digest failures for one synthetic student (index 203) in direct and run output across seed/saved contexts. Exact-base tuple comparison isolated the only changed field as the `CONFLICTING_NOTE_SOURCE.message` string; numeric, display, summary, tier, schedule, and trace fields matched. That generic text change was outside the approved output allowlist, so the exact-base message was restored and no golden was regenerated. The focused D1/#112 regression then passed.
+- A subsequent full-suite attempt ran out of `/tmp` space while the acceptance-gate tests copied synthetic worktrees (`ENOSPC`); after checking there were no active/open-file consumers, only generated `/tmp/sb130-*` and old full-E2E temp output trees were removed. The acceptance-only batch passed, then the final clean full suite passed.
+
+### Static call-site inventory
+
+Command from repository root: `rg -n "calculateStudentBilling\\(" web/src --glob '!**/domain/billing/billing-calculator.ts'`.
+
+- `application/calculate-run.ts:204` is the shared calculator invocation; its version is constrained to target v4 and old active state is guarded. `activate-import.ts` and `apply-settings.ts` both reach this boundary.
+- `application/settings-preview.ts:279` calculates only the `after` result using `resolveTargetRuleSetVersion`; `before` comes from stored run rows.
+- `application/roster-changes.ts:567,569` computes before/after using the supplied context; absent context defaults to target v4. Its current app caller `application/import-roster-diff.ts:61` resolves target v4.
+- The other current `calculateClassDeductionD24` call sites are `application/schedule-preview.ts:364` (current preview resolves v4) and `application/roster-changes.ts:236-237` (the v4 roster calculation path); `domain/billing/billing-calculator.ts` is the shared v4 calculator implementation. `schedule-deductions.ts` reads stored schedule snapshots and uses known historical metadata for read-only reconstruction; unknown saved versions fail closed.
+- `application/applicable-rate.ts`, `query-student-options.ts`, `student-query-predicates.ts`, and `adapters/sqlite/runs-repository.ts` use `historicalRuleSetMetadata` only for saved run read models. `schedule-preview.ts` uses it to validate known metadata; active calculate previews resolve v4.
+- `rg -n "calculateClassDeductionCompat|calculateSubjectCount|isCompat|ruleSetCapabilities|homeworkDiscountDecoupled|compatKernel" web/src` returns no matches. The removed legacy calculation selectors are absent from product source.
+
+### Verification
+
+Final verification from `web/` (final full suite ran after restoring the one out-of-scope warning-string change; the later ActivateOptions change was type-only and separately typechecked):
+
+- `npm test -- --run --maxWorkers=1` → **155 files: 154 passed, 1 skipped; 1460 tests: 1459 passed, 1 skipped** (241.83 seconds). The sole skip is existing `tests/integration/schedule-seed-reader.test.ts` skip; no test failures.
+- `npm test -- --run tests/unit/d1-invariance.test.ts tests/unit/issue-112-v3-invariance.test.ts tests/unit/issue-112-ruleset-v4-decoupling.test.ts` → 3 files / 21 tests passed after restoring the exact-base issue message.
+- Acceptance recovery check: `npm test -- --run tests/unit/acceptance-gate.test.ts tests/integration/acceptance-env.test.ts tests/integration/acceptance-env-default-source.test.ts` → 3 files / 14 tests passed.
+- Final targeted upgrade check after `ActivateOptions` excludes the apply-only `upgradePreviewId`: `npm test -- --run tests/integration/activate-run.test.ts tests/integration/d2d-upgrade-preview-versions.test.ts tests/integration/d1-legacy-apply-receipts.test.ts tests/unit/issue-159-v4-only-runtime.test.ts` → 4 files / 44 tests passed.
+- `npm run typecheck` → passed after the final TypeScript contract change (`tsc --noEmit`). `npm run lint` → passed (`eslint .`). `npm run build` → passed on Next.js 16.3.6, all 13 static pages generated; build preceded only the final type-only `ActivateOptions` omit adjustment.
+- `npm run test:e2e:isolated -- --seed-v2-active tests/e2e/d2d-upgrade-restore.spec.ts` → 3 passed; `npm run test:e2e:isolated -- --seed-v2-active tests/e2e/d2d-upgrade-journey.spec.ts` → 2 passed. Both started from the fixed synthetic persisted-v2 row and completed; the first command is restore, the second is upgrade journey.
+- Next.js 16 route handler guidance was read at `web/node_modules/next/dist/docs/01-app/01-getting-started/15-route-handlers.md` and `web/node_modules/next/dist/docs/01-app/03-api-reference/03-file-conventions/route.md` before route work.
+- Final `git diff --check` → passed after the last documentation and type contract edits. Static scan command `rg -n "calculateStudentBilling\\(" web/src --glob '!**/domain/billing/billing-calculator.ts'` found only the four sites listed above. `rg -n "calculateClassDeductionCompat|calculateSubjectCount\\(|calculateSubjectCountV3|isCompat|ruleSetCapabilities|homeworkDiscountDecoupled|compatKernel" web/src` returned no matches. A manual current-contract scan found no remaining active PR-2 statement that new runs call a legacy calculator; older D1/#112/#161 text is explicitly marked historical/superseded. E2E worktrees and full-suite `sb130` test copies were checked for consumers and removed after their processes ended; `/tmp` returned to 3.6 GB free. No private-data comparison or performance claim is made. `data/app.sqlite` was not accessed; synthetic old-run records contain no personal information.
+
+Specs `02`, `03`, `04`, `06` (append-only D57), `07`, `09`, `14`, and `CLAUDE.md` carry the current v4-only contract. `specs/14` §3.11 now states that `care-days.ts` was flattened to the v4-only path while preserving the v4 formula and #147 extra-deduction order; this clarifies implementation without a rule change.
+
+The `CONFLICTING_NOTE_SOURCE` message for the note/tag conflict remains byte-for-byte at the PR-1 baseline (`正式軌 erp-tag-v1` wording) because changing user-visible issue text was outside this PR’s approved output allowlist; the exact-base golden exposed and prevented that incidental copy change. This existing copy was not validated against private data.
