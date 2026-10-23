@@ -155,6 +155,8 @@ function studentWithIssues(): StudentCalculationItem {
     tierComparisons: [],
     issues: [{ code: 'SCHEDULE_NOT_FOUND', message: '學生報名之數學班級「國小數學-一[團]」未於排課種子中找到，天數採 0 扣天 fallback，待確認排課或 alias 對應。' }],
     hasIssues: true,
+    actionableIssues: [{ code: 'SCHEDULE_NOT_FOUND', message: '學生報名之數學班級「國小數學-一[團]」未於排課種子中找到，天數採 0 扣天 fallback，待確認排課或 alias 對應。' }],
+    actionableHasIssues: true,
     trace: {},
     createdAt: '2026-09-29T10:00:00.000Z',
     enrollments: [],

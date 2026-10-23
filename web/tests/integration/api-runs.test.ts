@@ -10,7 +10,6 @@ import { POST as activatePOST } from '@/app/api/v1/imports/[previewId]/activate/
 import { GET as currentGET } from '@/app/api/v1/runs/current/route';
 import { GET as studentsGET } from '@/app/api/v1/runs/[runId]/students/route';
 import { GET as studentDetailGET } from '@/app/api/v1/runs/[runId]/students/[personCode]/route';
-import { GET as comparisonGET } from '@/app/api/v1/runs/[runId]/comparison/route';
 
 describe('T04: 正式 Run 相關 API 整合測試 (03 §5)', () => {
   let tempDir: string;
@@ -127,25 +126,4 @@ describe('T04: 正式 Run 相關 API 整合測試 (03 §5)', () => {
     expect(res404.status).toBe(404);
   });
 
-  it('GET /api/v1/runs/{runId}/comparison 支援對照 excel-v260922-compat，不支援參數回 400', async () => {
-    const reqOk = new NextRequest(
-      `http://127.0.0.1:3000/api/v1/runs/${runId}/comparison?againstRuleSet=excel-v260922-compat`
-    );
-    const resOk = await comparisonGET(reqOk, {
-      params: Promise.resolve({ runId }),
-    });
-    expect(resOk.status).toBe(200);
-    const comp = await resOk.json();
-    expect(comp.runId).toBe(runId);
-    expect(comp.diagnosticAlgorithmVersion).toBe('comparison-snapshot-v1');
-    expect(comp.differences.length).toBeGreaterThan(0);
-
-    const reqBad = new NextRequest(
-      `http://127.0.0.1:3000/api/v1/runs/${runId}/comparison?againstRuleSet=unknown_ruleset`
-    );
-    const resBad = await comparisonGET(reqBad, {
-      params: Promise.resolve({ runId }),
-    });
-    expect(resBad.status).toBe(400);
-  });
 });

@@ -5,6 +5,7 @@ import { normalizeStudentQuery, type QueryValue } from '@/contracts/student-quer
 import { createStudentPredicateBuilder } from './student-query-predicates';
 import { rateCategoryOfClass } from './applicable-rate';
 import { ruleSetCapabilities } from '@/domain/billing/rule-set';
+import { projectActionableIssues } from '@/domain/issues/actionable-issues';
 import { ALLOWED_RUN_QUERY_PARAMS, validateRunQueryParams, QueryStudentError } from './query-students';
 
 export interface StudentFilterOption { value: string; count: number; labelKey?: 'unparsedClassLabel' }
@@ -109,8 +110,10 @@ export function queryStudentOptions(db: Database.Database, runId: string, params
     add('tutoringDays', [row.tutoring_days]);
     add('baseDiscountBps', [row.base_discount_bps]);
     add('hasClass', [(row.subject_count ?? 0) > 0]);
-    add('hasIssues', [Boolean(row.has_issues)]);
-    const comparisons = JSON.parse(row.tier_comparisons) as Array<{ status: string }>;
+    const comparisons = JSON.parse(row.tier_comparisons) as Array<{ status: string; needsReview?: boolean }>;
+    const issues = JSON.parse(row.issues) as Array<{ code: string }>;
+    const actionable = projectActionableIssues(issues, comparisons);
+    add('hasIssues', [actionable.actionableHasIssues]);
     const hasMismatch = comparisons.some((c) => c.status === 'mismatch');
     // 值宇宙涵蓋任一班曾match者；全run的false人數可為0，選該match班後卻可能大於0。
     const hasMatch = comparisons.some((c) => c.status === 'match');
@@ -118,8 +121,7 @@ export function queryStudentOptions(db: Database.Database, runId: string, params
     if (hasMismatch) tierMismatchValues.push(true);
     if (hasMatch) tierMismatchValues.push(false);
     add('tierMismatch', tierMismatchValues);
-    const issues = JSON.parse(row.issues) as Array<{ code: string }>;
-    add('issueCode', issues.length ? issues.map((i) => i.code) : [null]);
+    add('issueCode', actionable.actionableIssues.length ? actionable.actionableIssues.map((i) => i.code) : [null]);
     add('tierComparison', comparisons.length ? comparisons.map((c) => c.status) : [null]);
     const trace = JSON.parse(row.trace);
     const tags = parseTagDiscounts(trace.rawTags);

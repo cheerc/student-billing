@@ -5,6 +5,8 @@
 > 2026-09-29 UI重設補充：依[06 D33](06-handoff-decisions.md)，無學生儲存設定、activate採最新已儲存設定、preview／apply的import由server決定等設定生命週期放寬，見[09 §8](09-ui-workflow-redesign-spec.md)；§4–5其餘交易／版本不變式不變，驗收見[04 §8](04-tdd-acceptance.md)。§3 ScheduleVersion的careWindows與effectiveFrom/To是schema欄位，現行不參與選版或計算；operator已決定安親／課輔窗口固定、不可編輯，有效日期不在範圍（D33）。計費規則沿用目前D24–D32，不由UI改版變更。
 >
 > 2026-09-30 D1補充（[11 §3 D1](11-ui-acceptance-fix-plan.md)、[06 D40](06-handoff-decisions.md)）：規則版本入口收斂（activate不再接受client的ruleSetVersion、apply用preview記錄的目標版本、歷史run的讀取入口一律讀該run的設定快照）、migration 0007（純增量）、已存設定JSON單一讀取入口與班名比對報告，見本檔 §5.2；v1／v2／compat的計算行為不變。
+>
+> **現行 PR-1 契約（Issue #159）：** D55 與下方 #161 snapshot 說明保留為歷史決策記錄。新 run 只執行一次正式計算，不呼叫 compat／shadow-v2，不產生兩個 retired diagnostic issue，也不新增 diagnostics snapshot/version；既有 schema、rows、raw `issues`、`hasIssues`、`issueCounts` 保留不變。`GET /runs/{runId}/comparison` 已移除並回 404。UI 用統一 actionable projection 隱藏兩個 retired code，保留其他 issue 與 tier `needsReview`；明確 API `issueCode` 查詢與 raw response 仍涵蓋歷史值。詳見 §5.5。
 
 ## 1. 技術選擇
 
@@ -58,7 +60,7 @@ repositories / XLSX adapter / clock & ID provider / file store
 |ScheduleVersion|id、effectiveFrom/To、careWindows、createdAt、source|整套設定版本；初始草稿攜帶 seed 全文 89 筆平鋪時段，消除空 sessions 雙義性|
 |ScheduleSession|scheduleVersionId、sessionId、classId、weekday、startMinute、endMinute、order|一班多時段；重複警告，不自動去重|
 |RuleSet|id、version、parameters、description|P1 用程式定義的版本；parameters 至少含 minutesPerBillingDay、取整門檻 zeroBelow／fullAtOrAbove、課輔整日特例條件（D24）；改參數即新版本；不建任意公式编辑器|
-|CalculationRun|runId、importId、scheduleVersionId、classCatalogVersion、aliasVersion、ruleSetVersion、numericPolicy、asOfDate、status、issueCounts|正式erp-tag-v1；歷史compat診斷不可啟用；輸入版本全固定|
+|CalculationRun|runId、importId、scheduleVersionId、classCatalogVersion、aliasVersion、ruleSetVersion、numericPolicy、asOfDate、status、issueCounts|保存所選正式版本（v1–v4）；new run 經 resolver 選版，目前目標 v4，歷史 compat 不可作正式 run；輸入版本全固定|
 |StudentCalculation|runId、personCode、subjectCount、baseDiscountBps、careDays、flags、issues、trace|穩定輸入產生穩定業務結果|
 |ClassStudentResult|runId、classId、personCode、enrollmentIds、enrolled、applicableDiscount、billingTier、tierComparisons[]、issues|每個enrollment各比較，班級人數去重；不覆寫domain原值|
 |ActiveState|activeImportId、activeRunId、revision|原子更新，UI/API 只能看到完整 run|
@@ -107,7 +109,7 @@ P1 整批重算可接受，5000 筆規模未證明有瓶頸前不實作複雜增
 |GET /settings/schedules|P1|排課版本及時段|
 |POST /settings/schedules|P1|建立新設定版本與 run；帶 expectedRevision，失敗保留舊版|
 |GET /runs/{runId}/issues|P1|可按學生／班級／規則篩選問題|
-|GET /runs/{runId}/comparison|P1|唯讀診斷；`againstRuleSet` 白名單只接受 `excel-v260922-compat`，其餘回 400。讀取建立 run 時同輪保存的 immutable comparison snapshot，不重算；設定快照缺失回 409 `SNAPSHOT_UNAVAILABLE`，舊 run 缺診斷內容回 409 `DIAGNOSTIC_VERSION_UNAVAILABLE`，損毀內容回 500 `DIAGNOSTIC_SNAPSHOT_CORRUPTED`（§5.2）|
+|GET /runs/{runId}/comparison|已移除（#159 PR-1）|route 不存在；GET 回 404。既有診斷表及歷史 rows 保留，不新增 snapshot；見 §5.5|
 |GET /settings/class-name-report|P1|班名比對報告（唯讀）；參數 `runId`／`importId`，見 §5.2.4|
 |GET /imports/{previewId}/students|P1|ready 批次預覽名單；與正式查詢共用篩選工具，但只接受不依賴計算的參數，其餘回 400。詳見本節後段|
 |GET /exports/review.csv?runId=...|P2|指定篩選核對清單，防公式注入|
@@ -118,17 +120,17 @@ P1 整批重算可接受，5000 筆規模未證明有瓶頸前不實作複雜增
 
 影響計算的設定保存需帶previewId與expectedRevision；預覽hash綁定草稿、import、設定、ruleSet，任一改變回409要求重預覽。預覽草稿設定 TTL 防止陳舊操作，且預覽只跑正式 erp-tag-v1 規則以保證反應速度。保存不得接收與預覽不同草稿。GET /classes 可含 mappingStatus=unmapped 的待設定項目及暫定候選鍵；GET /students 可用 enrollmentKey 查該清單，不因缺classId失去學生。列表 API 執行脫敏保護（不回傳完整電話與自由備註），單一學生明細抽屜 API（GET /students/{personCode}/calculation）按需查閱完整原文；學生資料字元一致性走依人員代碼排序之逐 key SHA-256 hash 比對。就學資料只存不篩。
 
-GET /runs/{runId}/comparison?againstRuleSet=excel-v260922-compat 為 P1 唯讀診斷；不切換 active。差異的歷史語意固定為同一 run 建立當下保存的正式值 `F_run` 與同一輪產生並保存的 compat 值 `C_run`：response 列出所有三個欄位中 `F_run != C_run` 的值，formalValue 必須等於 `student_calculations` 中該 run 的正式保存值。不得以今天重算的 `F_now`／`C_now` 取代歷史結果。
+**歷史 #161 comparison contract（#159 PR-1 已移除 route，現行 GET 回 404）：** 當時 GET /runs/{runId}/comparison?againstRuleSet=excel-v260922-compat 為唯讀診斷；不切換 active。差異語意固定為同一 run 建立當下保存的正式值 `F_run` 與同一輪產生並保存的 compat 值 `C_run`：response 列出所有三個欄位中 `F_run != C_run` 的值，formalValue 必須等於 `student_calculations` 中該 run 的正式保存值。不得以今天重算的 `F_now`／`C_now` 取代歷史結果。
 
-正式 run 建立時，計算 application 在原有的一輪 formal／compat 計算後產生 `comparison-snapshot-v1`，並與 run、正式結果及 `run_class_categories` 在同一交易保存。快照包含每位學生三欄的正式／compat 投影、固定欄位與學生排序後的 differences、計數、有效輸入 evidence、正式投影 hash 與內容 hash；零差異仍是有效快照。有效輸入 evidence 記錄當時設定／seed 的內容 hash、實際採用的 alias、類別與展開時段、學生報名順序，以及 compat 從分鐘轉日分數、重疊分鐘與扣天的浮點運算順序、15 位有效數字比較政策。這些 evidence 供追溯，GET 仍只以保存的 projection／differences 作答，不從 evidence 重播或回推值。`diagnosticAlgorithmVersion`（此版為 `comparison-snapshot-v1`）、`payloadSchemaVersion`（此版為 1）、正式 `ruleSetVersion`、`numericPolicy` 及 generator provenance 是不同欄位，不得混用。會改變診斷值、來源、分類或排序語意的實作需評估新的 diagnosticAlgorithmVersion；payload 結構變動則維護 schema reader。此路線選擇預存，是為了讓 GET 不依賴今日 calculator、類別 parser、seed manifest、浮點 kernel 或 serializer，並能在保存時以交易保證完整性；資料量與延遲需以合成資料量測，不得複製完整學生結果或電話／備註等不必要個資。這是 #161 的選擇，取代本節原先的即時計算預設；不建立歷史 calculator registry，也不改 #157 類別規則或 #159 範圍。
+**歷史 #161 snapshot-write contract（#159 PR-1 起不再適用於新 run）：** 當時正式 run 建立時，計算 application 在原有的一輪 formal／compat 計算後產生 `comparison-snapshot-v1`，並與 run、正式結果及 `run_class_categories` 在同一交易保存。快照包含每位學生三欄的正式／compat 投影、固定欄位與學生排序後的 differences、計數、有效輸入 evidence、正式投影 hash 與內容 hash；零差異仍是有效快照。有效輸入 evidence 記錄當時設定／seed 的內容 hash、實際採用的 alias、類別與展開時段、學生報名順序，以及 compat 從分鐘轉日分數、重疊分鐘與扣天的浮點運算順序、15 位有效數字比較政策。這些 evidence 供追溯，GET 仍只以保存的 projection／differences 作答，不從 evidence 重播或回推值。`diagnosticAlgorithmVersion`（此版為 `comparison-snapshot-v1`）、`payloadSchemaVersion`（此版為 1）、正式 `ruleSetVersion`、`numericPolicy` 及 generator provenance 是不同欄位，不得混用。會改變診斷值、來源、分類或排序語意的實作需評估新的 diagnosticAlgorithmVersion；payload 結構變動則維護 schema reader。此路線選擇預存，是為了讓 GET 不依賴今日 calculator、類別 parser、seed manifest、浮點 kernel 或 serializer，並能在保存時以交易保證完整性；資料量與延遲需以合成資料量測，不得複製完整學生結果或電話／備註等不必要個資。這是 #161 的選擇，取代本節原先的即時計算預設；不建立歷史 calculator registry，也不改 #157 類別規則或 #159 範圍。
 
-comparison GET 只讀 run／設定版本存在性／快照內容，做 schema、hash、唯一學生集合、排序、計數及正式投影一致性驗證；不得呼叫計算器、類別解析器、seed builder，不得重建差異或寫資料。hash 與有效輸入 evidence 用於追溯與內容完整性，不是重新計算歷史結果的授權。舊 run 的診斷版本維持 NULL，migration 不猜版本、不補內容；版本缺失、未知或不支援，或有版本卻無內容，回 409 `DIAGNOSTIC_VERSION_UNAVAILABLE`，不可 fallback／backfill。當 run 所引用的設定版本不存在時，保留 UX38 的 409 `SNAPSHOT_UNAVAILABLE`。版本支援但 JSON/schema/hash/學生集合/正式投影或保存 difference 不一致時回安全的 500 `DIAGNOSTIC_SNAPSHOT_CORRUPTED`。有效快照回原版本、`totalDifferences` 與原有序 `differences`；preview 及 `settings_only` apply 不建 run，亦不寫 diagnostics。正式 run 的 `NUMERIC_POLICY_DIFFERENCE` 與 `hasIssues` 仍在建立 run 時計算、保存，不能等使用者開診斷頁才產生；此 issue code 仍只比較同來源／同映射／同取整規則下的兩種 numericPolicy。
+**歷史 #161 reader contract（#159 PR-1 已移除 route）：** 當時 comparison GET 只讀 run／設定版本存在性／快照內容，做 schema、hash、唯一學生集合、排序、計數及正式投影一致性驗證；不得呼叫計算器、類別解析器、seed builder，不得重建差異或寫資料。hash 與有效輸入 evidence 用於追溯與內容完整性，不是重新計算歷史結果的授權。舊 run 的診斷版本維持 NULL，migration 不猜版本、不補內容；版本缺失、未知或不支援，或有版本卻無內容，回 409 `DIAGNOSTIC_VERSION_UNAVAILABLE`，不可 fallback／backfill。當 run 所引用的設定版本不存在時，保留 UX38 的 409 `SNAPSHOT_UNAVAILABLE`。版本支援但 JSON/schema/hash/學生集合/正式投影或保存 difference 不一致時回安全的 500 `DIAGNOSTIC_SNAPSHOT_CORRUPTED`。有效快照回原版本、`totalDifferences` 與原有序 `differences`；preview 及 `settings_only` apply 不建 run，亦不寫 diagnostics。正式 run 的 `NUMERIC_POLICY_DIFFERENCE` 與 `hasIssues` 仍在建立 run 時計算、保存，不能等使用者開診斷頁才產生；此 issue code 仍只比較同來源／同映射／同取整規則下的兩種 numericPolicy。
 
 GET /imports/{previewId}/students 供ready批次在啟用前查看名單，與正式查詢共用同一套篩選工具，資料入口不同。只接受參數：classId、enrollmentKey、subject、grade、branch、hasClass、q、sort、cursor、limit、erpBillingTier、mappingStatus。傳入正式 run 專用參數（runId、baseDiscountBps、applicableDiscountBps、billingTier、careType、sibling、specialDiscount、internalStudent、hasExtraDeduction、tierMismatch、tierComparison、hasIssues、scheduleStatus、issueCode）一律回400並指名該參數，不默默忽略、不回傳未計算的空值假裝已比對。其他未知參數亦回400。erpBillingTier 使用不可變解析值；classId／mappingStatus 依 preview 建立時固定的設定快照解析，只採已核准映射，候選不等於已對應。subject優先依核准班級，未映射時用02的已知token文法分類，未知列待設定、不猜科別。未映射者用 enrollmentKey 查名單。preview response 回設定版本，cursor 綁 previewId、設定版本與 filters/sort；後續設定改變不偷偷改舊預覽，新建 preview 才更新對照。此為中途預覽契約，不是第二套收費API。
 
 學生查詢額外參數：subject、grade、branch、hasClass、baseDiscountBps、applicableDiscountBps（需 classId）、billingTier（需 careType）、sibling、specialDiscount、internalStudent、hasExtraDeduction、hasIssues、sort、cursor。只接受白名單值；無效值回 400，不默默忽略。不同類型篩選 AND；姓名 q 為字面子字串，不作 regex，姓名排序相同時以 personCode 穩定排序。
 
-增加tierMismatch=true/false、tierComparison、erpBillingTier、mappingStatus、scheduleStatus、enrollmentKey、issueCode。issueCode 為單一已定義問題碼，至少支援 DUPLICATE_SUBJECT_ENROLLMENT、STAFF_FAMILY_NO_DISCOUNT、CONFLICTING_NOTE_SOURCE、NUMERIC_POLICY_DIFFERENCE，未知碼400；與其他篩選AND，hasIssues=false 同時指定issueCode回400。學生層級提示在選班後仍保留；班級／enrollment問題在所選範圍內比對。careType 僅接受 anqin/tutoring，billingTier 必须同時帶 careType。tierMismatch=true表示選定班／科別範圍內任一enrollment為mismatch；false只包含所選範圍內至少一筆match、沒有mismatch或unavailable者；not_applicable不算match也不構成不一致。tierComparison可明確選未知／不適用；與tierMismatch矛盾回400。班級未指定時總人數仍是去重學生數，另回comparisonCounts標示enrollment筆數。
+增加tierMismatch=true/false、tierComparison、erpBillingTier、mappingStatus、scheduleStatus、enrollmentKey、issueCode。issueCode 為單一已定義問題碼，至少支援 DUPLICATE_SUBJECT_ENROLLMENT、STAFF_FAMILY_NO_DISCOUNT、CONFLICTING_NOTE_SOURCE、NUMERIC_POLICY_DIFFERENCE、RULESET_POLICY_DIFFERENCE，未知碼400；與其他篩選AND，hasIssues=false 同時指定issueCode回400。學生層級提示在選班後仍保留；班級／enrollment問題在所選範圍內比對。careType 僅接受 anqin/tutoring，billingTier 必须同時帶 careType。tierMismatch=true表示選定班／科別範圍內任一enrollment為mismatch；false只包含所選範圍內至少一筆match、沒有mismatch或unavailable者；not_applicable不算match也不構成不一致。tierComparison可明確選未知／不適用；與tierMismatch矛盾回400。班級未指定時總人數仍是去重學生數，另回comparisonCounts標示enrollment筆數。
 
 以下是示意 response，不是現有學生：
 
@@ -162,6 +164,8 @@ ERP token 可有明確離班日期，依使用者決策只顯示不排除。財�
 錯誤格式：`{error:{code,message,details,requestId}}`；結構錯誤 400，缺必要欄／重複代碼等資料驗證 422，版本衝突 409，檔案過大 413，未找到 404，內部錯誤 500。一般 response 不附 stack 或完整學生備註。
 
 ### 5.1 學生查詢：多值篩選、選項與「無課程」契約（B1 現況）
+
+PR-1 raw/actionable issue 相容邊界：`issues`、`hasIssues`、`issueCounts` 與明確 `issueCode` API 篩選維持原始持久化語意，包含歷史 `NUMERIC_POLICY_DIFFERENCE`／`RULESET_POLICY_DIFFERENCE`。結果 UI 的 issue facets、selection、has-issues filter、badge、list 與 page/history counts 則共用 §5.5 actionable projection，僅排除這兩個 retired code；tier `needsReview` 仍計為 actionable。舊 URL 若只選 retired code，client 會清除該選擇以免 UI 與名單不一致。
 
 依[06 D36、D38](06-handoff-decisions.md)與[11 §3 B1](11-ui-acceptance-fix-plan.md)。本節為 B1 落地之**現況契約**；適用於 `GET /api/v1/runs/{runId}/students` 與 `GET /api/v1/imports/{previewId}/students`（共用篩選與空狀態解析工具，其可接受參數與白名單依端點區分）。
 
@@ -259,10 +263,12 @@ ERP token 可有明確離班日期，依使用者決策只顯示不排除。財�
 
 依 [06 D40](06-handoff-decisions.md)（operator 2026-09-30 裁決，decision `d-20260930112930661160-25`）；D1 只改「版本與快照從哪裡讀」，v1／v2／compat 的計算輸出逐欄不變（驗收 [04 UX34](04-tdd-acceptance.md)）。
 
+> #159 PR-1 後續狀態：本節中原 comparison route、診斷 snapshot 生成／讀取契約及其測試描述是 D55/#161 的歷史記錄，現行契約以本檔頂端補充與 §5.5 為準。歷史表與 migration 保留，沒有新 run 寫入或 public comparison GET。
+
 #### 5.2.1 規則版本由 server 決定（F-1／F-2／F-3）
 
-- **單一解析器** `application/rule-set-resolver`：`resolveFormalRuleSetVersion(db)`＝有 active run 且其版本為正式軌則採其值，否則（無 active run，或 active run 為診斷軌 compat）採現行正式軌 `erp-tag-v2`。名單差異、班級扣天、calculate、preview、activate 都經它取得版本；client 一律不得指定。
-- **activate**：body 不得含 `ruleSetVersion`（route 與 application 層皆拒絕；HTTP 400 `INVALID_REQUEST`，與 calculate 一致）。新 run 的版本＝`resolveFormalRuleSetVersion(db)`（在與 CAS 同一交易內解析）：現行 run 為 v1 則新 run 沿用 v1，不會靜默變成 v2。冪等雜湊只由 `{importId, expectedRevision, asOfDate}` 決定；D1 之前寫入的紀錄（雜湊含 `ruleSetVersion:"erp-tag-v2"`）同 key 同內容的重送仍回原結果。
+- **單一解析器** `application/rule-set-resolver`：`resolveFormalRuleSetVersion(db)`＝有 active run 且其版本為正式軌則沿用（v1／v2／v3／v4），否則（無 active run，或 active run 為歷史診斷軌 compat）採目前 target formal `erp-tag-v4`。名單差異、班級扣天、calculate、preview、activate 都經它取得版本；client 一律不得指定。
+- **activate**：body 不得含 `ruleSetVersion`（route 與 application 層皆拒絕；HTTP 400 `INVALID_REQUEST`，與 calculate 一致）。新 run 的版本＝`resolveFormalRuleSetVersion(db)`（在與 CAS 同一交易內解析）：現行 run 為任一 formal 版本則新 run 沿用該版；歷史 compat active run 回落至目前 target formal `erp-tag-v4`。冪等雜湊只由 `{importId, expectedRevision, asOfDate}` 決定；D1 之前寫入的紀錄（雜湊含 `ruleSetVersion:"erp-tag-v2"`）同 key 同內容的重送仍回原結果。
 - **preview／apply**：`settings_previews.target_rule_set_version`（migration 0007，nullable）記錄 preview 當下由 server 決定的版本（含 settings_only）；apply **只讀這個欄位**建立新 run（`resolveRuleSetForApply`）。欄位為 NULL（0007 之前建立的舊 preview；TTL 15 分鐘，實務上幾乎不存在）＝「建立當時的 active 版本」：apply 與 preview 之間有 revision CAS，active 沒變，所以等於 apply 當下 server 解析的值。記錄值不是正式軌版本（含診斷軌 compat、未知字串）→ 500 `PREVIEW_CORRUPTED`，不建 run、不動 active。
 - **能力旗標**：`domain/billing/rule-set` 的 `ruleSetCapabilities(version)` 逐版明列 `sameWeekdayOnly`、`unknownWeekdayWarning`、`scheduleIncompleteOnUnknownWeekday`；原本散在各處、會改變行為的 4 處 `=== 'erp-tag-v2'` 字面比較（billing-calculator 3 處、schedule-preview 1 處）一律改讀旗標。未列出的版本（含 compat、未知字串）全關＝與舊語意相同。D1 不新增 `erp-tag-v3` 型別成員，也不改 `CURRENT_FORMAL_RULE_SET_VERSION`。**D2 新增版本時須逐項明列旗標值，並稽核未進旗標的預設值字面**（預設值字面共 7 處：`calculate-run.ts` 1、`roster-changes.ts` 3、`comparison/route.ts` 1、`billing-calculator.ts` 2；另 `roster-changes.ts` 的 `classSide` 以 `!== 'excel-v260922-compat'` 決定同星期規則——對 v1 與 calculator 的純時刻比對不一致，D1 依「除 F-1／2／3／5／6／7 外不改任何輸出」原樣保留，交 D2 處置）。
 
@@ -270,7 +276,7 @@ ERP token 可有明確離班日期，依使用者決策只顯示不排除。財�
 
 run 的設定快照＝`run.scheduleVersionId`：`seed-v250922`（該 run 沒有任何已儲存設定，以 seed 課表計算，不帶別名與時段覆寫）或 `settings_versions.id`。`application/run-snapshot` 的 `loadRunSnapshot` 是所有「讀歷史 run」入口的共用載入函式；快照缺失（設定版本不存在）＝無法判定，**不改用最新設定、也不退回 seed 猜**。
 
-- `GET /runs/{runId}/comparison`：以快照的別名與時段覆寫，重算正式軌與診斷軌；缺失回 409 `SNAPSHOT_UNAVAILABLE`（與 `GET /settings/deductions` 既有契約相同）。
+- `GET /runs/{runId}/comparison`：此為 D55/#161 時期的歷史讀取契約；#159 PR-1 已移除 route，現行 GET 回 404。歷史快照不被刪除或回填。
 - `GET /classes?runId=`：`settingsScope:"run_snapshot"`、`snapshotStatus:"ok"|"unavailable"`；未帶 runId 時 `settingsScope:"latest_settings"`（維持讀最新已存設定，尚無才用 seed）。
 - `roster-changes` 逐班明細（匯入異動）：`classSide` 與 calculator 對「課表來源」的判斷一致——帶 `scheduleOverride`（已有儲存設定）時以其全量 draft 為唯一來源、不退回 seed，否則用 seed（`classMapFor`）。
 
@@ -313,7 +319,7 @@ run 的設定快照＝`run.scheduleVersionId`：`seed-v250922`（該 run 沒有�
   - `categoryBasedBilling`: true（v3 依類別計算科數與 isEnrolled；v1/v2 為 false）。
   - `maxDeductionSelection`: true（v3 衝堂扣天取正量最多；v1/v2 為 false 首班選班）。
   - `missingEnglishScheduleWarning`: true（v3 美語缺課表出警告；v2 凍結不警告）。
-  - `diagnosticsDecomposition`: true（v3 兩段式診斷分解；v1/v2 為 false）。
+  - `diagnosticsDecomposition`: true（歷史 v3 兩段式診斷分解 metadata；PR-1 新 run 不再依此旗標執行診斷，見 §5.3.5、§5.5）。
   - `unmappedClassWarning`: true（v3 未對應班出 `CLASS_NOT_MAPPED`；v1/v2 為 false）。
 - 禁止以字面 `=== 'erp-tag-v2'` 比較，新舊行為一律經由能力旗標分流。
 
@@ -343,7 +349,10 @@ run 的設定快照＝`run.scheduleVersionId`：`seed-v250922`（該 run 沒有�
   - 消費端（含 `web/scripts/` 下的帳務比對工具）一律將此快照傳入 `applicableRateForClass`，**不得**直接讀 `applicableEnglishBps`／`applicableMathBps` 等學生層欄位自行推導班級類別。
   - **快照語意隨規則版本而異**：`fixed_five_days` 在 v3 會讓本班折扣變 100%，在 v4 不會。消費端必須把該 run 的 `ruleSetVersion` 一併傳入讀模型（`SummaryTable` 的 `classCategoryRuleSetVersion`、工具層 `toApplicableRateContext`），不得由消費端自行字面比較版本決定。
 
-#### 5.3.5 診斷標籤兩段式分解
+#### 5.3.5 歷史診斷標籤兩段式分解（#159 PR-1 起停用新產生）
+
+以下是 #112/#161 時期的行為記錄；PR-1 停止新 run 呼叫 shadow(v2)/compat 並停止產生這兩個診斷 issue。請以 §5.5 為現行契約。
+
 - `calculate-run` 對具 `diagnosticsDecomposition` 能力的 run（v3、v4）同時計算 formal、shadow(v2) 與 compat：
   - `formal` vs `shadow(v2)` 天數差 → 標記 `RULESET_POLICY_DIFFERENCE`（白話：「新舊規則對這位學生的算法不同。」）。
   - `shadow(v2)` vs `compat` 天數差 → 標記 `NUMERIC_POLICY_DIFFERENCE`。
@@ -397,6 +406,15 @@ run 的設定快照＝`run.scheduleVersionId`：`seed-v250922`（該 run 沒有�
 - v1／v2 run 沒有快照 → 不帶 `isV3Run`，沿用名稱映射（既有行為不變）。
 - 該 run 缺該班快照 → `not_configured`（無法判定），不以當前班名猜測。
 - **固定 5 天是否改寫本班折扣由能力旗標決定**（#112）：`ruleSetVersion` 具 `homeworkDiscountDecoupled`（v4）時，`fixed_five_days` 不參與判定；v3 仍依 Q7-A 回傳 10000。消費端一律傳入該 run 的 `ruleSetVersion`，不得自行字面比較版本。
+
+### 5.5 Issue #159：退役新 run 雙軌 diagnostics，保留歷史 raw contract
+
+- **新 run 計算**：每位學生只呼叫一次該 run 選定的 formal calculator。新 run 不呼叫 `excel-v260922-compat` 或 shadow-v2，不新增 `NUMERIC_POLICY_DIFFERENCE`／`RULESET_POLICY_DIFFERENCE`，不建立 `run_diagnostics` row，也不保存新 diagnostic version。`ruleSetVersion` 仍由現有正式版本 resolver 決定；本 PR 不收斂成單一 v4。
+- **歷史 diagnostics**：`run_diagnostics` schema、repository 的歷史讀取欄位、舊 rows 與舊 run 原始 issues 不刪除、不回填、不重算。新 run 的診斷欄位為 NULL／不存在。
+- **Comparison route**：`GET /runs/{runId}/comparison` 已刪除，任何 run 都回 404。比較連結亦從結果頁移除；歷史 snapshot 仍留在 DB，沒有 UI/API route。
+- **Raw API 相容性**：學生 run reader 的 `issues`、`hasIssues`、`issueCounts` 與 `/runs/{runId}/issues` 保持 raw persisted values。明確 `issueCode=NUMERIC_POLICY_DIFFERENCE` 或 `RULESET_POLICY_DIFFERENCE` 仍可查到舊 rows 並回 200；不重用這些 raw 值推導新的 business warning。
+- **Actionable UI projection**：`domain/issues/actionable-issues.ts` 集中定義 retired codes。UI badges、issue list、facets／selection、has-issues filter、名單與 history page counts 只排除這兩碼；其他 issue 全數保留。任一 enrollment 的 tier comparison `needsReview` 即使沒有 actionable issue row 仍可行動確認。API `issueCode` 原始 query 不套此投影；client 將 stale retired-only URL selection 移除，避免空的 UI selection 與篩選名單不一致。
+- **Issue #159 regression coverage**：合成歷史 rows 覆蓋 retired-only、混合 business issue、tier `needsReview`、raw query／raw counts 及 stale URL；synthetic new-run test 驗 formal 一次、compat/shadow 零次與無 diagnostics rows；實際 Next route test 驗 comparison GET 404；transaction failure test 驗 run、student rows、active pointer 與 diagnostics insert 一起 rollback。Real local student data remains private and is not a CI fixture.
 
 ## 6. Agent 使用邊界
 

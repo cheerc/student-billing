@@ -1,5 +1,6 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import Database from 'better-sqlite3';
+import * as billingCalculator from '@/domain/billing/billing-calculator';
 import { executeCalculationRun } from '@/application/calculate-run';
 import { getCalculationRun, saveCalculationRun } from '@/adapters/sqlite/runs-repository';
 import { saveImportBatch } from '@/adapters/sqlite/import-repository';
@@ -14,6 +15,8 @@ import {
 import { calculateSubjectCountV3 } from '@/domain/billing/discount-rules';
 import { parseSingleClassToken } from '@/domain/students/token-parser';
 import type { StudentSnapshot } from '@/domain/students/types';
+
+afterEach(() => vi.restoreAllMocks());
 
 const RUN_ID = 'run_148_159_synthetic_baseline';
 const IMPORT_ID = 'import_148_159_synthetic_baseline';
@@ -122,7 +125,7 @@ describe('Issues #148 + #159 PR-0: post-#157 synthetic v4 characterization', () 
     });
   });
 
-  it('freezes v4 outputs, all eight summary columns, the two diagnostic-only warnings, and persisted #161 reads', () => {
+  it('freezes v4 outputs and all eight summary columns while new runs omit retired diagnostics', () => {
     const db = new Database(':memory:');
     try {
       runMigrations(db);
@@ -184,11 +187,14 @@ describe('Issues #148 + #159 PR-0: post-#157 synthetic v4 characterization', () 
         [numericName, [{ start: 990, end: 1035, weekday: '三' }]],
       ]);
 
+      const calculateSpy = vi.spyOn(billingCalculator, 'calculateStudentBilling');
       const { run, results, classCategories } = executeCalculationRun(db, IMPORT_ID, RUN_ID, {
         ruleSetVersion: 'erp-tag-v4',
         classSettings,
         scheduleOverride,
       });
+      expect(calculateSpy).toHaveBeenCalledTimes(students.length);
+      expect(calculateSpy.mock.calls.every(([_, options]) => options?.ruleSetVersion === 'erp-tag-v4')).toBe(true);
       const byCode = new Map(results.map((result) => [result.personCode, result]));
 
       // Hand-calculated from 02 §9A and D24: 120/180 day is a half-day deduction;
@@ -218,29 +224,22 @@ describe('Issues #148 + #159 PR-0: post-#157 synthetic v4 characterization', () 
         baseDiscountBps: 10000,
         tutoringDays: 4.5,
         mathDays: null,
-        issues: [{ code: 'RULESET_POLICY_DIFFERENCE' }],
+        issues: [],
       });
       expect(byCode.get('SYNTH_04')).toMatchObject({
         tutoringDays: 5,
-        issues: [{ code: 'NUMERIC_POLICY_DIFFERENCE' }],
+        issues: [],
       });
       expect(byCode.get('SYNTH_05')?.issues.map((issue) => issue.code)).toContain('CONFLICTING_NOTE_SOURCE');
-      expect(run.issueCounts).toEqual({
-        RULESET_POLICY_DIFFERENCE: 2,
-        NUMERIC_POLICY_DIFFERENCE: 1,
-        CONFLICTING_NOTE_SOURCE: 1,
-      });
+      expect(run.issueCounts).toEqual({ CONFLICTING_NOTE_SOURCE: 1 });
 
-      // Current baseline carries the comparison payload for one compat pass plus v4's shadow-v2 pass.
-      // #161's persisted reader must serve saved data and must not calculate either track on GET.
-      expect(run.diagnostics).toMatchObject({
-        algorithmVersion: 'comparison-snapshot-v1',
-        payload: { diagnosticAlgorithmVersion: 'comparison-snapshot-v1', againstRuleSet: 'excel-v260922-compat' },
-      });
+      expect(run.diagnosticAlgorithmVersion).toBeUndefined();
+      expect(run.diagnostics).toBeUndefined();
       saveCalculationRun(db, run, results, classCategories);
       const persistedRun = getCalculationRun(db, RUN_ID);
       expect(persistedRun).not.toBeNull();
-      expect(readRunDiagnostics(db, persistedRun!).status).toBe('supported');
+      expect(db.prepare('SELECT count(*) as n FROM run_diagnostics WHERE run_id = ?').get(RUN_ID)).toMatchObject({ n: 0 });
+      expect(readRunDiagnostics(db, persistedRun!).status).not.toBe('supported');
     } finally {
       db.close();
     }

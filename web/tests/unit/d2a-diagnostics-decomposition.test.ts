@@ -4,8 +4,8 @@ import { runMigrations } from '@/adapters/sqlite/migrator';
 import { saveImportBatch } from '@/adapters/sqlite/import-repository';
 import { executeCalculationRun } from '@/application/calculate-run';
 
-describe('D2a: 診斷標籤分解 (Diagnostics Decomposition, Q12)', () => {
-  it('手算案例 D-01: v3 因選班政策產生天數差，出 RULESET_POLICY_DIFFERENCE 而非單一 NUMERIC_POLICY_DIFFERENCE', () => {
+describe('Issue #159 PR-1: new runs omit retired diagnostic warnings', () => {
+  it('a v3 student with a legacy rule difference keeps formal business issues without diagnostic-only codes', () => {
     const db = new Database(':memory:');
     runMigrations(db);
 
@@ -82,8 +82,12 @@ describe('D2a: 診斷標籤分解 (Diagnostics Decomposition, Q12)', () => {
 
     const issuesRaw = resultV3.results[0].issues;
     const issuesV3 = (Array.isArray(issuesRaw) ? issuesRaw : JSON.parse(issuesRaw as any)) as Array<{ code: string }>;
-    expect(issuesV3.some((i) => i.code === 'RULESET_POLICY_DIFFERENCE')).toBe(true);
-    expect(issuesV3.some((i) => i.code === 'NUMERIC_POLICY_DIFFERENCE')).toBe(false);
+    expect(issuesV3.map((i) => i.code)).not.toContain('RULESET_POLICY_DIFFERENCE');
+    expect(issuesV3.map((i) => i.code)).not.toContain('NUMERIC_POLICY_DIFFERENCE');
+    expect(Object.keys(resultV3.run.issueCounts)).not.toContain('RULESET_POLICY_DIFFERENCE');
+    expect(Object.keys(resultV3.run.issueCounts)).not.toContain('NUMERIC_POLICY_DIFFERENCE');
+    expect(resultV3.run.diagnosticAlgorithmVersion).toBeUndefined();
+    expect(resultV3.run.diagnostics).toBeUndefined();
 
     db.close();
   });

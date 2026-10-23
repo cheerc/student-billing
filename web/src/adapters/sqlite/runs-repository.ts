@@ -1,17 +1,7 @@
 import Database from 'better-sqlite3';
 import { loadRunClassCategories, type RunClassCategorySnapshot } from '@/application/applicable-rate';
 import { ruleSetCapabilities } from '@/domain/billing/rule-set';
-import {
-  compareDiagnosticValues,
-  effectiveInputsSchema,
-  formalProjectionHash,
-  runDiagnosticPayloadSchema,
-  sha256,
-  sortDiagnosticDifferences,
-  sortDiagnosticStudents,
-  stableJson,
-  type RunDiagnosticsSnapshot,
-} from '@/contracts/run-diagnostics';
+import type { RunDiagnosticsSnapshot } from '@/contracts/run-diagnostics';
 
 export interface CalculationRunRecord {
   id: string;
@@ -87,49 +77,8 @@ export function saveCalculationRun(
   results: StudentCalculationRecord[],
   classCategories?: RunClassCategoryRecord[]
 ): void {
-  const diagnostics = run.diagnostics;
-  if (run.diagnosticAlgorithmVersion != null) {
-    if (!diagnostics || diagnostics.algorithmVersion !== run.diagnosticAlgorithmVersion || diagnostics.payload.runId !== run.id) {
-      throw new Error('診斷版本與診斷內容不完整或不一致');
-    }
-    const payload = runDiagnosticPayloadSchema.parse(diagnostics.payload);
-    const effectiveInputs = effectiveInputsSchema.parse(diagnostics.effectiveInputs);
-    if (payload.diagnosticAlgorithmVersion !== run.diagnosticAlgorithmVersion ||
-      payload.totalStudents !== run.totalStudents || payload.projectionCount !== run.totalStudents ||
-      payload.totalDifferences !== payload.differences.length ||
-      effectiveInputs.importId !== run.importId || effectiveInputs.scheduleVersionId !== run.scheduleVersionId ||
-      effectiveInputs.calculationPolicies.formalRuleSetVersion !== run.ruleSetVersion ||
-      effectiveInputs.calculationPolicies.numericPolicy !== run.numericPolicy) {
-      throw new Error('診斷快照中繼資料與 run 不一致');
-    }
-    if (results.length !== diagnostics.payload.projectionCount || results.length !== run.totalStudents) {
-      throw new Error('診斷投影學生數與正式計算結果不一致');
-    }
-    const resultCodes = new Set(results.map((result) => result.personCode));
-    const projectionCodes = new Set(diagnostics.payload.students.map((student) => student.personCode));
-    if (resultCodes.size !== results.length || projectionCodes.size !== diagnostics.payload.students.length ||
-      resultCodes.size !== projectionCodes.size || [...resultCodes].some((code) => !projectionCodes.has(code))) {
-      throw new Error('診斷投影學生集合與正式計算結果不一致');
-    }
-    for (const result of results) {
-      const projection = diagnostics.payload.students.find((student) => student.personCode === result.personCode);
-      if (!projection || projection.formal.baseDiscountBps !== result.baseDiscountBps ||
-        projection.formal.anqinDays !== result.anqinDays || projection.formal.tutoringDays !== result.tutoringDays ||
-        result.runId !== run.id || result.trace?.sourceRow !== projection.sourceRow) {
-        throw new Error(`診斷正式投影與保存結果不一致：${result.personCode}`);
-      }
-    }
-    const sortedStudents = sortDiagnosticStudents(diagnostics.payload.students);
-    const expectedDifferences = sortDiagnosticDifferences(sortedStudents.flatMap((student) => {
-      const result = results.find((item) => item.personCode === student.personCode)!;
-      return compareDiagnosticValues(student, result.name);
-    }));
-    if (stableJson(sortedStudents) !== stableJson(diagnostics.payload.students) ||
-      stableJson(expectedDifferences) !== stableJson(diagnostics.payload.differences)) {
-      throw new Error('診斷投影、差異內容或固定排序不一致');
-    }
-  } else if (diagnostics) {
-    throw new Error('沒有診斷版本的 run 不可保存診斷內容');
+  if (run.diagnosticAlgorithmVersion != null || run.diagnostics) {
+    throw new Error('新 run 不可寫入已退役的診斷快照');
   }
 
   const persist = db.transaction(() => {
@@ -151,7 +100,7 @@ export function saveCalculationRun(
     JSON.stringify(run.issueCounts),
     run.totalStudents,
     run.createdAt,
-    run.diagnosticAlgorithmVersion ?? null
+    null
   );
 
   const insertResult = db.prepare(`
@@ -219,35 +168,6 @@ export function saveCalculationRun(
     }
   }
 
-  if (diagnostics) {
-    const payloadJson = JSON.stringify(diagnostics.payload);
-    const effectiveInputsJson = JSON.stringify(diagnostics.effectiveInputs);
-    const formalRows = diagnostics.payload.students.map((student) => {
-      const result = results.find((item) => item.personCode === student.personCode)!;
-      return {
-        personCode: student.personCode,
-        name: result.name,
-        sourceRow: student.sourceRow,
-        values: student.formal,
-      };
-    });
-    db.prepare(`
-      INSERT INTO run_diagnostics (
-        run_id, algorithm_version, payload_schema_version, payload_json, effective_inputs_json,
-        payload_hash, effective_inputs_hash, formal_result_hash, created_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(
-      run.id,
-      diagnostics.algorithmVersion,
-      diagnostics.payload.payloadSchemaVersion,
-      payloadJson,
-      effectiveInputsJson,
-      sha256(payloadJson),
-      sha256(effectiveInputsJson),
-      formalProjectionHash(formalRows),
-      run.createdAt
-    );
-  }
   });
   persist();
 }

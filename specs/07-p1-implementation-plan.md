@@ -2,6 +2,8 @@
 
 日期：2026-09-23。依據：spec v2、P1 review、D17–D23 業務決策與 2026-09-23 最終複核修正。狀態：**計畫完成，以下實作工作均未開始**。
 
+> **後續狀態（#159 PR-1）：** 本文件是 P1 啟動前的歷史 plan；其中「comparison 即時計算／run 中保存雙軌診斷」不再是現行契約。新 run 只執行 formal，不呼叫 compat／shadow-v2、不寫 diagnostics；comparison link／GET 已移除並回 404。舊 rows 與 raw issue API 保留。現行工程契約見 [03 §5.5](03-architecture-api.md)、[06 D56](06-handoff-decisions.md)；本 PR 不代表 PR-2 單一 v4 收斂。
+
 ## 1. 交付目標與範圍
 
 完成一個可以在 localhost 使用的學生收費核對 prototype：上傳 ERP 學生檔，按班級／姓名篩選、看去重人數、八項計算、課程適用折扣與 ERP 登記級距差異；維護課程／時間／老師，先看影響再套用；重啟後資料仍在；本機 agent 可讀同一版本 API。
@@ -103,7 +105,7 @@ web/
 - 從計算Excel的S表手動欄A:E、兩組care windows擷取seed，保留原始Excel時間數值供浮點診斷；不用S/C/D的公式快取當正式運算輸入。
 - 49班、89非空班名列，40有時段、8care_window、1一般數學empty；保留老師／星期／無時間差異，不用空時段補00:00。
 - 依下表順序red-green-refactor規則。每組完成即接入單一學生detail試算，不等所有報表才驗資料流。
-- erp-tag-v1正式只讀標籤；excel-v260922-compat獨立診斷入口讀備註，不能啟用為正式run。沒有必要寫兩套重複核心，差異集中在來源策略／數值策略／legacy查找與顯示轉換。
+- **歷史 P1 plan**：erp-tag-v1正式只讀標籤；excel-v260922-compat曾作診斷計算。#159 PR-1 起新 run 不呼叫 compat／shadow-v2，保留的舊版本程式不等於有新診斷入口。
 - 時間整数分鐘與整數分子／分母比較，累加順序按規格；numericPolicy差異單獨標示。浮點路徑只模擬已知公式，不建立Excel通用引擎。
 
 |次序|測試先行範圍|最小實作輸出|
@@ -121,8 +123,8 @@ web/
 
 - 接入ready→calculate→completed→activate，保存完整input版本與結果，切換active採原子交易。`activate`依03必須帶`expectedRevision`（取自`GET /runs/current`的ActiveState revision）與idempotencyKey：交易內重比對，版本不符回409。否則兩個分頁各開不同previewId先後啟用時，body不同使idempotencyKey無效，第二次會無聲覆蓋active而不報錯。
 - 總表接八欄結果、基本／課程適用折扣、ERP級距比較、兄弟姊妹／特殊／園內／extra，以及问题篩選。正式run與預覽run清楚區分。
-- API一次查固定run，列表／detail／issues共用已存正式結果；comparison依固定輸入重建診斷。NUMERIC_POLICY_DIFFERENCE須在建立run時計算保存，不能延後到開comparison頁；GET不重新寫入資料。頁面篩選只查結果不重算。
-- 實作03所有P1讀取endpoint（含表內的`GET /runs/{runId}/comparison`與`GET /imports/{previewId}/students`）、query白名單與錯誤格式；未指定runId解析current後回傳，後續頁面固定該run。診斷比較的輸入在run內全部固定，是純函式，**P1預設即時計算不落庫**（避免結果表多一份與正式結果等大的資料），即時計算依03固定diagnosticAlgorithmVersion，不同版本不得靜默重解舊run；即時計算同樣不得寫入；待bench顯示診斷頁影響操作再改為建立run時預存，兩種做法結果必須相同。
+- **歷史 plan，已由 #159 PR-1 supersede**：API 一次查固定 run；原 plan 的 comparison 診斷生成與 route 已退役。現行契約保留 raw issue rows，UI 走 actionable projection；比較 GET 回 404。
+- **歷史 plan，comparison 部分已由 #159 PR-1 supersede**：現行 P1 API 清單不含 `GET /runs/{runId}/comparison`；該 route 回 404。其他 run 讀取仍固定 `runId`。
 - 用真實樣本跑兩條gate並生成私有差異JSON報告。來源欄缺陷、數值政策、alias變更分欄解釋，不能把來源修正全歸入浮點誤差。
 
 **先測**：I09/I16–17、首次revision=0的啟用、成功冪等重送、activate的409、列表與detail契約、版本固定分頁、empty/null、不適用及needs_review。**展示B驗收**：上傳→啟用→按班查看計算→開明細，並能篩出5筆級距差異及13人排課缺漏（固定fixture）。那13人全部tierComparison=match，因此驗收條件是**以`tierMismatch=false`篩選時這13人仍出現在hasIssues清單**——若match吃掉缺排課警告，他們會同時從兩個篩選消失而讓驗收假性通過。修改ERP後重上傳可得到新完整run，舊run可讀。

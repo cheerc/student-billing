@@ -292,12 +292,12 @@ export default function SummaryTable({
                     {stu.tierMismatch && (
                       <span className="badge badge-warn">天數不同</span>
                     )}
-                    {stu.hasIssues && (
+                    {stu.actionableHasIssues && (
                       <span className="badge badge-warn">
-                        {stu.issues.length > 0 ? issueLabel(stu.issues[0].code) : '待核對'}
+                        {stu.actionableIssues.length > 0 ? issueLabel(stu.actionableIssues[0].code) : '待核對'}
                       </span>
                     )}
-                    {!stu.tierMismatch && !stu.hasIssues && <span className="subtle">—</span>}
+                    {!stu.tierMismatch && !stu.actionableHasIssues && <span className="subtle">—</span>}
                   </td>
                 </tr>
               );

@@ -1,6 +1,8 @@
 # 14 課程類型分類與課表設定重構 Plan（#112）
 
-日期：2026-10-18。依據：operator 2026-10-18 對話裁示（§0、§6）。狀態：**spec 定稿，實作未開始**。
+> **Issue #159 PR-1 current status:** References below to frozen compatibility calculation behavior describe historical rule semantics. New runs do not invoke `excel-v260922-compat` or shadow-v2 and do not write comparison snapshots; the comparison UI link and GET route are removed (404). Existing diagnostic schema/data and raw issue values remain unchanged. See [03 §5.5](03-architecture-api.md) and [06 D56](06-handoff-decisions.md). This does not claim PR-2 single-v4 completion.
+
+日期：2026-10-18。依據：operator 2026-10-18 對話裁示（§0、§6）。狀態（文件建立時）：**spec 定稿，當時計畫實作未開始**。
 
 本檔定義課表設定之「課程類型」分流、「固定 5 天」預設值簡化，以及「課程學費折扣與固定 5 天旗標解耦」之行為契約（其中 §3.4 屬收費規則變更，對應新規則集版本 `erp-tag-v4`）。實作時依 §6 第 7 點分階段交付（PR-1A／1B／1C 為課表設定重構，PR-2 為收費規則變更），均採 Dual Review，並同步更新 `specs/02`、`03`、`04`、`09` 等權威規格文件（§5）。
 

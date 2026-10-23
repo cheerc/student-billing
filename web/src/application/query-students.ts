@@ -4,6 +4,7 @@ import { ParsedToken } from '@/domain/students';
 import { createStudentPredicateBuilder } from './student-query-predicates';
 import { normalizeStudentQuery, StudentQueryInputError, queryIdentity, decodeStudentCursor, encodeStudentCursor, type NormalizedStudentQuery } from '@/contracts/student-query';
 import { noCoursePredicate } from './student-query-sql';
+import { projectActionableIssues } from '@/domain/issues/actionable-issues';
 
 export class QueryStudentError extends Error {
   statusCode: number;
@@ -65,6 +66,9 @@ export interface StudentCalculationItem extends StudentCalculationRecord {
   sourceRow: number;
   /** 班級全文：enrollments rawToken 依 token_index 升冪以換行拼回（不另立 DB 欄） */
   classText: string | null;
+  /** Derived UI projection; the persisted `issues` and `hasIssues` remain raw historical values. */
+  actionableIssues: any[];
+  actionableHasIssues: boolean;
 }
 
 export interface RunStudentsQueryResult {
@@ -171,6 +175,9 @@ export function queryRunStudents(db: Database.Database, runId: string, params: R
 
   const items: StudentCalculationItem[] = itemRows.map((r) => {
     const itemEnrollments = enrollmentsMap[r.person_code] || [];
+    const tierComparisons = JSON.parse(r.tier_comparisons);
+    const issues = JSON.parse(r.issues);
+    const actionable = projectActionableIssues(issues, tierComparisons);
     return {
     id: r.id,
     runId: r.run_id,
@@ -195,9 +202,10 @@ export function queryRunStudents(db: Database.Database, runId: string, params: R
     applicableEnglishBps: r.applicable_english_bps,
     applicableMathBps: r.applicable_math_bps,
     tierMismatch: Boolean(r.tier_mismatch),
-    tierComparisons: JSON.parse(r.tier_comparisons),
-    issues: JSON.parse(r.issues),
+    tierComparisons,
+    issues,
     hasIssues: Boolean(r.has_issues),
+    ...actionable,
     trace: (() => {
       const t = JSON.parse(r.trace);
       // D3 Task 5: 列表脫敏——備註全文不進列表，僅保留 hasNotes 布林；完整原文由明細端點按需查閱
@@ -268,6 +276,10 @@ export function getStudentCalculationDetail(
     parseStatus: er.parse_status,
   }));
 
+  const tierComparisons = JSON.parse(row.tier_comparisons);
+  const issues = JSON.parse(row.issues);
+  const actionable = projectActionableIssues(issues, tierComparisons);
+
   return {
     id: row.id,
     runId: row.run_id,
@@ -293,9 +305,10 @@ export function getStudentCalculationDetail(
     applicableEnglishBps: row.applicable_english_bps,
     applicableMathBps: row.applicable_math_bps,
     tierMismatch: Boolean(row.tier_mismatch),
-    tierComparisons: JSON.parse(row.tier_comparisons),
-    issues: JSON.parse(row.issues),
+    tierComparisons,
+    issues,
     hasIssues: Boolean(row.has_issues),
+    ...actionable,
     trace: JSON.parse(row.trace),
     createdAt: row.created_at,
     enrollments,

@@ -41,6 +41,8 @@ function item(over: Partial<StudentCalculationItem> = {}): StudentCalculationIte
     tierComparisons: [],
     issues: [],
     hasIssues: false,
+    actionableIssues: [],
+    actionableHasIssues: false,
     trace: {},
     createdAt: '2026-09-29T10:00:00.000Z',
     enrollments: [

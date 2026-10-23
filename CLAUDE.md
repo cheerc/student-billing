@@ -58,9 +58,9 @@
   - $0.3 \le \text{frac} < 0.8$：扣 $0.5$ 天
   - $\ge 0.8$：扣 $1.0$ 天
   最後轉為負扣天。原 Excel 負數 INT/MOD 公式導致實質門檻變為 0.2 / 0.7，屬歷史缺陷。
-- **雙軌制度 (Dual-track Evaluation)**：
-  - 正式軌 `erp-tag-v1`：只讀「標籤」欄，不從備註 fallback，備註原文完整保留。
-  - 診斷軌 `excel-v260922-compat`：保留原 Excel 負數公式與歷史欄位讀取邏輯，**僅供比對與診斷差異**，絕不可作為正式開單結果。
+- **正式規則與歷史相容版本**：
+  - 正式軌：使用 run 保存的正式 rule set（目前目標為 `erp-tag-v4`）；優惠標記只讀「標籤」欄，不從備註 fallback，備註原文完整保留。
+  - `excel-v260922-compat`：凍結保留供歷史版本與舊資料解讀；#159 PR-1 起新 run 不呼叫 compat 或 shadow-v2，也不產生兩軌差異警告。比較頁與 `GET /runs/{runId}/comparison` 已移除（GET 回 404）；既有 run、診斷表列與 raw issue 值不重寫。兩個舊診斷碼仍保留於 `KNOWN_ISSUE_CODES` 及明確 raw API 篩選，結果頁 UI 的 actionable projection 則排除 `NUMERIC_POLICY_DIFFERENCE`／`RULESET_POLICY_DIFFERENCE`，保留其他問題與 `needsReview` 級距警告。這不代表 compat 計算路徑已於 PR-1 全面刪除，也不改寫歷史決策 D55。
 - **規則參數化**：每日 180 分鐘、0.3/0.8 門檻、課輔整日特例集中於 `ruleSet` 參數；變更參數需建立新版本並重算，舊 Run 結果不可變。P1 不做參數編輯 UI。
 
 ---
