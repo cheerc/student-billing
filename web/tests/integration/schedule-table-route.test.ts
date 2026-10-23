@@ -357,8 +357,8 @@ describe('PR #85 G1：課表 Excel route POST handler 防護分支', () => {
       });
 
       expect(body.classAttrs).toEqual([
-        { className: '兒童美語-Gino', classType: 'non_care', category: 'english', fixedFiveDays: false },
-        { className: '國小數學-一A', classType: 'non_care', category: 'math', fixedFiveDays: false },
+        { className: '兒童美語-Gino', classType: 'non_care', category: 'english', categorySource: 'manual', fixedFiveDays: false },
+        { className: '國小數學-一A', classType: 'non_care', category: 'math', categorySource: 'manual', fixedFiveDays: false },
       ]);
     });
 

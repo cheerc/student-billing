@@ -9,7 +9,12 @@
  * 本模組是 domain 純函式，不依賴 DB／UI／規則版本。
  */
 
-import { type ClassCategory, type EffectiveCategorySource, effectiveCategoryOf } from './class-category';
+import {
+  type CategorySource,
+  type ClassCategory,
+  type EffectiveCategorySource,
+  effectiveCategoryOf,
+} from './class-category';
 import {
   type ClassType,
   DEFAULT_CARE_CLASS_NAMES,
@@ -41,7 +46,7 @@ export type AttributeSource = EffectiveCategorySource;
 export interface SavedClassAttributes {
   classType?: ClassType;
   category?: ClassCategory;
-  categorySource?: AttributeSource | 'auto';
+  categorySource?: CategorySource;
   fixedFiveDays?: boolean;
 }
 

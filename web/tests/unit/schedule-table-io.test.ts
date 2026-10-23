@@ -172,8 +172,8 @@ describe('#81：課表 Excel 全量匯出／匯入', () => {
       // 逐列還原：只有第 1 列是 true
       expect(result.rows.map((r) => r.skipDeduction)).toEqual([true, false, false]);
       expect(result.classAttrs).toEqual([
-        { className: '兒童美語-Gino', classType: 'non_care', category: 'english', fixedFiveDays: false },
-        { className: '國小數學-一A', classType: 'non_care', category: 'math', fixedFiveDays: false },
+        { className: '兒童美語-Gino', classType: 'non_care', category: 'english', categorySource: 'manual', fixedFiveDays: false },
+        { className: '國小數學-一A', classType: 'non_care', category: 'math', categorySource: 'manual', fixedFiveDays: false },
       ]);
     });
 
@@ -353,7 +353,7 @@ describe('#81：課表 Excel 全量匯出／匯入', () => {
         },
       ]);
       expect(result.classAttrs).toEqual([
-        { className: '國小輔導-四年級', classType: 'care', category: 'care', fixedFiveDays: true },
+        { className: '國小輔導-四年級', classType: 'care', category: 'care', categorySource: 'manual', fixedFiveDays: true },
       ]);
     });
 
@@ -379,8 +379,8 @@ describe('#81：課表 Excel 全量匯出／匯入', () => {
       const buffer = await buildScheduleWorkbook(FIXTURE_ROWS, FIXTURE_ATTRS);
       const result = await parseScheduleWorkbook(buffer);
       expect(result.classAttrs).toEqual([
-        { className: '兒童美語-Gino', classType: 'non_care', category: 'english', fixedFiveDays: false },
-        { className: '國小數學-一A', classType: 'non_care', category: 'math', fixedFiveDays: false },
+        { className: '兒童美語-Gino', classType: 'non_care', category: 'english', categorySource: 'manual', fixedFiveDays: false },
+        { className: '國小數學-一A', classType: 'non_care', category: 'math', categorySource: 'manual', fixedFiveDays: false },
       ]);
     });
 
@@ -522,6 +522,39 @@ describe('#81：課表 Excel 全量匯出／匯入', () => {
       ], '我的備份');
       const result = await parseScheduleWorkbook(buffer);
       expect(result.rows).toHaveLength(1);
+    });
+  });
+
+  describe('#157 PR-2：Excel 未設定來源語意', () => {
+    it('匯入（未設定）後以 unset source 經草稿序列化；明確類別則以 manual source 保存', async () => {
+      const buffer = await makeWorkbook([...SCHEDULE_TABLE_HEADERS], [
+        ['數學關鍵字新班', '非安親課輔班', '（未設定）', '否', '否', '', '', '', ''],
+        ['明確不折扣新班', '非安親課輔班', '不列入折扣', '否', '否', '', '', '', ''],
+      ]);
+      const imported = await parseScheduleWorkbook(buffer);
+      const unsetAttrs = imported.classAttrs.find((attr) => attr.className === '數學關鍵字新班');
+      const explicitNoneAttrs = imported.classAttrs.find((attr) => attr.className === '明確不折扣新班');
+
+      expect(unsetAttrs).toMatchObject({ category: 'unset', categorySource: 'unset' });
+      expect(explicitNoneAttrs).toMatchObject({ category: 'none', categorySource: 'manual' });
+
+      const existingClasses = imported.classAttrs.map((attr) => ({
+        baseName: attr.className,
+        subject: '其他',
+        teacher: null,
+        active: true,
+        sessions: [],
+        classType: attr.classType,
+        category: attr.category,
+        categorySource: (attr as typeof attr & { categorySource?: 'manual' | 'unset' }).categorySource,
+        fixedFiveDays: attr.fixedFiveDays,
+      }));
+      const persisted = gridRowsToClasses(scheduleImportRowsToGridRows(imported), existingClasses);
+
+      expect(persisted.find((cls) => cls.baseName === '數學關鍵字新班'))
+        .toMatchObject({ category: 'unset', categorySource: 'unset' });
+      expect(persisted.find((cls) => cls.baseName === '明確不折扣新班'))
+        .toMatchObject({ category: 'none', categorySource: 'manual' });
     });
   });
 

@@ -36,7 +36,8 @@ import {
   CATEGORY_LABELS,
   type ClassAttributesView,
 } from '@/domain/classification/class-attributes';
-import type { ClassCategory } from '@/domain/classification/class-category';
+import { persistClassAttributes } from '@/domain/classification/persist-class-attributes';
+import type { ClassCategory, WritableCategorySource } from '@/domain/classification/class-category';
 import { TabList, tabPanelProps } from '@/components/ui/tabs';
 import { useUnsavedChangesGuard } from '@/components/ui/use-unsaved-changes-guard';
 import { formatDateTime } from '@/lib/datetime';
@@ -127,15 +128,12 @@ function applyManualAttrsToClasses<T extends { baseName: string; classType?: 'ca
     const m = manualAttrs.get(c.baseName);
     return {
       ...clean,
-      classType: m?.classType ?? c.classType,
-      // #157：寫出 `manual`（使用者的決定）與 `unset`（使用者**明確撤回**）。
-      // 撤回必須寫出——否則該班在下次讀取時會被 seed 基準還原，撤回就失效了。
-      ...(m?.categorySource === 'manual' || m?.categorySource === 'unset'
-        ? { category: m.category, categorySource: m.categorySource }
-        : {}),
-      ...(m?.fixedFiveDays !== undefined
-        ? { fixedFiveDays: m.fixedFiveDays }
-        : {}),
+      ...persistClassAttributes({
+        classType: m?.classType ?? c.classType,
+        category: m?.category,
+        categorySource: m?.categorySource,
+        fixedFiveDays: m?.fixedFiveDays,
+      }),
     };
   });
 }
@@ -350,6 +348,13 @@ export default function SettingsEditor({
     );
     return buildDynamicCandidates(unmatched, counts);
   }, [report, initialCandidates]);
+
+  /** Schedule tab uses the same report source as Mapping and hides names already present in this draft. */
+  const scheduleRosterOnly = useMemo(() => {
+    if (!report?.rosterOnly) return [];
+    const currentNames = new Set(rows.map((row) => row.className.trim()).filter(Boolean));
+    return report.rosterOnly.filter((item) => !currentNames.has(item.baseName));
+  }, [report, rows]);
 
   // 儲存成功後就地更新版本與儲存時間（不必重新整理）：下一次確認變更要帶最新版本，狀態列顯示最新儲存時間
   const [revision, setRevision] = useState(currentRevision);
@@ -671,7 +676,11 @@ export default function SettingsEditor({
   };
 
   // 新增時段列（支援選定課程類型）
-  const handleAddRow = (row: Omit<ScheduleGridRow, 'rowId'>, classType?: ClassType) => {
+  const handleAddRow = (
+    row: Omit<ScheduleGridRow, 'rowId'>,
+    classType?: ClassType,
+    options?: { initialCategory?: 'unset' }
+  ) => {
     const startMin = timeStringToMinutes(row.startTime);
     const endMin = timeStringToMinutes(row.endTime);
     const newRow: ScheduleGridRow = {
@@ -685,7 +694,12 @@ export default function SettingsEditor({
       setManualAttrs((prev) => {
         const next = new Map(prev);
         const base = resolveClassAttributes(row.className.trim(), { classType });
-        next.set(row.className.trim(), { ...base, classType });
+        next.set(
+          row.className.trim(),
+          options?.initialCategory === 'unset'
+            ? { ...base, category: 'unset', categorySource: 'unset', fixedFiveDays: false }
+            : { ...base, classType }
+        );
         return next;
       });
     }
@@ -775,12 +789,13 @@ export default function SettingsEditor({
         className: string;
         classType?: ClassType;
         category: ClassCategory;
+        categorySource: WritableCategorySource;
         fixedFiveDays: boolean;
       }>) {
         nextAttrs.set(a.className, {
           classType: a.classType ?? resolveClassAttributes(a.className).classType,
           category: a.category,
-          categorySource: 'manual',
+          categorySource: a.categorySource,
           fixedFiveDays: a.fixedFiveDays,
         });
       }
@@ -1006,6 +1021,9 @@ export default function SettingsEditor({
             onUpdateRow={handleUpdateRow}
             onDeleteRow={handleDeleteRow}
             onAddRow={handleAddRow}
+            rosterOnlyClasses={scheduleRosterOnly}
+            rosterOnlyLocked={reportRecovery !== null}
+            rosterOnlyStaleMessage={reportStaleError}
             calculating={calculating}
             calculateResult={calculateResult}
             calculateInputRows={calculateInputRows}

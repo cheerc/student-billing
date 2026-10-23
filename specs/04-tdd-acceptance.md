@@ -139,6 +139,7 @@ U01–U40的一般數值expected採正式精確分鐘策略；另跑浮點診斷
 |U72|類別變更進完整影響預覽|科數與合計折扣差異列入 `subjectCountDeltas`／`baseDiscountDeltas`；只改類別不改時段時天數不變但折扣差異仍呈現|integration|
 |U73|讀模型走完整生產呼叫鏈（N-6）|固定 5 天的「不列入折扣」班回 100%（以非 10000 的適用率確保斷言落在該分支）；缺快照回 not_configured|integration|
 |U74|alias 解析與手動來源的快照（N-7）|alias 解析後 mapped=1 且不出 CLASS_NOT_MAPPED；`categorySource:'manual'` 的快照 source 為 manual|integration|
+|U75（#157 PR-2 新增）|類別來源經 Excel 解析與草稿寫入|Excel 的「（未設定）」解析為 `category='unset'`／`categorySource='unset'`；其他明確類別解析為 `manual`；共用 writer 保留 manual、明確 unset 與 `fixedFiveDays=false`，省略 seed 與舊 auto。測試：`web/tests/unit/schedule-table-io.test.ts`、`web/tests/unit/issue-157-pr2-persistence.test.ts`|unit|
 
 ## 4. 匯入與儲存整合測試
 
@@ -327,3 +328,4 @@ Playwright 最小完整旅程：
 |UX92（#157 PR-1 新增）|「未設定」與「明確不列入」是兩個狀態，畫面不得混用（Ruling 2、4）|下拉有五個選項且「（未設定）」排在最前；未指定類別的班顯示 `unset` 而非 `none`（不得把未設定偽裝成使用者已決定「不列入折扣」）；`CATEGORY_LABELS` 含 `unset` 且其白話名稱與 `none` 不同；使用者可選回「（未設定）」以撤回指定。**「恢復自動」按鈕與其整條路徑全數拆除**（`auto` 來源、`detectAliasCategoryChanges`／`aliasCategoryNotices` 與其畫面提示一併移除，不得保留任何形式的「恢復預設值」按鈕）。測試：`web/tests/unit/issue-157-unset-category.test.ts`、`web/tests/unit/settings-schedule-grid-integrated.test.ts`、`web/tests/e2e/settings-integrated-grid.spec.ts`（原 `d2c-restore-auto.spec.ts` 已隨 Ruling 4 廢除）|unit／E2E|
 |UX94（#157 PR-1 Gate 1 修正新增）|seed 基準對既有 DB 與全新 DB 一致生效，且使用者可覆寫（Ruling 4 追加）|seed 49 班的類別基準逐班明列於 `SEED_CLASS_CATEGORIES`（依**課程性質**判定，非班名關鍵字比對），在**讀取設定時**套用、**不寫進草稿**。自動化測試的證明範圍限於合成資料：以四個 seed 班的一名合成學生驗證既有設定版本與新 seed 草稿的科數、基本折扣及適用率數值相同；另驗證 manual 覆寫優先、撤回後重讀仍為 `unset`、非 seed 自建班不適用基準。431 人的全母體結果只是本機量測，不由此測試列保證。測試：`web/tests/unit/issue-157-seed-category-fallback.test.ts`|unit|
 |UX93（#157 PR-1 新增；Ruling 6 擴充）|改名／合併後即時顯示值等於存檔重載值|使用者明確指定的 `category` 隨班帶走，`unset` 維持 `unset`；seed 基準改名至非 seed 班名時，畫面立即顯示並保存 `unset`，改名至 seed 班名時使用目標班基準；同名合併以同一轉換與寫出路徑處理。對未改名 seed 班另設對照，確認其他設定存檔後仍套用 seed 基準。測試：`web/tests/unit/issue-157-unset-category.test.ts`、`web/tests/e2e/issue-157-seed-category-lifecycle.spec.ts`（四條完整 UI 儲存／重載案例）、`web/tests/e2e/d2b-class-category.spec.ts`（手動與 unset 改名）|unit／E2E|
+|UX95（#157 PR-2 新增）|由課表頁處理名單班級並持久化設定|使用同一份最新 `report.rosterOnly` 顯示班名與人數；加入動作帶入精確班名並沿用一般新增表單，預設 `unset`／固定 5 天 `false`，課程類型由使用者選擇。明確設定類別、儲存並重載後該班退出 roster-only 清單，run 快照含正確 category 與固定 5 天值且該班不再有 `CLASS_NOT_MAPPED`；不得新增 alias；報告過期時不可由舊清單新增。測試：`web/tests/e2e/issue-157-pr2-roster-settings.spec.ts`、`web/tests/unit/settings-schedule-grid-ui.test.ts`|unit／E2E|
