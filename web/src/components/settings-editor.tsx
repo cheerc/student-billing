@@ -11,6 +11,8 @@ import {
   timeStringToMinutes,
   minutesToTimeString,
   buildSeedGridRows,
+  DEFAULT_CLASS_TYPE_DEFINITIONS,
+  type ClassTypeDefinition,
   detectSplitClasses,
   SettingsBaseline,
   isSettingsDirty,
@@ -22,6 +24,7 @@ import { CalculatePreviewResponse } from '@/application/schedule-preview';
 import type { ClassNameMatchReport } from '@/application/class-name-match-report';
 import { WindowSummary } from '@/components/settings/window-summary';
 import { ScheduleGrid } from '@/components/settings/schedule-grid';
+import { ClassSemanticsPanel } from '@/components/settings/class-semantics-panel';
 import { ImpactDialog, SettingsPreviewData } from '@/components/settings/impact-dialog';
 import { LeaveConfirmDialog } from '@/components/settings/leave-confirm-dialog';
 import { MappingPanel } from '@/components/settings/mapping-panel';
@@ -37,6 +40,13 @@ import {
   type ClassAttributesView,
 } from '@/domain/classification/class-attributes';
 import { persistClassAttributes } from '@/domain/classification/persist-class-attributes';
+import {
+  carryClassSemanticsOnRename,
+  clearUnsupportedClassSemantics,
+  detectSemanticMergeConflicts,
+  normalizeSettingsDraftSemantics,
+  overlayClassSemantics,
+} from '@/domain/classification/class-semantics';
 import type { ClassCategory, WritableCategorySource } from '@/domain/classification/class-category';
 import { TabList, tabPanelProps } from '@/components/ui/tabs';
 import { useUnsavedChangesGuard } from '@/components/ui/use-unsaved-changes-guard';
@@ -113,7 +123,8 @@ function toClassAttributeSetting(a: ClassAttributesView & { className?: string }
  */
 function applyManualAttrsToClasses<T extends { baseName: string; classType?: 'care' | 'non_care' }>(
   classes: Array<T & Record<string, unknown>>,
-  manualAttrs: Map<string, ClassAttributesView>
+  manualAttrs: Map<string, ClassAttributesView>,
+  definitions: readonly ClassTypeDefinition[] = DEFAULT_CLASS_TYPE_DEFINITIONS
 ): Array<T & Record<string, unknown>> {
   return classes.map((c) => {
     const clean = { ...c };
@@ -126,16 +137,37 @@ function applyManualAttrsToClasses<T extends { baseName: string; classType?: 'ca
     delete clean.skipDeduction;
     delete clean.skipDeductionSource;
     const m = manualAttrs.get(c.baseName);
+    const classTypeId = (c as T & { classTypeId?: string }).classTypeId ?? c.classType;
+    const definition = definitions.find((item) => item.id === classTypeId);
+    const existingFixedFiveDays = (c as T & { fixedFiveDays?: boolean }).fixedFiveDays;
     return {
       ...clean,
       ...persistClassAttributes({
         classType: m?.classType ?? c.classType,
         category: m?.category,
         categorySource: m?.categorySource,
-        fixedFiveDays: m?.fixedFiveDays,
+        // The legacy grid stores an effective false default. It must not become an unsupported
+        // configured value; keep an explicit class value so draft validation can still block it.
+        fixedFiveDays: definition && !definition.supportedAttributeKeys.includes('fixedFiveDays')
+          ? existingFixedFiveDays
+          : m?.fixedFiveDays ?? existingFixedFiveDays,
       }),
     };
   });
+}
+
+function semanticSettingsKey(classes: ClassSetting[]): string {
+  return JSON.stringify(classes.map((item) => ({
+    baseName: item.baseName,
+    classTypeId: item.classTypeId ?? item.classType,
+    subject: item.subject ?? '',
+    subjectSource: item.subjectSource ?? 'unset',
+    summaryDayRoles: item.summaryDayRoles ?? [],
+    summaryDayRolesStatus: item.summaryDayRolesStatus ?? 'unset',
+    summaryDayRolesSource: item.summaryDayRolesSource ?? 'unset',
+    erpTierApplicability: item.erpTierApplicability ?? 'unset',
+    erpTierApplicabilitySource: item.erpTierApplicabilitySource ?? 'unset',
+  })).sort((a, b) => a.baseName.localeCompare(b.baseName)));
 }
 
 /** 兩份「班名 → 手動屬性」是否逐欄不同（dirty 的一部分）。 */
@@ -225,7 +257,16 @@ export default function SettingsEditor({
   reportRefreshRetryDelaysMs = REPORT_REFRESH_RETRY_DELAYS_MS,
 }: SettingsEditorProps) {
   const [activeTab, setActiveTab] = useState<'schedule' | 'mapping'>(initialTab);
-  const [draft, setDraft] = useState<SettingsDraft>(initialDraft);
+  const normalizedInitialDraft = useMemo(() => normalizeSettingsDraftSemantics(initialDraft), [initialDraft]);
+  const [draft, setDraft] = useState<SettingsDraft>(normalizedInitialDraft);
+  const [baselineSemanticClasses, setBaselineSemanticClasses] = useState<ClassSetting[]>(normalizedInitialDraft.classes);
+  const [baselineSemanticDefinitions, setBaselineSemanticDefinitions] = useState<ClassTypeDefinition[]>(
+    normalizedInitialDraft.classTypeDefinitions
+  );
+  const classTypeDefinitions = useMemo(
+    () => draft.classTypeDefinitions ?? [...DEFAULT_CLASS_TYPE_DEFINITIONS],
+    [draft.classTypeDefinitions]
+  );
 
   // 初始化平鋪排課時段列（對齊 S 表 89 筆）
   const initialRows = useMemo(() => {
@@ -433,6 +474,27 @@ export default function SettingsEditor({
     return detectClassLifecycle(baseline.rows, rows);
   }, [baseline.rows, rows]);
 
+  const semanticClassesForRows = useMemo(() => {
+    const rowClasses = gridRowsToClasses(rows, draft.classes, classTypeDefinitions);
+    const baselineNames = new Set(baseline.rows.map((row) => row.className.trim()).filter(Boolean));
+    return carryClassSemanticsOnRename(rowClasses, draft.classes, classLifecycle.renames, baselineNames);
+  }, [rows, draft.classes, classTypeDefinitions, classLifecycle.renames, baseline.rows]);
+  const supportedAttributeKeysByClass = useMemo(() => {
+    return new Map(semanticClassesForRows.map((item) => {
+      const definition = classTypeDefinitions.find((entry) => entry.id === item.classTypeId);
+      return [item.baseName, new Set(definition?.supportedAttributeKeys ?? [])] as const;
+    }));
+  }, [semanticClassesForRows, classTypeDefinitions]);
+
+  const semanticMergeConflicts = useMemo(
+    () => detectSemanticMergeConflicts(classLifecycle.merges, draft.classes),
+    [classLifecycle.merges, draft.classes]
+  );
+  const semanticDirty =
+    semanticSettingsKey(semanticClassesForRows) !== semanticSettingsKey(baselineSemanticClasses) ||
+    JSON.stringify(classTypeDefinitions) !== JSON.stringify(baselineSemanticDefinitions);
+  const semanticClassesMissingType = semanticClassesForRows.filter((item) => !item.classTypeId && !item.classType);
+
 
 
   /**
@@ -492,6 +554,7 @@ export default function SettingsEditor({
   const isDirty = useMemo(() => {
     return (
       upgradeChanged ||
+      semanticDirty ||
       isSettingsDirty(
         { ...baseline, classAttrs: [...baselineManualAttrs.entries()].map(([className, a]) => toClassAttributeSetting({ ...a, className })) },
         rows,
@@ -500,7 +563,7 @@ export default function SettingsEditor({
       ) ||
       mapsDiffer(baselineManualAttrs, effectiveManualAttrs)
     );
-  }, [upgradeChanged, baseline, baselineManualAttrs, rows, draft.aliases, manualAttrSettings, effectiveManualAttrs]);
+  }, [upgradeChanged, semanticDirty, baseline, baselineManualAttrs, rows, draft.aliases, manualAttrSettings, effectiveManualAttrs]);
 
   /**
    * 課表每個班級目前有效的類別／固定 5 天（使用者的指定優先，未指定者為 unset）。
@@ -611,8 +674,12 @@ export default function SettingsEditor({
       setCalculating(true);
       try {
         const calcClasses = applyManualAttrsToClasses(
-          gridRowsToCalculateClasses(rows, draft.classes),
-          effectiveManualAttrs
+          overlayClassSemantics(
+            gridRowsToCalculateClasses(rows, draft.classes, classTypeDefinitions),
+            semanticClassesForRows
+          ),
+          effectiveManualAttrs,
+          classTypeDefinitions
         );
         const calcDraft = {
           ...draft,
@@ -652,7 +719,7 @@ export default function SettingsEditor({
     }, 250);
 
     return () => clearTimeout(timer);
-  }, [rows, draft, effectiveManualAttrs, isUpgrading]);
+  }, [rows, draft, effectiveManualAttrs, isUpgrading, classTypeDefinitions, semanticClassesForRows]);
 
   // 更新時段列
   const handleUpdateRow = (rowId: string, updates: Partial<ScheduleGridRow>) => {
@@ -669,6 +736,122 @@ export default function SettingsEditor({
         return updated;
       })
     );
+    setPreview(null);
+  };
+
+  const handleUpdateSemanticClass = (baseName: string, patch: Partial<ClassSetting>) => {
+    const classes = semanticClassesForRows.map((item) => item.baseName === baseName ? { ...item, ...patch } : item);
+    setDraft((prev) => ({ ...prev, classes, classTypeDefinitions }));
+    if ('category' in patch || 'fixedFiveDays' in patch) {
+      const attrs = currentAttrs.get(baseName) ?? resolveClassAttributes(baseName);
+      setManualAttrs((prev) => {
+        const next = new Map(prev);
+        next.set(baseName, {
+          ...attrs,
+          ...(patch.category !== undefined
+            ? { category: patch.category, categorySource: patch.categorySource === 'manual' ? 'manual' : 'unset' }
+            : {}),
+          ...(patch.fixedFiveDays !== undefined ? { fixedFiveDays: patch.fixedFiveDays } : {}),
+        });
+        return next;
+      });
+    }
+    if (patch.classTypeId) {
+      const definition = classTypeDefinitions.find((item) => item.id === patch.classTypeId);
+      if (definition && !definition.supportedAttributeKeys.includes('fixedFiveDays')) {
+        const attrs = currentAttrs.get(baseName) ?? resolveClassAttributes(baseName);
+        setManualAttrs((prev) => {
+          const next = new Map(prev);
+          next.set(baseName, { ...attrs, fixedFiveDays: false });
+          return next;
+        });
+      }
+      if (definition && !definition.supportedAttributeKeys.includes('skipDeduction')) {
+        setRows((prev) => prev.map((row) => row.className.trim() === baseName
+          ? { ...row, skipDeduction: false }
+          : row));
+      }
+      if (definition?.scheduleMode === 'care_window') {
+        setRows((prev) => {
+          const remaining = prev.filter((row) => row.className.trim() !== baseName);
+          return [...remaining, {
+            rowId: `semantic-care-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+            className: baseName,
+            teacher: null,
+            weekday: '',
+            startTime: '',
+            endTime: '',
+            startMinutes: null,
+            endMinutes: null,
+            active: true,
+            skipDeduction: false,
+          }];
+        });
+      }
+    }
+    setPreview(null);
+  };
+
+  const handleClearUnsupportedSemanticFields = (baseName: string) => {
+    const item = semanticClassesForRows.find((candidate) => candidate.baseName === baseName);
+    const definition = item && classTypeDefinitions.find((candidate) => candidate.id === (item.classTypeId ?? item.classType));
+    if (!item || !definition) return;
+
+    const cleared = clearUnsupportedClassSemantics(item, definition);
+    setDraft((prev) => ({
+      ...prev,
+      classes: prev.classes.some((candidate) => candidate.baseName === baseName)
+        ? prev.classes.map((candidate) => candidate.baseName === baseName ? cleared : candidate)
+        : [...prev.classes, cleared],
+      classTypeDefinitions,
+    }));
+    if (!definition.supportedAttributeKeys.includes('skipDeduction')) {
+      setRows((prev) => prev.map((row) => row.className.trim() === baseName
+        ? { ...row, skipDeduction: false }
+        : row));
+    }
+    if (!definition.supportedAttributeKeys.includes('category') || !definition.supportedAttributeKeys.includes('fixedFiveDays')) {
+      const attrs = currentAttrs.get(baseName) ?? resolveClassAttributes(baseName);
+      setManualAttrs((prev) => {
+        const next = new Map(prev);
+        next.set(baseName, {
+          ...attrs,
+          ...(!definition.supportedAttributeKeys.includes('category')
+            ? { category: 'unset', categorySource: 'unset' as const }
+            : {}),
+          ...(!definition.supportedAttributeKeys.includes('fixedFiveDays') ? { fixedFiveDays: false } : {}),
+        });
+        return next;
+      });
+    }
+    setPreview(null);
+  };
+
+  const handleUpdateClassTypeDefinition = (id: string, patch: Partial<ClassTypeDefinition>) => {
+    setDraft((prev) => ({
+      ...prev,
+      classTypeDefinitions: (prev.classTypeDefinitions ?? [...DEFAULT_CLASS_TYPE_DEFINITIONS]).map((item) =>
+        item.id === id ? { ...item, ...patch } : item
+      ),
+    }));
+    setPreview(null);
+  };
+
+  const handleAddClassTypeDefinition = (definition: ClassTypeDefinition) => {
+    setDraft((prev) => ({
+      ...prev,
+      classTypeDefinitions: [...(prev.classTypeDefinitions ?? DEFAULT_CLASS_TYPE_DEFINITIONS), definition],
+    }));
+    setPreview(null);
+  };
+
+  const handleDeleteClassTypeDefinition = (id: string) => {
+    if (id === 'care' || id === 'non_care') return;
+    if (draft.classes.some((item) => (item.classTypeId ?? item.classType) === id)) return;
+    setDraft((prev) => ({
+      ...prev,
+      classTypeDefinitions: (prev.classTypeDefinitions ?? [...DEFAULT_CLASS_TYPE_DEFINITIONS]).filter((item) => item.id !== id),
+    }));
     setPreview(null);
   };
 
@@ -694,11 +877,34 @@ export default function SettingsEditor({
     };
     setRows((prev) => [...prev, newRow]);
     if (classType) {
+      const className = row.className.trim();
+      const definition = classTypeDefinitions.find((item) => item.id === classType);
+      const newSemanticClass: ClassSetting = {
+        baseName: className,
+        subject: '',
+        subjectSource: 'unset',
+        teacher: row.teacher ?? null,
+        active: row.active,
+        sessions: [],
+        classTypeId: definition?.id ?? classType,
+        classType,
+        category: 'unset',
+        categorySource: 'unset',
+        ...(definition?.supportedAttributeKeys.includes('fixedFiveDays') ? { fixedFiveDays: false } : {}),
+        summaryDayRoles: [],
+        summaryDayRolesStatus: 'unset',
+        summaryDayRolesSource: 'unset',
+        erpTierApplicability: 'unset',
+        erpTierApplicabilitySource: 'unset',
+      };
+      setDraft((prev) => prev.classes.some((item) => item.baseName === className)
+        ? prev
+        : { ...prev, classes: [...prev.classes, newSemanticClass] });
       setManualAttrs((prev) => {
         const next = new Map(prev);
-        const base = resolveClassAttributes(row.className.trim(), { classType });
+        const base = resolveClassAttributes(className, { classType });
         next.set(
-          row.className.trim(),
+          className,
           options?.initialCategory === 'unset'
             ? { ...base, category: 'unset', categorySource: 'unset', fixedFiveDays: false }
             : { ...base, classType }
@@ -724,14 +930,24 @@ export default function SettingsEditor({
     setScheduleTransferBusy(true);
     setScheduleImportError(null);
     try {
+      const semanticByName = new Map(semanticClassesForRows.map((item) => [item.baseName, item]));
       const payload = JSON.stringify({
         rows,
         classAttrs: [...currentAttrs.entries()].map(([className, a]) => ({
           className,
           classType: a.classType,
+          classTypeId: semanticByName.get(className)?.classTypeId,
           category: a.category,
           fixedFiveDays: a.fixedFiveDays,
+          subject: semanticByName.get(className)?.subject ?? '',
+          subjectSource: semanticByName.get(className)?.subjectSource ?? 'unset',
+          summaryDayRoles: semanticByName.get(className)?.summaryDayRoles ?? [],
+          summaryDayRolesStatus: semanticByName.get(className)?.summaryDayRolesStatus ?? 'unset',
+          summaryDayRolesSource: semanticByName.get(className)?.summaryDayRolesSource ?? 'unset',
+          erpTierApplicability: semanticByName.get(className)?.erpTierApplicability ?? 'unset',
+          erpTierApplicabilitySource: semanticByName.get(className)?.erpTierApplicabilitySource ?? 'unset',
         })),
+        classTypeDefinitions,
       });
       const formData = new FormData();
       formData.set('mode', 'export');
@@ -757,7 +973,7 @@ export default function SettingsEditor({
     } finally {
       setScheduleTransferBusy(false);
     }
-  }, [rows, currentAttrs, showToast]);
+  }, [rows, currentAttrs, classTypeDefinitions, semanticClassesForRows, showToast]);
 
   /**
    * 匯入：整批取代目前草稿。
@@ -786,15 +1002,47 @@ export default function SettingsEditor({
         return;
       }
 
-      setRows(importedRows);
-      const nextAttrs = new Map<string, ClassAttributesView>();
-      for (const a of json?.classAttrs as Array<{
+      const importedDefinitions = Array.isArray(json?.classTypeDefinitions)
+        ? json.classTypeDefinitions as ClassTypeDefinition[]
+        : [...DEFAULT_CLASS_TYPE_DEFINITIONS];
+      const importedAttrs = json?.classAttrs as Array<{
         className: string;
+        classTypeId?: string;
         classType?: ClassType;
         category: ClassCategory;
         categorySource: WritableCategorySource;
         fixedFiveDays: boolean;
-      }>) {
+        subject?: string;
+        subjectSource?: ClassSetting['subjectSource'];
+        summaryDayRoles?: ClassSetting['summaryDayRoles'];
+        summaryDayRolesStatus?: ClassSetting['summaryDayRolesStatus'];
+        summaryDayRolesSource?: ClassSetting['summaryDayRolesSource'];
+        erpTierApplicability?: ClassSetting['erpTierApplicability'];
+        erpTierApplicabilitySource?: ClassSetting['erpTierApplicabilitySource'];
+      }>;
+      const semanticSettings: ClassSetting[] = importedAttrs.map((item) => ({
+        baseName: item.className,
+        subject: item.subject ?? '',
+        subjectSource: item.subjectSource ?? 'unset',
+        teacher: null,
+        active: true,
+        classTypeId: item.classTypeId,
+        classType: item.classType,
+        category: item.category,
+        categorySource: item.categorySource,
+        fixedFiveDays: item.fixedFiveDays,
+        summaryDayRoles: item.summaryDayRoles ?? [],
+        summaryDayRolesStatus: item.summaryDayRolesStatus ?? 'unset',
+        summaryDayRolesSource: item.summaryDayRolesSource ?? 'unset',
+        erpTierApplicability: item.erpTierApplicability ?? 'unset',
+        erpTierApplicabilitySource: item.erpTierApplicabilitySource ?? 'unset',
+        sessions: [],
+      }));
+      const importedClasses = gridRowsToClasses(importedRows, semanticSettings, importedDefinitions);
+      setRows(importedRows);
+      setDraft((prev) => ({ ...prev, classes: importedClasses, classTypeDefinitions: importedDefinitions }));
+      const nextAttrs = new Map<string, ClassAttributesView>();
+      for (const a of importedAttrs) {
         nextAttrs.set(a.className, {
           classType: a.classType ?? resolveClassAttributes(a.className).classType,
           category: a.category,
@@ -816,7 +1064,12 @@ export default function SettingsEditor({
   // 還原到 baseline（取消修改與離頁時「捨棄修改」共用）
   const resetDraft = () => {
     setRows(baseline.rows);
-    setDraft((prev) => ({ ...prev, aliases: baseline.aliases }));
+    setDraft((prev) => ({
+      ...prev,
+      aliases: baseline.aliases,
+      classes: baselineSemanticClasses,
+      classTypeDefinitions: baselineSemanticDefinitions,
+    }));
     setManualAttrs(new Map(baselineManualAttrs));
     setPreview(null);
     // D2d r3／F-1：升級勾選也必須一起清除。漏了它 → `upgradeChanged` 恆 true →
@@ -844,8 +1097,12 @@ export default function SettingsEditor({
 
     try {
       const currentClasses = applyManualAttrsToClasses(
-        gridRowsToClasses(rows, draft.classes) as Array<ClassSetting & Record<string, unknown>>,
-        effectiveManualAttrs
+        overlayClassSemantics(
+          gridRowsToClasses(rows, draft.classes, classTypeDefinitions),
+          semanticClassesForRows
+        ) as Array<ClassSetting & Record<string, unknown>>,
+        effectiveManualAttrs,
+        classTypeDefinitions
       ) as ClassSetting[];
       const updatedDraft: SettingsDraft = {
         ...draft,
@@ -912,6 +1169,17 @@ export default function SettingsEditor({
         rows: [...rows],
         aliases: [...draft.aliases],
       });
+      const savedSemanticClasses = applyManualAttrsToClasses(
+        overlayClassSemantics(
+          gridRowsToClasses(rows, draft.classes, classTypeDefinitions),
+          semanticClassesForRows
+        ) as Array<ClassSetting & Record<string, unknown>>,
+        effectiveManualAttrs,
+        classTypeDefinitions
+      ) as ClassSetting[];
+      setDraft((prev) => ({ ...prev, classes: savedSemanticClasses, classTypeDefinitions }));
+      setBaselineSemanticClasses(savedSemanticClasses);
+      setBaselineSemanticDefinitions([...classTypeDefinitions]);
       // 儲存成功後，已套用的手動值成為新的 baseline（此後離開與取消修改都回到這組值）
       const savedManualAttrs = new Map(
         [...effectiveManualAttrs].filter(
@@ -1031,12 +1299,36 @@ export default function SettingsEditor({
             calculateError={calculateError}
             focusClass={focusClass}
             classAttributes={currentAttrs}
+            supportedAttributeKeysByClass={supportedAttributeKeysByClass}
             onSelectCategory={handleSelectCategory}
             onToggleFixedFiveDays={handleToggleFixedFiveDays}
             onExportExcel={handleExportExcel}
             onImportExcel={handleImportExcel}
             importError={scheduleImportError}
             transferBusy={scheduleTransferBusy}
+          />
+          {semanticMergeConflicts.length > 0 && (
+            <div className="alert alert-danger" role="alert" data-semantic-merge-conflict="">
+              <strong>班級合併包含不同的科目、課程類型、摘要角色或 ERP 級距設定。</strong>
+              <p>請還原其中一個班名，或先將不同語意設定整理一致後再合併。</p>
+              <ul>
+                {semanticMergeConflicts.map((item) => <li key={item.mergedName}>{item.mergedName}：{item.sources.join('、')}</li>)}
+              </ul>
+            </div>
+          )}
+          {semanticClassesMissingType.length > 0 && (
+            <div className="notice-warn" role="status" data-semantic-type-required="">
+              請先為以下新班級明確選擇課程類型，再預覽或儲存：{semanticClassesMissingType.map((item) => item.baseName).join('、')}
+            </div>
+          )}
+          <ClassSemanticsPanel
+            classes={semanticClassesForRows}
+            definitions={classTypeDefinitions}
+            onUpdateClass={handleUpdateSemanticClass}
+            onClearUnsupported={handleClearUnsupportedSemanticFields}
+            onUpdateDefinition={handleUpdateClassTypeDefinition}
+            onAddDefinition={handleAddClassTypeDefinition}
+            onDeleteDefinition={handleDeleteClassTypeDefinition}
           />
         </section>
       )}
@@ -1113,7 +1405,7 @@ export default function SettingsEditor({
           <button
             type="button"
             className="btn-primary"
-            disabled={!isDirty || calculating || mergeConflicts.length > 0 || (canUpgrade && hasActiveImport && !isUpgrading)}
+            disabled={!isDirty || calculating || mergeConflicts.length > 0 || semanticMergeConflicts.length > 0 || semanticClassesMissingType.length > 0 || (canUpgrade && hasActiveImport && !isUpgrading)}
             onClick={handleOpenReview}
           >
             確認變更

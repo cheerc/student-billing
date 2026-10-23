@@ -188,7 +188,7 @@ describe('Issues #148 + #159 PR-0: post-#157 synthetic v4 characterization', () 
       ]);
 
       const calculateSpy = vi.spyOn(billingCalculator, 'calculateStudentBilling');
-      const { run, results, classCategories } = executeCalculationRun(db, IMPORT_ID, RUN_ID, {
+      const { run, results, classCategories, classSemantics } = executeCalculationRun(db, IMPORT_ID, RUN_ID, {
         ruleSetVersion: 'erp-tag-v4',
         classSettings,
         scheduleOverride,
@@ -235,7 +235,7 @@ describe('Issues #148 + #159 PR-0: post-#157 synthetic v4 characterization', () 
 
       expect(run.diagnosticAlgorithmVersion).toBeUndefined();
       expect(run.diagnostics).toBeUndefined();
-      saveCalculationRun(db, run, results, classCategories);
+      saveCalculationRun(db, run, results, classCategories, classSemantics);
       const persistedRun = getCalculationRun(db, RUN_ID);
       expect(persistedRun).not.toBeNull();
       expect(db.prepare('SELECT count(*) as n FROM run_diagnostics WHERE run_id = ?').get(RUN_ID)).toMatchObject({ n: 0 });

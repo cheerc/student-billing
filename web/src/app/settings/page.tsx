@@ -3,6 +3,7 @@ import { getLatestReadyBatch } from '@/adapters/sqlite/import-repository';
 import { getCurrentActiveRun } from '@/adapters/sqlite/runs-repository';
 import { getLatestSettingsVersion, buildSeedDraft, readStoredDraft } from '@/adapters/sqlite/settings-repository';
 import { SEED_CLASSES, classifyErpDualTrack } from '@/domain/schedules/seed-manifest';
+import { normalizeSettingsDraftSemantics } from '@/domain/classification/class-semantics';
 import { SettingsDraft } from '@/contracts/settings';
 import SettingsEditor from '@/components/settings-editor';
 import { getClassNameMatchReport } from '@/application/class-name-match-report';
@@ -54,7 +55,7 @@ export default async function SettingsPage({
 
   const latest = getLatestSettingsVersion(db);
   const initialDraft: SettingsDraft = latest
-    ? readStoredDraft(latest.contentJson)
+    ? normalizeSettingsDraftSemantics(readStoredDraft(latest.contentJson))
     : buildSeedDraft(SEED_CLASSES, {
         anqin: { start: 780, end: 960 },
         tutoring: { start: 990, end: 1170 },

@@ -139,7 +139,7 @@ describe('D2d B: 八項總表重複同類取選中班（Q10-A）', () => {
       const res = executeCalculationRun(db, 'imp_en', 'run_d2d_b', {
         ruleSetVersion: 'erp-tag-v4',
       });
-      saveCalculationRun(db, res.run, res.results, res.classCategories);
+      saveCalculationRun(db, res.run, res.results, res.classCategories, res.classSemantics);
 
       const rec = res.results.find((r) => r.personCode === 'S-EN-DUP')!;
       // englishDays = Chevady 的 2（選中班）。

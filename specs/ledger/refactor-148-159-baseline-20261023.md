@@ -160,3 +160,25 @@ Final verification from `web/` (final full suite ran after restoring the one out
 Specs `02`, `03`, `04`, `06` (append-only D57), `07`, `09`, `14`, and `CLAUDE.md` carry the current v4-only contract. `specs/14` §3.11 now states that `care-days.ts` was flattened to the v4-only path while preserving the v4 formula and #147 extra-deduction order; this clarifies implementation without a rule change.
 
 The `CONFLICTING_NOTE_SOURCE` message for the note/tag conflict remains byte-for-byte at the PR-1 baseline (`正式軌 erp-tag-v1` wording) because changing user-visible issue text was outside this PR’s approved output allowlist; the exact-base golden exposed and prevented that incidental copy change. This existing copy was not validated against private data.
+
+## PR-3 implementation result: bounded class semantics data and snapshots
+
+**Branch:** `refactor/148-semantic-schema`
+
+**Worktree:** `/tmp/issue148-pr3`
+
+**Base:** `14c7856ff0885ff5b150c54e888204eda899e1de` (merged PR-2 on main)
+**Scope:** Issue #148 PR-3 / D58 only. This adds bounded class-type definitions, per-class semantic settings, workbook roundtrip metadata, and immutable run snapshots. It does not change billing, report, tier, token, or summary-field consumers and does not alter v4 numeric outputs.
+
+The registry uses the exact fields `id`, `label`, `scheduleMode`, `supportedAttributeKeys`, and `summaryRoleOptions`. The supported fields remain bounded to subject, category, fixed-five-day, per-session skip-deduction, the eight existing summary roles, and ERP tier applicability. Schema validation rejects `skipDeduction` on `care_window` types and `fixedFiveDays` on `timetable` types because the existing UI has no corresponding editable control in those layouts. New classes require an explicit type and leave absent semantics unset; only the 49 fixed seed classes have an explicit synthetic semantic map. No non-seed class semantics were inferred or backfilled.
+
+Settings UI exposes the declared editable fields and reports unsupported saved values. Users can clear them explicitly, or change type after a confirmation that names incompatible values. The clear action updates semantic draft values, category/fixed-day attribute state, and per-row skip-deduction state together so a hidden value cannot keep the draft unsavable. If a still-supported `summaryDayRoles` value is removed from a type's `summaryRoleOptions`, the UI reports that role as unsupported and the clear action removes only obsolete roles while retaining valid roles. XLSX hidden metadata preserves registry and semantic values without adding a ninth summary field. Rename/merge/delete lifecycle checks and roundtrip coverage are included.
+
+Migration `0009_run_class_semantics.sql` adds run-level snapshot presence/schema metadata and per-class semantic rows without changing old `run_class_categories` rows. New v4 saves must pass `classSemantics`; `[]` records a valid empty snapshot and `undefined` is rejected. Readers validate schema version, definition JSON/hash, referenced type ID, and semantic field values. A markerless run with orphan semantic rows is corruption. Snapshot writes share one transaction with run/result/category writes; the injected semantic-row failure regression verifies full rollback. Historic rows without markers remain unavailable (`undefined`) and are not reconstructed.
+
+### Validation
+
+- From `web/`: the 16-file targeted command above passed **16 files / 180 tests** before the summary-role-option regression was added. The first rerun with that regression found one test-fixture issue (the test omitted required built-in type definitions); after adding them, `npm test -- --run tests/unit/d3-class-semantics-contract.test.ts` passed **1 file / 10 tests**. A new full 16-file rerun, typecheck, and lint are pending parent review of this final fixture correction.
+- `npm run typecheck` and `npm run lint` both passed on the preceding code tree before the summary-role-option clear refinement; lint had no warnings after stabilizing the registry definition memo.
+- The tests cover clear-action visibility and pure projection (including clearing one removed summary role while retaining a valid role), type/layout compatibility rejection, settings and Excel metadata roundtrip, lifecycle behavior, empty and immutable snapshots, corrupt metadata/orphans, and atomic rollback.
+- `git diff --check` is run after this ledger update. Full Vitest, build, and E2E were not run for this PR3 checkpoint. `data/app.sqlite` and its sidecars were not accessed; fixtures contain synthetic data only.

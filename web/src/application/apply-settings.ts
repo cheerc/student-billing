@@ -183,7 +183,7 @@ export function applySettingsPreview(
     // 以新設定重算（alias + schedule 覆寫）
     const aliasMap = draftToAliasMap(draft);
     const scheduleOverride = draftToScheduleOverride(draft);
-    const { run, results, classCategories } = executeCalculationRun(db, preview.importId, runId, {
+    const { run, results, classCategories, classSemantics } = executeCalculationRun(db, preview.importId, runId, {
       scheduleVersionId: settingsVersionId,
       ruleSetVersion: targetRuleSetVersion,
       upgradePreviewId: previewId,
@@ -192,7 +192,7 @@ export function applySettingsPreview(
       aliasMap,
       scheduleOverride,
     });
-    saveCalculationRun(db, run, results, classCategories);
+    saveCalculationRun(db, run, results, classCategories, classSemantics);
 
     const mismatchCount = results.filter((r) => r.tierMismatch).length;
 

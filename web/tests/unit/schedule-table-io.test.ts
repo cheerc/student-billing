@@ -18,6 +18,7 @@ import {
   ScheduleTableImportError,
   type ScheduleExportClassAttr,
 } from '@/adapters/xlsx/schedule-table-io';
+import { DEFAULT_CLASS_TYPE_DEFINITIONS, type ClassTypeDefinition } from '@/contracts/settings';
 import {
   ScheduleGridRowSchema,
   buildSeedGridRows,
@@ -727,5 +728,53 @@ describe('#81：課表 Excel 全量匯出／匯入', () => {
       expect(result.rows).toHaveLength(1);
       expect(result.rows[0].weekday).toBe('');
     });
+  });
+
+  it('roundtrips bounded semantic settings in a very-hidden workbook sheet', async () => {
+    const definition: ClassTypeDefinition = {
+      id: 'study_room',
+      label: '自習教室',
+      scheduleMode: 'timetable',
+      supportedAttributeKeys: ['subject', 'category', 'skipDeduction', 'summaryDayRoles', 'erpTierApplicability'],
+      summaryRoleOptions: ['mathDays', 'homeworkDays'],
+    };
+    const workbookRows: ScheduleGridRow[] = [{
+      rowId: 'synthetic-row-1',
+      className: '合成課程甲',
+      teacher: '合成教師',
+      weekday: '三',
+      startTime: '15:00',
+      endTime: '16:00',
+      startMinutes: 900,
+      endMinutes: 960,
+      active: true,
+      skipDeduction: false,
+    }];
+    const attrs: ScheduleExportClassAttr[] = [{
+      className: '合成課程甲',
+      classTypeId: definition.id,
+      classType: 'non_care',
+      category: 'none',
+      fixedFiveDays: false,
+      subject: '合成科目',
+      subjectSource: 'manual',
+      summaryDayRoles: ['homeworkDays'],
+      summaryDayRolesStatus: 'configured',
+      summaryDayRolesSource: 'manual',
+      erpTierApplicability: 'not_applicable',
+      erpTierApplicabilitySource: 'manual',
+    }];
+    const definitions = [...DEFAULT_CLASS_TYPE_DEFINITIONS, definition];
+    const buffer = await buildScheduleWorkbook(workbookRows, attrs, definitions);
+    const workbook = new ExcelJS.Workbook();
+    await workbook.xlsx.load(buffer as unknown as ArrayBuffer);
+    expect(workbook.getWorksheet('__class_semantics')?.state).toBe('veryHidden');
+
+    const imported = await parseScheduleWorkbook(buffer);
+    expect(imported.classTypeDefinitions).toEqual(definitions);
+    expect(imported.classAttrs).toEqual([{
+      ...attrs[0],
+      categorySource: 'manual',
+    }]);
   });
 });

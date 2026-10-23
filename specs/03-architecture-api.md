@@ -10,6 +10,8 @@
 
 > **現行 PR-2 契約（Issue #159）：** 新 Run 與新計算預覽固定 v4。active 任一非 v4 舊 Run（含 v1／v2／v3、compat 或未知版本）的普通 activate／recalculate／apply fail-closed，要求使用者明確選取並確認 v4 升級；before 僅讀取 active old Run 持久化結果，after 才呼叫 v4 calculator。缺少 saved before 時 fail-closed。任何舊 Run、run snapshot、raw issue/count、class category snapshot 都不重算、不回填；v3 snapshot 與 v1/v2 historical read mapping 保留，使用獨立 read-only `historicalRuleSetMetadata`，不再以 calculation capabilities 推測歷史行為。舊成功 idempotency replay 保持原 hash 與 response。詳見 §5.6。
 
+> **現行 PR-3 契約（Issue #148）：** 課程類型定義與逐班語意是版本化設定資料；八個既有 summary 欄位透過 `summaryDayRoles` 明確連接，ERP 級距適用性以 `erpTierApplicability` 獨立保存。PR-3 不更改 calculator、報表或 tier consumer。新 v4 run 以 additive `run_semantics_snapshots` marker 與 `run_class_semantics` rows 保存完整定義、hash、來源與 unset/unavailable 狀態；沒有 marker 的歷史 run 保持 `undefined`，標記存在但零 rows 回 `[]`，marker 缺失卻有 rows 視為損毀。所有 rows 與 run 在同一交易寫入，v4 未提供快照不得寫入。詳見 §5.7。
+
 ## 1. 技術選擇
 
 建議 TypeScript + Node.js 24。不是所有資料處理工具唯一最佳語言，但本案主要是 Web 操作、確定性規則、檔案解析與未來 Vercel/Firebase 整合，前後端共用型別與純函式測試的價值大於另建 Python 服務。Python 可留作開發期間 Excel 獨立驗證工具，不成為部署依賴。
@@ -427,6 +429,15 @@ run 的設定快照＝`run.scheduleVersionId`：`seed-v250922`（該 run 沒有�
 - **升級結果與歷史保存**：confirmed apply 在既有 CAS／TTL／idempotency transaction 內保存新 settings version 與 v4 Run，成功後切換 active pointer；rollback 不留下部分資料。舊 Run、raw issues/counts、category snapshot、diagnostic schema/rows 都不重算、不回填、不刪除。既有成功 activation idempotency replay 保留舊 hash compatibility，先於舊 active guard 回應原 response。
 - **歷史 read-model metadata**：v1/v2 不依賴新增 calculation capability map 進行舊計算；v3/v4 class category snapshot 與 v1/v2 old rate/name mapping 由明確的 read-only `historicalRuleSetMetadata` 分流。未知版本不推測 weekday/snapshot/rate 語意；snapshot availability fail-closed。
 - **PR-2 regression coverage**：直接 v2 calculate 與無升級舊 active activate/apply 失敗；explicit schedule/settings preview 均使用 v4；before 值來自 synthetic persisted v2 row，無舊 calculator invocation；legacy idempotency replay、CAS/TTL/transaction tests 保留。升級 journey 與 restore E2E 均從固定合成 v2 Run／學生結果 row 起步，成功後新 Run v4、舊 Run 保持可查；不使用 calculator 生成 fixture。
+
+### 5.7 Issue #148 PR-3：bounded class semantics 設定與 run snapshot
+
+- **Registry schema**：設定版本保存 `classTypeDefinitions[]`，每個定義包含 stable `id`、`label`、`scheduleMode`、`supportedAttributeKeys` 與 `summaryRoleOptions`；每班以 `classTypeId` 指向一個定義。內建 `care`／`non_care` 必須存在且維持既有排課形式。`care_window` 不可宣告逐時段 `skipDeduction`，`timetable` 不可宣告 `fixedFiveDays`，因現有版型沒有可編輯的對應控制。definition 只描述既有兩種排課版型與已支援欄位，不可保存任意公式或程式碼。
+- **獨立語意欄位**：`subject`、`category`、`fixedFiveDays`、`summaryDayRoles` 與 `erpTierApplicability` 彼此獨立；subject 不由 category 推導，category 不由 classType 推導。UI 按 definition 宣告提供欄位；既存但不支援的值不可靜默丟棄，設定驗證須拒絕。無設定時明確保存 `unset`／`unavailable`，新 class name 不觸發執行期名稱推論。
+- **Seed 範圍**：49 個既有 seed class 由逐班 synthetic fixture 明列 classType、summary roles、tier applicability、subject 與既有 category；seed 缺一列即測試失敗。非 seed 班不批次推論或回填。僅沿用八個既有 summary/day 欄位，不新增第九欄或公式。
+- **XLSX 與生命週期**：課表工作簿以 hidden metadata sheet roundtrip bounded definitions 與逐班語意；一般課表列格式與舊工作簿維持相容。rename 可帶來源設定，既有 merge target 保持 target 值，不一致的來源 merge 阻擋；類型仍被引用時不得刪除。
+- **Additive run snapshot**：migration 0009 新增一對一 `run_semantics_snapshots` presence/schema marker 與 `run_class_semantics` rows，不改寫舊 `run_class_categories`。新 v4 run 必須在 save 時明確提供 `classSemantics`；`[]` 表示有效的空 snapshot，`undefined` 不可寫入。read 時驗 schema version、definition JSON/schema/hash、classType id 關係、role/source/category/scalar 欄位；markerless run 有 semantic rows 是損毀。snapshot 與 `calculation_runs`、學生結果及 category rows 共用同一 transaction，任一寫入失敗整筆 rollback。
+- **PR-3 non-goals**：summary roles 與 tier applicability 在 PR-3 僅為可設、可匯出入、可保存及可讀取的 metadata；calculator、八欄投影、報表、token parsing、tier consumer 與 v4 numeric output 不改。任何需要商業規則或金額變化的路徑必須等另行授權。
 
 ## 6. Agent 使用邊界
 

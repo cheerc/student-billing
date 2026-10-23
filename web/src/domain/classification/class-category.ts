@@ -62,6 +62,21 @@ export interface ResolvedClassEnrollment {
 
 export interface ClassSettingLookup {
   classType?: 'care' | 'non_care';
+  classTypeId?: string;
+  classTypeDefinition?: {
+    id: string;
+    label: string;
+    scheduleMode: 'care_window' | 'timetable';
+    supportedAttributeKeys: Array<'subject' | 'category' | 'fixedFiveDays' | 'skipDeduction' | 'summaryDayRoles' | 'erpTierApplicability'>;
+    summaryRoleOptions: Array<'anqinDays' | 'tutoringDays' | 'englishDays' | 'mathDays' | 'chineseDays' | 'homeworkDays' | 'intensiveEnglishDays' | 'saturdayTutoringDays'>;
+  };
+  subject?: string;
+  subjectSource?: 'manual' | 'seed' | 'legacy_migration' | 'unset';
+  summaryDayRoles?: Array<'anqinDays' | 'tutoringDays' | 'englishDays' | 'mathDays' | 'chineseDays' | 'homeworkDays' | 'intensiveEnglishDays' | 'saturdayTutoringDays'>;
+  summaryDayRolesStatus?: 'configured' | 'unset' | 'unavailable';
+  summaryDayRolesSource?: 'manual' | 'seed' | 'legacy_migration' | 'unset';
+  erpTierApplicability?: 'applicable' | 'not_applicable' | 'unset';
+  erpTierApplicabilitySource?: 'manual' | 'seed' | 'legacy_migration' | 'unset';
   category?: ClassCategory;
   categorySource?: CategorySource;
   fixedFiveDays?: boolean;

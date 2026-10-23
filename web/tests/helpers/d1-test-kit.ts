@@ -193,7 +193,8 @@ export function saveRun(
   scheduleVersionId: string,
   createdAt: string,
   ruleSetVersion = 'erp-tag-v2',
-  classCategories?: Parameters<typeof saveCalculationRun>[3]
+  classCategories?: Parameters<typeof saveCalculationRun>[3],
+  classSemantics?: Parameters<typeof saveCalculationRun>[4]
 ) {
   saveCalculationRun(
     db,
@@ -210,6 +211,7 @@ export function saveRun(
       createdAt,
     },
     [],
-    classCategories
+    classCategories,
+    classSemantics ?? (ruleSetVersion === 'erp-tag-v4' ? [] : undefined)
   );
 }

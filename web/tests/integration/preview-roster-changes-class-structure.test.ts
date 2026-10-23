@@ -311,7 +311,7 @@ describe('API: preview 的 rosterDiff.changes 帶 PR-1 逐班資料（報名集�
       scheduleOverride: draftToScheduleOverride(draft),
       classSettings: draftMap,
     });
-    saveCalculationRun(db0, res.run, res.results, res.classCategories);
+    saveCalculationRun(db0, res.run, res.results, res.classCategories, res.classSemantics);
     const runRow = db0
       .prepare('SELECT subject_count, base_discount_bps FROM student_calculations WHERE run_id = ? AND person_code = ?')
       .get('run_manual_category', target!.personCode) as

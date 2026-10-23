@@ -1,12 +1,15 @@
 import Database from 'better-sqlite3';
+import crypto from 'crypto';
 import { StudentSnapshot, ParsedToken } from '@/domain/students';
 import { calculateStudentBilling, RuleSetVersion, ResolvedClassSession } from '@/domain/billing/billing-calculator';
-import { CalculationRunRecord, StudentCalculationRecord, RunClassCategoryRecord } from '@/adapters/sqlite/runs-repository';
+import { CalculationRunRecord, StudentCalculationRecord, RunClassCategoryRecord, RunClassSemanticRecord } from '@/adapters/sqlite/runs-repository';
 import seedData from '@/domain/schedules/schedule-seed.json';
-import { SettingsDraft } from '@/contracts/settings';
+import { SettingsDraft, DEFAULT_CLASS_TYPE_DEFINITIONS, legacyClassTypeForDefinition } from '@/contracts/settings';
 import { todayInTaipei } from '@/lib/datetime';
 import { resolveClassEnrollment, ClassSettingLookup } from '@/domain/classification/class-category';
 import { TARGET_FORMAL_RULE_SET_VERSION } from '@/domain/billing/rule-set';
+import { normalizeSettingsDraftSemantics } from '@/domain/classification/class-semantics';
+import { SEED_CLASS_SEMANTICS } from '@/domain/classification/class-semantics';
 import {
   getLatestSettingsVersion,
   getSettingsPreview,
@@ -30,12 +33,23 @@ for (const cls of seedData.classes) {
  *  因此這裡不再帶 skipDeduction。 */
 export function buildClassSettingMap(draft: SettingsDraft): Map<string, ClassSettingLookup> {
   const map = new Map<string, ClassSettingLookup>();
-  for (const c of draft.classes) {
+  const normalizedDraft = normalizeSettingsDraftSemantics(draft);
+  for (const c of normalizedDraft.classes) {
+    const definition = normalizedDraft.classTypeDefinitions.find((item) => item.id === c.classTypeId);
     map.set(c.baseName, {
-      classType: c.classType,
+      classType: c.classType ?? (definition ? legacyClassTypeForDefinition(definition) : undefined),
+      classTypeId: c.classTypeId,
+      classTypeDefinition: definition,
+      subject: c.subject,
+      subjectSource: c.subjectSource,
       category: c.category,
       categorySource: c.categorySource,
       fixedFiveDays: c.fixedFiveDays,
+      summaryDayRoles: c.summaryDayRoles,
+      summaryDayRolesStatus: c.summaryDayRolesStatus,
+      summaryDayRolesSource: c.summaryDayRolesSource,
+      erpTierApplicability: c.erpTierApplicability,
+      erpTierApplicabilitySource: c.erpTierApplicabilitySource,
     });
   }
   return map;
@@ -85,7 +99,7 @@ export function executeCalculationRun(
   importId: string,
   runId: string,
   options: CalculateRunOptions = {}
-): { run: CalculationRunRecord; results: StudentCalculationRecord[]; classCategories?: RunClassCategoryRecord[] } {
+): { run: CalculationRunRecord; results: StudentCalculationRecord[]; classCategories?: RunClassCategoryRecord[]; classSemantics?: RunClassSemanticRecord[] } {
   const scheduleVersionId = options.scheduleVersionId || SEED_SCHEDULE_VERSION_ID;
   const ruleSetVersion = options.ruleSetVersion || TARGET_FORMAL_RULE_SET_VERSION;
   if (ruleSetVersion !== TARGET_FORMAL_RULE_SET_VERSION) {
@@ -330,8 +344,10 @@ export function executeCalculationRun(
 
   // R2-1 & R2-2: 產生 run_class_categories 快照物件，供 saveCalculationRun 持久化
   let classCategories: RunClassCategoryRecord[] | undefined;
+  let classSemantics: RunClassSemanticRecord[] | undefined;
   {
     const classCategoryMap = new Map<string, RunClassCategoryRecord>();
+    const classSemanticMap = new Map<string, RunClassSemanticRecord>();
 
     for (const r of enrollmentRows) {
       if (!classCategoryMap.has(r.base_name)) {
@@ -348,10 +364,39 @@ export function executeCalculationRun(
           // #157 Ruling 4：來源值域為 'manual' | 'unset'（舊 'auto' 不再寫入）。
           source: resolved.categorySource,
         });
+
+        const semanticSetting = classSettings.get(resolved.resolvedBaseName) ?? classSettings.get(r.base_name);
+        const seedSemantics = SEED_CLASS_SEMANTICS.get(resolved.resolvedBaseName);
+        const classTypeId = semanticSetting?.classTypeId ?? seedSemantics?.classTypeId ?? null;
+        const definition = semanticSetting?.classTypeDefinition ??
+          (classTypeId ? DEFAULT_CLASS_TYPE_DEFINITIONS.find((item) => item.id === classTypeId) : undefined);
+        const definitionJson = definition ? JSON.stringify(definition) : null;
+        const roles = semanticSetting?.summaryDayRoles ?? seedSemantics?.summaryDayRoles ?? [];
+        classSemanticMap.set(r.base_name, {
+          baseName: r.base_name,
+          resolvedBaseName: resolved.resolvedBaseName,
+          snapshotSchemaVersion: 1,
+          classTypeId,
+          classTypeDefinitionJson: definitionJson,
+          classTypeDefinitionHash: definitionJson
+            ? crypto.createHash('sha256').update(definitionJson).digest('hex')
+            : null,
+          subject: semanticSetting?.subject ?? SEED_CLASS_SEMANTICS.get(resolved.resolvedBaseName)?.subject ?? '',
+          subjectSource: semanticSetting?.subjectSource ?? (seedSemantics ? 'seed' : 'unset'),
+          category: resolved.category,
+          categorySource: resolved.categorySource,
+          fixedFiveDays: resolved.fixedFiveDays ? 1 : 0,
+          summaryDayRolesJson: JSON.stringify(roles),
+          summaryDayRolesStatus: semanticSetting?.summaryDayRolesStatus ?? (seedSemantics ? 'configured' : 'unavailable'),
+          summaryDayRolesSource: semanticSetting?.summaryDayRolesSource ?? (seedSemantics ? 'seed' : 'unset'),
+          erpTierApplicability: semanticSetting?.erpTierApplicability ?? seedSemantics?.erpTierApplicability ?? 'unset',
+          erpTierApplicabilitySource: semanticSetting?.erpTierApplicabilitySource ?? (seedSemantics ? 'seed' : 'unset'),
+        });
       }
     }
 
     classCategories = Array.from(classCategoryMap.values());
+    classSemantics = Array.from(classSemanticMap.values());
 
     // D2c N-1：快照寫入點唯一。
     // 原本此處另有「若 calculation_runs 在呼叫前已存在（例如測試中先建好 run）就補寫快照」
@@ -361,5 +406,5 @@ export function executeCalculationRun(
     // 呼叫端契約不變：executeCalculationRun 仍在回傳物件中帶 classCategories。
   }
 
-  return { run, results, classCategories };
+  return { run, results, classCategories, classSemantics };
 }

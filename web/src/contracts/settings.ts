@@ -1,9 +1,8 @@
 import { z } from 'zod';
 import seedData from '../domain/schedules/schedule-seed.json';
-import { deriveSubject } from '../domain/schedules/seed-manifest';
 import { FORMAL_RULE_SET_VERSION_LIST } from '@/domain/billing/rule-set';
 import { persistClassAttributes } from '@/domain/classification/persist-class-attributes';
-import type { CategorySource } from '@/domain/classification/class-category';
+import type { CategorySource, ClassCategory } from '@/domain/classification/class-category';
 
 /**
  * seed 內的 8 個預設安親課輔班（source=care_window）。
@@ -15,9 +14,98 @@ export const DEFAULT_CARE_CLASS_NAMES: ReadonlySet<string> = new Set(
     .map((c) => c.baseName)
 );
 
-/** 課程類型：安親課輔班（care）或非安親課輔班（non_care） */
+/** 舊設定檔中的兩個課程類型 id；新版本以 ClassTypeDefinition registry 為準。 */
 export const ClassTypeSchema = z.enum(['care', 'non_care']);
 export type ClassType = z.infer<typeof ClassTypeSchema>;
+export type ClassTypeId = string;
+
+/** 總表既有的八個天數欄位角色；不可擴成新欄位或計費公式。 */
+export const SUMMARY_DAY_ROLES = [
+  'anqinDays',
+  'tutoringDays',
+  'englishDays',
+  'mathDays',
+  'chineseDays',
+  'homeworkDays',
+  'intensiveEnglishDays',
+  'saturdayTutoringDays',
+] as const;
+export const SummaryDayRoleSchema = z.enum(SUMMARY_DAY_ROLES);
+export type SummaryDayRole = z.infer<typeof SummaryDayRoleSchema>;
+
+/** 明確設定資料，不對應公式。`unset` 表示目前沒有核准的級距適用性。 */
+export const ErpTierApplicabilitySchema = z.enum(['applicable', 'not_applicable', 'unset']);
+export type ErpTierApplicability = z.infer<typeof ErpTierApplicabilitySchema>;
+
+export const SemanticSettingSourceSchema = z.enum(['manual', 'seed', 'legacy_migration', 'unset']);
+export type SemanticSettingSource = z.infer<typeof SemanticSettingSourceSchema>;
+
+/** 僅支援既有畫面與固定欄位；這不是公式或 UI DSL。 */
+export const ClassTypeScheduleModeSchema = z.enum(['care_window', 'timetable']);
+export type ClassTypeScheduleMode = z.infer<typeof ClassTypeScheduleModeSchema>;
+
+export const SupportedClassAttributeKeySchema = z.enum([
+  'subject',
+  'category',
+  'fixedFiveDays',
+  'skipDeduction',
+  'summaryDayRoles',
+  'erpTierApplicability',
+]);
+export type SupportedClassAttributeKey = z.infer<typeof SupportedClassAttributeKeySchema>;
+
+export const ClassTypeDefinitionSchema = z.object({
+  id: z.string().regex(/^[a-z][a-z0-9_]*$/, '課程類型 id 僅可使用小寫英數與底線'),
+  label: z.string().trim().min(1).max(80),
+  scheduleMode: ClassTypeScheduleModeSchema,
+  supportedAttributeKeys: z.array(SupportedClassAttributeKeySchema).max(6),
+  summaryRoleOptions: z.array(SummaryDayRoleSchema).max(SUMMARY_DAY_ROLES.length),
+}).strict().superRefine((definition, ctx) => {
+  if (definition.scheduleMode === 'care_window' && definition.supportedAttributeKeys.includes('skipDeduction')) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['supportedAttributeKeys'],
+      message: '安親時段排課無逐時段不計扣天欄位',
+    });
+  }
+  if (definition.scheduleMode === 'timetable' && definition.supportedAttributeKeys.includes('fixedFiveDays')) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['supportedAttributeKeys'],
+      message: '個別時段排課無固定 5 天欄位',
+    });
+  }
+});
+export type ClassTypeDefinition = z.infer<typeof ClassTypeDefinitionSchema>;
+
+/** 兩個既有排課形式的 bounded registry；其他 id 必須重用其中一種形式。 */
+export const DEFAULT_CLASS_TYPE_DEFINITIONS: readonly ClassTypeDefinition[] = [
+  {
+    id: 'care',
+    label: '安親課輔班',
+    scheduleMode: 'care_window',
+    supportedAttributeKeys: ['subject', 'category', 'fixedFiveDays', 'summaryDayRoles', 'erpTierApplicability'],
+    summaryRoleOptions: [...SUMMARY_DAY_ROLES],
+  },
+  {
+    id: 'non_care',
+    label: '非安親課輔班',
+    scheduleMode: 'timetable',
+    supportedAttributeKeys: ['subject', 'category', 'skipDeduction', 'summaryDayRoles', 'erpTierApplicability'],
+    summaryRoleOptions: [...SUMMARY_DAY_ROLES],
+  },
+];
+
+export function classTypeDefinitionOf(
+  id: string | undefined,
+  definitions: readonly ClassTypeDefinition[] = DEFAULT_CLASS_TYPE_DEFINITIONS
+): ClassTypeDefinition | undefined {
+  return id ? definitions.find((definition) => definition.id === id) : undefined;
+}
+
+export function legacyClassTypeForDefinition(definition: ClassTypeDefinition): ClassType {
+  return definition.scheduleMode === 'care_window' ? 'care' : 'non_care';
+}
 
 /** 將 "HH:mm" 時間字串轉換為當日分鐘數 (0~1440) */
 export function timeStringToMinutes(timeStr: string | null | undefined): number | null {
@@ -94,10 +182,14 @@ export function isCompleteTimeRange<T extends { startMinutes: number | null; end
 /** 單一班級設定 */
 export const ClassSettingSchema = z.object({
   baseName: z.string().min(1),
-  subject: z.string().min(1),
+  /** Independent display/filter dimension; empty means explicitly not configured. */
+  subject: z.string().default(''),
+  subjectSource: SemanticSettingSourceSchema.optional(),
   teacher: z.string().nullable().default(null),
   active: z.boolean().default(true),
   sessions: z.array(SessionSchema).default([]),
+  /** Additive class-type reference; old classType remains readable during migration. */
+  classTypeId: z.string().regex(/^[a-z][a-z0-9_]*$/).optional(),
   classType: ClassTypeSchema.optional(),
   category: z.enum(['care', 'math', 'english', 'none', 'unset']).optional(),
   /**
@@ -107,6 +199,11 @@ export const ClassSettingSchema = z.object({
    */
   categorySource: z.enum(['auto', 'manual', 'unset', 'seed']).optional(),
   fixedFiveDays: z.boolean().optional(),
+  summaryDayRoles: z.array(SummaryDayRoleSchema).max(SUMMARY_DAY_ROLES.length).optional(),
+  summaryDayRolesStatus: z.enum(['configured', 'unset', 'unavailable']).optional(),
+  summaryDayRolesSource: SemanticSettingSourceSchema.optional(),
+  erpTierApplicability: ErpTierApplicabilitySchema.optional(),
+  erpTierApplicabilitySource: SemanticSettingSourceSchema.optional(),
   /**
    * #113 follow-up：不計扣天已改為**逐時段**（`sessions[].skipDeduction`），不再是班級屬性。
    * 本欄保留為舊快照的相容讀取位（值一律視為無效，只被剝除、不被讀取），
@@ -190,9 +287,10 @@ export function buildSeedGridRows(): ScheduleGridRow[] {
  *  #113 follow-up：完整列各自帶自己的 `skipDeduction`（逐時段），不同於 category／fixedFiveDays 的整班共用。 */
 export function gridRowsToClasses(
   rows: ScheduleGridRow[],
-  existingClasses?: ClassSetting[]
+  existingClasses?: ClassSetting[],
+  definitions: readonly ClassTypeDefinition[] = DEFAULT_CLASS_TYPE_DEFINITIONS
 ): ClassSetting[] {
-  return groupGridRowsToClasses(rows, existingClasses, (classRows) =>
+  return groupGridRowsToClasses(rows, existingClasses, definitions, (classRows) =>
     classRows.filter(isCompleteTimeRange).map((r) => ({
       weekday: r.weekday,
       startMinutes: r.startMinutes,
@@ -209,6 +307,7 @@ export function gridRowsToClasses(
 function groupGridRowsToClasses<S>(
   rows: ScheduleGridRow[],
   existingClasses: ClassSetting[] | undefined,
+  definitions: readonly ClassTypeDefinition[],
   toSessions: (classRows: ScheduleGridRow[]) => S[]
 ): Array<Omit<ClassSetting, 'sessions'> & { sessions: S[] }> {
   const existingMap = new Map<string, ClassSetting>();
@@ -231,15 +330,19 @@ function groupGridRowsToClasses<S>(
   const classes: Array<Omit<ClassSetting, 'sessions'> & { sessions: S[] }> = [];
   for (const [className, classRows] of grouped.entries()) {
     const existing = existingMap.get(className);
-    const subject = existing?.subject ?? deriveSubject(className);
+    // New names carry no semantic evidence. A subject is supplied by an explicit setting/seed row.
+    const subject = existing?.subject ?? '';
     const teacher = classRows[0]?.teacher ?? existing?.teacher ?? null;
     const active = classRows.some((r) => r.active);
 
-    const isCare =
-      existing?.classType === 'care' ||
-      (existing?.classType === undefined &&
-        (DEFAULT_CARE_CLASS_NAMES.has(className) || existing?.fixedFiveDays === true));
-    const classType: ClassType = isCare ? 'care' : 'non_care';
+    const classTypeId = existing?.classTypeId ?? existing?.classType ??
+      (existing === undefined && DEFAULT_CARE_CLASS_NAMES.has(className) ? 'care' : undefined);
+    const definition = classTypeId ? classTypeDefinitionOf(classTypeId, definitions) : undefined;
+    // Unknown custom ids fail closed to the neutral timetable layout. SettingsDraftSchema rejects
+    // them before persistence; this fallback keeps an in-progress grid serializable.
+    const classType: ClassType | undefined = definition
+      ? legacyClassTypeForDefinition(definition)
+      : existing?.classType;
 
     // Both editor save and grid serialization use this single source rule: manual/unset write,
     // seed/legacy auto do not, and explicit fixedFiveDays=false remains in the draft.
@@ -253,12 +356,19 @@ function groupGridRowsToClasses<S>(
     classes.push({
       baseName: className,
       subject,
+      subjectSource: existing?.subjectSource ?? (existing?.subject ? 'legacy_migration' : 'unset'),
       teacher,
       active,
       // specs/14 §3.6 & A5：安親課輔班（classType === 'care'）sessions 一律輸出為 []
       sessions: classType === 'care' ? [] : toSessions(classRows),
       classType,
+      classTypeId,
       ...attrs,
+      summaryDayRoles: existing?.summaryDayRoles ?? [],
+      summaryDayRolesStatus: existing?.summaryDayRolesStatus ?? 'unset',
+      summaryDayRolesSource: existing?.summaryDayRolesSource ?? 'unset',
+      erpTierApplicability: existing?.erpTierApplicability ?? 'unset',
+      erpTierApplicabilitySource: existing?.erpTierApplicabilitySource ?? 'unset',
     });
   }
 
@@ -364,10 +474,17 @@ export function detectSplitClasses(
  *  specs/14 §3.10：固定 5 天為純布林值，不再有 fixedSource。新增 classType。 */
 export interface ClassAttributeSetting {
   className: string;
+  classTypeId?: string;
   classType?: ClassType;
   category?: 'care' | 'math' | 'english' | 'none' | 'unset';
   categorySource?: CategorySource;
   fixedFiveDays?: boolean;
+  subject?: string;
+  summaryDayRoles?: SummaryDayRole[];
+  summaryDayRolesStatus?: 'configured' | 'unset' | 'unavailable';
+  summaryDayRolesSource?: SemanticSettingSource;
+  erpTierApplicability?: ErpTierApplicability;
+  erpTierApplicabilitySource?: SemanticSettingSource;
 }
 
 export interface SettingsBaseline {
@@ -426,9 +543,16 @@ export function isSettingsDirty(
       if (!ba) return true;
       if (
         ca.classType !== ba.classType ||
+        ca.classTypeId !== ba.classTypeId ||
         ca.category !== ba.category ||
         ca.categorySource !== ba.categorySource ||
-        ca.fixedFiveDays !== ba.fixedFiveDays
+        ca.fixedFiveDays !== ba.fixedFiveDays ||
+        ca.subject !== ba.subject ||
+        JSON.stringify(ca.summaryDayRoles ?? []) !== JSON.stringify(ba.summaryDayRoles ?? []) ||
+        ca.summaryDayRolesStatus !== ba.summaryDayRolesStatus ||
+        ca.summaryDayRolesSource !== ba.summaryDayRolesSource ||
+        ca.erpTierApplicability !== ba.erpTierApplicability ||
+        ca.erpTierApplicabilitySource !== ba.erpTierApplicabilitySource
       ) {
         return true;
       }
@@ -447,8 +571,10 @@ export const AliasMappingSchema = z.object({
 export type AliasMapping = z.infer<typeof AliasMappingSchema>;
 
 /** 整套設定草稿（一次 preview/apply 的原子單位） */
-export const SettingsDraftSchema = z.object({
+const SettingsDraftObjectSchema = z.object({
   classes: z.array(ClassSettingSchema).min(1),
+  /** Missing on old settings versions; the read model supplies the built-in registry in memory. */
+  classTypeDefinitions: z.array(ClassTypeDefinitionSchema).max(32).optional(),
   aliases: z.array(AliasMappingSchema).default([]),
   careWindows: z.object({
     anqin: z.object({ startMinutes: z.number().int(), endMinutes: z.number().int() }),
@@ -457,6 +583,95 @@ export const SettingsDraftSchema = z.object({
   effectiveFrom: z.string().nullable().default(null),
   effectiveTo: z.string().nullable().default(null),
 });
+
+function validateDraftSemantics(
+  draft: {
+    classes: Array<{
+      classTypeId?: string;
+      classType?: ClassType;
+      subject?: string;
+      category?: ClassCategory;
+      fixedFiveDays?: boolean;
+      summaryDayRoles?: SummaryDayRole[];
+      summaryDayRolesStatus?: 'configured' | 'unset' | 'unavailable';
+      erpTierApplicability?: ErpTierApplicability;
+      sessions?: Array<{ skipDeduction?: boolean }>;
+    }>;
+    classTypeDefinitions?: ClassTypeDefinition[];
+  },
+  ctx: z.RefinementCtx
+): void {
+  const definitions = draft.classTypeDefinitions ?? DEFAULT_CLASS_TYPE_DEFINITIONS;
+  const ids = new Set<string>();
+  for (const [index, definition] of definitions.entries()) {
+    if (ids.has(definition.id)) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['classTypeDefinitions', index, 'id'], message: '課程類型 id 不可重複' });
+    }
+    ids.add(definition.id);
+  }
+  for (const [id, requiredMode] of [['care', 'care_window'], ['non_care', 'timetable']] as const) {
+    const builtin = definitions.find((definition) => definition.id === id);
+    if (!builtin || builtin.scheduleMode !== requiredMode) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['classTypeDefinitions'],
+        message: `必須保留內建課程類型 ${id} 與其排課形式`,
+      });
+    }
+  }
+  for (const [index, definition] of definitions.entries()) {
+    if (definition.summaryRoleOptions.length > 0 && !definition.supportedAttributeKeys.includes('summaryDayRoles')) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['classTypeDefinitions', index, 'summaryRoleOptions'], message: '摘要角色選項需要宣告 summaryDayRoles 欄位' });
+    }
+  }
+  for (const [index, cls] of draft.classes.entries()) {
+    const id = cls.classTypeId ?? cls.classType;
+    if (!id && draft.classTypeDefinitions !== undefined) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['classes', index, 'classTypeId'], message: '新設定班級必須明確選擇課程類型' });
+      continue;
+    }
+    if (id && !ids.has(id)) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['classes', index, 'classTypeId'], message: `找不到課程類型 ${id}` });
+      continue;
+    }
+    const definition = definitions.find((item) => item.id === id);
+    if (!definition) continue;
+    if (cls.classTypeId && cls.classType && legacyClassTypeForDefinition(definition) !== cls.classType) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['classes', index, 'classType'],
+        message: `相容課程類型與課程類型 ${id} 的排課形式不一致`,
+      });
+    }
+    if (cls.subject?.trim() && !definition.supportedAttributeKeys.includes('subject')) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['classes', index, 'subject'], message: `課程類型 ${id} 不支援科目` });
+    }
+    if (cls.category && cls.category !== 'unset' && !definition.supportedAttributeKeys.includes('category')) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['classes', index, 'category'], message: `課程類型 ${id} 不支援折扣類別` });
+    }
+    if (cls.fixedFiveDays !== undefined && !definition.supportedAttributeKeys.includes('fixedFiveDays')) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['classes', index, 'fixedFiveDays'], message: `課程類型 ${id} 不支援固定 5 天` });
+    }
+    if (cls.sessions?.some((session) => session.skipDeduction === true) && !definition.supportedAttributeKeys.includes('skipDeduction')) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['classes', index, 'sessions'], message: `課程類型 ${id} 不支援不計扣天` });
+    }
+    const roles = cls.summaryDayRoles ?? [];
+    for (const role of roles) {
+      if (!definition.summaryRoleOptions.includes(role)) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['classes', index, 'summaryDayRoles'], message: `課程類型 ${id} 不支援 ${role}` });
+        break;
+      }
+    }
+    if ((roles.length > 0 || cls.summaryDayRolesStatus === 'configured') && !definition.supportedAttributeKeys.includes('summaryDayRoles')) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['classes', index, 'summaryDayRoles'], message: `課程類型 ${id} 不支援摘要角色` });
+    }
+    if (cls.erpTierApplicability && cls.erpTierApplicability !== 'unset' && !definition.supportedAttributeKeys.includes('erpTierApplicability')) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['classes', index, 'erpTierApplicability'], message: `課程類型 ${id} 不支援級距適用性` });
+    }
+  }
+}
+
+export const SettingsDraftSchema = SettingsDraftObjectSchema.superRefine(validateDraftSemantics);
 
 export type SettingsDraft = z.infer<typeof SettingsDraftSchema>;
 
@@ -486,9 +701,9 @@ export const CalculateClassSchema = ClassSettingSchema.extend({
   sessions: z.array(CalculateSessionSchema).default([]),
 });
 
-export const CalculateDraftSchema = SettingsDraftSchema.extend({
+export const CalculateDraftSchema = SettingsDraftObjectSchema.extend({
   classes: z.array(CalculateClassSchema).min(1),
-});
+}).superRefine(validateDraftSemantics);
 
 export type CalculateDraft = z.infer<typeof CalculateDraftSchema>;
 
@@ -499,9 +714,10 @@ export type CalculateDraft = z.infer<typeof CalculateDraftSchema>;
  */
 export function gridRowsToCalculateClasses(
   rows: ScheduleGridRow[],
-  existingClasses?: ClassSetting[]
+  existingClasses?: ClassSetting[],
+  definitions: readonly ClassTypeDefinition[] = DEFAULT_CLASS_TYPE_DEFINITIONS
 ): CalculateDraft['classes'] {
-  return groupGridRowsToClasses(rows, existingClasses, (classRows) =>
+  return groupGridRowsToClasses(rows, existingClasses, definitions, (classRows) =>
     classRows.map((r) => ({
       rowId: r.rowId,
       weekday: r.weekday,
