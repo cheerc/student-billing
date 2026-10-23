@@ -551,7 +551,7 @@ export default function SettingsEditor({
   const semanticDirty =
     semanticSettingsKey(semanticClassesForRows) !== semanticSettingsKey(baselineSemanticClasses) ||
     JSON.stringify(classTypeDefinitions) !== JSON.stringify(baselineSemanticDefinitions);
-  const semanticClassesMissingType = semanticClassesForRows.filter((item) => !item.classTypeId && !item.classType);
+  const semanticClassesMissingType = semanticClassesForRows.filter((item) => !item.semanticOnly && !item.classTypeId && !item.classType);
 
 
 
@@ -991,21 +991,37 @@ export default function SettingsEditor({
       const semanticByName = new Map(semanticClassesForRows.map((item) => [item.baseName, item]));
       const payload = JSON.stringify({
         rows,
-        classAttrs: [...currentAttrs.entries()].map(([className, a]) => ({
-          className,
-          classType: a.classType,
-          classTypeId: semanticByName.get(className)?.classTypeId,
-          category: a.category,
-          fixedFiveDays: a.fixedFiveDays,
-          subject: semanticByName.get(className)?.subject ?? '',
-          subjectSource: semanticByName.get(className)?.subjectSource ?? 'unset',
-          summaryDayRoles: semanticByName.get(className)?.summaryDayRoles ?? [],
-          summaryDayRoleConditions: semanticByName.get(className)?.summaryDayRoleConditions ?? [],
-          summaryDayRolesStatus: semanticByName.get(className)?.summaryDayRolesStatus ?? 'unset',
-          summaryDayRolesSource: semanticByName.get(className)?.summaryDayRolesSource ?? 'unset',
-          erpTierApplicability: semanticByName.get(className)?.erpTierApplicability ?? 'unset',
-          erpTierApplicabilitySource: semanticByName.get(className)?.erpTierApplicabilitySource ?? 'unset',
-        })),
+        classAttrs: [
+          ...[...currentAttrs.entries()].map(([className, a]) => ({
+            className,
+            classType: a.classType,
+            classTypeId: semanticByName.get(className)?.classTypeId,
+            category: a.category,
+            fixedFiveDays: a.fixedFiveDays,
+            subject: semanticByName.get(className)?.subject ?? '',
+            subjectSource: semanticByName.get(className)?.subjectSource ?? 'unset',
+            summaryDayRoles: semanticByName.get(className)?.summaryDayRoles ?? [],
+            summaryDayRoleConditions: semanticByName.get(className)?.summaryDayRoleConditions ?? [],
+            summaryDayRolesStatus: semanticByName.get(className)?.summaryDayRolesStatus ?? 'unset',
+            summaryDayRolesSource: semanticByName.get(className)?.summaryDayRolesSource ?? 'unset',
+            erpTierApplicability: semanticByName.get(className)?.erpTierApplicability ?? 'unset',
+            erpTierApplicabilitySource: semanticByName.get(className)?.erpTierApplicabilitySource ?? 'unset',
+          })),
+          ...semanticClassesForRows.filter((item) => item.semanticOnly).map((item) => ({
+            className: item.baseName,
+            semanticOnly: true,
+            category: 'unset',
+            fixedFiveDays: false,
+            subject: item.subject ?? '',
+            subjectSource: item.subjectSource ?? 'unset',
+            summaryDayRoles: item.summaryDayRoles ?? [],
+            summaryDayRoleConditions: item.summaryDayRoleConditions ?? [],
+            summaryDayRolesStatus: item.summaryDayRolesStatus ?? 'unset',
+            summaryDayRolesSource: item.summaryDayRolesSource ?? 'unset',
+            erpTierApplicability: item.erpTierApplicability ?? 'unset',
+            erpTierApplicabilitySource: item.erpTierApplicabilitySource ?? 'unset',
+          })),
+        ],
         classTypeDefinitions,
       });
       const formData = new FormData();
@@ -1066,6 +1082,7 @@ export default function SettingsEditor({
         : [...DEFAULT_CLASS_TYPE_DEFINITIONS];
       const importedAttrs = json?.classAttrs as Array<{
         className: string;
+        semanticOnly?: boolean;
         classTypeId?: string;
         classType?: ClassType;
         category: ClassCategory;
@@ -1082,6 +1099,7 @@ export default function SettingsEditor({
       }>;
       const semanticSettings: ClassSetting[] = importedAttrs.map((item) => ({
         baseName: item.className,
+        semanticOnly: item.semanticOnly,
         subject: item.subject ?? '',
         subjectSource: item.subjectSource ?? 'unset',
         teacher: null,
@@ -1104,6 +1122,7 @@ export default function SettingsEditor({
       setDraft((prev) => ({ ...prev, classes: importedClasses, classTypeDefinitions: importedDefinitions }));
       const nextAttrs = new Map<string, ClassAttributesView>();
       for (const a of importedAttrs) {
+        if (a.semanticOnly) continue;
         nextAttrs.set(a.className, {
           classType: a.classType ?? resolveClassAttributes(a.className).classType,
           category: a.category,
@@ -1422,7 +1441,7 @@ export default function SettingsEditor({
             </div>
           )}
           <ClassSemanticsPanel
-            classes={semanticClassesForRows}
+            classes={semanticClassesForRows.filter((item) => !item.semanticOnly)}
             definitions={classTypeDefinitions}
             onUpdateClass={handleUpdateSemanticClass}
             onClearUnsupported={handleClearUnsupportedSemanticFields}

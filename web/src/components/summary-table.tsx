@@ -3,7 +3,7 @@
 import React, { useState } from 'react';
 import { StudentCalculationItem } from '@/application/query-students';
 import { formatDiscountBps } from '@/application/roster-changes';
-import { applicableRateForClass, type RunClassCategorySnapshot } from '@/application/applicable-rate';
+import { applicableRateForClass, type RunClassCategorySnapshot, type RunClassSemanticsRateSnapshot } from '@/application/applicable-rate';
 import { parseTagDiscounts } from '@/domain/billing/discount-rules';
 import { InfoTip } from './ui/info-tip';
 import { issueLabel } from '@/lib/issue-copy';
@@ -84,6 +84,7 @@ function localRate(
   stu: StudentCalculationItem,
   className: string,
   snapshots: RunClassCategorySnapshot[] | undefined,
+  semanticSnapshots: RunClassSemanticsRateSnapshot[] | undefined,
   ruleSetVersion?: string | null
 ): string {
   const r = applicableRateForClass(
@@ -94,6 +95,7 @@ function localRate(
       usesSnapshot: Array.isArray(snapshots),
       ruleSetVersion,
       findSnapshot: (name) => snapshots?.find((x) => x.base_name === name),
+      findSemanticSnapshot: (name) => semanticSnapshots?.find((x) => x.baseName === name),
     }
   );
   if (r.status === 'not_configured') return '未設定';
@@ -114,6 +116,7 @@ interface SummaryTableProps {
    * v3/v4 缺快照時仍依 ruleSetVersion fail closed；明確 v1/v2 才用 frozen historical projection。
    */
   classCategorySnapshots?: RunClassCategorySnapshot[] | null;
+  classSemanticSnapshots?: RunClassSemanticsRateSnapshot[] | null;
   /** 該 run 的規則集版本（例如 erp-tag-v4） */
   ruleSetVersion?: string | null;
 }
@@ -152,6 +155,7 @@ export default function SummaryTable({
   singleClass = null,
   renderFilter,
   classCategorySnapshots = null,
+  classSemanticSnapshots = null,
   ruleSetVersion = null,
 }: SummaryTableProps) {
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
@@ -263,7 +267,7 @@ export default function SummaryTable({
                   <td className="number">{extraDays(stu)}</td>
                   <td className="number">{formatBaseDiscount(stu.baseDiscountBps)}</td>
                   {singleClass !== null && (
-                    <td className="number">{localRate(stu, singleClass, classCategorySnapshots ?? undefined, ruleSetVersion)}</td>
+                    <td className="number">{localRate(stu, singleClass, classCategorySnapshots ?? undefined, classSemanticSnapshots ?? undefined, ruleSetVersion)}</td>
                   )}
                   <td className="number">{num(stu.subjectCount)}</td>
                   <td>

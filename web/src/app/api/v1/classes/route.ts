@@ -56,8 +56,9 @@ export async function GET(request: NextRequest) {
       const latestSettings = getLatestSettingsVersion(db);
       draft = latestSettings ? readStoredDraft(latestSettings.contentJson) : null;
     }
-    const configuredClasses = new Set(draft ? draft.classes.map((c) => c.baseName) : SEED_CLASSES.map((c) => c.baseName));
-    const activeClasses = new Set(draft ? draft.classes.filter((c) => c.active).map((c) => c.baseName) : SEED_CLASSES.map((c) => c.baseName));
+    const scheduleClasses = draft?.classes.filter((c) => !c.semanticOnly);
+    const configuredClasses = new Set(scheduleClasses ? scheduleClasses.map((c) => c.baseName) : SEED_CLASSES.map((c) => c.baseName));
+    const activeClasses = new Set(scheduleClasses ? scheduleClasses.filter((c) => c.active).map((c) => c.baseName) : SEED_CLASSES.map((c) => c.baseName));
     const normalizedDraft = draft ? normalizeSettingsDraftSemantics(draft) : null;
     const configuredSubjectMap = new Map((normalizedDraft?.classes ?? []).map((cls) => [cls.baseName, cls.subject]));
     const runMetadata = historicalRuleSetMetadata(run.ruleSetVersion);

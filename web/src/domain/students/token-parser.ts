@@ -1,4 +1,5 @@
 import { ParsedToken } from './types';
+import { legacyClassSemanticsOf } from '@/domain/classification/legacy-class-semantics';
 
 const KNOWN_TIERS_MAP: Record<string, number> = {
   '3': 3,
@@ -118,6 +119,15 @@ export function projectTierForApplicability(
     tierParseStatus: 'unavailable',
     parseStatus: 'needs_review',
   };
+}
+
+/** Preserve the frozen import-time tier projection as read-back evidence only.
+ * New v4 Runs must call `projectTierForApplicability` with their saved semantic row instead. */
+export function projectLegacyImportTierEvidence(token: ParsedToken): ParsedToken {
+  return projectTierForApplicability(
+    token,
+    legacyClassSemanticsOf(token.baseName).erpTierApplicability
+  );
 }
 
 /**

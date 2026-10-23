@@ -164,6 +164,31 @@ describe('PR-3 bounded class semantics contract', () => {
     });
   });
 
+  it('does not add empty role-condition arrays while hydrating a complete draft', () => {
+    const completeDraft = SettingsDraftSchema.parse({
+      classes: [{
+        baseName: '合成課程',
+        subject: '',
+        subjectSource: 'unset',
+        teacher: null,
+        active: true,
+        sessions: [],
+        classTypeId: 'non_care',
+        classType: 'non_care',
+        summaryDayRoles: [],
+        summaryDayRolesStatus: 'unset',
+        summaryDayRolesSource: 'unset',
+        erpTierApplicability: 'unset',
+        erpTierApplicabilitySource: 'unset',
+      }],
+      classTypeDefinitions: DEFAULT_CLASS_TYPE_DEFINITIONS,
+      aliases: [],
+      careWindows: CARE_WINDOWS,
+    });
+
+    expect(normalizeSettingsDraftSemantics(completeDraft)).toEqual(completeDraft);
+  });
+
   it('uses fixedFiveDays only for the explicit legacy hydration path and requires a type in new settings', () => {
     const old = normalizeSettingsDraftSemantics(SettingsDraftSchema.parse({
       classes: [{ baseName: '舊班', subject: '', fixedFiveDays: true, sessions: [] }],

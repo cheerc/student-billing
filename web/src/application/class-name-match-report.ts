@@ -438,7 +438,8 @@ export function getClassNameMatchReport(
   const rosterStats = new Map(rosterRows.map((r) => [r.base_name, { students: Number(r.student_count), tokens: Number(r.token_count) }]));
   const rosterNames = rosterRows.map((r) => r.base_name);
 
-  const classNames = draft.classes.map((c) => c.baseName);
+  const scheduleClasses = draft.classes.filter((c) => !c.semanticOnly);
+  const classNames = scheduleClasses.map((c) => c.baseName);
   const { activeView } = classifyErpDualTrack(rosterNames, classNames, draft.aliases);
 
   const rosterOnly: RosterOnlyClass[] = activeView.unmatched
@@ -447,7 +448,7 @@ export function getClassNameMatchReport(
 
   const classSet = new Set(classNames);
   const rosterSet = new Set(rosterNames);
-  const activeByClass = new Map(draft.classes.map((c) => [c.baseName, c.active]));
+  const activeByClass = new Map(scheduleClasses.map((c) => [c.baseName, c.active]));
   const previousCounts = new Map<string, number>();
   if (previousRoster) {
     const rows = db

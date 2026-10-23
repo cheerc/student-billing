@@ -516,7 +516,7 @@ export function compare(reportStudents, webStudents, asOfDate, rateContext = und
         !Array.isArray(rateContext.classCategories) ||
         rateContext.classCategories.length === 0 ||
         (runUsesClassSemanticsSnapshot(rateContext) && (
-          !Array.isArray(rateContext.classSemantics) || careEnrollments.length === 0
+          !Array.isArray(rateContext.classSemantics)
         ))
         )
         : !legacyProjection

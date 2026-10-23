@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
@@ -37,6 +37,19 @@ import { execFileSync, spawn } from 'child_process';
  * 測試名稱不得承諾它偵測不到的東西。
  */
 const web = path.resolve(__dirname, '../..');
+const temporaryRoots: string[] = [];
+
+function makeTemporaryRoot(prefix: string): string {
+  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), prefix)));
+  temporaryRoots.push(root);
+  return root;
+}
+
+afterEach(() => {
+  for (const root of temporaryRoots.splice(0)) {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
 
 /** 真實的型別錯誤：字串賦給 number，tsc 必報 TS2322。 */
 const TYPE_ERROR_PROBE = 'export const __typeErrProbe: number = "not a number";\n';
@@ -287,7 +300,7 @@ function tail(result: BuildResult) {
 
 describe('#130：T1 型別檢查豁免必須兩條件同時成立', () => {
   it('兩條件同時成立時放行：注入的型別錯誤不擋 build（exit 0）', async () => {
-    const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'sb130-both-')));
+    const root = makeTemporaryRoot('sb130-both-');
     const workspace = fixture(path.join(root, 'state', 'web'), { marker: true });
     const result = await build(workspace, { ...process.env, ACCEPTANCE_ENV: '1' });
     // T1 路徑：閘控開啟 → 真實型別錯誤被靜默放行。
@@ -295,7 +308,7 @@ describe('#130：T1 型別檢查豁免必須兩條件同時成立', () => {
   }, 200_000);
 
   it('無 ACCEPTANCE_ENV 時不豁免：注入的型別錯誤擋下 build（exit ≠ 0）', async () => {
-    const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'sb130-none-')));
+    const root = makeTemporaryRoot('sb130-none-');
     // marker 刻意存在：證明即使結構條件成立，缺 env 也不豁免。
     const workspace = fixture(path.join(root, 'state', 'web'), { marker: true });
     const env = { ...process.env };
@@ -311,7 +324,7 @@ describe('#130：T1 型別檢查豁免必須兩條件同時成立', () => {
     // fixture 上行為完全相同（marker 都在相鄰上一層），所以前三個 case 分不出來 ——
     // 實測把條件 2 改成 ancestor walk 時它們全綠。這個 fixture 把 marker 往上多挪一層，
     // 兩種實作才會產生不同結果。
-    const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'sb130-deep-')));
+    const root = makeTemporaryRoot('sb130-deep-');
     // cwd = <root>/state/web，相鄰上一層是 <root>/state/；marker 放在 <root>/。
     const workspace = fixture(path.join(root, 'state', 'web'), { marker: true, markerDepth: 2 });
     const result = await build(workspace, { ...process.env, ACCEPTANCE_ENV: '1' });
@@ -322,7 +335,7 @@ describe('#130：T1 型別檢查豁免必須兩條件同時成立', () => {
 
   it('有 ACCEPTANCE_ENV 但上一層無 marker 時不豁免：注入的型別錯誤擋下 build（exit ≠ 0）', async () => {
     // 這條是核心：只靠條件 1 會被繼承開啟；marker 條件才是真正關住它的那道閘。
-    const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'sb130-nomarker-')));
+    const root = makeTemporaryRoot('sb130-nomarker-');
     const workspace = fixture(path.join(root, 'state', 'web'), { marker: false });
     const result = await build(workspace, { ...process.env, ACCEPTANCE_ENV: '1' });
     assertNotTimedOut(result);
@@ -384,7 +397,7 @@ describe('#130：build() 在逾時後必須帶上逾時旗標', () => {
     // 這條走的是 code=null 的訊號終止路徑（實測 stub 逾時後為
     // code=null、signal='SIGTERM'），不是「恰為 0」那條 —— 名稱不宣稱它測不到的
     // 分支；code=0 與旗標衝突的情形由純函式那組專門覆蓋。
-    const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'sb130-flag-')));
+    const root = makeTemporaryRoot('sb130-flag-');
     const workspace = path.join(root, 'state', 'web');
     fs.mkdirSync(workspace, { recursive: true });
     // 這裡不需要 node_modules：buildStub 走的是 `argv: ['-e', ...]`，spawn 的是 node

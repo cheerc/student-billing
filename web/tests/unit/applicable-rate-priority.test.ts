@@ -16,6 +16,10 @@ describe('applicableRateForClass requires snapshots for snapshot-capable Run ver
     // 寫功課，fixed_five_days: 1
     ['國小輔導-寫功課', { base_name: '國小輔導-寫功課', category: 'none', fixed_five_days: 1 }],
   ]);
+  const semantics = new Map([
+    ['國小數學-四A', { baseName: '國小數學-四A', category: 'english' }],
+    ['國小輔導-寫功課', { baseName: '國小輔導-寫功課', category: 'none' }],
+  ]);
 
   it('v4 metadata cannot be overridden to re-enable name mapping', () => {
     const res = applicableRateForClass('國小數學-四A', rateFields, {
@@ -23,6 +27,7 @@ describe('applicableRateForClass requires snapshots for snapshot-capable Run ver
       ruleSetVersion: 'erp-tag-v4',
       isV3Run: true,
       findSnapshot: (n) => snapshots.get(n),
+      findSemanticSnapshot: (n) => semantics.get(n),
     });
     // Run metadata requires the snapshot despite an explicit false hint.
     expect(res).toEqual({ status: 'configured', bps: 8500 });
@@ -43,6 +48,7 @@ describe('applicableRateForClass requires snapshots for snapshot-capable Run ver
       ruleSetVersion: 'erp-tag-v4',
       isV3Run: true,
       findSnapshot: (n) => snapshots.get(n),
+      findSemanticSnapshot: (n) => semantics.get(n),
     });
     expect(res).toEqual({ status: 'not_configured' });
   });
@@ -52,6 +58,7 @@ describe('applicableRateForClass requires snapshots for snapshot-capable Run ver
       ruleSetVersion: 'erp-tag-v4',
       fixedFiveDaysAffectsRate: true,
       findSnapshot: (n) => snapshots.get(n),
+      findSemanticSnapshot: (n) => semantics.get(n),
     });
     expect(res).toEqual({ status: 'configured', bps: 10000 });
   });
@@ -61,6 +68,23 @@ describe('applicableRateForClass requires snapshots for snapshot-capable Run ver
       expect(applicableRateForClass('國小數學-四A', rateFields, { ruleSetVersion }))
         .toEqual({ status: 'not_configured' });
     }
+  });
+
+  it('v4 requires a semantic row that agrees with the category row', () => {
+    const categoryOnly = applicableRateForClass('國小數學-四A', rateFields, {
+      ruleSetVersion: 'erp-tag-v4',
+      findSnapshot: (n) => snapshots.get(n),
+    });
+    const contradictory = applicableRateForClass('國小數學-四A', rateFields, {
+      ruleSetVersion: 'erp-tag-v4',
+      findSnapshot: (n) => snapshots.get(n),
+      findSemanticSnapshot: (n) => n === '國小數學-四A'
+        ? { baseName: n, category: 'care' }
+        : undefined,
+    });
+
+    expect(categoryOnly).toEqual({ status: 'not_configured' });
+    expect(contradictory).toEqual({ status: 'not_configured' });
   });
 
   it('only explicit v1/v2 versions use the frozen historical mapper', () => {

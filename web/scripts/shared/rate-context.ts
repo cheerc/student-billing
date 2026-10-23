@@ -21,7 +21,7 @@
  * of falling back to current names. Unknown versions are marked `known: false`.
  */
 
-import type { ApplicableRateContext, RunClassCategorySnapshot } from '../../src/application/applicable-rate.ts';
+import type { ApplicableRateContext, RunClassCategorySnapshot, RunClassSemanticsRateSnapshot } from '../../src/application/applicable-rate.ts';
 // 值匯入不能帶 `.ts`（TS5097 只在 `import type` 上放行）；不帶副檔名與 scripts/*.ts 一致，tsx 可解析。
 import { historicalRuleSetMetadata, isFormalRuleSetVersion } from '../../src/domain/billing/rule-set';
 import { legacyClassSemanticsOf } from '../../src/domain/classification/legacy-class-semantics';
@@ -169,6 +169,9 @@ export function toApplicableRateContext(
     isV3Run: true,
     ruleSetVersion: rateContext?.ruleSetVersion,
     findSnapshot: (name) => rows.find((r) => r.base_name === name),
+    ...(Array.isArray(rateContext?.classSemantics)
+      ? { findSemanticSnapshot: (name: string) => rateContext.classSemantics!.find((item) => item.baseName === name) as RunClassSemanticsRateSnapshot | undefined }
+      : {}),
   };
 }
 

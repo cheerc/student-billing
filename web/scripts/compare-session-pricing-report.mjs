@@ -41,7 +41,7 @@ import { parseSingleClassToken } from '../src/domain/students/token-parser.ts';
 import { parseDiscounts, bpsToLabel, readMultiTuitionReport } from './shared/report-xlsx.ts';
 import { fetchRunStudents, fetchRun } from './shared/roster-api.ts';
 import { normalizeName, indexByName } from './shared/name-matching.ts';
-import { toApplicableRateContext, snapshotRowFor, buildRunSnapshotContext, shouldWarnMissingSnapshot, usesFrozenLegacyProjection } from './shared/rate-context.ts';
+import { toApplicableRateContext, snapshotRowFor, classSemanticsForRun, runUsesClassSemanticsSnapshot, buildRunSnapshotContext, shouldWarnMissingSnapshot, usesFrozenLegacyProjection } from './shared/rate-context.ts';
 import { defineCategories, formatCategorySummary } from './shared/category-registry.ts';
 import { renderShell, escapeHtml } from './shared/report-shell.ts';
 import { assertProjectRoot, assertOutputOutsideProject } from './shared/project-guard.ts';
@@ -320,15 +320,25 @@ export function resolveApplicableRate(className, student, context) {
   }
 
   if (ctx.usesClassCategorySnapshot ?? ctx.isV3Run) {
+    const categorySnapshot = snapshotRowFor(ctx, className);
+    if (runUsesClassSemanticsSnapshot(ctx)) {
+      const semantics = classSemanticsForRun(className, ctx);
+      // A v4 rate is authoritative only when both immutable snapshots contain the same
+      // roster class and agree on its category. Missing or contradictory metadata must
+      // not be hidden by the older category-only read model.
+      if (!categorySnapshot || !semantics || semantics.category !== categorySnapshot.category) {
+        return { status: 'not_configured', bps: null, category: null, fromSnapshot: true };
+      }
+    }
+
     // 快照的查詢與「找不到算什麼」一律走共用層的轉接，兩台工具同源（§9.0）。
     const rate = applicableRateForClass(className, student ?? {}, toApplicableRateContext(ctx));
-    const snapshot = snapshotRowFor(ctx, className);
     return {
       status: rate.status,
       bps: rate.status === 'configured' ? rate.bps : null,
       // 類別一律以快照為準（無快照即無法判定，不退回班名推導）。
       // 呼叫端據此分派「輔導班 → 另一台工具」與「未分類 → 需人工歸類」。
-      category: snapshot ? snapshot.category : null,
+      category: categorySnapshot ? categorySnapshot.category : null,
       fromSnapshot: true,
     };
   }

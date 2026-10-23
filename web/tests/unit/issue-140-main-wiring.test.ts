@@ -185,7 +185,7 @@ describe('issue #140 第 1 項：`main()` 的快照接線（國小輔導工具�
     expect(statusCategories(html)).toEqual(['MATCH']);
   });
 
-  it('v3 run 但 API 未回 classCategories：接線退化為名稱映射（8888 vs 8500 → DISCOUNT_DIFF）', async () => {
+  it('v3 run 但 API 未回 classCategories：不可回退名稱映射，標為 WEB_RATE_NOT_CONFIGURED', async () => {
     await writeSyntheticBillingReport(reportPath(), { className: CARE_CLASS_TOKEN, rateDetail: REPORT_RATE_DETAIL });
     const stub = path.join(tmp, 'billing-stub-b.mjs');
     writeFetchStub(stub, runV3Body(undefined), [rosterStudent([CARE_CLASS])]);
@@ -196,9 +196,8 @@ describe('issue #140 第 1 項：`main()` 的快照接線（國小輔導工具�
       stub,
       tmp
     );
-    // 這是上一條的對照組：同一份報表、同一個名冊，唯一的差別是 API 沒給快照。
-    // 兩條合起來才證明「差別確實來自那行接線」，而不是別的偶然。
-    expect(statusCategories(html)).toEqual(['DISCOUNT_DIFF']);
+    // snapshot-capable run 若 API 漏回快照，必須 fail closed，不用今天的班名猜測。
+    expect(statusCategories(html)).toEqual(['WEB_RATE_NOT_CONFIGURED']);
   });
 
   it('v3 run 的快照查無該班：不得靜默，標為 WEB_RATE_NOT_CONFIGURED（D17）', async () => {
@@ -246,7 +245,7 @@ describe('issue #140 第 1 項：`main()` 的快照接線（按堂計價工具�
     expect(statusCategories(html)).toEqual(['MATCH']);
   });
 
-  it('v3 run 但 API 未回 classCategories：接線退化為名稱映射（8000 vs 8500 → DISCOUNT_DIFF）', async () => {
+  it('v3 run 但 API 未回 classCategories：不可回退名稱映射，標為 WEB_RATE_NOT_CONFIGURED', async () => {
     await writeSyntheticSessionsReport(reportPath(), {
       tuitionRows: [`${ENGLISH_CLASS}[團] - 16 堂課`],
       rateDetail: `${ENGLISH_CLASS}[團] - ${REPORT_RATE_DETAIL}`,
@@ -260,6 +259,6 @@ describe('issue #140 第 1 項：`main()` 的快照接線（按堂計價工具�
       stub,
       tmp
     );
-    expect(statusCategories(html)).toEqual(['DISCOUNT_DIFF']);
+    expect(statusCategories(html)).toEqual(['WEB_RATE_NOT_CONFIGURED']);
   });
 });

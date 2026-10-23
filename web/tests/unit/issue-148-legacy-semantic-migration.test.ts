@@ -5,6 +5,9 @@ import {
   previewLegacyClassSemanticsMigration,
 } from '@/domain/classification/legacy-semantic-migration';
 import { projectSummaryDayValues } from '@/application/summary-day-values';
+import { buildClassSettingMap } from '@/application/calculate-run';
+import { buildSeedDraft } from '@/adapters/sqlite/settings-repository';
+import { resolveClassEnrollment } from '@/domain/classification/class-category';
 
 function legacyClass(baseName: string): ClassSetting {
   return {
@@ -93,5 +96,46 @@ describe('issue #148 approved one-time legacy semantic migration', () => {
       }],
     });
     expect(JSON.stringify(result)).not.toContain('私人識別內容');
+  });
+
+  it('includes unmatched roster names in the anonymous migration recommendation', () => {
+    const result = previewLegacyClassSemanticsMigration([], new Map([['私人安親班', {
+      baseName: '私人安親班',
+      migrateSummaryDayRoles: true,
+      migrateErpTierApplicability: true,
+    }]]));
+
+    expect(result.rows).toEqual([{
+      anonymousClassLabel: '舊班 1',
+      summaryDayRolesBefore: null,
+      summaryDayRolesAfter: [],
+      summaryDayRoleConditionsAfter: [],
+      erpTierApplicabilityBefore: null,
+      erpTierApplicabilityAfter: 'applicable',
+    }]);
+    expect(JSON.stringify(result)).not.toContain('私人安親班');
+  });
+
+  it('preserves legacy semantics for a removed seed class without remapping it or assigning a category', () => {
+    const migrated = migrateLegacyClassSemantics([], new Map([['國小數學-二B', {
+      baseName: '國小數學-二B',
+      migrateSummaryDayRoles: true,
+      migrateErpTierApplicability: true,
+    }]]));
+    const classSettings = buildClassSettingMap({ ...buildSeedDraft(), classes: migrated.classes });
+    const resolved = resolveClassEnrollment(
+      { rawToken: '國小數學-二B[團]', baseName: '國小數學-二B' },
+      undefined,
+      classSettings
+    );
+
+    expect(migrated.classes[0]).toMatchObject({
+      semanticOnly: true,
+      category: 'unset',
+      categorySource: 'unset',
+      summaryDayRoles: ['mathDays'],
+      erpTierApplicability: 'not_applicable',
+    });
+    expect(resolved).toMatchObject({ mapped: false, category: 'unset', summaryDayRoles: ['mathDays'], erpTierApplicability: 'not_applicable' });
   });
 });

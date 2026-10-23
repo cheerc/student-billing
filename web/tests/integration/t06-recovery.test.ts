@@ -13,6 +13,7 @@ import { activateImport, ActivateConflictError, ActivateError } from '@/applicat
 import { queryRunStudents, QueryStudentError } from '@/application/query-students';
 import { readErpWorkbook, ErpReaderError } from '@/adapters/xlsx/erp-reader';
 import { validateSameOrigin, sanitizePathParam } from '@/contracts/security';
+import { saveApprovedLegacyMigrationFixtureSettings } from '../helpers/d1-test-kit';
 
 describe('T06: 故障恢復、邊界防護與安全性整合測試 (I09-I14)', () => {
   let tempDir: string;
@@ -50,6 +51,7 @@ describe('T06: 故障恢復、邊界防護與安全性整合測試 (I09-I14)', (
       },
       preview.students
     );
+    await saveApprovedLegacyMigrationFixtureSettings(db, 'approved-legacy-migration');
   });
 
   afterEach(() => {

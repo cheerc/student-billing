@@ -63,7 +63,7 @@ describe('Issue #161 migration 0008: historical rows stay unavailable', () => {
   it('fresh schema adds nullable run version and one-to-one FK diagnostics table', () => {
     db = createDatabase(path.join(tempDir, 'fresh.sqlite'));
     runMigrations(db, MIGRATIONS_DIR);
-    expect(getAppliedMigrations(db).map(({ version }) => version)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9]);
+    expect(getAppliedMigrations(db).map(({ version }) => version)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
     const runVersion = (db.prepare('PRAGMA table_info(calculation_runs)').all() as any[]).find((column) => column.name === 'diagnostic_algorithm_version');
     expect(runVersion).toMatchObject({ type: 'TEXT', notnull: 0, dflt_value: null });
     const table = (db.prepare('PRAGMA table_info(run_diagnostics)').all() as any[]);
@@ -86,6 +86,7 @@ describe('Issue #161 migration 0008: historical rows stay unavailable', () => {
     expect(runMigrations(db, MIGRATIONS_DIR).applied).toEqual([
       '0008_run_diagnostics.sql',
       '0009_run_class_semantics.sql',
+      '0010_run_class_semantic_role_conditions.sql',
     ]);
     expect(dump()).toEqual({
       ...before,

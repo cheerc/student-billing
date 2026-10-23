@@ -9,6 +9,7 @@ import { generateImportPreview } from '@/application/import-preview';
 import { activateImport, ActivateConflictError } from '@/application/activate-import';
 import { executeCalculationRun } from '@/application/calculate-run';
 import { queryRunStudents, getStudentCalculationDetail } from '@/application/query-students';
+import { saveApprovedLegacyMigrationFixtureSettings } from '../helpers/d1-test-kit';
 
 describe('T04: 計算生命週期、CAS 409 啟用與總表查詢整合測試 (I09, I16, I17)', () => {
   let tempDir: string;
@@ -44,6 +45,7 @@ describe('T04: 計算生命週期、CAS 409 啟用與總表查詢整合測試 (I
       },
       preview.students
     );
+    await saveApprovedLegacyMigrationFixtureSettings(db, 'approved-legacy-migration');
   });
 
   afterEach(() => {

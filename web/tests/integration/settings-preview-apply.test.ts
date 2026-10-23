@@ -10,16 +10,19 @@ import { activateImport } from '@/application/activate-import';
 import { previewSettingsChange } from '@/application/settings-preview';
 import { applySettingsPreview } from '@/application/apply-settings';
 import { SEED_CLASSES } from '@/domain/schedules/seed-manifest';
-import { buildSeedDraft } from '@/adapters/sqlite/settings-repository';
+import { buildSeedDraft, hashSettingsDraft, saveSettingsVersion } from '@/adapters/sqlite/settings-repository';
 import { queryRunStudents } from '@/application/query-students';
 import { getCalculationRun } from '@/adapters/sqlite/runs-repository';
+import { migrateLegacyClassSemantics } from '@/domain/classification/legacy-semantic-migration';
 
 /**
  * 全量 seed draft＋別名（D25：draft 攜全量；09 §8.2.4 方案 A 後 sessions 為空＝無時段，
  * 不再是「沿用 seed」，故測試 draft 必須攜 seed 明確時段）。
  */
+let legacyMigratedDraft = buildSeedDraft();
+
 function buildDraftWithAlias(extraAliases: Array<{ rawBaseName: string; targetBaseName: string }>) {
-  return { ...buildSeedDraft(), aliases: extraAliases };
+  return { ...legacyMigratedDraft, aliases: extraAliases };
 }
 
 describe('T05: preview→apply 雙階段流程整合測試 (I10/I11/I15/I18/I20)', () => {
@@ -57,6 +60,33 @@ describe('T05: preview→apply 雙階段流程整合測試 (I10/I11/I15/I18/I20)
       },
       preview.students
     );
+
+    // The v4 characterization assumes the operator has accepted the one-time semantic migration.
+    // Preserve only historical summary/tier interpretation for roster-only names; keep category
+    // unset and the names unmapped so #157 behavior is unchanged.
+    const seedDraft = buildSeedDraft();
+    const configuredNames = new Set(seedDraft.classes.map((item) => item.baseName));
+    const legacyNames = new Set(preview.students.flatMap((student) => student.enrollments.map((item) => item.baseName)));
+    const candidates = new Map([...legacyNames]
+      .filter((baseName) => !configuredNames.has(baseName) && !SEED_CLASSES.some((item) => item.baseName === baseName))
+      .map((baseName) => [baseName, {
+        baseName,
+        migrateSummaryDayRoles: true,
+        migrateErpTierApplicability: true,
+      }]));
+    const migrated = migrateLegacyClassSemantics(seedDraft.classes, candidates);
+    const migratedDraft = { ...seedDraft, classes: migrated.classes };
+    legacyMigratedDraft = migratedDraft;
+    saveSettingsVersion(db, {
+      id: 'legacy-migration-test',
+      contentHash: hashSettingsDraft(migratedDraft),
+      contentJson: JSON.stringify(migratedDraft),
+      effectiveFrom: null,
+      effectiveTo: null,
+      createdAt: new Date().toISOString(),
+      createdFromPreviewId: null,
+      revision: 1,
+    });
 
     const act = activateImport(db, {
       importId: previewId,

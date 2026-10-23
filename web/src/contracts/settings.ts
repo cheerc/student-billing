@@ -189,6 +189,8 @@ export function isCompleteTimeRange<T extends { startMinutes: number | null; end
 /** 單一班級設定 */
 export const ClassSettingSchema = z.object({
   baseName: z.string().min(1),
+  /** Semantic-only roster entry created by the explicit legacy migration; it is not a schedule mapping. */
+  semanticOnly: z.boolean().optional(),
   /** Independent display/filter dimension; empty means explicitly not configured. */
   subject: z.string().default(''),
   subjectSource: SemanticSettingSourceSchema.optional(),
@@ -380,6 +382,12 @@ function groupGridRowsToClasses<S>(
     });
   }
 
+  for (const item of existingClasses ?? []) {
+    if (item.semanticOnly && !grouped.has(item.baseName)) {
+      classes.push(item as Omit<ClassSetting, 'sessions'> & { sessions: S[] });
+    }
+  }
+
   return classes;
 }
 
@@ -389,6 +397,7 @@ export function classesToGridRows(classes: ClassSetting[]): ScheduleGridRow[] {
   let rowSeq = 1;
 
   for (const c of classes) {
+    if (c.semanticOnly) continue;
     if (c.sessions.length > 0) {
       for (const s of c.sessions) {
         rows.push({
@@ -597,6 +606,7 @@ const SettingsDraftObjectSchema = z.object({
 function validateDraftSemantics(
   draft: {
     classes: Array<{
+      semanticOnly?: boolean;
       classTypeId?: string;
       classType?: ClassType;
       subject?: string;
@@ -637,6 +647,12 @@ function validateDraftSemantics(
     }
   }
   for (const [index, cls] of draft.classes.entries()) {
+    if (cls.semanticOnly) {
+      if ((cls.classTypeId ?? cls.classType) !== undefined || cls.sessions?.length) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['classes', index], message: '僅語意列不得包含課程類型或排課時段' });
+      }
+      continue;
+    }
     const id = cls.classTypeId ?? cls.classType;
     if (!id && draft.classTypeDefinitions !== undefined) {
       ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['classes', index, 'classTypeId'], message: '新設定班級必須明確選擇課程類型' });

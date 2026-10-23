@@ -69,6 +69,7 @@ export interface ResolvedClassEnrollment {
 }
 
 export interface ClassSettingLookup {
+  semanticOnly?: boolean;
   classType?: 'care' | 'non_care';
   classTypeId?: string;
   classTypeDefinition?: {
@@ -151,7 +152,7 @@ export function resolveClassEnrollment(
       rawToken: token.rawToken,
       baseName: token.baseName,
       resolvedBaseName,
-      mapped: true,
+      mapped: !cls.semanticOnly,
       category,
       categorySource,
       fixedFiveDays: cls.fixedFiveDays ?? false,

@@ -89,6 +89,7 @@ const CATEGORY_BY_LABEL: Record<string, ClassCategory> = {
 /** 匯出時每個班級的**有效**屬性（編輯器已解析使用者的指定與未設定；這裡不再重算一次）。 */
 export interface ScheduleExportClassAttr {
   className: string;
+  semanticOnly?: boolean;
   classTypeId?: string;
   classType?: ClassType;
   category: ClassCategory;
@@ -124,8 +125,9 @@ export interface ScheduleImportResult {
   /** 匯入明確類別為 manual；「（未設定）」保留 unset，不得升格為使用者指定。 */
   classAttrs: Array<{
     className: string;
+    semanticOnly?: boolean;
     classTypeId?: string;
-    classType: ClassType;
+    classType?: ClassType;
     category: ClassCategory;
     categorySource: WritableCategorySource;
     fixedFiveDays: boolean;
@@ -235,6 +237,7 @@ export async function buildScheduleWorkbook(
     metadata.addRow(['className', 'semanticsJson']);
     for (const item of classAttrs) {
       metadata.addRow([item.className, JSON.stringify({
+        ...(item.semanticOnly ? { semanticOnly: true } : {}),
         classTypeId: item.classTypeId,
         subject: item.subject,
         subjectSource: item.subjectSource,
@@ -355,6 +358,8 @@ export async function parseScheduleWorkbook(input: Buffer | Uint8Array): Promise
         if (!className && !raw) continue;
         if (!className || !raw || semanticsByName.has(className)) throw new Error('metadata row');
         const value = JSON.parse(raw) as Record<string, unknown>;
+        if (value.semanticOnly !== undefined && value.semanticOnly !== true) throw new Error('semantic-only flag');
+        if (value.semanticOnly === true && (value.classTypeId !== undefined || value.classType !== undefined)) throw new Error('semantic-only schedule type');
         if (value.classTypeId !== undefined && !ids.has(String(value.classTypeId))) throw new Error('unknown type');
         if (value.subject !== undefined && typeof value.subject !== 'string') throw new Error('subject');
         if (value.subjectSource !== undefined && !SemanticSettingSourceSchema.safeParse(value.subjectSource).success) throw new Error('subject source');
@@ -504,7 +509,7 @@ export async function parseScheduleWorkbook(input: Buffer | Uint8Array): Promise
     throw new ScheduleTableImportError('這個 Excel 檔案裡沒有任何課表資料列。');
   }
 
-  const classAttrs = [...attrsByName.entries()].map(([className, a]) => {
+  const classAttrs: ScheduleImportResult['classAttrs'] = [...attrsByName.entries()].map(([className, a]) => {
     const semantic = semanticsByName.get(className);
     const classTypeId = typeof semantic?.classTypeId === 'string' ? semantic.classTypeId : undefined;
     if (classTypeId) {
@@ -527,6 +532,18 @@ export async function parseScheduleWorkbook(input: Buffer | Uint8Array): Promise
       ...(semantic ?? {}),
     };
   });
+
+  for (const [className, semantic] of semanticsByName) {
+    if (attrsByName.has(className) || semantic.semanticOnly !== true) continue;
+    classAttrs.push({
+      className,
+      semanticOnly: true,
+      category: 'unset',
+      categorySource: 'unset',
+      fixedFiveDays: false,
+      ...semantic,
+    } as ScheduleImportResult['classAttrs'][number]);
+  }
 
   return {
     rows,

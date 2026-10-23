@@ -7,7 +7,7 @@ import {
   detectStudentIssues,
   compareTier,
 } from '@/domain/billing/issues-detector';
-import { parseClassTokens } from '@/domain/students/token-parser';
+import { parseClassTokens, projectLegacyImportTierEvidence } from '@/domain/students/token-parser';
 
 describe('U33–U49: 課程適用折扣、排課狀態與問題診斷測試', () => {
   it('U34: 安親園內生 basic=10000/9500/9000/8500 → 適用率 9500/9000/9000/9000 (max(0.9, basic - 0.05))', () => {
@@ -121,7 +121,7 @@ describe('U33–U49: 課程適用折扣、排課狀態與問題診斷測試', ()
 
   it('U48: 重複科別報名提示 (DUPLICATE_SUBJECT_ENROLLMENT, R17)', () => {
     // 美語 x 2
-    const tokensEnglish2 = parseClassTokens('兒童美語-EA[團]\n兒童美語-EG[團]');
+    const tokensEnglish2 = parseClassTokens('兒童美語-EA[團]\n兒童美語-EG[團]').map(projectLegacyImportTierEvidence);
     const issues1 = detectStudentIssues({
       personCode: 'STU052',
       tagsRaw: '',
@@ -143,7 +143,7 @@ describe('U33–U49: 課程適用折扣、排課狀態與問題診斷測試', ()
     expect(dupEnglish?.message).not.toContain('ERP');
 
     // 國小輔導 x 2
-    const tokensCare2 = parseClassTokens('國小輔導-三年級[團][5]\n國小輔導-三年級[團][4]');
+    const tokensCare2 = parseClassTokens('國小輔導-三年級[團][5]\n國小輔導-三年級[團][4]').map(projectLegacyImportTierEvidence);
     const issues2 = detectStudentIssues({
       personCode: 'STU043',
       tagsRaw: '',
@@ -165,7 +165,7 @@ describe('U33–U49: 課程適用折扣、排課狀態與問題診斷測試', ()
     expect(dupCare?.message).not.toContain('ERP');
 
     // 一般輔導 1 筆 + 寫功課 1 筆 -> 不觸發 DUPLICATE_SUBJECT_ENROLLMENT (R17)
-    const tokensMix = parseClassTokens('國小輔導-三年級[團][5]\n國小輔導-寫功課[團]');
+    const tokensMix = parseClassTokens('國小輔導-三年級[團][5]\n國小輔導-寫功課[團]').map(projectLegacyImportTierEvidence);
     const issues3 = detectStudentIssues({
       personCode: 'STU044',
       tagsRaw: '',

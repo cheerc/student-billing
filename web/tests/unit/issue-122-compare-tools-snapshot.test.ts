@@ -341,6 +341,34 @@ describe('issue #122：國小輔導工具（billing:compare）的 v3 快照路�
     expect(omittedContext.excel!.tierStatus).toBe('unavailable');
     expect(omittedContext.web!.rateBps).toBeNull();
   });
+
+  it('session comparison rate fails closed when v4 semantic/category snapshots are missing or disagree', () => {
+    const categoryRows = [{ base_name: '兒童美語-Dommie', category: 'math', fixed_five_days: 0 }];
+    const missingSemantics = resolveApplicableRate('兒童美語-Dommie', STUDENT, {
+      known: true,
+      usesClassCategorySnapshot: true,
+      usesClassSemanticsSnapshot: true,
+      isV3Run: true,
+      classCategories: categoryRows,
+      classSemantics: undefined,
+      ruleSetVersion: 'erp-tag-v4',
+    });
+    const contradictorySemantics = resolveApplicableRate('兒童美語-Dommie', STUDENT, {
+      known: true,
+      usesClassCategorySnapshot: true,
+      usesClassSemanticsSnapshot: true,
+      isV3Run: true,
+      classCategories: categoryRows,
+      classSemantics: [{
+        baseName: '兒童美語-Dommie', resolvedBaseName: '兒童美語-Dommie', category: 'care',
+        summaryDayRoles: [], erpTierApplicability: 'not_applicable',
+      }],
+      ruleSetVersion: 'erp-tag-v4',
+    });
+
+    expect(missingSemantics).toMatchObject({ status: 'not_configured', bps: null, category: null });
+    expect(contradictorySemantics).toMatchObject({ status: 'not_configured', bps: null, category: null });
+  });
 });
 
 describe('issue #122：國小輔導工具既有簽章不變', () => {

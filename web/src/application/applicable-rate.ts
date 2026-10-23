@@ -56,6 +56,12 @@ export interface RunClassCategorySnapshot {
   fixed_five_days: number;
 }
 
+/** Minimal v4 semantic snapshot fields needed to validate the category projection. */
+export interface RunClassSemanticsRateSnapshot {
+  baseName: string;
+  category: string;
+}
+
 /**
  * v3/v4 run 的類別快照查詢來源。
  * 以介面注入而非直接吃 db，讓同一份判定邏輯可同時供 server（adapters）與
@@ -69,6 +75,8 @@ export interface ApplicableRateContext {
   fixedFiveDaysAffectsRate?: boolean;
   /** 以**名冊班名**查快照（快照的 base_name 存的就是名冊班名，secondary N-8 對齊） */
   findSnapshot?: (rosterClassName: string) => RunClassCategorySnapshot | undefined;
+  /** v4 additionally requires a semantic row that agrees with the category snapshot. */
+  findSemanticSnapshot?: (rosterClassName: string) => RunClassSemanticsRateSnapshot | undefined;
 }
 
 /** 由 run_class_categories 查出該 run 的全部快照（server 端；缺表列回空陣列＝無法判定）。 */
@@ -104,6 +112,14 @@ export function applicableRateForClass(
     if (!row) {
       // 缺該班快照 → 無法判定，嚴禁以當前班名猜測（03 §5.3.4）
       return { status: 'not_configured' };
+    }
+    if (metadata?.hasClassSemanticsSnapshot) {
+      const semantics = context.findSemanticSnapshot?.(className);
+      if (!semantics || semantics.baseName !== row.base_name || semantics.category !== row.category) {
+        // v4 rate interpretation must be supported by the matching semantic snapshot too;
+        // missing or contradictory projections are unavailable rather than category-only.
+        return { status: 'not_configured' };
+      }
     }
     // Ruling 5: 旗標回退優先序為 fixedFiveDaysAffectsRate > ruleSetVersion > isV3Run
     const fixedFiveDaysAffectsRate =

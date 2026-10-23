@@ -38,6 +38,7 @@ export function buildClassSettingMap(draft: SettingsDraft): Map<string, ClassSet
   for (const c of normalizedDraft.classes) {
     const definition = normalizedDraft.classTypeDefinitions.find((item) => item.id === c.classTypeId);
     map.set(c.baseName, {
+      semanticOnly: c.semanticOnly,
       classType: c.classType ?? (definition ? legacyClassTypeForDefinition(definition) : undefined),
       classTypeId: c.classTypeId,
       classTypeDefinition: definition,

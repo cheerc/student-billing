@@ -87,6 +87,40 @@ export function migrateLegacyClassSemantics(
     return next;
   });
 
+  // Existing roster tokens without a schedule class still need an explicit, reviewed semantic
+  // projection to preserve the old summary/tier evidence. Keep these records outside the schedule
+  // mapping so they do not suppress CLASS_NOT_MAPPED or acquire a billing category.
+  const existingNames = new Set(nextClasses.map((item) => item.baseName));
+  for (const candidate of candidates.values()) {
+    if (existingNames.has(candidate.baseName)) continue;
+    if (!candidate.migrateSummaryDayRoles && !candidate.migrateErpTierApplicability) continue;
+    const semantic = legacySummaryRoles(candidate.baseName);
+    nextClasses.push({
+      baseName: candidate.baseName,
+      semanticOnly: true,
+      subject: '',
+      subjectSource: 'unset',
+      teacher: null,
+      active: false,
+      sessions: [],
+      category: 'unset',
+      categorySource: 'unset',
+      fixedFiveDays: false,
+      summaryDayRoles: candidate.migrateSummaryDayRoles ? semantic.roles : [],
+      summaryDayRoleConditions: candidate.migrateSummaryDayRoles ? semantic.conditions : [],
+      summaryDayRolesStatus: candidate.migrateSummaryDayRoles ? 'configured' : 'unset',
+      summaryDayRolesSource: candidate.migrateSummaryDayRoles ? 'legacy_migration' : 'unset',
+      erpTierApplicability: candidate.migrateErpTierApplicability
+        ? legacyClassSemanticsOf(candidate.baseName).erpTierApplicability
+        : 'unset',
+      erpTierApplicabilitySource: candidate.migrateErpTierApplicability ? 'legacy_migration' : 'unset',
+    });
+    existingNames.add(candidate.baseName);
+    migratedSummaryRoleClassCount += Number(candidate.migrateSummaryDayRoles);
+    migratedTierApplicabilityClassCount += Number(candidate.migrateErpTierApplicability);
+    migratedClassCount++;
+  }
+
   return {
     classes: nextClasses,
     migratedClassCount,
@@ -107,15 +141,15 @@ export function previewLegacyClassSemanticsMigration(
   for (const candidate of candidates.values()) {
     const before = classes.find((item) => item.baseName === candidate.baseName);
     const after = migratedByName.get(candidate.baseName);
-    if (!before || !after) continue;
+    if (!after) continue;
     rows.push({
       anonymousClassLabel: `舊班 ${rows.length + 1}`,
-      summaryDayRolesBefore: candidate.migrateSummaryDayRoles ? null : before.summaryDayRoles ?? [],
+      summaryDayRolesBefore: candidate.migrateSummaryDayRoles ? null : before?.summaryDayRoles ?? [],
       summaryDayRolesAfter: after.summaryDayRoles ?? [],
       summaryDayRoleConditionsAfter: after.summaryDayRoleConditions ?? [],
       erpTierApplicabilityBefore: candidate.migrateErpTierApplicability
         ? null
-        : before.erpTierApplicability ?? 'unset',
+        : before?.erpTierApplicability ?? 'unset',
       erpTierApplicabilityAfter: after.erpTierApplicability ?? 'unset',
     });
   }

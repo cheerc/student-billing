@@ -67,6 +67,9 @@ export default async function HistoryRunPage({
         deductions.status === 'unavailable' ? { code: deductions.code, message: deductions.message } : undefined
       }
       unmappedClasses={findUnmappedClasses(db, run.id, availableClasses)}
+      classCategorySnapshots={run.classCategories ?? null}
+      classSemanticSnapshots={run.classSemantics ?? null}
+      classCategoryRuleSetVersion={run.ruleSetVersion}
     />
   );
 }

@@ -96,7 +96,7 @@ describe('Excel 式各欄選項：其他欄 AND、自欄排除、全 run 值宇�
     const comparisons = await query({ options: 'true', enrollmentKey: CARE }, runId);
     expect(counts(comparisons.body, 'tierMismatch')).toEqual({ true: 1, false: 1 });
     const mismatchOnly = await query({ options: 'true', tierMismatch: 'true' }, runId);
-    expect(counts(mismatchOnly.body, 'tierComparison')).toEqual({ '~blank': 0, mismatch: 1, not_applicable: 1, match: 0 });
+    expect(counts(mismatchOnly.body, 'tierComparison')).toEqual({ '~blank': 0, mismatch: 1, not_applicable: 1, match: 0, unavailable: 0 });
     expect((await query({ tierMismatch: 'true', tierComparison: 'match' }, runId)).status).toBe(400);
   });
 

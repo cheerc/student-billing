@@ -75,7 +75,7 @@ if (
 }
 
 export type SemanticClassSetting = ClassSetting & {
-  classTypeId: string;
+  classTypeId?: string;
   summaryDayRoles: SummaryDayRole[];
   summaryDayRoleConditions: SummaryDayRoleCondition[];
   summaryDayRolesStatus: 'configured' | 'unset' | 'unavailable';
@@ -223,9 +223,8 @@ export function normalizeSettingsDraftSemantics(input: SettingsDraft | unknown):
     const seed = SEED_CLASS_SEMANTICS.get(item.baseName);
     const classTypeId = item.classTypeId ?? item.classType ?? seed?.classTypeId ??
       (legacySettings ? (item.fixedFiveDays === true ? 'care' : 'non_care') : undefined);
-    if (!classTypeId) throw new Error(`新設定班級「${item.baseName}」必須明確選擇課程類型`);
     const summaryDayRoles = item.summaryDayRoles ?? seed?.summaryDayRoles ?? [];
-    const summaryDayRoleConditions = item.summaryDayRoleConditions ?? [];
+    const summaryDayRoleConditions = item.summaryDayRoleConditions;
     const rolesSource = item.summaryDayRolesSource ?? (item.summaryDayRolesStatus === 'unset'
       ? 'unset'
       : item.summaryDayRoles ? 'manual' : seed ? 'seed' : 'unset');
@@ -239,6 +238,22 @@ export function normalizeSettingsDraftSemantics(input: SettingsDraft | unknown):
       : item.erpTierApplicability === 'unset' ? 'unset' : seed ? 'seed' : 'unset');
     const summaryDayRolesStatus = item.summaryDayRolesStatus ??
       (rolesSource === 'unset' ? 'unset' : 'configured');
+    // A semantic-only roster row intentionally has no schedule type. It supplies the explicit
+    // name-derived legacy projection without creating a schedule mapping or category decision.
+    if (item.semanticOnly) {
+      return {
+        ...item,
+        subject: item.subject ?? '',
+        subjectSource: item.subjectSource ?? 'unset',
+        summaryDayRoles,
+        ...(summaryDayRoleConditions === undefined ? {} : { summaryDayRoleConditions }),
+        summaryDayRolesStatus,
+        summaryDayRolesSource: rolesSource,
+        erpTierApplicability: tierApplicability,
+        erpTierApplicabilitySource: tierSource,
+      } as SemanticClassSetting;
+    }
+    if (!classTypeId) throw new Error(`新設定班級「${item.baseName}」必須明確選擇課程類型`);
     const definition = definitions.find((entry) => entry.id === classTypeId);
     if (!definition) throw new Error(`找不到課程類型 ${classTypeId}`);
     return {
@@ -247,7 +262,7 @@ export function normalizeSettingsDraftSemantics(input: SettingsDraft | unknown):
       subjectSource,
       classTypeId,
       summaryDayRoles,
-      summaryDayRoleConditions,
+      ...(summaryDayRoleConditions === undefined ? {} : { summaryDayRoleConditions }),
       summaryDayRolesStatus,
       summaryDayRolesSource: rolesSource,
       erpTierApplicability: tierApplicability,
