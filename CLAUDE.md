@@ -250,7 +250,8 @@ operator 已裁示本節工具為**產品外的離線輔助工具**，`§1` 之�
 **分歧面有兩個欄位，不只固定 5 天**：
 
 - `run_class_categories.fixed_five_days` 在 #112 起改由使用者勾選（§3.3 移除班名自動偵測後預設恆為 `false`）；歷史 run 快照保留當時的值，不回寫。
-- `run_class_categories.category`（班級類別：care／math／english）**同樣可被維護者手動覆寫**。因此不只改固定 5 天旗標會造成偏離，**手動改分類也會**——例如把某個兒童美語班手動改為 `care`，舊行為的工具仍會讀 `applicableEnglishBps`，而畫面會依 `care` 走安親／課輔分支。
+- `run_class_categories.category`（班級類別：care／math／english／none／unset）**同樣可被維護者手動覆寫**。因此不只改固定 5 天旗標會造成偏離，**手動改分類也會**——例如把某個兒童美語班手動改為 `care`，舊行為的工具仍會讀 `applicableEnglishBps`，而畫面會依 `care` 走安親／課輔分支。
+- `run_class_categories.category` 在 **#157 起**新增第五個值 **`unset`（使用者尚未指定）**，並**移除班名自動偵測**（06 D53）：類別一律由使用者決定；未對應課表的班一律寫 `unset` 且一律產生 `CLASS_NOT_MAPPED`。舊快照保留當時寫入的值（可能含 `auto`），**讀取時視為 `unset`**，不回寫。
 
 **修正內容**：`getCalculationRun` 載入層一併帶出該 run 的 `classCategories`（`/runs/{id}`、`/runs/current`、`/classes` 兩條以上路徑共用同一讀模型），兩台工具改為把快照傳入 `applicableRateForClass` 的正式路徑。快照形狀契約（底線命名、`fixed_five_days` 為數字 0／1、`undefined` 與 `[]` 語意分離）見 03 §5.3.4。
 

@@ -8,6 +8,8 @@ import { XLSX_MIME } from './helpers/c-batch';
  * 採用 2 位學生之最小合成案例（真實瀏覽器匯入 → 啟用 v3 → 課表僅改類別 → 預覽確認）：
  *   - 學生 1 (R3_001, 五年級)：僅報名「國小國語文-小五」
  *     before: categories=[none] → 科數 0，折扣 10000（無折扣）
+ *     （#157：seed 各班的類別是使用者明確指定的值，不再由班名推導；此案例的 before 側
+ *      因此與舊制相同。）
  *     after:  categories=[math] → 科數 1，折扣 10000（無折扣）
  *     科數變動: 0 → 1，折扣無變動（不列入合計折扣明細表）
  *   - 學生 2 (R3_002, 五年級)：報名「國小輔導-五年級」「兒童美語-Gino」「國小國語文-小五」
@@ -82,7 +84,7 @@ test.describe('N02／R3-F01: 類別異動影響預覽科數與合計折扣明細
     // 確認初始狀態乾淨
     await expect(page.locator('.save-status-clean')).toBeVisible();
 
-    // 3. 把「國小國語文-小五」從自動（不列入折扣 none）改為「數學班」（math）
+    // 3. 把「國小國語文-小五」從「不列入折扣」（none）改為「數學班」（math）
     // #80：同一班多列各有一份屬性下拉 → 收斂到第一列
     const row = page
       .locator('tr.schedule-row', { has: page.locator(`input.input-classname[value="國小國語文-小五"]`) })

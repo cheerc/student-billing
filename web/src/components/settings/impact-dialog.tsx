@@ -2,7 +2,6 @@
 
 import React, { useEffect, useRef } from 'react';
 import { SplitClassWarning } from '@/contracts/settings';
-import { CATEGORY_LABELS } from '@/domain/classification/class-attributes';
 import { ErrorNotice } from '@/components/ui/error-notice';
 import { restoreFocusToOpener } from '@/components/ui/restore-focus-to-opener';
 import { formatDiscountBps } from '@/application/roster-changes';
@@ -64,16 +63,6 @@ export interface SettingsPreviewData {
     before: number | null;
     after: number | null;
   }> | null;
-  /**
-   * D2b r2（R2-2／Q13／06 D37）：跨類別別名提示。**不阻擋儲存**，只在使用者確認前列出
-   * 哪些別名的折扣類別將改由系統班決定。
-   */
-  aliasCategoryNotices?: Array<{
-    rawBaseName: string;
-    targetBaseName: string;
-    rawDetected: 'care' | 'math' | 'english' | 'none';
-    targetDetected: 'care' | 'math' | 'english' | 'none';
-  }>;
 }
 
 interface ImpactDialogProps {
@@ -146,7 +135,6 @@ export function ImpactDialog({
   const hasSubjectDeltas = Array.isArray(preview?.subjectCountDeltas) && preview!.subjectCountDeltas!.length > 0;
   const hasDiscountDeltas = Array.isArray(preview?.baseDiscountDeltas) && preview!.baseDiscountDeltas!.length > 0;
   const hasCourseRateDeltas = Array.isArray(preview?.courseRateDeltas) && preview!.courseRateDeltas!.length > 0;
-  const aliasNotices = preview?.aliasCategoryNotices ?? [];
 
   return (
     <dialog
@@ -364,24 +352,6 @@ export function ImpactDialog({
         )}
       </div>
 
-      {aliasNotices.length > 0 && (
-        <details className="alert alert-warning" data-alias-category-notice="" style={{ marginTop: '16px' }}>
-          <summary style={{ cursor: 'pointer', fontWeight: 600 }}>
-            {aliasNotices.length} 個別名的類別將改由系統班決定
-          </summary>
-          <p className="note" style={{ marginTop: '8px' }}>
-            下列米豆奶班名對應到系統班級後，其折扣類別會以系統班為準。這是提示，不會阻止您儲存。
-          </p>
-          <ul style={{ marginTop: '8px', paddingLeft: '20px' }}>
-            {aliasNotices.map((n) => (
-              <li key={n.rawBaseName}>
-                {n.rawBaseName}（{CATEGORY_LABELS[n.rawDetected]}）→ {n.targetBaseName}（
-                {CATEGORY_LABELS[n.targetDetected]}）
-              </li>
-            ))}
-          </ul>
-        </details>
-      )}
 
       <div className="dialogfooter">
         <button

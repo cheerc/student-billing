@@ -1,19 +1,15 @@
 /**
- * 班級類別與「天數固定 5 天」的有效值解析（D2b；06 D37 1、S manifest §7.3／§7.7、06 D40 Q7-A／Q9／Q13）。
+ * 班級類別與「天數固定 5 天」的有效值解析（D2b；06 D37 1、S manifest §7.3／§7.7）。
  *
- * 兩項設定各自獨立、各自有來源狀態（auto／manual）：
- *  - 類別（`care`／`math`／`english`／`none`）與固定 5 天不互相推導（D37：兩者互不推導）；
- *  - 來源為 `manual` 時，改班名不再重新偵測；按「恢復自動」後才依**目前**班名重新偵測；
- *  - 手動值恰等於自動偵測值時仍為 `manual`（來源是使用者意圖，不因值相同而降回 auto）。
+ * #157 後，類別來源分為使用者決定（`manual`）、機構既有基準（`seed`）與未決定（`unset`）：
+ *  - 類別（`care`／`math`／`english`／`none`／`unset`）與固定 5 天不互相推導（D37）。
+ *  - 使用者決定與明確撤回隨班名生命週期處理；`seed` 依目標班名解析，非 seed 目標立即成為 `unset`。
+ *  - **不再有班名關鍵字自動偵測**，因此也沒有「恢復自動」這種回退路徑（`specs/06` D53）。
  *
- * 本模組是 domain 純函式，不依賴 DB／UI／規則版本；`detectClassCategory`
- * 來自 D1 的 `class-category`，這裡只負責「已儲存值 + 班名 → 有效值」與班級生命週期的設定繼承規則。
+ * 本模組是 domain 純函式，不依賴 DB／UI／規則版本。
  */
 
-import {
-  ClassCategory,
-  detectClassCategory,
-} from './class-category';
+import { type ClassCategory, type EffectiveCategorySource, effectiveCategoryOf } from './class-category';
 import {
   type ClassType,
   DEFAULT_CARE_CLASS_NAMES,
@@ -23,21 +19,29 @@ import {
 
 export { DEFAULT_CARE_CLASS_NAMES };
 
-/** 類別於畫面上的白話名稱（D37 1a：安親課輔班／數學班／美語班／不列入折扣）。 */
+/** 類別於畫面上的白話名稱（`unset` 必須與 `none` 分開：未設定不是「不列入折扣」）。 */
 export const CATEGORY_LABELS: Record<ClassCategory, string> = {
   care: '安親課輔班',
   math: '數學班',
   english: '美語班',
   none: '不列入折扣',
+  unset: '（未設定）',
 };
 
-export type AttributeSource = 'auto' | 'manual';
+/**
+ * 屬性來源狀態。
+ *
+ * - `'manual'`：使用者明確指定。
+ * - `'seed'`：seed 基準值（機構既有的班級設定；**不是**使用者的決定）。
+ * - `'unset'`：未指定（含使用者明確撤回）。
+ */
+export type AttributeSource = EffectiveCategorySource;
 
-/** 已儲存於設定草稿的類別欄位（皆可缺；缺＝未指定，讀取時自動偵測）。 */
+/** 已儲存於設定草稿的類別欄位（皆可缺；category 缺值時由 seed 基準或 unset 決定）。 */
 export interface SavedClassAttributes {
   classType?: ClassType;
   category?: ClassCategory;
-  categorySource?: AttributeSource;
+  categorySource?: AttributeSource | 'auto';
   fixedFiveDays?: boolean;
 }
 
@@ -58,10 +62,11 @@ export interface ClassAttributesView {
 }
 
 /**
- * 有效值：已儲存欄位優先，缺值時依班名自動偵測。
+ * 有效值：已儲存欄位優先；缺少類別欄位時套用 seed 基準，非 seed 班則為 `unset`（不依班名關鍵字偵測）。
  * specs/14 §3.1, §3.3, §3.9, §3.10：
  * - classType：優先取 saved.classType；若無，seed 8 班或歷史 fixedFiveDays===true 為 care，其餘為 non_care
- * - fixedFiveDays：移除 auto 偵測，所有班級預設恆為 false，無 fixedSource
+ * - category：`manual`／`unset` 儲存值優先；其餘依 `effectiveCategoryOf` 的 seed 基準或未設定解析
+ * - fixedFiveDays：無自動偵測，預設恆為 false
  */
 export function resolveClassAttributes(
   baseName: string,
@@ -72,8 +77,7 @@ export function resolveClassAttributes(
     (DEFAULT_CARE_CLASS_NAMES.has(baseName) || saved?.fixedFiveDays === true
       ? 'care'
       : 'non_care');
-  const category = saved?.category ?? detectClassCategory(baseName);
-  const categorySource = saved?.categorySource ?? 'auto';
+  const { category, categorySource } = effectiveCategoryOf(baseName, saved);
   const fixedFiveDays = saved?.fixedFiveDays ?? false;
   return {
     classType,
@@ -103,7 +107,7 @@ export function sameClassAttributes(a: ClassAttributesView, b: ClassAttributesVi
   );
 }
 
-/** draft 的一個班級 → 屬性檢視（缺欄位＝未指定，依班名自動偵測）。 */
+/** draft 的一個班級 → 屬性檢視（缺欄位＝未設定，不是任何推導值）。 */
 function classToAttributes(c: Pick<ClassSetting, 'baseName'> & SavedClassAttributes): ClassAttributesView {
   return resolveClassAttributes(c.baseName, c);
 }
@@ -212,15 +216,17 @@ export function detectClassLifecycle(
 }
 
 /**
- * 整班改名帶走設定（D37：手動後改名不再重偵測，故 manual 必須跟著走）：
- * 目標名若已有自己的設定（auto），手動值覆蓋之；沒有則全部帶過去。
- * 非手動（auto）的班改名後依**新名**重新偵測，因此不寫入覆蓋值。
+ * 整班改名帶走使用者設定；seed 基準則依目標班名重新解析。
+ *
+ * #157：`unset` 隨班帶走仍是 `unset`，不得因新班名含「國小輔導」等字樣而變成 `care`。
+ * `seed` 是原班名的既有機構基準，不是使用者決定；改名到非 seed 班時立即顯示並記錄 `unset`，
+ * 改名到另一個 seed 班時採目標班自己的 seed 基準，避免顯示值與儲存後重載值不同。
  */
 export function carryAttributesOnRename(
   renames: ClassRename[],
   currentAttrs: Map<string, ClassAttributesView>,
   baselineAttrs: Map<string, ClassAttributesView>,
-  /** baseline 中已存在的班名集合（自動偵測的班也算），用來辨認「併入既有班」。 */
+  /** baseline 中已存在的班名集合，用來辨認「併入既有班」。 */
   baselineNames?: ReadonlySet<string>
 ): Map<string, ClassAttributesView> {
   const out = new Map<string, ClassAttributesView>(currentAttrs);
@@ -229,25 +235,23 @@ export function carryAttributesOnRename(
     if (!before) continue;
 
     // D2d C（04 §8 UX72；decision `d-20261001043317183960-21`）：併入既有班 Z 時**以 Z 為準**。
-    // X 的手動值不帶入、不覆寫 Z——即使 Z 當下是 auto（未手動），X 的 manual 也不覆蓋。
+    // X 的設定不帶入、不覆寫 Z——即使 Z 當下是未指定（unset），X 的 manual 也不覆蓋。
     // 理由是 operator 的產品原則：課程設定＝核對者認知的「現在」班級狀態，系統不記錄、
-    // 不管理狀態轉換，有差異由使用者看比對結果自行修正。併入既有班本來就不算合併、
-    // 本來就不阻擋（`detectClassLifecycle` 已如此），本函式只決定「誰的設定留下來」。
+    // 不管理狀態轉換，有差異由使用者看比對結果自行修正。
     if (baselineNames?.has(to) === true) {
       const existing = currentAttrs.get(to) ?? baselineAttrs.get(to);
-      // Z 有已儲存的手動值就用它；Z 未手動者依 Z 班名重新偵測（＝ Z「現在」的值）。
       out.set(to, existing ?? resolveClassAttributes(to));
       continue;
     }
 
-    // specs/14 §3.10：整班改名（rename）時，classType 與 fixedFiveDays 原值直接隨班帶到新班名（D40 Q9）；
-    // category 若為 manual 則隨班帶走，若為 auto 則依新班名重新偵測。
-    const target = currentAttrs.get(to);
-    const detected = resolveClassAttributes(to);
+    // classType 與 fixedFiveDays 隨班帶走。類別若來自 seed 基準，目標班名不在 seed 表時
+    // 立即顯示並保存為 unset，避免先顯示來源班的 seed 值、重載後才靜默變成 unset。
+    const targetCategory =
+      before.categorySource === 'seed' ? resolveClassAttributes(to) : before;
     out.set(to, {
       classType: before.classType,
-      category: before.categorySource === 'manual' ? before.category : (target?.category ?? detected.category),
-      categorySource: before.categorySource === 'manual' ? 'manual' : (target?.categorySource ?? 'auto'),
+      category: targetCategory.category,
+      categorySource: targetCategory.categorySource,
       fixedFiveDays: before.fixedFiveDays,
     });
   }
@@ -280,29 +284,4 @@ export function detectMergeConflicts(
     conflicts.push({ mergedName: merge.mergedName, sources: merge.sources, sourceAttributes: attrs });
   }
   return conflicts;
-}
-
-/**
- * alias 跨類別（Q13）：米豆奶班名經 alias 指向系統班後，類別改由**目標系統班**決定。
- * 回傳需要在使用者確認時提示的項目清單（rawBaseName → targetBaseName 與兩者目前的自動偵測值）。
- */
-export interface AliasCategoryNotice {
-  rawBaseName: string;
-  targetBaseName: string;
-  rawDetected: ClassCategory;
-  targetDetected: ClassCategory;
-}
-
-export function detectAliasCategoryChanges(
-  aliases: Array<{ rawBaseName: string; targetBaseName: string }>
-): AliasCategoryNotice[] {
-  const notices: AliasCategoryNotice[] = [];
-  for (const a of aliases) {
-    const rawDetected = detectClassCategory(a.rawBaseName);
-    const targetDetected = detectClassCategory(a.targetBaseName);
-    if (rawDetected !== targetDetected) {
-      notices.push({ rawBaseName: a.rawBaseName, targetBaseName: a.targetBaseName, rawDetected, targetDetected });
-    }
-  }
-  return notices;
 }

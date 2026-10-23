@@ -106,7 +106,9 @@ export function calculateSubjectCount(tokens: ParsedToken[]): number | null {
 
 /**
  * D2a: 類別式科數計算 (R03, D37 ①, v3 行為)。
- * 學生所報班級涵蓋的類別種數 (care, math, english)，同類只算 1 科，none 不列入。
+ * 學生所報班級涵蓋的類別種數 (care, math, english)，同類只算 1 科。
+ * `none`（使用者明確指定不列入）與 `unset`（#157 Ruling 2：使用者尚未指定）皆不計入——
+ * 兩者計算結果相同，差異只在呈現與提示。
  * 取代 R09 名稱判斷與寫功課減 1。
  */
 export function calculateSubjectCountV3(categories: ClassCategory[]): number | null {

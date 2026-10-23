@@ -297,7 +297,7 @@ run 的設定快照＝`run.scheduleVersionId`：`seed-v250922`（該 run 沒有�
   - `GET /api/v1/settings/class-name-report?runId=&importId=`：唯讀；未知參數 400 `INVALID_QUERY`；`runId` 未知 404 `RUN_NOT_FOUND`；`importId` 未知或資料庫沒有任何名單 404 `IMPORT_NOT_FOUND`；`runId` 與 `importId` 指向不同名單 400 `INVALID_QUERY`；預設名冊＝現行名單，其次最新 ready 批次。
   - `POST /imports/preview` 回應新增 `classNameReport` 摘要：`{importId, rosterOnlyClassCount, rosterOnlyStudentCount, systemOnlyClassCount, systemOnlyPreviousRosterStudentCount, previousRoster, reportPath}`，`reportPath＝/settings?tab=mapping&import=<batchId>`；既有 `pendingClasses` 不變。課表設定頁以 `?import=<批次 id>`（須為 ready 批次）檢視該批名單的班名對應；儲存設定仍以現行名單為準。
   - D1 的報告與摘要不含「類別」（類別屬 D2）。
-- **類別偵測純函式**（`domain/classification/class-category`）：`detectClassCategory`、`detectFixedFiveDays`、`detectClassAttributes`；規則見 [06 D40](06-handoff-decisions.md)（Q1 寫功課優先、Q2 包含式、Q7-A 固定 5 天）。D2a 正式接線於計算路徑。
+- **類別值域與解析純函式**（`domain/classification/class-category`）：`ClassCategory`（`care`／`math`／`english`／`none`／**`unset`**）、`effectiveCategoryOf`（已儲存值 → 有效類別與來源）、`resolveClassEnrollment`（報名班名 → 類別／來源／mapped／固定 5 天）。**班名自動偵測已於 #157 整組移除**（`detectClassCategory`／`detectClassAttributes`／`detectFixedFiveDays` 皆不存在；規則原文見 [06 D40](06-handoff-decisions.md)，版本對照見 [02 §9.1](02-calculation-rules.md)）。D2a 正式接線於計算路徑。
 
 ### 5.3 erp-tag-v3 規則核心、班級類別接線與 run 類別快照（D2a）
 
@@ -329,6 +329,8 @@ run 的設定快照＝`run.scheduleVersionId`：`seed-v250922`（該 run 沒有�
   - **v3 行為**：固定 5 天之班級（即使類別為 none，如寫功課）之本班適用折扣顯示 100%（10000 bps）而非「未設定」（Q7-A）。
   - **v4 行為（#112、`homeworkDiscountDecoupled = true`）**：不再因 `fixed_five_days === 1` 回傳 10000；本班適用折扣**完全**依快照的 `category` 決定（`care` 依年級取安親／課輔側、`math`、`english`），`none` 一律 `not_configured`（02 §9A.3）。
   - 若該 run 缺失快照，回傳 `not_configured`（無法判定），嚴禁以當前班名猜測。
+- **快照形狀契約（#157）**：`run_class_categories` 的 `category` 欄位值域為 `care`／`math`／`english`／`none`／**`unset`**；新 run 的 `source` 欄位值域為 **`manual`**／**`seed`**／**`unset`**。舊 run 的列**不重算、不改寫**，可能保留當時寫入的 `source='auto'` 與舊 `category` 值。`RunClassCategorySnapshot`／`loadRunClassCategories` 不載入 `source` 欄位，`applicableRateForClass` 也不依 `source` 做 `auto`→`unset` 轉換；讀模型照用該列持久化的 `category`。因此本次變更不改寫歷史 run 的持久化結果，也不改其依舊快照讀取的類別結果；但以同一設定重新執行 `erp-tag-v3` 的輸出會改變（量測見 [02](./02-calculation-rules.md) §9A.6）。**`mapped = 0` 之新列一律為 `unset`**（未對應的班不論班名為何都沒有使用者的指定），且該 run 對該生一律產生 `CLASS_NOT_MAPPED`（[02](./02-calculation-rules.md) §9A.6）。
+- **設定草稿的類別欄位（#157）**：`ClassSettingSchema` 的 `category` 值域含 `unset`；`categorySource` 值域為 `manual`／`seed`／`unset`／`auto`（`auto` 僅為舊資料的接受值，讀取時其值不採用）。**草稿只寫 `manual`（使用者的決定）與 `unset`（使用者明確撤回）兩種來源**；`seed` 基準由 `SEED_CLASS_CATEGORIES` 在**讀取設定時**套用，**不寫進草稿**——如此全新 DB 與既有 DB 對同一份設定算出相同結果，且草稿內容不被 seed 基準污染。撤回必須寫出 `unset`（不可刪欄位），否則重新讀取時會被基準還原。
 - **API 契約（issue #122）**：`GET /api/v1/runs/{runId}` 與 `GET /api/v1/runs/current` 的回應（後者為 `run` 欄位）**必須**包含該 run 的類別快照，欄位名 `classCategories`：
   - **形狀即 `RunClassCategorySnapshot`**：`{ base_name, category, fixed_five_days }`，**底線命名**且 `fixed_five_days` 為**數字 0／1**。不得改名為駝峰、不得轉為布林——讀模型判 `fixed_five_days === 1`，形狀改變會讓 v3 的「固定 5 天 → 100%」靜默失效。
   - **三態語意互斥，不可互相取代**：`undefined`＝此 run 沒有快照概念（v1／v2，走名稱映射）；`[]`＝有快照概念的 run 但查無任何快照列（一律 `not_configured`）；有值＝該 run 的實際採用類別。
@@ -366,14 +368,14 @@ run 的設定快照＝`run.scheduleVersionId`：`seed-v250922`（該 run 沒有�
 | 停班（`active=false`） | `inactive` | 設定保留；行為同 v2 |
 | alias 指向 | 以**目標系統班**的設定為準 | alias 本身不帶類別（Q13） |
 
-**合併衝突的判定基準是各來源班的「有效屬性」**（手動值優先，未手動者依 baseline 班名自動偵測），不是只看手動值——否則兩班中有一班未手動時會被誤判為不衝突。
+**合併衝突的判定基準是各來源班的「有效屬性」**（使用者的指定優先，未指定者為 `unset`；#157 起不再依 baseline 班名自動偵測），不是只看手動值——否則兩班中有一班未指定時會被誤判為不衝突。
 
 #### 5.4.3 影響預覽與 dirty
 - `POST /api/v1/settings/preview` 的 `before`（現行已儲存設定）與 `after`（草稿）**都帶 `classSettings`**，因此類別式科數與收費率的變化會進入預覽。
 - 明細包含：`dayDeltas`（天數）、`subjectCountDeltas`（已補科數）、`baseDiscountDeltas`（合計折扣 bps），以及 #112 Ruling 2 新增的 `courseRateDeltas`（課程學費折扣收取率 bps，比對各課程收取率），只列出有變化者。
 - `affectedStudents` 為四個明細的 **`personCode` 聯集去重計數**（天數、科數、合計折扣、課程學費折扣是同一批學生的不同欄位變化，同一人只能算一次）。**不得相加**——相加會把多項同時有變化的學生重複計算。語意為「受影響去重人數」，與 09 §3.1 一致；四種明細皆空時為 0。`settings_only` 模式下 `affectedStudents` 與各明細皆為 `null`。
-- 新增 `aliasCategoryNotices`（`AliasCategoryNotice[]`）：米豆奶班名經 alias 對應到系統班後，兩側**自動偵測**類別不同者（`detectAliasCategoryChanges(draft.aliases)`），每項含 `rawBaseName`／`targetBaseName`／`rawDetected`／`targetDetected`。**提示而非阻擋**（Q13、06 D37）——預覽照常成功、儲存照常進行。`settings_only` 與 `with_students` 兩種 mode 都會產出（提示是草稿的靜態推導，不需名冊）。
-- dirty 只比對**手動覆寫**（`manualAttrs` vs `baselineManualAttrs`）：未手動者由班名推導，班名本身已由 rows／baseline 逐列比對涵蓋；若把自動值也帶進 `isSettingsDirty` 的 `classAttrs`，會讓沒有任何覆寫的空 baseline 與整份班級清單永遠長度不同 → 永遠 dirty。
+- ~~`aliasCategoryNotices`~~（**已於 #157 廢除**，06 D53 Ruling 4）：該欄位報的是米豆奶班名與系統班名「各自會被**自動偵測**成什麼類別、兩者不同」；自動偵測既已不存在，該提示沒有可比較的對象，故整組移除（欄位、`AliasCategoryNotice` 型別、`detectAliasCategoryChanges` 純函式與畫面提示一併拆除）。**別名機制本身不受影響**：alias 仍決定報名班名解析到哪個系統班、並影響該班的類別與時段。
+- dirty 只比對**使用者的指定**（`manualAttrs` vs `baselineManualAttrs`）：未指定者一律 `unset`（#157），班名本身已由 rows／baseline 逐列比對涵蓋；若把未指定者的值也帶進 `isSettingsDirty` 的 `classAttrs`，會讓沒有任何指定的空 baseline 與整份班級清單永遠長度不同 → 永遠 dirty。
 - 類別／固定 5 天欄位進 draft JSON，因此 `hashSettingsDraft` 自動涵蓋（值與來源都算，改來源即改 hash），且**不改 `hashSettingsDraft` 契約**（仍是 `sha256(JSON.stringify(draft))`）。
 
 #### 5.4.4 升級確認（Q11；S manifest §2；#112 Ruling 1）

@@ -65,22 +65,6 @@ async function setFirstStartTimeOfClass(page: Page, className: string, value: st
 }
 
 /**
- * 把手動覆寫恢復為自動並儲存，使同檔後續案例都從乾淨狀態開始（`--keep-db` 診斷模式下的下一輪亦同）。
- * D2c N-1：隔離執行器只保證「每 spec 檔全新 DB」，同檔內案例共用同一 DB；`--repeat` 預設每輪也是全新 DB（PR #50），
- * 只有 `--keep-db` 才跨輪沿用。
- */
-async function restoreCategoryToAutoAndSave(page: Page, className: string) {
-  const row = classRow(page, className);
-  await expect(row).toBeVisible();
-  await row.locator(`[data-restore-auto="${className}"]`).first().click();
-  await page.locator('button', { hasText: '確認變更' }).click();
-  const dialog = page.locator('dialog.impact-dialog');
-  await expect(dialog).toBeVisible({ timeout: 15000 });
-  await dialog.locator('button', { hasText: /儲存並更新結果|儲存課表/ }).click();
-  await expect(page.locator('#toast')).toContainText('課表已', { timeout: 15000 });
-}
-
-/**
  * D2b：課表設定 UI（不要求空 DB 的案例）。
  *
  * D2c N-1：要求空 DB 的三個案例（settings_only 影響預覽、Q11 升級動作、Q9 合併阻擋）
@@ -93,18 +77,18 @@ test.describe('D2b：班級類別與固定 5 天設定 UI、升級確認', () =>
     await expect(page.locator('h1', { hasText: '課表設定' })).toBeVisible({ timeout: 15000 });
   });
 
-  test('D2b-2: 自動偵測的類別與固定 5 天旗標逐班顯示，未手動者不顯示「自動設定」按鈕', async ({ page }) => {
+  test('D2b-2: 已儲存的類別與固定 5 天旗標逐班顯示，且沒有「恢復自動」按鈕', async ({ page }) => {
     // #80 & specs/14：雙頁籤分離，非安親包含列入多科折扣，安親包含天數固定 5 天
     await expect(page.locator('[data-class-attributes-panel]')).toHaveCount(0);
     const nonCareTable = page.locator('table.schedule-table-non-care');
     await expect(nonCareTable).toContainText('列入多科折扣');
     await expect(nonCareTable).not.toContainText('天數固定 5 天');
 
-    // 國小數學-四A 自動偵測為數學班
+    // 國小數學-四A：seed 草稿帶的是**使用者明確指定**的數學班（#157 Ruling 1 起不再依班名推導）
     const row = classRow(page, '國小數學-四A');
     await expect(row).toBeVisible();
     await expect(row.locator('[data-category-select="國小數學-四A"]').first()).toHaveValue('math');
-    // 未手動 → 沒有「自動設定」按鈕（#80 取代原本的「來源：自動」pill）
+    // #157 Ruling 4：沒有「恢復自動」按鈕（auto 來源與其路徑已拆除）
     await expect(row.locator('[data-restore-auto="國小數學-四A"]')).toHaveCount(0);
 
     // 切至安親頁籤：包含天數固定 5 天，國小輔導-四年級 → 安親課輔班
@@ -117,13 +101,14 @@ test.describe('D2b：班級類別與固定 5 天設定 UI、升級確認', () =>
     await expect(page.locator('[data-fixed-five-toggle="國小輔導-四年級"]').first()).not.toBeChecked();
   });
 
-  test('D2b-2: 手動選類別 → 來源變「手動」；恢復自動 → 回到自動偵測值', async ({ page }) => {
+  test('D2b-2（#157 改寫）: 手動選類別 → 可選回「（未設定）」撤回決定', async ({ page }) => {
     const row = classRow(page, '國小數學-四A');
     await row.locator('[data-category-select="國小數學-四A"]').first().selectOption('none');
+    await expect(row.locator('[data-category-select="國小數學-四A"]').first()).toHaveValue('none');
 
-    // 「恢復自動」後回到自動偵測（數學班）
-    await row.locator('[data-restore-auto="國小數學-四A"]').first().click();
-    await expect(row.locator('[data-category-select="國小數學-四A"]').first()).toHaveValue('math');
+    // 選回「（未設定）」＝撤回決定（取代舊的「恢復自動」）
+    await row.locator('[data-category-select="國小數學-四A"]').first().selectOption('unset');
+    await expect(row.locator('[data-category-select="國小數學-四A"]').first()).toHaveValue('unset');
   });
 
   test('D2b-2: 固定 5 天可手動開啟與關閉（安親課輔班專屬）', async ({ page }) => {
@@ -135,7 +120,7 @@ test.describe('D2b：班級類別與固定 5 天設定 UI、升級確認', () =>
     await expect(row.locator('[data-fixed-five-toggle="國小輔導-四年級"]').first()).not.toBeChecked();
   });
 
-  test('D2b-2: 手動後改班名不再重新偵測（未手動者會跟著新名重偵測）', async ({ page }) => {
+  test('D2b-2（#157 改寫）: 手動指定的值隨改名帶走；未指定者改名後仍是未指定', async ({ page }) => {
     // 先手動把「國小數學-四A」設為不列入折扣
     const row = classRow(page, '國小數學-四A');
     await row.locator('[data-category-select="國小數學-四A"]').first().selectOption('care');
@@ -143,14 +128,16 @@ test.describe('D2b：班級類別與固定 5 天設定 UI、升級確認', () =>
     // 整班改名為「國小數學-四A改名」
     await renameWholeClass(page, '國小數學-四A', '國小數學-四A改名');
 
-    // 手動值帶著走：新名自動偵測本來是 math，但因為是 manual，仍顯示 care
+    // 使用者的指定帶著走：仍是 care
     const renamed = classRow(page, '國小數學-四A改名');
     await expect(renamed.locator('[data-category-select="國小數學-四A改名"]')).toHaveValue('care');
 
-    // 未手動的「國小數學-四B」改名後依新名重新偵測（仍是數學班，來源仍自動）
+    // #157 Ruling 1：未指定者改名後**不得**依新名重新判定。
+    // 先把「國小數學-四B」撤回成未設定，再改名 → 仍是未設定（不是數學班）。
+    await classRow(page, '國小數學-四B').locator('[data-category-select="國小數學-四B"]').first().selectOption('unset');
     await renameWholeClass(page, '國小數學-四B', '國小數學-四B改名');
     const bRow = classRow(page, '國小數學-四B改名');
-    await expect(bRow.locator('[data-category-select="國小數學-四B改名"]')).toHaveValue('math');
+    await expect(bRow.locator('[data-category-select="國小數學-四B改名"]')).toHaveValue('unset');
   });
 
   test('D2b-6: 只改類別（不動時段）也會變更狀態為 dirty', async ({ page }) => {
@@ -170,7 +157,7 @@ test.describe('D2b：班級類別與固定 5 天設定 UI、升級確認', () =>
     await expect(page.locator('[data-category-select="國小數學-四A"]').first()).toHaveValue('math');
   });
 
-  test.describe('D2b r2：影響預覽的受影響人數（去重）與 Q13 跨類別別名提示', () => {
+  test.describe('D2b r2：影響預覽的受影響人數（去重）與別名提示（#157 已廢除）', () => {
     // 這三個案例需要已啟用的名單（候選班名與受影響人數都來自名冊），故不共用外層 beforeEach 的空 DB。
     test.beforeEach(async ({ page }) => {
       await activateFixture(page);
@@ -224,11 +211,11 @@ test.describe('D2b：班級類別與固定 5 天設定 UI、升級確認', () =>
       await expect(dialog.locator('.metric-card', { hasText: '受影響學生數' }).locator('.metric-value')).toHaveText('12 人');
     });
 
-    test('R2-2: 兩側自動偵測相同的別名不產生提示', async ({ page }) => {
+    test('R2-2（#157 改寫）: 別名不再產生「類別將改由系統班決定」的提示', async ({ page }) => {
       await page.locator('button', { hasText: '班名對應' }).click();
       await expect(page.locator('.mapping-table')).toBeVisible({ timeout: 10000 });
 
-      // 「國小輔導-四年級A」自動偵測為安親課輔班（care）→ 對應到同為 care 的班 ＝ 非跨類別
+      // 「國小輔導-四年級A」對應到「國小輔導-一A」
       const row = page.locator('tr', { hasText: '國小輔導-四年級A' });
       await expect(row).toBeVisible();
       await row.locator('input.input-target-classname').fill('國小輔導-一A');
@@ -238,64 +225,9 @@ test.describe('D2b：班級類別與固定 5 天設定 UI、升級確認', () =>
       await page.locator('button', { hasText: '確認變更' }).click();
       const dialog = page.locator('dialog.impact-dialog');
       await expect(dialog).toBeVisible({ timeout: 15000 });
+      // #157 Ruling 4：跨類別別名提示整組廢除（其內容是兩側的班名自動偵測結果，
+      // 而自動偵測已不存在）。別名機制本身不受影響，仍可正常對應與儲存。
       await expect(dialog.locator('[data-alias-category-notice]')).toHaveCount(0);
     });
-  });
-});
-
-/**
- * D2b r2 R2-2（跨類別別名提示）獨立檔。
- *
- * D2c N-1／N09（issue #55）後的隔離重構：本案例是同檔唯一會**寫入設定**（套用 alias）的案例，
- * 而 N09 後 alias 套用即退出候選表、產品沒有「已生效 alias 管理」介面，故無法再於同檔內
- * 自我清理。把「會寫入設定」與「需要乾淨起點」的案例分檔，改由 runner 保證的
- * 「每 spec 檔全新 DB」提供結構性隔離（而非依賴測試順序的自我清理）。
- *
- * 斷言本身與搬移前**完全相同**（未削弱）：跨類別提示出現、可展開、類別標籤正確、
- * 不阻擋儲存、套用成功。
- */
-test.describe('D2b r2 R2-2：跨類別別名在影響預覽提示「類別將改由系統班決定」，可展開且不阻擋儲存', () => {
-  test.beforeEach(async ({ page }) => {
-    await activateFixture(page);
-    await page.goto('/settings');
-    await expect(page.locator('h1', { hasText: '課表設定' })).toBeVisible({ timeout: 15000 });
-    // 乾淨起點：不得已有任何 alias（runner 每檔全新 DB，此斷言使相依性可見）
-    await page.locator('button', { hasText: '班名對應' }).click();
-    await expect(page.locator('.mapping-table')).toBeVisible({ timeout: 10000 });
-    await expect(page.locator('.pill', { hasText: '已對應' })).toHaveCount(0);
-  });
-
-  test('跨類別別名在影響預覽提示「類別將改由系統班決定」，可展開且不阻擋儲存', async ({ page }) => {
-    await page.locator('button', { hasText: '班名對應' }).click();
-    await expect(page.locator('.mapping-table')).toBeVisible({ timeout: 10000 });
-
-    // 「交通車」自動偵測為不列入折扣（none）→ 對應到美語班（english）＝跨類別
-    const row = page.locator('tr', { hasText: '交通車' });
-    await expect(row).toBeVisible();
-    await row.locator('input.input-target-classname').fill('兒童美語-Gino');
-    await row.locator('input[type="checkbox"]').check();
-    await expect(row.locator('.pill', { hasText: '已對應' })).toBeVisible();
-    // 勾選別名本身就是一項草稿變更 → 必須變 dirty，否則「確認變更」會是停用的
-    await expect(page.locator('.save-status-dirty')).toBeVisible();
-
-    await page.locator('button', { hasText: '確認變更' }).click();
-    const dialog = page.locator('dialog.impact-dialog');
-    await expect(dialog).toBeVisible({ timeout: 15000 });
-
-    const notice = dialog.locator('[data-alias-category-notice]');
-    await expect(notice).toBeVisible();
-    await expect(notice).toContainText('1 個別名的類別將改由系統班決定');
-    await expect(notice).toContainText('交通車');
-    await expect(notice).toContainText('兒童美語-Gino');
-    // 可展開：預設收合，展開後列出（rawBaseName → targetBaseName）
-    await notice.locator('summary').click();
-    await expect(notice).toContainText('不列入折扣');
-    await expect(notice).toContainText('美語班');
-
-    // 提示不得阻擋儲存（D37：提示非阻擋，與 Q9 同名合併衝突阻擋不同）
-    const save = dialog.locator('button', { hasText: '儲存並更新結果' });
-    await expect(save).toBeEnabled();
-    await save.click();
-    await expect(page.locator('#toast')).toContainText('課表已套用並完成重算', { timeout: 15000 });
   });
 });

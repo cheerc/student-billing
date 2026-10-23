@@ -97,8 +97,13 @@ export const ClassSettingSchema = z.object({
   active: z.boolean().default(true),
   sessions: z.array(SessionSchema).default([]),
   classType: ClassTypeSchema.optional(),
-  category: z.enum(['care', 'math', 'english', 'none']).optional(),
-  categorySource: z.enum(['auto', 'manual']).optional(),
+  category: z.enum(['care', 'math', 'english', 'none', 'unset']).optional(),
+  /**
+   * #157 Ruling 4：來源狀態為「使用者決定」（`manual`）、「seed 基準」（`seed`）、
+   * 「未設定」（`unset`）。
+   * `auto` 僅保留為舊資料的接受值——讀取時其值一律不採用（Ruling 5），不再寫回。
+   */
+  categorySource: z.enum(['auto', 'manual', 'unset', 'seed']).optional(),
   fixedFiveDays: z.boolean().optional(),
   /**
    * #113 follow-up：不計扣天已改為**逐時段**（`sessions[].skipDeduction`），不再是班級屬性。
@@ -234,10 +239,16 @@ function groupGridRowsToClasses<S>(
         (DEFAULT_CARE_CLASS_NAMES.has(className) || existing?.fixedFiveDays === true));
     const classType: ClassType = isCare ? 'care' : 'non_care';
 
-    // specs/14 §3.10：類別的手動設定隨班保留。未手動（auto）的班不寫這些欄位。
+    // 03 §5.3.4：草稿寫出使用者明確指定或撤回的類別；從未指定者不寫類別欄位。
     // 固定 5 天為純布林值（無 fixedSource），有設定值則隨班保留。
+    //
+    // #157：寫出 `manual`（使用者的決定）與 `unset`（使用者**明確撤回**）兩種來源。
+    // `unset` 必須寫出——否則撤回的班在下次讀取時會被 seed 基準還原成原本的類別，
+    // 使用者的撤回就失效了（Ruling C 的精神：撤回必須真的撤回）。
+    // `seed` 基準不寫出：它可由 seed 表重新推得，寫進草稿只會污染使用者的設定內容。
     const attrs = {
-      ...(existing?.categorySource === 'manual' && existing?.category !== undefined
+      ...((existing?.categorySource === 'manual' || existing?.categorySource === 'unset') &&
+      existing?.category !== undefined
         ? { category: existing.category, categorySource: existing.categorySource }
         : {}),
       ...(existing?.fixedFiveDays !== undefined
@@ -360,8 +371,8 @@ export function detectSplitClasses(
 export interface ClassAttributeSetting {
   className: string;
   classType?: ClassType;
-  category?: 'care' | 'math' | 'english' | 'none';
-  categorySource?: 'auto' | 'manual';
+  category?: 'care' | 'math' | 'english' | 'none' | 'unset';
+  categorySource?: 'auto' | 'manual' | 'unset' | 'seed';
   fixedFiveDays?: boolean;
 }
 

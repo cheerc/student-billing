@@ -127,8 +127,13 @@ describe('T04: 計算生命週期、CAS 409 啟用與總表查詢整合測試 (I
     const sourceRows = mismatchRes.items.map((s) => s.sourceRow).sort((a, b) => a - b);
     expect(sourceRows).toEqual([30, 35, 43, 51, 52]);
 
-    // 2. 驗證 13 名數學缺排課學生 (全部 tierComparison 為 match)
+    // 2. 驗證 13 名報名「國小數學-一」的學生（全部 tierComparison 為 match）
     // 依 I17 規範：以 tierMismatch=false 篩選時，這 13 人仍須全部出現在 hasIssues 清單中！
+    //
+    // #157 Ruling 1／3：這 13 人報的「國小數學-一」**不在課表設定內**（seed 只有 國小數學-一A／一B），
+    // 因此該班沒有類別（unset）、不是數學候選班，診斷碼由舊制的「缺排課（SCHEDULE_NOT_FOUND）」
+    // 改為更準確的「班名未對應課表（CLASS_NOT_MAPPED）」。兩者都讓這 13 人帶 hasIssues，
+    // 驗收重點（仍在 hasIssues 清單中、級距為 match）不變。
     const noMismatchWithIssuesRes = queryRunStudents(db, runId, {
       tierMismatch: false,
       hasIssues: true,
@@ -157,7 +162,11 @@ describe('T04: 計算生命週期、CAS 409 啟用與總表查詢整合測試 (I
     expect(actRes.issueCounts['DUPLICATE_SUBJECT_ENROLLMENT']).toBe(2);
     expect(actRes.issueCounts['STAFF_FAMILY_NO_DISCOUNT']).toBe(5);
     expect(actRes.issueCounts['CONFLICTING_NOTE_SOURCE']).toBe(1);
-    expect(actRes.issueCounts['SCHEDULE_NOT_FOUND']).toBe(13);
+    // #157：未對應的班不再被當成數學候選班，因此沒有「缺排課」的 SCHEDULE_NOT_FOUND；
+    // 這些班一律以 CLASS_NOT_MAPPED 提示「班名未對應課表」。
+    // 實測（同一份 477 人 fixture）：CLASS_NOT_MAPPED 292 筆／191 位學生，SCHEDULE_NOT_FOUND 0 筆。
+    expect(actRes.issueCounts['SCHEDULE_NOT_FOUND']).toBeUndefined();
+    expect(actRes.issueCounts['CLASS_NOT_MAPPED']).toBe(292);
   });
 
   // D1 契約改寫（F-1；specs/11 §3 D1、04 §8 UX35）：

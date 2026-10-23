@@ -54,8 +54,8 @@ describe('Ruling 4 / A17: erp-tag-v3 計算規則不變式自動化驗收測試'
     });
 
     const settings = new Map<string, ClassSettingLookup>([
-      ['國小輔導-四年級', { category: 'care', fixedFiveDays: true }],
-      ['國小數學-四A', { category: 'math', fixedFiveDays: false }],
+      ['國小輔導-四年級', { category: 'care', categorySource: 'manual', fixedFiveDays: true }],
+      ['國小數學-四A', { category: 'math', categorySource: 'manual', fixedFiveDays: false }],
     ]);
 
     const resV3 = calculateStudentBilling(student, {
@@ -77,8 +77,8 @@ describe('Ruling 4 / A17: erp-tag-v3 計算規則不變式自動化驗收測試'
     });
 
     const settings = new Map<string, ClassSettingLookup>([
-      ['國小輔導-四年級', { category: 'care', fixedFiveDays: true }],
-      ['國小數學-四A', { category: 'math', fixedFiveDays: false }],
+      ['國小輔導-四年級', { category: 'care', categorySource: 'manual', fixedFiveDays: true }],
+      ['國小數學-四A', { category: 'math', categorySource: 'manual', fixedFiveDays: false }],
     ]);
 
     const resV3 = calculateStudentBilling(student, {
@@ -122,8 +122,8 @@ describe('Ruling 4 / A17: erp-tag-v3 計算規則不變式自動化驗收測試'
     });
 
     const settings = new Map<string, ClassSettingLookup>([
-      ['國小輔導-四年級', { category: 'care', fixedFiveDays: true }],
-      ['國小數學-四A', { category: 'math', fixedFiveDays: false }],
+      ['國小輔導-四年級', { category: 'care', categorySource: 'manual', fixedFiveDays: true }],
+      ['國小數學-四A', { category: 'math', categorySource: 'manual', fixedFiveDays: false }],
     ]);
 
     const resV3 = calculateStudentBilling(student, {

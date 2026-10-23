@@ -53,10 +53,9 @@ test.describe('#81：課表 Excel 全量匯出／匯入', () => {
   });
 
   test('#81-2: 匯出檔可被重新匯入且內容一致（真正的 round-trip）', async ({ page }) => {
-    // 先改一筆：把「國小數學-四A」手動設成不列入折扣，讓匯出帶著手動值出去
+    // 先改一筆：把「國小數學-四A」設成不列入折扣，讓匯出帶著這個值出去
     // （同一班 2 列 → .first()，值是班級層級的，改任一列都一樣）
     await page.locator('[data-category-select="國小數學-四A"]').first().selectOption('none');
-    await expect(page.locator('[data-restore-auto="國小數學-四A"]').first()).toBeVisible();
 
     // 匯出
     const downloadPromise = page.waitForEvent('download');
@@ -72,9 +71,10 @@ test.describe('#81：課表 Excel 全量匯出／匯入', () => {
     await expect(page.locator('#toast')).toContainText('已匯入課表', { timeout: 15000 });
     await expect(page.locator('.save-status-dirty')).toBeVisible();
 
-    // 匯入後手動值仍在（匯入是明確指定，不被自動偵測改回去）
+    // 匯入後使用者的指定仍在（匯入是明確指定，不被任何自動判定改回去）
     await expect(page.locator('[data-category-select="國小數學-四A"]').first()).toHaveValue('none');
-    await expect(page.locator('[data-restore-auto="國小數學-四A"]').first()).toBeVisible();
+    // #157 Ruling 4：沒有「恢復自動」按鈕
+    await expect(page.locator('[data-restore-auto]')).toHaveCount(0);
 
     // 表格仍有原本的全部時段（整批取代不是清空）；跨雙頁籤加總驗證全量筆數（Reviewer 1 要求）
     const nonCareCount = await page.locator('table.schedule-table-non-care tr.schedule-row').count();

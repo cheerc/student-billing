@@ -55,7 +55,7 @@ export function computeImportRosterChanges(
     aliasMap: settings.aliasMap,
     scheduleOverride: settings.scheduleOverride,
     // D2a／spike §B4：帶 classSettings，讓異動明細的 before 側與真正建 run 的類別解析**同源**
-    // （specs/11 §3 B1-D「共用同一套類別解析」；D17 照實呈現）。未帶時會退回自動偵測，
+    // （specs/11 §3 B1-D「共用同一套類別解析」；D17 照實呈現）。未帶時該班視為未設定，
     // 使用者看到的「前」狀態就會與按下之後系統實際會用的狀態不同。
     classSettings: settings.classSettings,
     ruleSetVersion: resolveFormalRuleSetVersion(db),

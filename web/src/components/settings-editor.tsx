@@ -128,7 +128,9 @@ function applyManualAttrsToClasses<T extends { baseName: string; classType?: 'ca
     return {
       ...clean,
       classType: m?.classType ?? c.classType,
-      ...(m?.categorySource === 'manual'
+      // #157：寫出 `manual`（使用者的決定）與 `unset`（使用者**明確撤回**）。
+      // 撤回必須寫出——否則該班在下次讀取時會被 seed 基準還原，撤回就失效了。
+      ...(m?.categorySource === 'manual' || m?.categorySource === 'unset'
         ? { category: m.category, categorySource: m.categorySource }
         : {}),
       ...(m?.fixedFiveDays !== undefined
@@ -237,22 +239,25 @@ export default function SettingsEditor({
   const [rows, setRows] = useState<ScheduleGridRow[]>(initialRows);
 
   /**
-   * D2b 1／2：手動覆寫的班級屬性（類別／固定 5 天）以「班名 → 四個欄位」存放。
-   * 未列在此 map 的班＝未手動＝依班名自動偵測（缺欄位即 auto，03 §5.2 版本界線規則第 2 點），
-   * 因此改班名時未手動者會即時重新偵測，手動者則不變（D37 1a）。
+   * 手動指定的班級屬性（類別／固定 5 天）以「班名 → 四個欄位」存放。
+   * 未列在此 map 的班＝使用者尚未指定＝`unset`（**不再依班名推導**，#157 Ruling 1）；
+   * 手動值在整班改名時隨班帶走，未指定者改名後仍是未指定。
    */
   const [manualAttrs, setManualAttrs] = useState<Map<string, ClassAttributesView>>(() => {
     const map = new Map<string, ClassAttributesView>();
     for (const c of initialDraft.classes) {
-      if (c.classType !== undefined || c.categorySource === 'manual' || c.fixedFiveDays !== undefined) {
+      // `unset` 也納入：使用者明確撤回的班必須被記住，否則重新整理後撤回失效。
+      if (
+        c.classType !== undefined ||
+        c.categorySource === 'manual' ||
+        c.categorySource === 'unset' ||
+        c.fixedFiveDays !== undefined
+      ) {
         map.set(c.baseName, resolveClassAttributes(c.baseName, c));
       }
     }
     return map;
   });
-
-  // 明確恢復自動的班不再繼承 rename baseline；後續手動編輯仍以當前班的設定為準。
-  const [restoredAutoNames, setRestoredAutoNames] = useState<Set<string>>(() => new Set());
 
   // D31: 基準狀態與未儲存 (dirty) 追蹤
   const [baseline, setBaseline] = useState<SettingsBaseline>(() => ({
@@ -262,7 +267,13 @@ export default function SettingsEditor({
   const [baselineManualAttrs, setBaselineManualAttrs] = useState<Map<string, ClassAttributesView>>(() => {
     const map = new Map<string, ClassAttributesView>();
     for (const c of initialDraft.classes) {
-      if (c.classType !== undefined || c.categorySource === 'manual' || c.fixedFiveDays !== undefined) {
+      // `unset` 也納入：使用者明確撤回的班必須被記住，否則重新整理後撤回失效。
+      if (
+        c.classType !== undefined ||
+        c.categorySource === 'manual' ||
+        c.categorySource === 'unset' ||
+        c.fixedFiveDays !== undefined
+      ) {
         map.set(c.baseName, resolveClassAttributes(c.baseName, c));
       }
     }
@@ -421,8 +432,8 @@ export default function SettingsEditor({
 
 
   /**
-   * 合併衝突的判定必須用各來源班的**有效**屬性（手動值優先，未手動者依 baseline 班名自動偵測），
-   * 只拿「手動值」會讓兩班中有一班未手動時被誤判為不衝突。
+   * 合併衝突的判定必須用各來源班的**有效**屬性（使用者的指定優先，未指定者為 unset），
+   * 只拿「指定值」會讓兩班中有一班未指定時被誤判為不衝突。
    */
   const mergeConflicts = useMemo(() => {
     if (classLifecycle.merges.length === 0) return [];
@@ -446,21 +457,20 @@ export default function SettingsEditor({
     const renames = classLifecycle.renames;
     if (renames.length === 0) return manualAttrs;
     const inheritableBaseline = new Map(baselineManualAttrs);
-    for (const name of restoredAutoNames) inheritableBaseline.delete(name);
-    // D2d C（04 §8 UX72）：baseline 的**班名集合**（含未手動、靠自動偵測的班），
-    // 讓 carryAttributesOnRename 能分辨「改名成不存在的新名」（手動值跟著走）與
-    // 「併入 baseline 已存在的班 Z」（以 Z 為準，不帶入 X 的手動值）。
+    // D2d C（04 §8 UX72）：baseline 的**班名集合**（含未指定類別的班），
+    // 讓 carryAttributesOnRename 能分辨「改名成不存在的新名」（使用者的指定跟著走）與
+    // 「併入 baseline 已存在的班 Z」（以 Z 為準，不帶入 X 的指定）。
     const baselineNames = new Set(baseline.rows.map((r) => r.className.trim()).filter(Boolean));
     return carryAttributesOnRename(renames, manualAttrs, inheritableBaseline, baselineNames);
-  }, [classLifecycle, manualAttrs, baselineManualAttrs, restoredAutoNames, baseline.rows]);
+  }, [classLifecycle, manualAttrs, baselineManualAttrs, baseline.rows]);
 
   // 顯示與寫入都用「改名後」的手動值。
   const effectiveManualAttrs = manualAttrsAfterRename;
 
   /**
-   * 只有「手動覆寫」需要獨立計入 dirty：未手動的類別與固定 5 天是由班名推導，
-   * 班名本身已由 rows／baseline 的逐列比對涵蓋，若把自動值也帶進去，
-   * 會讓「沒有任何覆寫」的空 baseline 與整份班級清單永遠長度不同 → 永遠 dirty。
+   * 只有「使用者的指定」需要獨立計入 dirty：未指定的類別與固定 5 天沒有值可比較，
+   * 班名本身已由 rows／baseline 的逐列比對涵蓋，若把未指定者的值也帶進去，
+   * 會讓「沒有任何指定」的空 baseline 與整份班級清單永遠長度不同 → 永遠 dirty。
    */
   const manualAttrSettings = useMemo(
     () =>
@@ -489,7 +499,7 @@ export default function SettingsEditor({
   }, [upgradeChanged, baseline, baselineManualAttrs, rows, draft.aliases, manualAttrSettings, effectiveManualAttrs]);
 
   /**
-   * 課表每個班級目前有效的類別／固定 5 天（手動值優先，未手動者依**目前**班名自動偵測）。
+   * 課表每個班級目前有效的類別／固定 5 天（使用者的指定優先，未指定者為 unset）。
    * 這是 UI 顯示、影響預覽與儲存共用的單一來源。
    */
   const currentAttrs: Map<string, ClassAttributesView> = useMemo(() => {
@@ -498,7 +508,7 @@ export default function SettingsEditor({
       const n = r.className.trim();
       if (n) names.add(n);
     }
-    // 手動值帶過來；其餘依目前班名自動偵測
+    // 使用者的指定帶過來；其餘為未設定
     const out = new Map<string, ClassAttributesView>();
     for (const n of names) {
       out.set(n, effectiveManualAttrs.get(n) ?? resolveClassAttributes(n));
@@ -507,11 +517,29 @@ export default function SettingsEditor({
   }, [rows, effectiveManualAttrs]);
 
 
-  // D2b 2：手動選類別 → manual；恢復自動 → 依目前班名重新偵測並標回 auto
+  /**
+   * 選類別 → 使用者決定（manual）。
+   *
+   * #157 Ruling 4：選回「（未設定）」等於撤回這個決定 → 該班回到 `unset`。
+   * 沒有「恢復自動」這種回退路徑：一旦 auto 來源移除，依班名重新判定就沒有對應物，
+   * 留著只會是空殼按鈕。
+   *
+   * 撤回的結果**記成明確的未設定**（`categorySource: 'unset'`）而不是「刪掉這一筆」：
+   * 刪掉會讓整班改名時從 baseline 撈回舊值，使用者的撤回就被還原了。存檔時
+   * `applyManualAttrsToClasses` 會寫出 `manual` 與 `unset`；`unset` 不可省略，否則下次讀取會套回 seed 基準
+   * （03 §5.3.4、14 §3.10）。
+   */
   const handleSelectCategory = (className: string, category: ClassCategory) => {
     setManualAttrs((prev) => {
       const next = new Map(prev);
       const base = currentAttrs.get(className) ?? resolveClassAttributes(className);
+      if (category === 'unset') {
+        // 撤回指定：記為**明確的未設定**，不是「刪掉這一筆」。
+        // 若只是刪除，整班改名時 `carryAttributesOnRename` 會從 baseline 撈回舊值
+        // （seed 班原本會套用機構基準 math），使用者的撤回就被還原了。
+        next.set(className, { ...base, category: 'unset', categorySource: 'unset' });
+        return next;
+      }
       next.set(className, { ...base, category, categorySource: 'manual' });
       return next;
     });
@@ -528,18 +556,6 @@ export default function SettingsEditor({
     setPreview(null);
   };
 
-  const handleRestoreAuto = (className: string) => {
-    const names = [className, ...classLifecycle.renames
-      .filter((rename) => rename.to === className)
-      .map((rename) => rename.from)];
-    setRestoredAutoNames((prev) => new Set([...prev, ...names]));
-    setManualAttrs((prev) => {
-      const next = new Map(prev);
-      for (const name of names) next.delete(name);
-      return next;
-    });
-    setPreview(null);
-  };
 
   // 當前有效班級名稱集合
   const currentActiveBaseNames = useMemo(() => {
@@ -685,7 +701,7 @@ export default function SettingsEditor({
 
   /**
    * 匯出：把**目前草稿**（含尚未儲存的編輯）整份送給 server 產生 .xlsx。
-   * 匯出的是有效屬性（手動值優先、未手動者為自動偵測值），所以匯出檔本身就是一份完整的課表備份。
+   * 匯出的是有效屬性（使用者的指定優先、未指定者為「（未設定）」），所以匯出檔本身就是一份完整的課表備份。
    */
   const handleExportExcel = useCallback(async () => {
     setScheduleTransferBusy(true);
@@ -730,7 +746,7 @@ export default function SettingsEditor({
    * 匯入：整批取代目前草稿。
    * 解析與格式驗證在 server 端（`schedule-table-io`），任何一列不合法即整批拒絕，
    * 回傳的 error 直接顯示、**不動 rows** —— 因此不會出現「套用了一半」的破碎狀態。
-   * 匯入的屬性一律視為使用者明確指定（manual）：匯入是顯式動作，不該被自動偵測改回去。
+   * 匯入的屬性一律視為使用者明確指定（manual）：匯入是顯式動作，不該被任何自動判定改回去。
    */
   const handleImportExcel = useCallback(async (file: File) => {
     setScheduleTransferBusy(true);
@@ -769,8 +785,7 @@ export default function SettingsEditor({
         });
       }
       setManualAttrs(nextAttrs);
-      // 匯入是整份取代，不是「沿用原本的手動值」：清掉改名繼承與「已恢復自動」的紀錄
-      setRestoredAutoNames(new Set());
+      // 匯入是整份取代，不是「沿用原本的手動值」。
       setPreview(null);
       showToast(`已匯入課表（${importedRows.length} 個時段），請確認後儲存`);
     } catch {
@@ -785,7 +800,6 @@ export default function SettingsEditor({
     setRows(baseline.rows);
     setDraft((prev) => ({ ...prev, aliases: baseline.aliases }));
     setManualAttrs(new Map(baselineManualAttrs));
-    setRestoredAutoNames(new Set());
     setPreview(null);
     // D2d r3／F-1：升級勾選也必須一起清除。漏了它 → `upgradeChanged` 恆 true →
     // `isDirty` 恆 true，使用者按了取消修改畫面卻仍標示「有未儲存的變更」，
@@ -885,13 +899,13 @@ export default function SettingsEditor({
         [...effectiveManualAttrs].filter(
           ([className, a]) =>
             a.categorySource === 'manual' ||
+            a.categorySource === 'unset' ||
             a.fixedFiveDays ||
             a.classType !== resolveClassAttributes(className).classType
         )
       );
       setManualAttrs(savedManualAttrs);
       setBaselineManualAttrs(savedManualAttrs);
-      setRestoredAutoNames(new Set());
       if (typeof json?.revision === 'number') setRevision(json.revision);
       if (typeof json?.appliedAt === 'string') setSavedAt(json.appliedAt);
       setIsImpactDialogOpen(false);
@@ -1000,7 +1014,6 @@ export default function SettingsEditor({
             classAttributes={currentAttrs}
             onSelectCategory={handleSelectCategory}
             onToggleFixedFiveDays={handleToggleFixedFiveDays}
-            onRestoreAuto={handleRestoreAuto}
             onExportExcel={handleExportExcel}
             onImportExcel={handleImportExcel}
             importError={scheduleImportError}

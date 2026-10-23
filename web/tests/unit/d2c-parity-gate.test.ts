@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { calculateStudentBilling } from '@/domain/billing/billing-calculator';
 import { StudentSnapshot } from '@/domain/students/types';
 import type { ClassSettingLookup } from '@/domain/classification/class-category';
+import { manualCategories } from '../helpers/manual-categories';
 
 /**
  * D2c Parity gate（S manifest §6.0／§6.1／§6.3；specs/11 §3 D2 parity gate 條）。
@@ -21,12 +22,24 @@ import type { ClassSettingLookup } from '@/domain/classification/class-category'
  *  安親 13:00–16:00＝780–960；課輔 16:30–19:30＝990–1170；每日 180 分；
  *  D24：f<0.3→0、0.3≤f<0.8→0.5、f≥0.8→1；課輔特例 重疊≥120 且 18:30<下課<19:30 → −1。 */
 
+/**
+ * 本檔虛構班級的**明確**類別宣告（#157 Ruling 1：班名不再參與判定）。
+ * 每一項都是這個 parity 案例要驗的業務事實；未列出的班名刻意保持未設定
+ * （見「表外差異偵測」段：未對應班現在一律 CLASS_NOT_MAPPED）。
+ */
+const MANUAL = manualCategories({
+  care: ['國小輔導-四年級'],
+  math: ['國小數學-四A', '國小數學-甲'],
+  english: ['兒童美語-甲', '兒童美語-乙', '兒童美語-X', '兒童美語-Y', '兒童美語-P', '兒童美語-Q'],
+  none: ['國小輔導-寫功課', '正音A班'],
+});
+
 /** 同一份「設定快照」同時餵給 v2 與 v3（parity 的定義條件）。 */
 function snapshot() {
   return {
     aliasMap: new Map<string, string>(),
     scheduleOverride: new Map<string, Array<{ start: number; end: number; weekday?: string | null }>>(),
-    classSettings: new Map<string, ClassSettingLookup>(),
+    classSettings: MANUAL,
   };
 }
 
@@ -97,11 +110,12 @@ describe('D2c parity gate：v3 相對 v2 的差異只允許出現在 S manifest 
       // 手算 expected（非回填）
       expect(v2.careDays.tutoring.days).toBe(4.5);
       expect(v3.careDays.tutoring.days).toBe(4);
-      // 這兩班是虛構班名、不在 classSettings 中 → v3 依 D-05 標 CLASS_NOT_MAPPED（差異表所列）。
-      // 與「本案例只驗天數差異」分開：issue 白名單由下方「表外差異偵測」案例專責。
+      // #157 之後這兩班在使用者的明確指定下是「已對應」的 english 班，因此 v3 **不會**再標
+      // CLASS_NOT_MAPPED（那警告只屬於「班名未對應課表」）。本案例只驗天數差異；
+      // 未對應班的警告行為由下方「表外差異偵測」段專責。
       const codes2 = [...new Set(v2.issues.map((i) => i.code))];
       const codes3 = [...new Set(v3.issues.map((i) => i.code))];
-      expect(codes3.filter((c) => !codes2.includes(c))).toEqual(['CLASS_NOT_MAPPED']);
+      expect(codes3.filter((c) => !codes2.includes(c))).toEqual([]);
     });
 
     it('D-01c（適用側決定選班，年級 2 安親側）：v2 5 天、v3 4.5 天（Δ=−0.5）', () => {

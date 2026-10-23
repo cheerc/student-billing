@@ -1,36 +1,47 @@
 /**
- * 班級類別自動偵測（純函式，D37 用途 ①–④ 的單一來源；D1 只交付、未接線，D2 才在設定草稿／計算／UI 使用）。
+ * 班級類別值域與「報名班名 → 班級屬性」解析（純函式）。
  *
- * operator 裁決（d-20260930112930661160-25）：
- *  - Q1：名稱含「寫功課」→ 不列入（寫功課優先，與 02 R17「先將寫功課分類、再判一般國小輔導」一致）。
- *  - Q2：安親課輔班＝名稱「包含」國小輔導／安親／課輔（與 v2 現行 M1／M5 一致；寫功課已在 Q1 排除）。
- *  - 其次含「國小數學」→ 數學班；含「兒童美語」→ 美語班；其餘 → 不列入。
- *    條列順序＝優先順序：同時符合多類時取前者（安親課輔 > 數學 > 美語）。
- *  - specs/14 §3.3/§3.10：移除固定 5 天班名自動偵測，固定 5 天純布林值，所有班級預設恆為 false。
+ * #157 Ruling 1（`specs/06` D53）：**班名不再參與類別判定**。使用者沒有指定類別時，
+ * 類別是「未設定」（`unset`），不是由班名猜出來的 `care`／`math`／`english`／`none`。
+ * 舊版 `detectClassCategory`／`detectClassAttributes` 已整組移除——保留任何形式的
+ * 班名推導，就等於讓系統替使用者陳述他沒做過的決定。
  *
- * 不依賴 DB／UI／規則版本：D1 不新增規則版本，這組規則是新規則版本（D2）將採用的偵測式。
+ * 三個互斥狀態（#157 Ruling 2）：
+ *  - `care`／`math`／`english`：使用者明確指定，計入多科折扣科數。
+ *  - `none`：使用者明確指定「不列入折扣」，不計科數。
+ *  - `unset`：使用者尚未指定。計算上與 `none` 同效，差異只在呈現與提示。
+ *
+ * 來源狀態（#157 Ruling 4）：`categorySource` 有三種——
+ *  - `'manual'`：使用者明確指定。
+ *  - `'seed'`：**seed 基準**（機構既有的班級設定；不是使用者的決定）。
+ *  - `'unset'`：未指定——可能是使用者明確撤回（選回「（未設定）」），也可能從未被指定。
+ *  `'auto'`（舊的班名推導）僅作為舊資料的讀取值存在，其值一律不採用（Ruling 5）。
+ *
+ * 不依賴 DB／UI／規則版本。
  */
 
-export type ClassCategory = 'care' | 'math' | 'english' | 'none';
+import { SEED_CLASS_CATEGORIES } from '@/domain/schedules/seed-manifest';
+
+export type ClassCategory = 'care' | 'math' | 'english' | 'none' | 'unset';
 
 export interface ClassAttributes {
   category: ClassCategory;
 }
 
-const HOMEWORK = '寫功課';
-const CARE_WORDS = ['國小輔導', '安親', '課輔'] as const;
+/**
+ * 類別的來源狀態。
+ *
+ * - `'manual'`：使用者明確指定。
+ * - `'seed'`：seed 基準值（機構既有的班級設定；**不是**使用者的決定，故不記為 manual）。
+ * - `'unset'`：未指定。使用者明確撤回時會存成這個值，以區分「從未指定」與「已撤回」——
+ *   撤回必須真的撤回，不能在下一次讀取時被 seed 基準還原（Ruling C 的精神）。
+ * - `'auto'`：只作為**舊資料的讀取值**存在（`specs/06` D53 Ruling 5：其值一律不採用，
+ *   不把系統推導值升格為使用者的決定）。新寫入的路徑不會產生這個值。
+ */
+export type CategorySource = 'manual' | 'unset' | 'seed' | 'auto';
 
-export function detectClassCategory(baseName: string): ClassCategory {
-  if (baseName.includes(HOMEWORK)) return 'none';
-  if (CARE_WORDS.some((w) => baseName.includes(w))) return 'care';
-  if (baseName.includes('國小數學')) return 'math';
-  if (baseName.includes('兒童美語')) return 'english';
-  return 'none';
-}
-
-export function detectClassAttributes(baseName: string): ClassAttributes {
-  return { category: detectClassCategory(baseName) };
-}
+/** 有效類別的來源（讀取後的結果；`'auto'` 永不出現在結果中）。 */
+export type EffectiveCategorySource = 'manual' | 'unset' | 'seed';
 
 export interface ResolvedClassEnrollment {
   rawToken: string;
@@ -38,21 +49,62 @@ export interface ResolvedClassEnrollment {
   resolvedBaseName: string;
   mapped: boolean;
   category: ClassCategory;
-  categorySource: 'auto' | 'manual';
+  categorySource: EffectiveCategorySource;
   fixedFiveDays: boolean;
 }
 
 export interface ClassSettingLookup {
   classType?: 'care' | 'non_care';
   category?: ClassCategory;
-  categorySource?: 'auto' | 'manual';
+  categorySource?: CategorySource;
   fixedFiveDays?: boolean;
 }
 
 /**
- * D2a: 解析學生報名班級的類別與固定 5 天屬性 (S manifest §4.2, §7, D37 3)。
- * 名冊班名有對應系統班級 -> 用該班級設定；無對應 -> 依米豆奶班名自動偵測。
- * specs/14 §3.3, §3.10：移除 fixedSource 與班名固定 5 天自動偵測；未顯式設定者預設恆為 false。
+ * 已儲存設定 → 有效類別與來源。
+ *
+ * 判斷順序（每一層都不可互換）：
+ *  1. `'manual'` 且有值 → **使用者的決定**，原樣採用（任何基準都不得覆寫它）。
+ *  2. `'unset'` → 使用者明確撤回（或本來就未指定）→ 未設定。
+ *     **不得**被 seed 基準還原：撤回必須真的撤回。
+ *  3. `'seed'` 且有值 → 已持久化的 seed 基準，原樣採用。
+ *  4. 其餘（缺值，或舊資料的 `'auto'`）→ 舊的班名推導值一律不採用（Ruling 5）；
+ *     若該班屬 **seed 49 班**，改套用 **seed 基準**（機構既有的班級設定）；
+ *     非 seed 班則為未設定。
+ *
+ * 第 4 點是「既有 DB 與全新 DB 結果一致」的關鍵：seed 基準對兩條路徑同樣生效，
+ * 否則同一份設定會因資料庫是新是舊而算出不同結果。
+ *
+ * @param baseName 解析後的班名（經 alias）；seed 基準以它為 key。
+ */
+export function effectiveCategoryOf(
+  baseName: string,
+  saved?: {
+    category?: ClassCategory;
+    categorySource?: CategorySource;
+  }
+): { category: ClassCategory; categorySource: EffectiveCategorySource } {
+  if (saved?.categorySource === 'manual' && saved.category !== undefined) {
+    return { category: saved.category, categorySource: 'manual' };
+  }
+  if (saved?.categorySource === 'unset') {
+    return { category: 'unset', categorySource: 'unset' };
+  }
+  if (saved?.categorySource === 'seed' && saved.category !== undefined) {
+    return { category: saved.category, categorySource: 'seed' };
+  }
+  const seed = SEED_CLASS_CATEGORIES.get(baseName);
+  if (seed) return { category: seed, categorySource: 'seed' };
+  return { category: 'unset', categorySource: 'unset' };
+}
+
+/**
+ * 解析學生報名班級的類別與固定 5 天屬性。
+ *
+ * - 名冊班名（經 alias）對應到課表設定的班 → 用該班設定；未指定類別即 `unset`。
+ * - 未對應 → `unset`、`mapped: false`、`fixedFiveDays: false`
+ *   （Ruling 3：該班對學生之折扣與天數影響為零，且不論班名為何都需 warn）。
+ * - 固定 5 天為純布林（specs/14 §3.3），未設定者預設 `false`。
  */
 export function resolveClassEnrollment(
   token: { rawToken: string; baseName: string },
@@ -63,26 +115,25 @@ export function resolveClassEnrollment(
   const cls = classSettingMap?.get(resolvedBaseName);
 
   if (cls) {
-    const autoCategory = detectClassCategory(resolvedBaseName);
+    const { category, categorySource } = effectiveCategoryOf(resolvedBaseName, cls);
     return {
       rawToken: token.rawToken,
       baseName: token.baseName,
       resolvedBaseName,
       mapped: true,
-      category: cls.category ?? autoCategory,
-      categorySource: cls.categorySource ?? 'auto',
+      category,
+      categorySource,
       fixedFiveDays: cls.fixedFiveDays ?? false,
     };
   }
 
-  const autoCategory = detectClassCategory(resolvedBaseName);
   return {
     rawToken: token.rawToken,
     baseName: token.baseName,
     resolvedBaseName,
     mapped: false,
-    category: autoCategory,
-    categorySource: 'auto',
+    category: 'unset',
+    categorySource: 'unset',
     fixedFiveDays: false,
   };
 }

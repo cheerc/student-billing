@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { calculateStudentBilling } from '@/domain/billing/billing-calculator';
 import { StudentSnapshot } from '@/domain/students/types';
 import type { ClassSettingLookup } from '@/domain/classification/class-category';
+import { manualCategories } from '../helpers/manual-categories';
 
 /**
  * D2d F：parity policy gate 的**可重複執行閘門**與其**鑑別力證明**。
@@ -44,11 +45,18 @@ export type BusinessFields = Record<ComparedField, unknown>;
 /** S §6.1 差異表允許「新增的 issue code」（D-05 CLASS_NOT_MAPPED／D-07 SCHEDULE_NOT_FOUND）。 */
 export const ALLOWED_NEW_ISSUE_CODES = ['CLASS_NOT_MAPPED', 'SCHEDULE_NOT_FOUND'] as const;
 
+/**
+ * 本檔虛構班級的**明確**類別宣告（#157 Ruling 1：班名不再參與判定）。
+ * 未列出的班名刻意保持未設定——閘門的鑑別力需要「已對應」與「未對應」兩種情境都存在。
+ */
 export function baseSnapshot() {
   return {
     aliasMap: new Map<string, string>(),
     scheduleOverride: new Map<string, Array<{ start: number; end: number; weekday?: string | null }>>(),
-    classSettings: new Map<string, ClassSettingLookup>(),
+    classSettings: manualCategories({
+      english: ['兒童美語-甲', '兒童美語-乙', '兒童美語-P', '兒童美語-Q'],
+      math: ['國小數學-甲', '國小數學-四A'],
+    }),
   };
 }
 

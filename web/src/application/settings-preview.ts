@@ -18,7 +18,6 @@ import { careWindowsMatchRuleSet, CARE_WINDOWS_MISMATCH_MESSAGE } from './schedu
 import { resolveTargetRuleSetVersion, resolveFormalRuleSetVersion } from './rule-set-resolver';
 import { buildClassSettingMap } from './calculate-run';
 import { loadStudentsForImport } from '@/adapters/sqlite/import-repository';
-import { detectAliasCategoryChanges, type AliasCategoryNotice } from '@/domain/classification/class-attributes';
 
 export class SettingsPreviewError extends Error {
   statusCode: number;
@@ -86,13 +85,6 @@ export interface SettingsPreviewResult {
   baseDiscountDeltas: Array<{ personCode: string; name: string; before: number | null; after: number | null }> | null;
   /** #112 Ruling 2：課程學費折扣（各課程收取率 bps）的變化明細；只列出有變化者；settings_only 為 null */
   courseRateDeltas: CourseRateDelta[] | null;
-  /**
-   * D2b r2（R2-2／Q13／06 D37）：米豆奶班名經 alias 對應到系統班後，兩側自動偵測的折扣類別
-   * 不同者（該別名的類別將改由系統班決定）。**提示而非阻擋**——與 Q9 同名合併衝突不同，
-   * 預覽照常成功、儲存照常進行（09 §3.1）。
-   * 兩種 mode 都會產出（settings_only 亦然：提示是草稿的靜態推導，不需名冊）。
-   */
-  aliasCategoryNotices: AliasCategoryNotice[];
 }
 
 /** settings_only 預覽：無名單可比對，只保存預覽草稿（hash／revision／TTL 與 with_students 相同）。 */
@@ -124,7 +116,6 @@ function saveSettingsOnlyPreview(
     subjectCountDeltas: null,
     baseDiscountDeltas: null,
     courseRateDeltas: null,
-    aliasCategoryNotices: detectAliasCategoryChanges(draft.aliases),
   };
 
   saveSettingsPreview(db, {
@@ -339,7 +330,6 @@ export function previewSettingsChange(
     subjectCountDeltas,
     baseDiscountDeltas,
     courseRateDeltas,
-    aliasCategoryNotices: detectAliasCategoryChanges(draft.aliases),
   };
 
   saveSettingsPreview(db, {

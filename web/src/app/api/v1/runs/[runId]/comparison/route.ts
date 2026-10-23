@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getDatabase } from '@/adapters/sqlite';
 import { getCalculationRun } from '@/adapters/sqlite/runs-repository';
 import { draftToAliasMap, draftToScheduleOverride } from '@/adapters/sqlite/settings-repository';
+import { buildClassSettingMap } from '@/application/calculate-run';
 import { loadRunSnapshot } from '@/application/run-snapshot';
 import { calculateStudentBilling } from '@/domain/billing/billing-calculator';
 import { StudentSnapshot, ParsedToken } from '@/domain/students';
@@ -51,9 +52,23 @@ export async function GET(
       );
     }
     const isSeedSnapshot = snapshot.settingsRevision === null;
+    /**
+     * 重算必須帶三樣東西，才與該 run 當時的計算同源（specs/11 §3 D1 B1-D）：
+     * alias、scheduleOverride 與 **classSettings**。
+     *
+     * #157 Ruling 1 起 classSettings 尤其關鍵：類別不再由班名推導，沒有它，正式軌的
+     * 類別式選班與科數會整組失效（正式軌天數會停在 5 天、compat 卻仍扣天 → 差異清單失真）。
+     * seed 快照的 draft 是 buildSeedDraft()，**不帶** category／categorySource（該草稿刻意不寫
+     * 使用者的設定內容）；seed 的類別基準由 effectiveCategoryOf 在讀取設定時套用，故
+     * buildClassSettingMap 的結果與已存設定版本走的是同一條解析路徑。
+     */
     const snapshotContext = isSeedSnapshot
-      ? {}
-      : { aliasMap: draftToAliasMap(snapshot.draft), scheduleOverride: draftToScheduleOverride(snapshot.draft) };
+      ? { classSettings: buildClassSettingMap(snapshot.draft) }
+      : {
+          aliasMap: draftToAliasMap(snapshot.draft),
+          scheduleOverride: draftToScheduleOverride(snapshot.draft),
+          classSettings: buildClassSettingMap(snapshot.draft),
+        };
 
     // 讀取該批次學生與報名
     const studentRows = db

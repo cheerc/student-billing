@@ -31,15 +31,15 @@ export interface RosterChangeContext {
   scheduleOverride?: Map<string, Array<{ start: number; end: number; weekday?: string | null }>>;
   ruleSetVersion?: CalculationOptions['ruleSetVersion'];
   /**
-   * D2a：班級設定（手動／自動類別與固定 5 天）。**與 run 端同源**（calculate-run 的
+   * D2a：班級設定（使用者的類別指定與固定 5 天）。**與 run 端同源**（calculate-run 的
    * `buildClassSettingMap(resolveLatestSavedSettings(db).draft)`，specs/11 §3 B1-D 同源要求）：
-   * 異動明細的 before 側必須與「按下之後系統實際會用的狀態」一致（D17），不可退回自動偵測。
+   * 異動明細的 before 側必須與「按下之後系統實際會用的狀態」一致（D17），不可退回名稱推導。
    */
   classSettings?: Map<string, ClassSettingLookup>;
 }
 
-/** 有折扣語意的班級類別（'none'＝不列入折扣，例如寫功課／交通車）。 */
-export type DiscountClassCategory = Exclude<ClassCategory, 'none'>;
+/** 有折扣語意的班級類別（'none'＝使用者明確指定不列入；'unset'＝尚未指定，兩者皆無折扣語意）。 */
+export type DiscountClassCategory = Exclude<ClassCategory, 'none' | 'unset'>;
 
 /**
  * 實際報名班級的集合變化（Round3 PR-1；decisions -68／-75；specs/06 D43）。
@@ -310,15 +310,17 @@ function buildClassBreakdown(
 }
 
 /**
- * 折扣語意類別：以**課表設定**（手動優先）解析，與 run 端同一條路徑（resolveClassEnrollment）。
- * 'none'（寫功課、交通車等不列入折扣的班）回 null——-68：未設定折扣類別的班不列。
+ * 折扣語意類別：以**課表設定**解析，與 run 端同一條路徑（resolveClassEnrollment）。
+ * 'none'（使用者明確指定不列入折扣）與 'unset'（#157 Ruling 2：使用者尚未指定）皆回 null
+ * ——-68：沒有折扣語意的班不列。兩者在計算上同效，差異只在呈現。
  */
 function discountCategoryOf(
   token: Token,
   ctx: RosterChangeContext
 ): DiscountClassCategory | null {
   const resolved = resolveClassEnrollment(token, ctx.aliasMap, ctx.classSettings);
-  return resolved.category === 'none' ? null : resolved.category;
+  if (resolved.category === 'none' || resolved.category === 'unset') return null;
+  return resolved.category;
 }
 
 /**

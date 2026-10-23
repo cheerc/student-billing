@@ -210,9 +210,15 @@ describe('UX23：空時段與整班移除（09 §8.2.4 方案 A）——run 計�
     expect([...a.entries()]).toEqual([...b.entries()]);
   });
 
-  it('尚無已儲存設定（未帶 scheduleOverride）：seed 課表路徑不變——國小數學-一 不在 seed，13 位解不到時段（SCHEDULE_NOT_FOUND 13）', () => {
+  it('尚無已儲存設定（未帶 scheduleOverride）：seed 課表路徑不變——國小數學-一 不在 seed，13 位解不到時段', () => {
     const { run } = executeCalculationRun(db, importA, 'run_b4_seedpath', { ruleSetVersion: resolveFormalRuleSetVersion(db) });
-    expect(run.issueCounts['SCHEDULE_NOT_FOUND']).toBe(13);
+    // #157 Ruling 1／3：「國小數學-一」不在 seed 課表 → 該班未對應 → 類別 unset、
+    // 不是數學候選班，因此診斷碼由「缺排課（SCHEDULE_NOT_FOUND）」改為
+    // 「班名未對應課表（CLASS_NOT_MAPPED）」——後者更準確地指出真正的原因是班名沒對上。
+    expect(run.issueCounts['SCHEDULE_NOT_FOUND']).toBeUndefined();
+    // 本 fixture 的 477 人名單裡，全部未對應的班合計 292 筆警告（實測值）。
+    // 這 13 位（報名 國小數學-一）只是其中之一；其餘未對應班同樣依 Ruling 3 一律警告。
+    expect(run.issueCounts['CLASS_NOT_MAPPED']).toBe(292);
   });
 
   it('經 preview→apply 持久化：run 天數同樣不退回 seed，run.scheduleVersionId 為新設定版本', () => {

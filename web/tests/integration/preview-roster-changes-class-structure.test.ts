@@ -197,8 +197,12 @@ describe('API: preview 的 rosterDiff.changes 帶 PR-1 逐班資料（報名集�
    * （probe 實測：帶別名＋手動類別時科數 2，移除 classSettings 亦為 2 → 無鑑別力）。故挑名稱本來就對得上的班。
    *
    * 手算（R03 類別式科數＝計入類別集合大小；R10），由 resolveClassEnrollment 的結果獨立推導：
-   *   手動：數學三B→care ⇒ 類別集合少一類 → 科數 −1；自動：數學三B→math ⇒ 科數原值。
+   *   手動：數學三B→care ⇒ 類別集合少一類 → 科數 −1；對照（不帶 classSettings）數學三B→未設定 ⇒ 不計入。
    *   兩者必須不同，否則本案例無鑑別力（下方以 expect 斷言）。
+   *
+   * #157 Ruling 1：類別不再由班名推導，因此「不帶 classSettings」不再等於「依班名判定」，
+   * 而是「全部未設定」。對照組因此仍能與手動組產生差異，但差異的成因必須改寫為
+   * 「使用者有沒有指定」，不得再寫成「自動偵測」。
    */
   it('classSettings 接線：手動把數學班改 care 後，異動明細 before 側與真 run 一致；移除接線則不同', async () => {
     const db0 = getDatabase();
@@ -206,7 +210,8 @@ describe('API: preview 的 rosterDiff.changes 帶 PR-1 逐班資料（報名集�
       new Set(
         s.enrollments
           .map((e) => resolveClassEnrollment(e, undefined, map).category)
-          .filter((c): c is 'care' | 'math' | 'english' => c !== 'none')
+          // #157：none（使用者指定不列入）與 unset（尚未指定）都不計入科數
+          .filter((c): c is 'care' | 'math' | 'english' => c !== 'none' && c !== 'unset')
       );
     // 手動設定的 classSettings map（seed 課表 ＋ 國小數學-三B 手動 care）
     const manualMap = (() => {
@@ -228,9 +233,9 @@ describe('API: preview 的 rosterDiff.changes 帶 PR-1 逐班資料（報名集�
           s.enrollments.some((e) => e.baseName === '國小數學-三B') &&
           categoriesOf(s, manualMap).size !== categoriesOf(s).size
       ) ?? null;
-    expect(target, 'fixture 需有一位報名 國小數學-三B 且手動／自動類別解析結果不同的學生').not.toBeNull();
+    expect(target, 'fixture 需有一位報名 國小數學-三B 且「有指定／未指定」解析結果不同的學生').not.toBeNull();
     const catWith = categoriesOf(target!, manualMap);
-    const catAuto = categoriesOf(target!);
+    const catUnset = categoriesOf(target!);
 
     saveBase('imp_manual_category', incomingStudents.map((s) => ({ ...s })));
 
@@ -270,7 +275,7 @@ describe('API: preview 的 rosterDiff.changes 帶 PR-1 逐班資料（報名集�
     // 依規則手算（R03／R10），不使用 calculateStudentBilling 的輸出回填
     const expectedSubjectCount = catWith.size;
     const expectedWithSettings = calculateBaseDiscountBps(expectedSubjectCount, false, null);
-    const expectedWithoutSettings = calculateBaseDiscountBps(catAuto.size, false, null);
+    const expectedWithoutSettings = calculateBaseDiscountBps(catUnset.size, false, null);
     expect(expectedWithSettings, '兩種解析必須產生不同結果，否則本案例無鑑別力').not.toBe(
       expectedWithoutSettings
     );
@@ -374,15 +379,17 @@ describe('API: preview 的 rosterDiff.changes 帶 PR-1 逐班資料（報名集�
       new Set(
         target!.enrollments
           .map((e) => resolveClassEnrollment(e, settings.aliasMap, map).category)
-          .filter((c): c is 'care' | 'math' | 'english' => c !== 'none')
+          // #157：none（使用者指定不列入）與 unset（尚未指定）都不計入科數
+          .filter((c): c is 'care' | 'math' | 'english' => c !== 'none' && c !== 'unset')
       );
     const catWith = categoriesOf(settings.classSettings);
-    const catAuto = categoriesOf();
+    const catUnset = categoriesOf();
     expect(catWith.size, '手動排除數學班後計入類別應為 2').toBe(2);
-    expect(catAuto.size, '自動偵測下數學班仍計入 → 3').toBe(3);
+    // #157 Ruling 1：不帶 classSettings＝全部未設定 → 三個班都不計入 → 0。
+    expect(catUnset.size, '未指定類別時三班都不計入 → 0').toBe(0);
     const expectedWith = calculateBaseDiscountBps(catWith.size, false, null);
-    const expectedAuto = calculateBaseDiscountBps(catAuto.size, false, null);
-    expect(expectedWith).not.toBe(expectedAuto);
+    const expectedUnset = calculateBaseDiscountBps(catUnset.size, false, null);
+    expect(expectedWith).not.toBe(expectedUnset);
 
     // 基準名單：本次上傳的名單，但把該生的「國小數學-三B」退掉 → 該生出現在 changes，before 側可讀
     const targetCode = target!.personCode;
@@ -408,7 +415,7 @@ describe('API: preview 的 rosterDiff.changes 帶 PR-1 逐班資料（報名集�
     // 入口的 before 側必須等於「帶 classSettings」的結果，且不等於「不帶」的結果
     expect(change!.before!.subjectCount).toBe(catWith.size);
     expect(change!.before!.baseDiscountBps).toBe(expectedWith);
-    expect(change!.before!.baseDiscountBps).not.toBe(expectedAuto);
+    expect(change!.before!.baseDiscountBps).not.toBe(expectedUnset);
   });
 
   /**

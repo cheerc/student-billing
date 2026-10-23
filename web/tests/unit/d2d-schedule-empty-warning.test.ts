@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { calculateStudentBilling } from '@/domain/billing/billing-calculator';
 import { buildClassSettingMap } from '@/application/calculate-run';
-import { buildSeedDraft } from '@/adapters/sqlite/settings-repository';
+import { manualCategories } from '../helpers/manual-categories';
 import type { StudentSnapshot } from '@/domain/students/types';
 
 /**
@@ -69,7 +69,7 @@ function run(version: 'erp-tag-v2' | 'erp-tag-v3') {
   return calculateStudentBilling(makeStudent('S-EMPTY'), {
     ruleSetVersion: version,
     aliasMap: new Map(),
-    classSettings: buildClassSettingMap(buildSeedDraft()),
+    classSettings: manualCategories({ math: ['國小數學-三A', '國小數學-三B'] }),
     scheduleOverride: new Map(OVERRIDE),
   });
 }
@@ -99,7 +99,10 @@ describe('D2d D: 空課表候選（schedule_empty）保留需確認警告', () =
       {
         ruleSetVersion: 'erp-tag-v3',
         aliasMap: new Map(),
-        classSettings: buildClassSettingMap(buildSeedDraft()),
+        classSettings: manualCategories({
+          math: ['國小數學-三A', '國小數學-三B'],
+          english: ['兒童美語-Gino'],
+        }),
         scheduleOverride: new Map([['兒童美語-Gino', []]]),
       }
     );

@@ -35,10 +35,16 @@ const contexts = (
   ruleSetVersion: 'erp-tag-v2' | 'erp-tag-v3' = 'erp-tag-v2'
 ) => {
   const draft = buildSeedDraft();
+  /**
+   * #157 Ruling 1：類別不再由班名推導，因此 v3 的類別式科數必須有 classSettings 才有語意。
+   * 這裡以 seed 草稿（本身攜帶 seed 49 班的明確類別，見 buildSeedDraft）為底，
+   * 再讓呼叫端覆寫個別班；v1／v2 走名稱式路徑，完全不受 classSettings 影響。
+   */
   const ctx = {
     aliasMap: draftToAliasMap(draft),
     scheduleOverride: draftToScheduleOverride(draft),
-    ...(classSettings ? { classSettings } : {}),
+    // 呼叫端給的項目覆蓋 seed 的宣告；其餘 seed 班維持 buildSeedDraft 的明確類別。
+    classSettings: new Map([...buildClassSettingMap(draft), ...(classSettings ?? [])]),
     ruleSetVersion,
   };
   return { beforeCtx: ctx, afterCtx: ctx };

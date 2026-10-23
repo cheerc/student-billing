@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { calculateStudentBilling } from '@/domain/billing/billing-calculator';
 import { buildClassSettingMap } from '@/application/calculate-run';
-import { buildSeedDraft } from '@/adapters/sqlite/settings-repository';
+import { manualCategories } from '../helpers/manual-categories';
 import type { StudentSnapshot } from '@/domain/students/types';
 
 /**
@@ -64,7 +64,19 @@ function run(enrollments: string[], override: Override) {
   return calculateStudentBilling(makeStudent(enrollments), {
     ruleSetVersion: 'erp-tag-v3',
     aliasMap: new Map(),
-    classSettings: buildClassSettingMap(buildSeedDraft()),
+    // #157 Ruling 1：本檔驗的是「選班邊界」，候選班必須是使用者指定過的類別。
+    // 舊制靠班名自動判定，現在由測試明確宣告（只宣告本檔用到的虛構班名）。
+    classSettings: manualCategories({
+      // 「不存在甲／乙」是**已收錄於課表設定、但課表查無時段**的班（schedule_not_found），
+      // 因此必須出現在這裡；它們不是「班名未對應」（那是 CLASS_NOT_MAPPED，屬另一個案例）。
+      math: [
+        '國小數學-甲', '國小數學-乙', '國小數學-合法性', '國小數學-合法',
+        '國小數學-空甲', '國小數學-空乙',
+        '國小數學-空白', '國小數學-空白甲', '國小數學-空白乙',
+        '國小數學-不存在甲', '國小數學-不存在乙',
+      ],
+      english: ['兒童美語-甲', '兒童美語-乙'],
+    }),
     scheduleOverride: override,
   });
 }

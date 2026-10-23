@@ -152,7 +152,8 @@ test.describe('R5 文案全頁掃描（09 §7）', () => {
     await scan(page, '課表設定｜課表 Excel 匯入失敗（整批拒絕）', violations);
 
     // #82／#80（本 PR 新增的畫面狀態）：「未設定時間」說明按鈕（focus 才開 tooltip，
-    // 內容不得含工程字）；「自動設定」與「未手動修改」的操作欄文案
+    // 內容不得含工程字）
+    // #157：「自動設定」／「未手動修改」兩處文案已隨 Ruling 4 拆除，課表操作欄不再有它們。
     await page.reload();
     await expect(page.locator('h1', { hasText: '課表設定' })).toBeVisible({ timeout: 10000 });
     const notSetTip = page.getByRole('button', { name: '未設定時間' }).first();
@@ -379,7 +380,6 @@ test.describe('R5 文案全頁掃描（09 §7）', () => {
           issueDelta: { before: 0, after: 0 },
           expiresAt: new Date(Date.now() + 15 * 60 * 1000).toISOString(),
           targetRuleSetVersion: 'erp-tag-v4',
-          aliasCategoryNotices: [],
         }),
       })
     );

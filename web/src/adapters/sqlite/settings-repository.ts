@@ -44,7 +44,7 @@ export interface SettingsPreviewRecord {
  *
  * 版本界線規則（D1 定案，寫入 03）：
  *  1. v1／v2 的計算與讀取永遠不讀新欄位；
- *  2. 欄位缺失＝自動偵測，只在（D2 之後的）新規則版本讀取當下解析，不回寫舊快照；
+ *  2. 欄位缺失＝未設定，只在（D2 之後的）新規則版本讀取當下解析，不回寫舊快照；
  *  3. 新快照一律寫出完整欄位；
  *  4. 新規則版本的 run 建立時，把「實際採用的類別」寫入 run_class_categories，之後不再重新偵測。
  * D1 沒有新欄位，因此本函式「不改形狀」：不補預設、不去除未知欄位、不改變欄位順序——
@@ -217,12 +217,33 @@ export function draftToScheduleOverride(
   return map;
 }
 
-/** 由 seed 預設產生初始草稿（攜帶全量 89 筆平鋪時段消空 sessions 雙義性）。 */
+/**
+ * 由 seed 預設產生初始草稿（攜帶全量 89 筆平鋪時段消空 sessions 雙義性）。
+ *
+ * #157 Ruling 1：`category` 不再由班名推導。若此草稿完全不採 seed 基準，seed 班會全落為「未設定」。
+ * 以同一份 rev 82 設定比較「舊 auto 班名偵測」與「全部 unset」，有報名者母體（372 位 distinct person_code）
+ * 有 345 位（92.7%）科數不同；全部匯入學生母體（431 位 loadStudentsForImport）有 345 位（80.0%）不同。
+ * 這是「不帶 seed 基準」的反事實量測，不是現行 seed 基準下的影響比例。
+ *
+ * seed 是**匯入前的既有機構設定**（不是使用者尚未填寫的空白），它在舊制下就對應到一組
+ * 明確的類別。那組類別由 `seed-manifest` 的 `SEED_CLASS_CATEGORIES` 單一定義，並在
+ * **「讀取已儲存設定」路徑**同樣套用（`effectiveCategoryOf` 的 seed 基準）。
+ *
+ * 因此本函式**刻意不寫** `category`／`categorySource`：
+ *  - 寫 `manual` 會把 seed 基準偽裝成使用者的決定，正是 Ruling 5 要避免的；
+ *  - 寫 `seed` 會讓 seed 基準看起來像被存進草稿的設定內容；
+ *  - 不寫則全新 DB 與既有 DB 走的是**同一條** seed 基準路徑，對同一份設定算出相同結果。
+ *
+ * 使用者一旦自行指定（`manual`）或撤回（`unset`），該值會被寫進設定版本並優先於 seed 基準。
+ */
 export function buildSeedDraft(
   seedClasses?: Array<{ baseName: string; subject: string; teacher?: string | null }>,
   careWindows?: { anqin: { start: number; end: number }; tutoring: { start: number; end: number } }
 ): SettingsDraft {
   const seedRows = buildSeedGridRows();
+  // #157：seed 草稿**不寫** category／categorySource。seed 基準由 `SEED_CLASS_CATEGORIES`
+  // 在「讀取已儲存設定」路徑同樣套用（`effectiveCategoryOf`），故全新 DB 與既有 DB
+  // 對同一份設定算出**相同**結果——寫進草稿只會讓 seed 基準看起來像使用者的決定。
   const fullSeedClasses = gridRowsToClasses(seedRows);
 
   return {

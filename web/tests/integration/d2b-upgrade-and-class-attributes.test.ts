@@ -310,15 +310,20 @@ describe('D2b 6: 類別／固定 5 天變更進完整影響預覽（人數、天
     expect(preview.subjectCountDeltas).toHaveLength(0);
   });
 
-  it('「恢復自動」把 manual 改回 auto 後，影響預覽回到原值（無差異）', () => {
+  it('選回「（未設定）」把 manual 改回未設定後，該科不再計入（科數與折扣都變）', () => {
     const revision = (db.prepare('SELECT revision FROM active_state WHERE id = 1').get() as any).revision as number;
     const draft: SettingsDraft = buildSeedDraft();
-    // 先手動設成 none，再在同一份草稿恢復自動 → 有效值等於自動偵測
+    // 先手動設成 none，再在同一份草稿把該班改回未設定 → 有效值回到未設定（0 科）。
+    // #157 Ruling 4：沒有「恢復自動」；撤回決定的路徑是選回「（未設定）」。
+    // 撤回在草稿裡的形狀是**明確的** `category: 'unset'` + `categorySource: 'unset'`
+    // （編輯器 `applyManualAttrsToClasses` 就是這樣寫的）——不是「刪掉這兩個欄位」：
+    // 刪掉代表「從未被指定」，那會適用 seed 基準（math），撤回就失效了。
+    // 手算：學生報 care + math。before 側是 seed 基準（兩科都計入 → 2 科），
+    // after 側撤回 math 的指定 → 該科不計入（未設定）→ 1 科。
+    // 因此本案例驗的是「撤回決定確實改變了計算結果」，而不是「回到原值」。
     const target = draft.classes.find((c) => c.baseName === '國小數學-四A')!;
-    target.category = 'none';
-    target.categorySource = 'manual';
-    target.category = 'math';
-    target.categorySource = 'auto';
+    target.category = 'unset';
+    target.categorySource = 'unset';
 
     const preview: any = previewSettingsChange(db, 'imp_b', {
       draft,
@@ -326,8 +331,11 @@ describe('D2b 6: 類別／固定 5 天變更進完整影響預覽（人數、天
       targetRuleSetVersion: 'erp-tag-v3',
     }) as any;
 
-    expect(preview.subjectCountDeltas).toHaveLength(0);
-    expect(preview.baseDiscountDeltas).toHaveLength(0);
+    // 撤回決定 → 該科不再計入 → 科數 2 → 1、折扣 9500 → 10000（1 科無折扣）
+    expect(preview.subjectCountDeltas).toHaveLength(1);
+    expect(preview.subjectCountDeltas[0]).toMatchObject({ before: 2, after: 1 });
+    expect(preview.baseDiscountDeltas).toHaveLength(1);
+    expect(preview.baseDiscountDeltas[0]).toMatchObject({ before: 9500, after: 10000 });
   });
 });
 
@@ -356,7 +364,7 @@ describe('D2b 5（Q9）: 同名合併且設定不同時阻擋儲存（課表 gri
     expect(lifecycle.merges).toEqual([{ mergedName: '國小數學-四', sources: ['國小數學-四A', '國小數學-四B'] }]);
 
     const sourceAttrs = new Map([
-      ['國小數學-四A', { classType: 'non_care' as const, category: 'math' as const, categorySource: 'auto' as const, fixedFiveDays: false }],
+      ['國小數學-四A', { classType: 'non_care' as const, category: 'math' as const, categorySource: 'unset' as const, fixedFiveDays: false }],
       ['國小數學-四B', { classType: 'care' as const, category: 'care' as const, categorySource: 'manual' as const, fixedFiveDays: true }],
     ]);
     const conflicts = detectMergeConflicts(lifecycle.merges, sourceAttrs);
@@ -369,7 +377,7 @@ describe('D2b 5（Q9）: 同名合併且設定不同時阻擋儲存（課表 gri
     const currentRows = [gridRow('r1', '國小數學-四'), gridRow('r2', '國小數學-四')];
     const lifecycle = detectClassLifecycle(baselineRows, currentRows);
 
-    const same = { classType: 'non_care' as const, category: 'math' as const, categorySource: 'auto' as const, fixedFiveDays: false };
+    const same = { classType: 'non_care' as const, category: 'math' as const, categorySource: 'unset' as const, fixedFiveDays: false };
     const sourceAttrs = new Map([
       ['國小數學-四A', { ...same }],
       ['國小數學-四B', { ...same }],
@@ -413,10 +421,14 @@ describe('D2b 1: 設定草稿 hash 涵蓋類別與固定 5 天（取消修改可
 
   afterEach(() => db.close());
 
-  it('相同類別值但來源不同（auto vs manual）會產生不同的 previewId（hash 涵蓋來源）', () => {
+  it('相同類別值但來源不同（unset vs manual）會產生不同的 previewId（hash 涵蓋來源）', () => {
     const revision = (db.prepare('SELECT revision FROM active_state WHERE id = 1').get() as any).revision as number;
-    const autoDraft: SettingsDraft = buildSeedDraft();
-    const auto = previewSettingsChange(db, 'imp_d', { draft: autoDraft, expectedRevision: revision, targetRuleSetVersion: 'erp-tag-v3' });
+    // 「未設定」＝草稿裡**沒有** category／categorySource 兩個欄位（03 §5.2 版本界線規則第 2 點）。
+    const unsetDraft: SettingsDraft = buildSeedDraft();
+    const unsetTarget = unsetDraft.classes.find((c) => c.baseName === '國小數學-四A')!;
+    delete unsetTarget.category;
+    delete unsetTarget.categorySource;
+    const unset = previewSettingsChange(db, 'imp_d', { draft: unsetDraft, expectedRevision: revision, targetRuleSetVersion: 'erp-tag-v3' });
 
     const manualDraft: SettingsDraft = buildSeedDraft();
     const t = manualDraft.classes.find((c) => c.baseName === '國小數學-四A')!;
@@ -424,6 +436,8 @@ describe('D2b 1: 設定草稿 hash 涵蓋類別與固定 5 天（取消修改可
     t.categorySource = 'manual';
     const manual = previewSettingsChange(db, 'imp_d', { draft: manualDraft, expectedRevision: revision, targetRuleSetVersion: 'erp-tag-v3' });
 
-    expect(manual.inputHash).not.toBe(auto.inputHash);
+    // 兩份草稿的有效值相同（都是 math），但來源狀態不同 → hash 必須不同，
+    // 否則「未設定」與「使用者指定」在草稿層就分不出來。
+    expect(manual.inputHash).not.toBe(unset.inputHash);
   });
 });

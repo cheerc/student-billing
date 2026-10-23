@@ -91,14 +91,14 @@ describe('specs/14 A15: 固定 5 天旗標不影響學生層課程學費折扣�
 
     // 勾選固定 5 天
     const settingsFixed = new Map<string, ClassSettingLookup>([
-      ['國小輔導-四年級', { category: 'care', fixedFiveDays: true }],
-      ['國小數學-四A', { category: 'math', fixedFiveDays: false }],
+      ['國小輔導-四年級', { category: 'care', categorySource: 'manual', fixedFiveDays: true }],
+      ['國小數學-四A', { category: 'math', categorySource: 'manual', fixedFiveDays: false }],
     ]);
 
     // 不勾選固定 5 天
     const settingsNotFixed = new Map<string, ClassSettingLookup>([
-      ['國小輔導-四年級', { category: 'care', fixedFiveDays: false }],
-      ['國小數學-四A', { category: 'math', fixedFiveDays: false }],
+      ['國小輔導-四年級', { category: 'care', categorySource: 'manual', fixedFiveDays: false }],
+      ['國小數學-四A', { category: 'math', categorySource: 'manual', fixedFiveDays: false }],
     ]);
 
     const resFixedV4 = calculateStudentBilling(student, {
@@ -136,8 +136,8 @@ describe('specs/14 A15: 固定 5 天旗標不影響學生層課程學費折扣�
     });
 
     const settings = new Map<string, ClassSettingLookup>([
-      ['國小輔導-一年級', { category: 'care', fixedFiveDays: true }],
-      ['國小數學-一A', { category: 'math', fixedFiveDays: false }],
+      ['國小輔導-一年級', { category: 'care', categorySource: 'manual', fixedFiveDays: true }],
+      ['國小數學-一A', { category: 'math', categorySource: 'manual', fixedFiveDays: false }],
     ]);
 
     const resV4 = calculateStudentBilling(student, {
@@ -157,9 +157,9 @@ describe('specs/14 A15: 固定 5 天旗標不影響學生層課程學費折扣�
 
   it('A15-3: roster-changes 在 v4 下不再將寫功課/固定 5 天班級列為折扣變動原因', () => {
     const classSettings = new Map<string, ClassSettingLookup>([
-      ['國小輔導-一A', { category: 'care', fixedFiveDays: false }],
-      ['國小數學-三A', { category: 'math', fixedFiveDays: false }],
-      ['國小輔導-寫功課', { category: 'none', fixedFiveDays: true }],
+      ['國小輔導-一A', { category: 'care', categorySource: 'manual', fixedFiveDays: false }],
+      ['國小數學-三A', { category: 'math', categorySource: 'manual', fixedFiveDays: false }],
+      ['國小輔導-寫功課', { category: 'none', categorySource: 'manual', fixedFiveDays: true }],
     ]);
 
     const before = makeStudent({ personCode: 'A15-3', grade: 3, baseNames: ['國小輔導-一A', '國小數學-三A'] });
@@ -205,7 +205,7 @@ describe('specs/14 A16: 逐班層「本班適用折扣」完全由「列入多�
       baseNames: ['國小輔導-寫功課'],
     });
     const settings = new Map<string, ClassSettingLookup>([
-      ['國小輔導-寫功課', { category: 'none', fixedFiveDays: true }],
+      ['國小輔導-寫功課', { category: 'none', categorySource: 'manual', fixedFiveDays: true }],
     ]);
 
     const resV4 = calculateStudentBilling(student, {
@@ -276,8 +276,8 @@ describe('specs/14 A17: 版本隔離（v1/v2/v3/compat 計算結果與改動前�
     });
 
     const settings = new Map<string, ClassSettingLookup>([
-      ['國小輔導-四年級', { category: 'care', fixedFiveDays: true }],
-      ['國小數學-四A', { category: 'math', fixedFiveDays: false }],
+      ['國小輔導-四年級', { category: 'care', categorySource: 'manual', fixedFiveDays: true }],
+      ['國小數學-四A', { category: 'math', categorySource: 'manual', fixedFiveDays: false }],
     ]);
 
     // v3: 固定 5 天強制 tutoring 回 10000
@@ -312,8 +312,8 @@ describe('specs/14 A17: 版本隔離（v1/v2/v3/compat 計算結果與改動前�
     });
 
     const settings = new Map<string, ClassSettingLookup>([
-      ['國小輔導-四年級', { category: 'care', fixedFiveDays: true }],
-      ['國小數學-四A', { category: 'math', fixedFiveDays: false }],
+      ['國小輔導-四年級', { category: 'care', categorySource: 'manual', fixedFiveDays: true }],
+      ['國小數學-四A', { category: 'math', categorySource: 'manual', fixedFiveDays: false }],
     ]);
 
     // 數學班時段：週一 16:30-18:00（課輔衝堂扣天 1.0 天）

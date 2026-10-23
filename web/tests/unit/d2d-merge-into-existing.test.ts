@@ -79,7 +79,7 @@ describe('D2d C: 併入既有班 Z 時以 Z 的現行設定為準（最小修）
     expect(out.get('國小數學-四C')?.categorySource).toBe('manual');
   });
 
-  it('Z 為 auto 時，X 的 manual 值也不得覆寫 Z（Z 現在的值＝依 Z 班名自動偵測）', () => {
+  it('Z 未指定類別時，X 的 manual 值也不得覆寫 Z（Z 現在的值＝未設定）', () => {
     const attrs = new Map([
       [
         '國小數學-四A',
@@ -94,9 +94,10 @@ describe('D2d C: 併入既有班 Z 時以 Z 的現行設定為準（最小修）
       new Set(['國小數學-四C']) // Z 在 baseline 已存在 → 併入既有班
     );
 
-    // Z 未出現在 baselineManualAttrs → Z 為自動偵測（數學班 → math），X 的 manual 不得覆蓋
-    expect(out.get('國小數學-四C')?.category).toBe('math');
-    expect(out.get('國小數學-四C')?.categorySource).toBe('auto');
+    // Z 未出現在 baselineManualAttrs → Z 是「使用者尚未指定」＝unset（#157 Ruling 1 起不再依班名推導），
+    // X 的 manual 不得覆蓋它。這正是這條測試要守的：併入既有班時以 Z 為準，且 Z 可以是未設定。
+    expect(out.get('國小數學-四C')?.category).toBe('unset');
+    expect(out.get('國小數學-四C')?.categorySource).toBe('unset');
   });
 
   it('保留 D37：整班改成不存在的「新名」時，X 的 manual 值跟著走', () => {

@@ -109,6 +109,9 @@ function calc(
     ruleSetVersion: version,
     aliasMap: new Map(),
     scheduleOverride: overrideOf(sessions),
+    // #157 Ruling 1：類別由使用者決定（本檔驗的是逐時段扣天，不是類別判定）。
+    // v3 的選班演算法依類別挑選候選班，未宣告類別就沒有候選。
+    classSettings: new Map([['國小數學-一A', { category: 'math' as const, categorySource: 'manual' as const }]]),
   });
 }
 

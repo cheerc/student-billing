@@ -310,7 +310,13 @@ function DrawerPanel({ student, onClose }: { student: StudentCalculationItem; on
                   </div>
                   {comp.needsReview && (
                     <div style={{ color: '#b45309', marginTop: '4px', fontSize: '0.75rem' }}>
-                      ⚠ 排課缺漏，暫以相容數值比較，請核對課表設定。
+                      {/* #157 Ruling 3：needsReview 的成因不再只有「缺排課」。未對應課表的班
+                          （CLASS_NOT_MAPPED）也會使該列需確認，但它的成因是「班名沒對上」，
+                          說「排課缺漏」會誤導使用者去補時段。依 comp.issues 的實際內容
+                          選擇白話說明。 */}
+                      {comp.issues.includes('CLASS_NOT_MAPPED')
+                        ? '⚠ 班名未對應課表，請確認米豆奶班名或系統班級名稱。'
+                        : '⚠ 排課缺漏，暫以相容數值比較，請核對課表設定。'}
                     </div>
                   )}
                 </div>
