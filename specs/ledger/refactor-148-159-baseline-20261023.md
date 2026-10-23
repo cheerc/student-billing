@@ -191,7 +191,9 @@ Migration `0009_run_class_semantics.sql` adds run-level snapshot presence/schema
 
 **Branch:** `refactor/148-consumers`
 **Worktree:** `/tmp/issue148-pr4`
-**Base/HEAD before PR-4:** `22138a0725b2c6d2d884388895950d3995fd5530` (PR-3 branch HEAD; PR-4 is rebased onto current `origin/main` before publication).
+**Base:** `75338c46c674f7d4e18f1dfb8bdc568118de9b03` (`origin/main`, after PR-3 / PR #168).
+**Implementation commit:** `8153e2b660d224972e2e819e83588c7b48efa6c2` (PR #169 branch; includes the D59 implementation and contract updates below).
+**Related issue:** #159 runtime retirement was completed on main by PRs #165–#167; this PR completes the #148 consumer work without restoring the retired comparison endpoint or calculators.
 **Decision:** D59, Issue #148 PR-4. The operator-approved migration path presents a PII-free, per-field recommendation table before creating the new settings draft.
 
 V4 billing/report, tier, summary, query, roster-change, issue classification, and side-script consumers now read the Run's immutable semantic snapshot. Token parsing remains lexical; tier applicability is projected from the alias-resolved run semantic row. Category rate selection uses the selected Run's class category snapshot. Only explicit known formal v1–v3 history uses the frozen historical projection; omitted/unknown Run context, compat, missing/inconsistent expected snapshots, or v3/v4 snapshot metadata without a resolver fail closed. Summary projection maps declared roles and conditions only to the existing eight columns. `SettingsEditor` includes `summaryDayRoleConditions` in its workbook semantic export mapping; the XLSX roundtrip test verifies a Saturday condition survives hidden-sheet export/import and the imported settings still validate. The explicit operator-approved `legacy_migration` writes a new settings version; it does not alter old Runs. No formula or v4 numeric output change is authorized.
@@ -205,8 +207,10 @@ V4 billing/report, tier, summary, query, roster-change, issue classification, an
 - `npm run typecheck` → passed (`tsc --noEmit`). `npm run lint` → passed (`eslint .`). `git diff --check` → passed.
 - Static scan found the frozen class-name heuristics only in `historicalRateCategoryOfClass` and `legacy-class-semantics.ts`; callers are limited to explicit historical read paths or the approved migration preview/action. This is not a substitute for code review of those boundaries.
 
-### Data and verification limits
+### Verification and data limits
 
-- All added test records and class names are synthetic. The local database was not opened or queried.
-- **477-student full-run parity is UNVERIFIED.** Only the import snapshot is available in the current evidence; no corresponding current settings snapshot or saved Run was provided. No private student rows, class labels, or workbook contents are recorded here.
-- This handoff does not claim a full Vitest run, production build, or E2E run for PR-4. Those gates remain for review/CI; the canonical full E2E remains for final #148/#159 closeout. The existing PR-3 suite evidence above is separate and not represented as PR-4 verification.
+- `npm test -- --maxWorkers=1` from `web/` → **160 files: 159 passed, 1 skipped; 1504 tests: 1503 passed, 1 skipped** (239.79 seconds). The only skip is the existing `tests/integration/schedule-seed-reader.test.ts`; no failures.
+- `npm run typecheck` → passed; `npm run lint` → passed; `npm run build` → passed on Next.js 16.3.6, including TypeScript validation and all 13 static pages. A focused regression run for prior full-suite failures also passed: 5 files / 47 tests (`issue-140-main-wiring`, `t06-recovery`, `issue59-tier-mismatch-query`, `d1-class-category-detection`, `issue-112-ruleset-v4-decoupling`). `git diff --check` → passed.
+- The immutable synthetic 477-student D1 output golden passed in the full suite. Fixtures model the operator-approved one-time semantic migration; they do not claim that a real private database has been migrated or audited.
+- **Private 477-student full-run parity is UNVERIFIED.** The real database and workbook were not opened, uploaded, or queried. No private student rows, class labels, or workbook contents are recorded here. The test suite and build used synthetic fixtures only.
+- No E2E browser run or private-data performance/storage measurement is claimed for PR-4. The new migration preview and workbook semantic roundtrip have unit/integration coverage. Single-review verdict is reported against the PR's exact final HEAD, separately from this implementation-commit verification record.
