@@ -134,13 +134,13 @@ describe('D2b N-6: run_class_categories 快照持久化與讀模型（完整生�
 
   it('v4 run 重存時 student_calculations 不被級聯刪除 (R2-1)', () => {
     const resV4 = executeCalculationRun(db, 'imp_test', 'run_v4_resave', { ruleSetVersion: 'erp-tag-v4' });
-    saveCalculationRun(db, resV4.run, resV4.results, resV4.classCategories);
+    saveCalculationRun(db, resV4.run, resV4.results, resV4.classCategories, resV4.classSemantics);
 
     const beforeCount = (db.prepare('SELECT count(*) as c FROM student_calculations WHERE run_id = ?').get('run_v4_resave') as any).c;
     expect(beforeCount).toBeGreaterThan(0);
 
     try {
-      saveCalculationRun(db, resV4.run, []);
+      saveCalculationRun(db, resV4.run, [], [], resV4.classSemantics);
     } catch {
       // INSERT INTO 應拋出 UNIQUE/PRIMARY KEY constraint 錯誤而非靜默替換
     }
@@ -278,7 +278,7 @@ describe('D2b N-7: alias 解析與 manual 來源的快照回歸', () => {
       ruleSetVersion: 'erp-tag-v4',
       aliasMap: new Map([['美語新班-2026春', '兒童美語-Gino']]),
     });
-    saveCalculationRun(db, res.run, res.results, res.classCategories);
+    saveCalculationRun(db, res.run, res.results, res.classCategories, res.classSemantics);
 
     const issues = res.results[0].issues as Array<{ code: string }>;
     expect(issues.some((i) => i.code === 'CLASS_NOT_MAPPED')).toBe(false);
@@ -301,7 +301,7 @@ describe('D2b N-7: alias 解析與 manual 來源的快照回歸', () => {
     const res = executeCalculationRun(db, 'imp_n7', 'run_noalias', {
       ruleSetVersion: 'erp-tag-v4',
     });
-    saveCalculationRun(db, res.run, res.results, res.classCategories);
+    saveCalculationRun(db, res.run, res.results, res.classCategories, res.classSemantics);
 
     const issues = res.results[0].issues as Array<{ code: string }>;
     expect(issues.some((i) => i.code === 'CLASS_NOT_MAPPED')).toBe(true);
@@ -325,9 +325,16 @@ describe('D2b N-7: alias 解析與 manual 來源的快照回歸', () => {
       teacher: null,
       active: true,
       sessions: [],
+      classTypeId: 'non_care',
+      classType: 'non_care',
+      subjectSource: 'manual',
+      summaryDayRoles: [],
+      summaryDayRolesStatus: 'unset',
+      summaryDayRolesSource: 'unset',
+      erpTierApplicability: 'unset',
+      erpTierApplicabilitySource: 'unset',
       category: 'english',
       categorySource: 'manual',
-      fixedFiveDays: false,
     } as any);
 
     const versionId = 'setv_manual_test';
@@ -346,7 +353,7 @@ describe('D2b N-7: alias 解析與 manual 來源的快照回歸', () => {
       ruleSetVersion: 'erp-tag-v4',
       scheduleVersionId: versionId,
     });
-    saveCalculationRun(db, res.run, res.results, res.classCategories);
+    saveCalculationRun(db, res.run, res.results, res.classCategories, res.classSemantics);
 
     const row = db
       .prepare('SELECT * FROM run_class_categories WHERE run_id = ? AND base_name = ?')

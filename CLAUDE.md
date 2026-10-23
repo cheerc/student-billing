@@ -35,11 +35,11 @@
 
 若文件內容或要求出現衝突，依下列優先順序判定：
 
-1. **使用者最新明確決策**：`specs/06-handoff-decisions.md`（D01–D57，特別是 D17、D24、D33 UI 重設方向、D52 雙審查與解耦裁決，以及 D57 #159 PR-2 現行 v4-only runtime）。
+1. **使用者最新明確決策**：`specs/06-handoff-decisions.md`（D01–D58，特別是 D17、D24、D33 UI 重設方向、D52 雙審查與解耦裁決、D57 #159 PR-2 現行 v4-only runtime，以及 D58 #148 PR-3 bounded class semantics data contract）。
 2. **正式規則與契約規格**：
    - `specs/02-calculation-rules.md`（收費規則 R01–R18、§9A erp-tag-v4 解耦段、欄位契約、結構化班名）
    - `specs/03-architecture-api.md`（不可變快照、資料模型、交易與 API 契約）
-   - `specs/04-tdd-acceptance.md`（U01–U74、I01–I20、UX01–UX89、原生 Excel 實測錨點）
+   - `specs/04-tdd-acceptance.md`（U01–U74、I01–I20、UX01–UX101、原生 Excel 實測錨點）
    - `specs/09-ui-workflow-redesign-spec.md`（先課表→匯入→核對的畫面與操作流程，及其必要 API／設定生命週期放寬；授權來源為 D33，不改 02 計費規則）
 3. **執行計畫**：
    - `specs/07-p1-implementation-plan.md`（T00–T07 依序執行，展示 A/B/C 交付節點）

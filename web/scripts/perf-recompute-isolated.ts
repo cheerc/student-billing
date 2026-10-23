@@ -82,12 +82,12 @@ async function measureImportToQueryable(fixtureBuf: Buffer, dir: string, index: 
 function measureRecompute(db: Database.Database, importId: string, index: number) {
   const runId = `gate_recompute_${index}`;
   const started = performance.now();
-  const { run, results, classCategories } = executeCalculationRun(db, importId, runId, {
+  const { run, results, classCategories, classSemantics } = executeCalculationRun(db, importId, runId, {
     ruleSetVersion: resolveTargetRuleSetVersion(db),
     asOfDate: '2026-10-04',
     ...resolveLatestSavedSettings(db),
   });
-  saveCalculationRun(db, run, results, classCategories);
+  saveCalculationRun(db, run, results, classCategories, classSemantics);
   const ms = performance.now() - started;
 
   // 非空轉：結果筆數與學生數一致，且新 run 真的可查。

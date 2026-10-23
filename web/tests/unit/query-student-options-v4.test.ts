@@ -60,7 +60,7 @@ function seedStudentWithHomework(db: Database.Database, importId: string) {
 
 function activate(db: Database.Database, importId: string, runId: string, version: string = 'erp-tag-v4') {
   const res = executeCalculationRun(db, importId, runId, { ruleSetVersion: version as any });
-  saveCalculationRun(db, res.run, res.results, res.classCategories);
+  saveCalculationRun(db, res.run, res.results, res.classCategories, res.classSemantics);
   db.prepare('UPDATE active_state SET active_run_id = ?, active_import_id = ?, revision = revision + 1 WHERE id = 1').run(runId, importId);
   return res;
 }

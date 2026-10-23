@@ -69,12 +69,67 @@ export function deriveSubject(baseName: string): string {
   return '其他';
 }
 
+/** Explicit subjects for the fixed seed manifest. New class names do not use this lookup. */
+export const SEED_CLASS_SUBJECTS: ReadonlyMap<string, string> = new Map([
+  ['小六加強班-自然', '加強班'],
+  ['小六加強班-國文', '加強班'],
+  ['小六加強班-數學', '國小數學'],
+  ['兒童美語-Gino', '兒童美語'],
+  ['兒童美語-Archy', '兒童美語'],
+  ['兒童美語-Chevady', '兒童美語'],
+  ['兒童美語-Cody', '兒童美語'],
+  ['兒童美語-Ali', '兒童美語'],
+  ['兒童美語-Dommie', '兒童美語'],
+  ['兒童美語-EC', '兒童美語'],
+  ['兒童美語-ED', '兒童美語'],
+  ['兒童美語-Pluto', '兒童美語'],
+  ['兒童美語-EF', '兒童美語'],
+  ['兒童美語-EG', '兒童美語'],
+  ['兒童美語-EK', '兒童美語'],
+  ['兒童美語-EL', '兒童美語'],
+  ['兒童美語-EM', '兒童美語'],
+  ['兒童美語-Kirra', '兒童美語'],
+  ['兒童美語-Norma', '兒童美語'],
+  ['兒童美語-Hopper', '兒童美語'],
+  ['兒童美語-Teffer', '兒童美語'],
+  ['兒童美語-Toker', '兒童美語'],
+  ['國小國語文-小三小四', '國小國語文'],
+  ['國小國語文-小五', '國小國語文'],
+  ['國小輔導-一A', '國小輔導'],
+  ['國小輔導-一B', '國小輔導'],
+  ['國小輔導-二A', '國小輔導'],
+  ['國小輔導-二B', '國小輔導'],
+  ['國小輔導-三年級', '國小輔導'],
+  ['國小輔導-五年級', '國小輔導'],
+  ['國小輔導-六年級', '國小輔導'],
+  ['國小輔導-四年級', '國小輔導'],
+  ['國小數學-一A', '國小數學'],
+  ['國小數學-一B', '國小數學'],
+  ['國小數學-二A', '國小數學'],
+  ['國小數學-二B', '國小數學'],
+  ['國小數學-三A', '國小數學'],
+  ['國小數學-三B', '國小數學'],
+  ['國小數學-五A', '國小數學'],
+  ['國小數學-五B', '國小數學'],
+  ['國小數學-六A', '國小數學'],
+  ['國小數學-六B', '國小數學'],
+  ['國小數學-四A', '國小數學'],
+  ['國小數學-四B', '國小數學'],
+  ['兒童美語-KA', '兒童美語'],
+  ['兒童美語-KB', '兒童美語'],
+  ['兒童美語-KC', '兒童美語'],
+  ['兒童美語-EA', '兒童美語'],
+  ['兒童美語-EB', '兒童美語'],
+]);
+
 export const SEED_CLASSES: SeedClassItem[] = SEED_CLASS_RAW_NAMES.map((raw) => {
   const baseName = parseSingleClassToken(raw).baseName;
+  const subject = SEED_CLASS_SUBJECTS.get(baseName);
+  if (!subject) throw new Error(`Missing explicit seed subject: ${baseName}`);
   return {
     rawName: raw,
     baseName,
-    subject: deriveSubject(baseName),
+    subject,
   };
 });
 

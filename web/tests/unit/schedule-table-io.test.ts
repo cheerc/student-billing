@@ -18,6 +18,7 @@ import {
   ScheduleTableImportError,
   type ScheduleExportClassAttr,
 } from '@/adapters/xlsx/schedule-table-io';
+import { ClassSettingSchema, DEFAULT_CLASS_TYPE_DEFINITIONS, SettingsDraftSchema, type ClassTypeDefinition } from '@/contracts/settings';
 import {
   ScheduleGridRowSchema,
   buildSeedGridRows,
@@ -27,6 +28,11 @@ import {
 } from '@/contracts/settings';
 import { normalizeWeekday } from '@/domain/schedules/overlap-calculator';
 import { resolveClassAttributes } from '@/domain/classification/class-attributes';
+
+const CARE_WINDOWS = {
+  anqin: { startMinutes: 780, endMinutes: 960 },
+  tutoring: { startMinutes: 990, endMinutes: 1170 },
+};
 
 /** 手算的完整課表（3 列、2 個班；含一列「只有班名」的佔位列，#82 的形狀）。 */
 const FIXTURE_ROWS: ScheduleGridRow[] = [
@@ -727,5 +733,70 @@ describe('#81：課表 Excel 全量匯出／匯入', () => {
       expect(result.rows).toHaveLength(1);
       expect(result.rows[0].weekday).toBe('');
     });
+  });
+
+  it('roundtrips bounded semantic settings in a very-hidden workbook sheet', async () => {
+    const definition: ClassTypeDefinition = {
+      id: 'study_room',
+      label: '自習教室',
+      scheduleMode: 'timetable',
+      supportedAttributeKeys: ['subject', 'category', 'skipDeduction', 'summaryDayRoles', 'erpTierApplicability'],
+      summaryRoleOptions: ['mathDays', 'homeworkDays'],
+    };
+    const workbookRows: ScheduleGridRow[] = [{
+      rowId: 'synthetic-row-1',
+      className: '合成課程甲',
+      teacher: '合成教師',
+      weekday: '三',
+      startTime: '15:00',
+      endTime: '16:00',
+      startMinutes: 900,
+      endMinutes: 960,
+      active: true,
+      skipDeduction: false,
+    }];
+    const attrs: ScheduleExportClassAttr[] = [{
+      className: '合成課程甲',
+      classTypeId: definition.id,
+      classType: 'non_care',
+      category: 'none',
+      fixedFiveDays: false,
+      subject: '合成科目',
+      subjectSource: 'manual',
+      summaryDayRoles: ['homeworkDays'],
+      summaryDayRolesStatus: 'configured',
+      summaryDayRolesSource: 'manual',
+      erpTierApplicability: 'not_applicable',
+      erpTierApplicabilitySource: 'manual',
+    }];
+    const definitions = [...DEFAULT_CLASS_TYPE_DEFINITIONS, definition];
+    const buffer = await buildScheduleWorkbook(workbookRows, attrs, definitions);
+    const workbook = new ExcelJS.Workbook();
+    await workbook.xlsx.load(buffer as unknown as ArrayBuffer);
+    expect(workbook.getWorksheet('__class_semantics')?.state).toBe('veryHidden');
+
+    const imported = await parseScheduleWorkbook(buffer);
+    expect(imported.classTypeDefinitions).toEqual(definitions);
+    expect(imported.classAttrs).toEqual([{
+      ...attrs[0],
+      categorySource: 'manual',
+    }]);
+    const importedSettings = imported.classAttrs.map((item) => ClassSettingSchema.parse({
+      ...item,
+      baseName: item.className,
+      subject: item.subject ?? '',
+      teacher: null,
+      active: true,
+      sessions: [],
+    }));
+    const roundtrippedClasses = gridRowsToClasses(
+      scheduleImportRowsToGridRows(imported), importedSettings, imported.classTypeDefinitions
+    );
+    expect(SettingsDraftSchema.safeParse({
+      classes: roundtrippedClasses,
+      classTypeDefinitions: imported.classTypeDefinitions,
+      aliases: [],
+      careWindows: CARE_WINDOWS,
+    }).success).toBe(true);
   });
 });

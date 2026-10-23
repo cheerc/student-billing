@@ -100,7 +100,7 @@ describe('D2c N-1：快照寫入點唯一（executeCalculationRun 不寫 run_cla
 
   it('唯一寫入點 saveCalculationRun：走完整生產呼叫鏈後快照存在', () => {
     const res = executeCalculationRun(db, 'imp_n1', 'run_prod', { ruleSetVersion: 'erp-tag-v4' });
-    saveCalculationRun(db, res.run, res.results, res.classCategories);
+    saveCalculationRun(db, res.run, res.results, res.classCategories, res.classSemantics);
     expect(categoryRows('run_prod').length).toBeGreaterThan(0);
   });
 });

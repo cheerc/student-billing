@@ -105,12 +105,12 @@ export async function runBenchmark() {
     // B. 重算耗時 (Calculate + Save Calculation Results)
     const t1 = performance.now();
     const newRunId = `bench_run_${i}_${Date.now()}`;
-    const { run: calcRun, results: calcResults } = executeCalculationRun(
+    const { run: calcRun, results: calcResults, classCategories, classSemantics } = executeCalculationRun(
       db,
       preview.previewId,
       newRunId
     );
-    saveCalculationRun(db, calcRun, calcResults);
+    saveCalculationRun(db, calcRun, calcResults, classCategories, classSemantics);
     const recalcDuration = performance.now() - t1;
 
     // C. 篩選更新耗時 (執行四種典型篩選查詢取平均)

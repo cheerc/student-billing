@@ -93,6 +93,16 @@ describe('T05: preview→apply 雙階段流程整合測試 (I10/I11/I15/I18/I20)
     expect(res.mismatchAfter).toBe(18);
   });
 
+  it('requires clearing an unsupported legacy fixedFiveDays value before saving a new settings version', () => {
+    const draft = { ...buildSeedDraft(), classTypeDefinitions: undefined };
+    const mathClass = draft.classes.find((item) => item.baseName === '國小數學-一A')!;
+    mathClass.classType = 'non_care';
+    mathClass.fixedFiveDays = true;
+
+    expect(() => previewSettingsChange(db, previewId, { draft, expectedRevision: 1 }))
+      .toThrow('設定草稿格式錯誤');
+  });
+
   it('I18: 取消草稿不改 active；I11: 版本變更回 409', () => {
     const draft = buildDraftWithAlias([
       { rawBaseName: '國小數學-一', targetBaseName: '國小數學-一A' },
@@ -199,6 +209,14 @@ describe('T05: preview→apply 雙階段流程整合測試 (I10/I11/I15/I18/I20)
     (draft.classes as any[]).push({
       baseName: '測試新班-體驗課',
       subject: '其他',
+      classTypeId: 'non_care',
+      classType: 'non_care',
+      subjectSource: 'unset',
+      summaryDayRoles: [],
+      summaryDayRolesStatus: 'unset',
+      summaryDayRolesSource: 'unset',
+      erpTierApplicability: 'unset',
+      erpTierApplicabilitySource: 'unset',
       teacher: '測試老師',
       active: true,
       sessions: [{ weekday: '一', startMinutes: 780, endMinutes: 840 }],

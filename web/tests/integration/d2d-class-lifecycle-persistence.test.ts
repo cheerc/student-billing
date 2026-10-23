@@ -108,7 +108,7 @@ function seedStudents(db: Database.Database, importId: string) {
 
 function activate(db: Database.Database, importId: string, runId: string, version: string) {
   const res = executeCalculationRun(db, importId, runId, { ruleSetVersion: version as never });
-  saveCalculationRun(db, res.run, res.results, res.classCategories);
+  saveCalculationRun(db, res.run, res.results, res.classCategories, res.classSemantics);
   db.prepare('UPDATE active_state SET active_run_id = ?, active_import_id = ? WHERE id = 1').run(runId, importId);
   return res;
 }
@@ -141,7 +141,7 @@ describe('D2d H: UX54／UX55 班級生命週期的完整儲存→讀回（真實
 
   /** 把 baseline draft 换成只有指定兩列的精簡課表（讓斷言聚焦於班級結構，而非 seed 的 89 列）。 */
   function slimBaseline(rows: ScheduleGridRow[]): SettingsDraft {
-    return { ...baseDraft, classes: gridRowsToClasses(rows) };
+    return { ...baseDraft, classes: gridRowsToClasses(rows, baseDraft.classes, baseDraft.classTypeDefinitions) };
   }
 
   /**
@@ -149,7 +149,22 @@ describe('D2d H: UX54／UX55 班級生命週期的完整儲存→讀回（真實
    * 回傳讀回來的班級清單（依 baseName 索引）。
    */
   function saveAndReload(baseline: SettingsDraft, currentRows: ScheduleGridRow[]): SettingsDraft {
-    const draft: SettingsDraft = { ...baseline, classes: gridRowsToClasses(currentRows) };
+    const generatedClasses = gridRowsToClasses(currentRows, baseline.classes, baseline.classTypeDefinitions);
+    const draft: SettingsDraft = {
+      ...baseline,
+      classes: generatedClasses.map((item) => item.classTypeId || item.classType ? item : ({
+        ...item,
+        classTypeId: 'non_care',
+        classType: 'non_care',
+        subject: '',
+        subjectSource: 'unset',
+        summaryDayRoles: [],
+        summaryDayRolesStatus: 'unset',
+        summaryDayRolesSource: 'unset',
+        erpTierApplicability: 'unset',
+        erpTierApplicabilitySource: 'unset',
+      })),
+    };
     const revision = (
       db.prepare('SELECT revision FROM active_state WHERE id = 1').get() as { revision: number }
     ).revision;

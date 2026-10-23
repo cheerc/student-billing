@@ -1,7 +1,14 @@
 import Database from 'better-sqlite3';
+import crypto from 'crypto';
 import { loadRunClassCategories, type RunClassCategorySnapshot } from '@/application/applicable-rate';
 import { historicalRuleSetMetadata } from '@/domain/billing/rule-set';
 import type { RunDiagnosticsSnapshot } from '@/contracts/run-diagnostics';
+import {
+  ClassTypeDefinitionSchema,
+  ErpTierApplicabilitySchema,
+  SemanticSettingSourceSchema,
+  SummaryDayRoleSchema,
+} from '@/contracts/settings';
 
 export interface CalculationRunRecord {
   id: string;
@@ -29,6 +36,8 @@ export interface CalculationRunRecord {
    * 與 `applicableRateForClass` 的輸入同形，消費端不得自行轉型。
    */
   classCategories?: RunClassCategorySnapshot[];
+  /** Semantic settings captured for this run after migration 0009; historical runs remain absent. */
+  classSemantics?: RunClassSemanticSnapshot[];
 }
 
 export interface StudentCalculationRecord {
@@ -71,14 +80,42 @@ export interface RunClassCategoryRecord {
   source: string;
 }
 
+export interface RunClassSemanticRecord {
+  baseName: string;
+  resolvedBaseName: string;
+  snapshotSchemaVersion: number;
+  classTypeId: string | null;
+  classTypeDefinitionJson: string | null;
+  classTypeDefinitionHash: string | null;
+  subject: string;
+  subjectSource: string;
+  category: string;
+  categorySource: string;
+  fixedFiveDays: number;
+  summaryDayRolesJson: string;
+  summaryDayRolesStatus: string;
+  summaryDayRolesSource: string;
+  erpTierApplicability: string;
+  erpTierApplicabilitySource: string;
+}
+
+export interface RunClassSemanticSnapshot extends Omit<RunClassSemanticRecord, 'summaryDayRolesJson' | 'classTypeDefinitionJson'> {
+  summaryDayRoles: string[];
+  classTypeDefinition: Record<string, unknown> | null;
+}
+
 export function saveCalculationRun(
   db: Database.Database,
   run: CalculationRunRecord,
   results: StudentCalculationRecord[],
-  classCategories?: RunClassCategoryRecord[]
+  classCategories?: RunClassCategoryRecord[],
+  classSemantics?: RunClassSemanticRecord[]
 ): void {
   if (run.diagnosticAlgorithmVersion != null || run.diagnostics) {
     throw new Error('新 run 不可寫入已退役的診斷快照');
+  }
+  if (run.ruleSetVersion === 'erp-tag-v4' && classSemantics === undefined) {
+    throw new Error('v4 新 run 必須明確提供 classSemantics（空快照請傳入 []）');
   }
 
   const persist = db.transaction(() => {
@@ -168,6 +205,41 @@ export function saveCalculationRun(
     }
   }
 
+  if (run.ruleSetVersion === 'erp-tag-v4' && classSemantics !== undefined) {
+    db.prepare('INSERT INTO run_semantics_snapshots (run_id, snapshot_schema_version) VALUES (?, 1)').run(run.id);
+    const insertSemantics = db.prepare(`
+      INSERT INTO run_class_semantics (
+        run_id, base_name, resolved_base_name, snapshot_schema_version,
+        class_type_id, class_type_definition_json, class_type_definition_hash,
+        subject, subject_source, category, category_source, fixed_five_days,
+        summary_day_roles_json, summary_day_roles_status, summary_day_roles_source,
+        erp_tier_applicability, erp_tier_applicability_source
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+    for (const item of classSemantics) {
+      if (item.snapshotSchemaVersion !== 1) throw new Error(`Unsupported run semantics snapshot schema version ${item.snapshotSchemaVersion}`);
+      insertSemantics.run(
+        run.id,
+        item.baseName,
+        item.resolvedBaseName,
+        item.snapshotSchemaVersion,
+        item.classTypeId,
+        item.classTypeDefinitionJson,
+        item.classTypeDefinitionHash,
+        item.subject,
+        item.subjectSource,
+        item.category,
+        item.categorySource,
+        item.fixedFiveDays,
+        item.summaryDayRolesJson,
+        item.summaryDayRolesStatus,
+        item.summaryDayRolesSource,
+        item.erpTierApplicability,
+        item.erpTierApplicabilitySource
+      );
+    }
+  }
+
   });
   persist();
 }
@@ -202,6 +274,87 @@ export function getCalculationRun(
   // 正是 03 §5.3.4 明文禁止的猜測。v1／v2 沒有快照概念，維持 `undefined`。
   if (historicalRuleSetMetadata(record.ruleSetVersion).hasClassCategorySnapshot) {
     record.classCategories = loadRunClassCategories(db, runId);
+  }
+
+  if (record.ruleSetVersion === 'erp-tag-v4') {
+    const marker = db.prepare(
+      'SELECT snapshot_schema_version FROM run_semantics_snapshots WHERE run_id = ?'
+    ).get(runId) as { snapshot_schema_version: number } | undefined;
+    const semantics = db.prepare(
+      'SELECT * FROM run_class_semantics WHERE run_id = ? ORDER BY base_name'
+    ).all(runId) as any[];
+    if (marker) {
+      if (marker.snapshot_schema_version !== 1) {
+        throw new Error(`Unsupported run semantics snapshot schema version ${marker.snapshot_schema_version}`);
+      }
+      record.classSemantics = semantics.map((item) => {
+        if (item.snapshot_schema_version !== marker.snapshot_schema_version) {
+          throw new Error(`Run semantic row schema does not match snapshot header for ${runId}`);
+        }
+        const classTypeDefinition = item.class_type_definition_json
+          ? ClassTypeDefinitionSchema.parse(JSON.parse(item.class_type_definition_json))
+          : null;
+        if ((item.class_type_id === null && classTypeDefinition !== null) ||
+            (item.class_type_id !== null && (!classTypeDefinition || classTypeDefinition.id !== item.class_type_id))) {
+          throw new Error(`Run semantic class type id does not match its definition for ${runId}/${item.base_name}`);
+        }
+        if (classTypeDefinition) {
+          const expectedHash = crypto.createHash('sha256').update(item.class_type_definition_json).digest('hex');
+          if (expectedHash !== item.class_type_definition_hash) {
+            throw new Error(`Run semantic definition hash mismatch for ${runId}/${item.base_name}`);
+          }
+        } else if (item.class_type_definition_hash !== null) {
+          throw new Error(`Run semantic definition hash has no definition for ${runId}/${item.base_name}`);
+        }
+        let summaryDayRoles: unknown;
+        try {
+          summaryDayRoles = JSON.parse(item.summary_day_roles_json);
+        } catch {
+          throw new Error(`Run semantic roles JSON is invalid for ${runId}/${item.base_name}`);
+        }
+        if (!Array.isArray(summaryDayRoles) || summaryDayRoles.some((role) => !SummaryDayRoleSchema.safeParse(role).success)) {
+          throw new Error(`Run semantic roles are invalid for ${runId}/${item.base_name}`);
+        }
+        if (!SemanticSettingSourceSchema.safeParse(item.subject_source).success ||
+            !SemanticSettingSourceSchema.safeParse(item.summary_day_roles_source).success ||
+            !SemanticSettingSourceSchema.safeParse(item.erp_tier_applicability_source).success) {
+          throw new Error(`Run semantic source is invalid for ${runId}/${item.base_name}`);
+        }
+        if (!['configured', 'unset', 'unavailable'].includes(item.summary_day_roles_status)) {
+          throw new Error(`Run semantic role status is invalid for ${runId}/${item.base_name}`);
+        }
+        if (!ErpTierApplicabilitySchema.safeParse(item.erp_tier_applicability).success) {
+          throw new Error(`Run semantic tier applicability is invalid for ${runId}/${item.base_name}`);
+        }
+        if (!['care', 'math', 'english', 'none', 'unset'].includes(item.category) ||
+            !['manual', 'seed', 'unset'].includes(item.category_source)) {
+          throw new Error(`Run semantic category is invalid for ${runId}/${item.base_name}`);
+        }
+        if (typeof item.subject !== 'string' || ![0, 1].includes(item.fixed_five_days)) {
+          throw new Error(`Run semantic scalar fields are invalid for ${runId}/${item.base_name}`);
+        }
+        return {
+        baseName: item.base_name,
+        resolvedBaseName: item.resolved_base_name,
+        snapshotSchemaVersion: item.snapshot_schema_version,
+        classTypeId: item.class_type_id,
+        classTypeDefinition,
+        classTypeDefinitionHash: item.class_type_definition_hash,
+        subject: item.subject,
+        subjectSource: item.subject_source,
+        category: item.category,
+        categorySource: item.category_source,
+        fixedFiveDays: item.fixed_five_days,
+        summaryDayRoles,
+        summaryDayRolesStatus: item.summary_day_roles_status,
+        summaryDayRolesSource: item.summary_day_roles_source,
+        erpTierApplicability: item.erp_tier_applicability,
+        erpTierApplicabilitySource: item.erp_tier_applicability_source,
+        };
+      });
+    } else if (semantics.length > 0) {
+      throw new Error(`Run semantic rows exist without a snapshot header for ${runId}`);
+    }
   }
 
   return record;

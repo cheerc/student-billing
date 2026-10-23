@@ -39,7 +39,7 @@ type Db = ReturnType<typeof import('@/adapters/sqlite').getDatabase>;
 
 function runV4(db: Db, importId: string, runId: string) {
   const res = executeCalculationRun(db, importId, runId, { ruleSetVersion: 'erp-tag-v4' as never });
-  saveCalculationRun(db, res.run, res.results, res.classCategories);
+  saveCalculationRun(db, res.run, res.results, res.classCategories, res.classSemantics);
   return res;
 }
 

@@ -12,7 +12,18 @@
  */
 
 import ExcelJS from 'exceljs';
-import type { ScheduleGridRow, ClassType } from '@/contracts/settings';
+import {
+  ClassTypeDefinitionSchema,
+  DEFAULT_CLASS_TYPE_DEFINITIONS,
+  ErpTierApplicabilitySchema,
+  SemanticSettingSourceSchema,
+  SummaryDayRoleSchema,
+  legacyClassTypeForDefinition,
+  type ClassTypeDefinition,
+  type ScheduleGridRow,
+  type ClassType,
+  type SummaryDayRole,
+} from '@/contracts/settings';
 import { timeStringToMinutes } from '@/contracts/settings';
 import type { ClassCategory, WritableCategorySource } from '@/domain/classification/class-category';
 import { CATEGORY_LABELS, resolveClassAttributes } from '@/domain/classification/class-attributes';
@@ -76,9 +87,17 @@ const CATEGORY_BY_LABEL: Record<string, ClassCategory> = {
 /** 匯出時每個班級的**有效**屬性（編輯器已解析使用者的指定與未設定；這裡不再重算一次）。 */
 export interface ScheduleExportClassAttr {
   className: string;
+  classTypeId?: string;
   classType?: ClassType;
   category: ClassCategory;
   fixedFiveDays: boolean;
+  subject?: string;
+  subjectSource?: string;
+  summaryDayRoles?: SummaryDayRole[];
+  summaryDayRolesStatus?: string;
+  summaryDayRolesSource?: string;
+  erpTierApplicability?: string;
+  erpTierApplicabilitySource?: string;
 }
 
 /** 匯入回傳的一列時段。
@@ -102,11 +121,20 @@ export interface ScheduleImportResult {
   /** 匯入明確類別為 manual；「（未設定）」保留 unset，不得升格為使用者指定。 */
   classAttrs: Array<{
     className: string;
+    classTypeId?: string;
     classType: ClassType;
     category: ClassCategory;
     categorySource: WritableCategorySource;
     fixedFiveDays: boolean;
+    subject?: string;
+    subjectSource?: string;
+    summaryDayRoles?: SummaryDayRole[];
+    summaryDayRolesStatus?: string;
+    summaryDayRolesSource?: string;
+    erpTierApplicability?: string;
+    erpTierApplicabilitySource?: string;
   }>;
+  classTypeDefinitions?: ClassTypeDefinition[];
 }
 
 /** 匯入失敗（表頭／內容不符）。message 一律是可直接顯示給使用者的白話。 */
@@ -153,7 +181,8 @@ function normalizeHeader(value: unknown): string {
  */
 export async function buildScheduleWorkbook(
   rows: ScheduleGridRow[],
-  classAttrs: ScheduleExportClassAttr[]
+  classAttrs: ScheduleExportClassAttr[],
+  classTypeDefinitions?: ClassTypeDefinition[]
 ): Promise<Buffer> {
   const attrsByName = new Map(classAttrs.map((a) => [a.className.trim(), a]));
 
@@ -191,6 +220,28 @@ export async function buildScheduleWorkbook(
   }
 
   sheet.views = [{ state: 'frozen', ySplit: 1 }];
+
+  // Additive, hidden workbook metadata preserves the bounded registry and independent class
+  // semantics through export/import. Old workbooks without this sheet remain supported.
+  if (classTypeDefinitions || classAttrs.some((item) => item.classTypeId || item.summaryDayRoles || item.subjectSource)) {
+    const metadata = workbook.addWorksheet('__class_semantics');
+    metadata.state = 'veryHidden';
+    metadata.addRow(['schemaVersion', 1]);
+    metadata.addRow(['classTypeDefinitions', JSON.stringify(classTypeDefinitions ?? DEFAULT_CLASS_TYPE_DEFINITIONS)]);
+    metadata.addRow(['className', 'semanticsJson']);
+    for (const item of classAttrs) {
+      metadata.addRow([item.className, JSON.stringify({
+        classTypeId: item.classTypeId,
+        subject: item.subject,
+        subjectSource: item.subjectSource,
+        summaryDayRoles: item.summaryDayRoles,
+        summaryDayRolesStatus: item.summaryDayRolesStatus,
+        summaryDayRolesSource: item.summaryDayRolesSource,
+        erpTierApplicability: item.erpTierApplicability,
+        erpTierApplicabilitySource: item.erpTierApplicabilitySource,
+      })]);
+    }
+  }
 
   const buffer = await workbook.xlsx.writeBuffer();
   return Buffer.from(buffer);
@@ -274,6 +325,44 @@ export async function parseScheduleWorkbook(input: Buffer | Uint8Array): Promise
     ?? workbook.worksheets[0];
   if (!sheet) {
     throw new ScheduleTableImportError('這個 Excel 檔案裡沒有工作表，無法匯入課表。');
+  }
+
+  const metadataSheet = workbook.getWorksheet('__class_semantics');
+  let semanticDefinitions: ClassTypeDefinition[] | undefined;
+  const semanticsByName = new Map<string, Record<string, unknown>>();
+  if (metadataSheet) {
+    try {
+      const version = Number(metadataSheet.getRow(1).getCell(2).value);
+      if (version !== 1) throw new Error('schema version');
+      const rawDefinitions = JSON.parse(cellText(metadataSheet.getRow(2).getCell(2).value));
+      if (!Array.isArray(rawDefinitions)) throw new Error('registry');
+      semanticDefinitions = rawDefinitions.map((definition) => ClassTypeDefinitionSchema.parse(definition));
+      const ids = new Set(semanticDefinitions.map((definition) => definition.id));
+      if (ids.size !== semanticDefinitions.length ||
+          semanticDefinitions.find((item) => item.id === 'care')?.scheduleMode !== 'care_window' ||
+          semanticDefinitions.find((item) => item.id === 'non_care')?.scheduleMode !== 'timetable') {
+        throw new Error('built-in registry');
+      }
+      for (let rowNumber = 4; rowNumber <= metadataSheet.rowCount; rowNumber++) {
+        const row = metadataSheet.getRow(rowNumber);
+        const className = cellText(row.getCell(1).value).trim();
+        const raw = cellText(row.getCell(2).value);
+        if (!className && !raw) continue;
+        if (!className || !raw || semanticsByName.has(className)) throw new Error('metadata row');
+        const value = JSON.parse(raw) as Record<string, unknown>;
+        if (value.classTypeId !== undefined && !ids.has(String(value.classTypeId))) throw new Error('unknown type');
+        if (value.subject !== undefined && typeof value.subject !== 'string') throw new Error('subject');
+        if (value.subjectSource !== undefined && !SemanticSettingSourceSchema.safeParse(value.subjectSource).success) throw new Error('subject source');
+        if (value.summaryDayRoles !== undefined && (!Array.isArray(value.summaryDayRoles) || value.summaryDayRoles.some((role) => !SummaryDayRoleSchema.safeParse(role).success))) throw new Error('roles');
+        if (value.summaryDayRolesStatus !== undefined && !['configured', 'unset', 'unavailable'].includes(String(value.summaryDayRolesStatus))) throw new Error('role status');
+        if (value.summaryDayRolesSource !== undefined && !SemanticSettingSourceSchema.safeParse(value.summaryDayRolesSource).success) throw new Error('role source');
+        if (value.erpTierApplicability !== undefined && !ErpTierApplicabilitySchema.safeParse(value.erpTierApplicability).success) throw new Error('tier applicability');
+        if (value.erpTierApplicabilitySource !== undefined && !SemanticSettingSourceSchema.safeParse(value.erpTierApplicabilitySource).success) throw new Error('tier source');
+        semanticsByName.set(className, value);
+      }
+    } catch {
+      throw new ScheduleTableImportError('這個 Excel 的語意設定資料無法辨識，請使用本工具匯出的版本。');
+    }
   }
 
   const headerRow = sheet.getRow(1);
@@ -408,15 +497,34 @@ export async function parseScheduleWorkbook(input: Buffer | Uint8Array): Promise
     throw new ScheduleTableImportError('這個 Excel 檔案裡沒有任何課表資料列。');
   }
 
-  return {
-    rows,
-    classAttrs: [...attrsByName.entries()].map(([className, a]) => ({
+  const classAttrs = [...attrsByName.entries()].map(([className, a]) => {
+    const semantic = semanticsByName.get(className);
+    const classTypeId = typeof semantic?.classTypeId === 'string' ? semantic.classTypeId : undefined;
+    if (classTypeId) {
+      const definition = semanticDefinitions?.find((item) => item.id === classTypeId);
+      if (!definition || legacyClassTypeForDefinition(definition) !== a.classType) {
+        throw new ScheduleTableImportError(`班級「${className}」的課程類型與語意設定不一致。`);
+      }
+      const roles = semantic?.summaryDayRoles as string[] | undefined;
+      if (roles?.some((role) => !definition.summaryRoleOptions.includes(role as SummaryDayRole))) {
+        throw new ScheduleTableImportError(`班級「${className}」設定了課程類型不支援的摘要角色。`);
+      }
+    }
+    return {
       className,
       classType: a.classType,
+      ...(classTypeId ? { classTypeId } : {}),
       category: a.category,
-      categorySource: a.category === 'unset' ? 'unset' : 'manual',
+      categorySource: a.category === 'unset' ? 'unset' as const : 'manual' as const,
       fixedFiveDays: a.fixedFiveDays,
-    })),
+      ...(semantic ?? {}),
+    };
+  });
+
+  return {
+    rows,
+    classAttrs,
+    ...(semanticDefinitions ? { classTypeDefinitions: semanticDefinitions } : {}),
   };
 }
 

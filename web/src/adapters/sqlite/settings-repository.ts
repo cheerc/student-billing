@@ -1,10 +1,14 @@
 import Database from 'better-sqlite3';
 import crypto from 'crypto';
 import {
+  DEFAULT_CLASS_TYPE_DEFINITIONS,
   SettingsDraft,
   buildSeedGridRows,
   gridRowsToClasses,
+  legacyClassTypeForDefinition,
 } from '@/contracts/settings';
+import { SEED_CLASS_SEMANTICS } from '@/domain/classification/class-semantics';
+import { SEED_CLASSES } from '@/domain/schedules/seed-manifest';
 
 export interface SettingsVersionRecord {
   id: string;
@@ -244,10 +248,31 @@ export function buildSeedDraft(
   // #157：seed 草稿**不寫** category／categorySource。seed 基準由 `SEED_CLASS_CATEGORIES`
   // 在「讀取已儲存設定」路徑同樣套用（`effectiveCategoryOf`），故全新 DB 與既有 DB
   // 對同一份設定算出**相同**結果——寫進草稿只會讓 seed 基準看起來像使用者的決定。
-  const fullSeedClasses = gridRowsToClasses(seedRows);
+  const explicitSeedClasses = (seedClasses ?? SEED_CLASSES).map((seed) => {
+    const semantics = SEED_CLASS_SEMANTICS.get(seed.baseName);
+    if (!semantics) throw new Error(`Seed semantics are missing for ${seed.baseName}`);
+    const definition = DEFAULT_CLASS_TYPE_DEFINITIONS.find((item) => item.id === semantics?.classTypeId);
+    return {
+      baseName: seed.baseName,
+      subject: seed.subject,
+      subjectSource: 'seed' as const,
+      teacher: null,
+      active: true,
+      sessions: [],
+      classTypeId: semantics.classTypeId,
+      classType: definition ? legacyClassTypeForDefinition(definition) : 'non_care' as const,
+      summaryDayRoles: semantics.summaryDayRoles,
+      summaryDayRolesStatus: 'configured' as const,
+      summaryDayRolesSource: 'seed' as const,
+      erpTierApplicability: semantics.erpTierApplicability,
+      erpTierApplicabilitySource: 'seed' as const,
+    };
+  });
+  const fullSeedClasses = gridRowsToClasses(seedRows, explicitSeedClasses, DEFAULT_CLASS_TYPE_DEFINITIONS);
 
   return {
     classes: fullSeedClasses,
+    classTypeDefinitions: [...DEFAULT_CLASS_TYPE_DEFINITIONS],
     aliases: [],
     careWindows: {
       anqin: {

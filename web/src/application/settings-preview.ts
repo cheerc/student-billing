@@ -2,6 +2,7 @@ import Database from 'better-sqlite3';
 import crypto from 'crypto';
 import {
   SettingsDraft,
+  SettingsDraftSchema,
   SettingsPreviewRequestSchema,
 } from '@/contracts/settings';
 import {
@@ -17,6 +18,7 @@ import { projectActionableIssues } from '@/domain/issues/actionable-issues';
 import { careWindowsMatchRuleSet, CARE_WINDOWS_MISMATCH_MESSAGE } from './schedule-preview';
 import { resolveTargetRuleSetVersion, RuleSetResolutionError } from './rule-set-resolver';
 import { buildClassSettingMap } from './calculate-run';
+import { normalizeSettingsDraftSemantics } from '@/domain/classification/class-semantics';
 import { loadStudentsForImport } from '@/adapters/sqlite/import-repository';
 import { getCurrentActiveRun } from '@/adapters/sqlite/runs-repository';
 
@@ -154,7 +156,14 @@ export function previewSettingsChange(
   if (!parsed.success) {
     throw new SettingsPreviewError(400, `設定草稿格式錯誤：${parsed.error.message}`, 'INVALID_DRAFT');
   }
-  const { draft, expectedRevision, targetRuleSetVersion: requestedVersion } = parsed.data;
+  const { expectedRevision, targetRuleSetVersion: requestedVersion } = parsed.data;
+  // New settings versions carry a bounded registry and explicit unset semantics. Legacy inputs
+  // receive a read-only compatibility projection here, then the resulting version is complete.
+  const draft = normalizeSettingsDraftSemantics(parsed.data.draft);
+  const normalizedDraftValidation = SettingsDraftSchema.safeParse(draft);
+  if (!normalizedDraftValidation.success) {
+    throw new SettingsPreviewError(400, `設定草稿格式錯誤：${normalizedDraftValidation.error.message}`, 'INVALID_DRAFT');
+  }
   // 窗口固定（D33）：draft.careWindows 只允許 ruleSet 值，不同即 400，不靜默忽略（09 §8.1）
   if (!careWindowsMatchRuleSet(draft)) {
     throw new SettingsPreviewError(400, CARE_WINDOWS_MISMATCH_MESSAGE, 'INVALID_DRAFT');
