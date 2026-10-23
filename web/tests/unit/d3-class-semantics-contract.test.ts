@@ -7,7 +7,7 @@ import {
   SettingsDraftSchema,
   type ClassTypeDefinition,
 } from '@/contracts/settings';
-import { deriveSubject, SEED_CLASSES, SEED_CLASS_CATEGORIES } from '@/domain/schedules/seed-manifest';
+import { SEED_CLASSES, SEED_CLASS_CATEGORIES } from '@/domain/schedules/seed-manifest';
 import {
   carryClassSemanticsOnRename,
   clearUnsupportedClassSemantics,
@@ -127,7 +127,7 @@ describe('PR-3 bounded class semantics contract', () => {
     expect([...SEED_CLASS_SEMANTICS.keys()].sort()).toEqual(SEED_CLASSES.map((item) => item.baseName).sort());
     for (const [baseName, semantics] of SEED_CLASS_SEMANTICS) {
       expect(semantics.category).toBe(SEED_CLASS_CATEGORIES.get(baseName));
-      expect(semantics.subject).toBe(deriveSubject(baseName));
+      expect(semantics.subject).toBe(SEED_CLASSES.find((item) => item.baseName === baseName)?.subject);
       expect(semantics.summaryDayRoles.every((role) =>
         DEFAULT_CLASS_TYPE_DEFINITIONS.some((definition) => definition.summaryRoleOptions.includes(role))
       )).toBe(true);
@@ -360,5 +360,30 @@ describe('PR-3 bounded class semantics contract', () => {
       id: 'timetable_fixed', label: '不相容課表', scheduleMode: 'timetable',
       supportedAttributeKeys: ['fixedFiveDays'], summaryRoleOptions: [],
     }).success).toBe(false);
+  });
+
+  it('rejects stale compatibility classType when it disagrees with classTypeId schedule mode', () => {
+    const careDefinition: ClassTypeDefinition = {
+      id: 'synthetic_care',
+      label: '合成安親類型',
+      scheduleMode: 'care_window',
+      supportedAttributeKeys: ['subject', 'category', 'summaryDayRoles', 'erpTierApplicability'],
+      summaryRoleOptions: [],
+    };
+    const draft = {
+      classes: [{
+        baseName: '合成班', subject: '', teacher: null, active: true, sessions: [],
+        classTypeId: careDefinition.id, classType: 'non_care', category: 'unset',
+        categorySource: 'unset', fixedFiveDays: false,
+      }],
+      classTypeDefinitions: [...DEFAULT_CLASS_TYPE_DEFINITIONS, careDefinition],
+      aliases: [],
+      careWindows: CARE_WINDOWS,
+    };
+
+    const parsed = SettingsDraftSchema.safeParse(draft);
+    expect(parsed.success).toBe(false);
+    expect(parsed.success ? [] : parsed.error.issues.map((issue) => issue.path.join('.')))
+      .toContain('classes.0.classType');
   });
 });

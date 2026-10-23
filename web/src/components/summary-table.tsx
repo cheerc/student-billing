@@ -78,7 +78,7 @@ function extraDays(stu: StudentCalculationItem): string {
  *
  * D2b 3（N-8）：v3 run 以 server 傳下的類別快照判斷，查詢 key 必須是**名冊班名**
  * （快照的 base_name 存的就是名冊班名；`singleClass` 亦來自名冊報名 key，兩者同源）。
- * v1／v2 沒有快照，沿用名稱映射（`applicableRateContext` 不帶 isV3Run）。
+ * v1／v2 沒有快照，沿用明確版本的凍結名稱映射；缺 Run/version/snapshot 時不猜。
  */
 function localRate(
   stu: StudentCalculationItem,
@@ -89,13 +89,12 @@ function localRate(
   const r = applicableRateForClass(
     className,
     stu,
-    snapshots
-      ? {
-          isV3Run: true,
-          ruleSetVersion,
-          findSnapshot: (name) => snapshots.find((x) => x.base_name === name),
-        }
-      : undefined
+    {
+      isV3Run: Array.isArray(snapshots),
+      usesSnapshot: Array.isArray(snapshots),
+      ruleSetVersion,
+      findSnapshot: (name) => snapshots?.find((x) => x.base_name === name),
+    }
   );
   if (r.status === 'not_configured') return '未設定';
   return r.bps === null ? '—' : formatDiscountBps(r.bps);
@@ -112,7 +111,7 @@ interface SummaryTableProps {
   renderFilter?: (column: StudentColumnKey) => React.ReactNode;
   /**
    * 該 run 的班級類別快照（具快照能力的 run 才有；server 由 run_class_categories 讀出）。
-   * 有值＝快照 run，本班適用折扣依快照判斷；無值＝名稱映射。
+   * v3/v4 缺快照時仍依 ruleSetVersion fail closed；明確 v1/v2 才用 frozen historical projection。
    */
   classCategorySnapshots?: RunClassCategorySnapshot[] | null;
   /** 該 run 的規則集版本（例如 erp-tag-v4） */

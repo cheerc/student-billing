@@ -33,6 +33,13 @@ export const SUMMARY_DAY_ROLES = [
 export const SummaryDayRoleSchema = z.enum(SUMMARY_DAY_ROLES);
 export type SummaryDayRole = z.infer<typeof SummaryDayRoleSchema>;
 
+/** One frozen legacy condition retained only when migrating the old Saturday summary rule. */
+export const SummaryDayRoleConditionSchema = z.object({
+  role: z.literal('saturdayTutoringDays'),
+  condition: z.literal('raw_token_contains_six'),
+}).strict();
+export type SummaryDayRoleCondition = z.infer<typeof SummaryDayRoleConditionSchema>;
+
 /** 明確設定資料，不對應公式。`unset` 表示目前沒有核准的級距適用性。 */
 export const ErpTierApplicabilitySchema = z.enum(['applicable', 'not_applicable', 'unset']);
 export type ErpTierApplicability = z.infer<typeof ErpTierApplicabilitySchema>;
@@ -200,6 +207,7 @@ export const ClassSettingSchema = z.object({
   categorySource: z.enum(['auto', 'manual', 'unset', 'seed']).optional(),
   fixedFiveDays: z.boolean().optional(),
   summaryDayRoles: z.array(SummaryDayRoleSchema).max(SUMMARY_DAY_ROLES.length).optional(),
+  summaryDayRoleConditions: z.array(SummaryDayRoleConditionSchema).max(1).optional(),
   summaryDayRolesStatus: z.enum(['configured', 'unset', 'unavailable']).optional(),
   summaryDayRolesSource: SemanticSettingSourceSchema.optional(),
   erpTierApplicability: ErpTierApplicabilitySchema.optional(),
@@ -481,6 +489,7 @@ export interface ClassAttributeSetting {
   fixedFiveDays?: boolean;
   subject?: string;
   summaryDayRoles?: SummaryDayRole[];
+  summaryDayRoleConditions?: SummaryDayRoleCondition[];
   summaryDayRolesStatus?: 'configured' | 'unset' | 'unavailable';
   summaryDayRolesSource?: SemanticSettingSource;
   erpTierApplicability?: ErpTierApplicability;
@@ -549,6 +558,7 @@ export function isSettingsDirty(
         ca.fixedFiveDays !== ba.fixedFiveDays ||
         ca.subject !== ba.subject ||
         JSON.stringify(ca.summaryDayRoles ?? []) !== JSON.stringify(ba.summaryDayRoles ?? []) ||
+        JSON.stringify(ca.summaryDayRoleConditions ?? []) !== JSON.stringify(ba.summaryDayRoleConditions ?? []) ||
         ca.summaryDayRolesStatus !== ba.summaryDayRolesStatus ||
         ca.summaryDayRolesSource !== ba.summaryDayRolesSource ||
         ca.erpTierApplicability !== ba.erpTierApplicability ||
@@ -593,6 +603,7 @@ function validateDraftSemantics(
       category?: ClassCategory;
       fixedFiveDays?: boolean;
       summaryDayRoles?: SummaryDayRole[];
+      summaryDayRoleConditions?: SummaryDayRoleCondition[];
       summaryDayRolesStatus?: 'configured' | 'unset' | 'unavailable';
       erpTierApplicability?: ErpTierApplicability;
       sessions?: Array<{ skipDeduction?: boolean }>;
@@ -661,6 +672,9 @@ function validateDraftSemantics(
       ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['classes', index, 'sessions'], message: `課程類型 ${id} 不支援不計扣天` });
     }
     const roles = cls.summaryDayRoles ?? [];
+    if ((cls.summaryDayRoleConditions ?? []).some((condition) => !roles.includes(condition.role))) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['classes', index, 'summaryDayRoleConditions'], message: '摘要角色條件必須對應已設定的摘要角色' });
+    }
     for (const role of roles) {
       if (!definition.summaryRoleOptions.includes(role)) {
         ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['classes', index, 'summaryDayRoles'], message: `課程類型 ${id} 不支援 ${role}` });

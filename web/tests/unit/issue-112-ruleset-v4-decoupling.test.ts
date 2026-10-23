@@ -69,12 +69,14 @@ describe('specs/14 §3.11: erp-tag-v4 規則版本定義與能力旗標', () => 
     expect(historicalRuleSetMetadata('erp-tag-v4')).toEqual({
       known: true,
       hasClassCategorySnapshot: true,
+      hasClassSemanticsSnapshot: true,
       fixedFiveDaysAffectsRate: false,
       sameWeekdayOnly: true,
     });
     expect(historicalRuleSetMetadata('erp-tag-v3')).toEqual({
       known: true,
       hasClassCategorySnapshot: true,
+      hasClassSemanticsSnapshot: false,
       fixedFiveDaysAffectsRate: true,
       sameWeekdayOnly: true,
     });
@@ -83,6 +85,7 @@ describe('specs/14 §3.11: erp-tag-v4 規則版本定義與能力旗標', () => 
     expect(historicalRuleSetMetadata('unknown-version')).toEqual({
       known: false,
       hasClassCategorySnapshot: false,
+      hasClassSemanticsSnapshot: false,
       fixedFiveDaysAffectsRate: false,
       sameWeekdayOnly: false,
     });

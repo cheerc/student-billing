@@ -18,6 +18,7 @@ import {
   isSettingsDirty,
   type ClassAttributeSetting,
   type ClassType,
+  type SummaryDayRole,
 } from '@/contracts/settings';
 import { DynamicCandidate, buildDynamicCandidates, type CandidateCounts } from '@/domain/schedules/seed-manifest';
 import { CalculatePreviewResponse } from '@/application/schedule-preview';
@@ -47,6 +48,11 @@ import {
   normalizeSettingsDraftSemantics,
   overlayClassSemantics,
 } from '@/domain/classification/class-semantics';
+import {
+  migrateLegacyClassSemantics,
+  previewLegacyClassSemanticsMigration,
+  type LegacySemanticMigrationCandidate,
+} from '@/domain/classification/legacy-semantic-migration';
 import type { ClassCategory, WritableCategorySource } from '@/domain/classification/class-category';
 import { TabList, tabPanelProps } from '@/components/ui/tabs';
 import { useUnsavedChangesGuard } from '@/components/ui/use-unsaved-changes-guard';
@@ -64,6 +70,7 @@ interface SettingsEditorProps {
   importId: string | null;
   currentRevision: number;
   initialDraft: SettingsDraft;
+  legacySemanticMigrationCandidates?: LegacySemanticMigrationCandidate[];
   unmatched?: string[];
   /** 班名比對報告（D1）；由 server 依 ?import= 的名單（預設現行名單）產生 */
   classNameReport?: ClassNameMatchReport | null;
@@ -86,6 +93,34 @@ interface SettingsEditorProps {
    * null＝尚無啟用的 run（空 DB，該 run 建立時即為目標版本 v3，無需升級動作）。
    */
   currentRuleSetVersion?: string | null;
+}
+
+const SUMMARY_ROLE_LABELS: Record<SummaryDayRole, string> = {
+  anqinDays: '安親天數',
+  tutoringDays: '課輔天數',
+  englishDays: '美語天數',
+  mathDays: '數學天數',
+  chineseDays: '國語文天數',
+  homeworkDays: '寫功課天數',
+  intensiveEnglishDays: '加重／密集美語天數',
+  saturdayTutoringDays: '週六課輔天數',
+};
+
+function describeSummaryRoles(roles: SummaryDayRole[] | null, conditions: Array<{ role: SummaryDayRole; condition: string }> = []): string {
+  if (roles === null) return '未保存';
+  if (roles.length === 0) return '無';
+  return roles.map((role) => {
+    const label = SUMMARY_ROLE_LABELS[role];
+    const condition = conditions.find((item) => item.role === role);
+    return condition?.condition === 'raw_token_contains_six' ? `${label}（原始 token 含「六」）` : label;
+  }).join('、');
+}
+
+function describeTierApplicability(value: 'applicable' | 'not_applicable' | 'unset' | null): string {
+  if (value === null) return '未保存';
+  if (value === 'applicable') return '適用';
+  if (value === 'not_applicable') return '不適用';
+  return '未設定';
 }
 
 /** 計算失敗時的說明（不外露狀態碼或工程字）；ScheduleGrid 會補上「不代表沒有衝堂」。 */
@@ -163,6 +198,7 @@ function semanticSettingsKey(classes: ClassSetting[]): string {
     subject: item.subject ?? '',
     subjectSource: item.subjectSource ?? 'unset',
     summaryDayRoles: item.summaryDayRoles ?? [],
+    summaryDayRoleConditions: item.summaryDayRoleConditions ?? [],
     summaryDayRolesStatus: item.summaryDayRolesStatus ?? 'unset',
     summaryDayRolesSource: item.summaryDayRolesSource ?? 'unset',
     erpTierApplicability: item.erpTierApplicability ?? 'unset',
@@ -243,6 +279,7 @@ export default function SettingsEditor({
   importId,
   currentRevision,
   initialDraft,
+  legacySemanticMigrationCandidates = [],
   unmatched = [],
   classNameReport = null,
   reportImportId = null,
@@ -259,6 +296,19 @@ export default function SettingsEditor({
   const [activeTab, setActiveTab] = useState<'schedule' | 'mapping'>(initialTab);
   const normalizedInitialDraft = useMemo(() => normalizeSettingsDraftSemantics(initialDraft), [initialDraft]);
   const [draft, setDraft] = useState<SettingsDraft>(normalizedInitialDraft);
+  const [legacyMigrationPending, setLegacyMigrationPending] = useState(legacySemanticMigrationCandidates.length > 0);
+  const [legacyMigrationSummary, setLegacyMigrationSummary] = useState<{
+    migratedClassCount: number;
+    migratedSummaryRoleClassCount: number;
+    migratedTierApplicabilityClassCount: number;
+  } | null>(null);
+  const legacyMigrationRecommendation = useMemo(
+    () => previewLegacyClassSemanticsMigration(
+      draft.classes,
+      new Map(legacySemanticMigrationCandidates.map((item) => [item.baseName, item]))
+    ),
+    [draft.classes, legacySemanticMigrationCandidates]
+  );
   const [baselineSemanticClasses, setBaselineSemanticClasses] = useState<ClassSetting[]>(normalizedInitialDraft.classes);
   const [baselineSemanticDefinitions, setBaselineSemanticDefinitions] = useState<ClassTypeDefinition[]>(
     normalizedInitialDraft.classTypeDefinitions
@@ -490,6 +540,14 @@ export default function SettingsEditor({
     () => detectSemanticMergeConflicts(classLifecycle.merges, draft.classes),
     [classLifecycle.merges, draft.classes]
   );
+  const handleLegacySemanticMigration = () => {
+    const candidates = new Map(legacySemanticMigrationCandidates.map((item) => [item.baseName, item]));
+    const migrated = migrateLegacyClassSemantics(draft.classes, candidates);
+    setDraft((prev) => ({ ...prev, classes: migrated.classes }));
+    setLegacyMigrationSummary(migrated);
+    setLegacyMigrationPending(false);
+    setPreview(null);
+  };
   const semanticDirty =
     semanticSettingsKey(semanticClassesForRows) !== semanticSettingsKey(baselineSemanticClasses) ||
     JSON.stringify(classTypeDefinitions) !== JSON.stringify(baselineSemanticDefinitions);
@@ -942,6 +1000,7 @@ export default function SettingsEditor({
           subject: semanticByName.get(className)?.subject ?? '',
           subjectSource: semanticByName.get(className)?.subjectSource ?? 'unset',
           summaryDayRoles: semanticByName.get(className)?.summaryDayRoles ?? [],
+          summaryDayRoleConditions: semanticByName.get(className)?.summaryDayRoleConditions ?? [],
           summaryDayRolesStatus: semanticByName.get(className)?.summaryDayRolesStatus ?? 'unset',
           summaryDayRolesSource: semanticByName.get(className)?.summaryDayRolesSource ?? 'unset',
           erpTierApplicability: semanticByName.get(className)?.erpTierApplicability ?? 'unset',
@@ -1015,6 +1074,7 @@ export default function SettingsEditor({
         subject?: string;
         subjectSource?: ClassSetting['subjectSource'];
         summaryDayRoles?: ClassSetting['summaryDayRoles'];
+        summaryDayRoleConditions?: ClassSetting['summaryDayRoleConditions'];
         summaryDayRolesStatus?: ClassSetting['summaryDayRolesStatus'];
         summaryDayRolesSource?: ClassSetting['summaryDayRolesSource'];
         erpTierApplicability?: ClassSetting['erpTierApplicability'];
@@ -1032,6 +1092,7 @@ export default function SettingsEditor({
         categorySource: item.categorySource,
         fixedFiveDays: item.fixedFiveDays,
         summaryDayRoles: item.summaryDayRoles ?? [],
+        summaryDayRoleConditions: item.summaryDayRoleConditions ?? [],
         summaryDayRolesStatus: item.summaryDayRolesStatus ?? 'unset',
         summaryDayRolesSource: item.summaryDayRolesSource ?? 'unset',
         erpTierApplicability: item.erpTierApplicability ?? 'unset',
@@ -1255,6 +1316,45 @@ export default function SettingsEditor({
         <section aria-label="排課時段設定" {...tabPanelProps('settings', 'schedule')}>
           {/* 唯讀照顧窗口摘要 */}
           <WindowSummary />
+
+          {legacyMigrationPending && (
+            <div className="notice-warn" role="status" data-legacy-semantic-migration="" style={{ marginBottom: '16px' }}>
+              <p style={{ marginTop: 0 }}>
+                舊設定尚未保存摘要欄位角色與 ERP 級距適用性。可依一次性舊規則建立明確的 <code>legacy_migration</code> 草稿；類別與既有 Run 不會被改寫，仍須經下方影響預覽後套用。
+              </p>
+              <p>以下是唯讀建議表，項目以匿名編號呈現，不包含班名或學生識別資料。套用後來源會標記為 <code>legacy_migration</code>。</p>
+              <div style={{ overflowX: 'auto' }}>
+                <table aria-label="舊規則語意遷移匿名建議表" style={{ width: '100%', borderCollapse: 'collapse', marginBottom: '12px' }}>
+                  <thead>
+                    <tr>
+                      <th scope="col" style={{ textAlign: 'left', padding: '6px' }}>項目</th>
+                      <th scope="col" style={{ textAlign: 'left', padding: '6px' }}>摘要欄位角色：原值 → 建議</th>
+                      <th scope="col" style={{ textAlign: 'left', padding: '6px' }}>ERP 級距適用性：原值 → 建議</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {legacyMigrationRecommendation.rows.map((row) => (
+                      <tr key={row.anonymousClassLabel}>
+                        <th scope="row" style={{ textAlign: 'left', padding: '6px' }}>{row.anonymousClassLabel}</th>
+                        <td style={{ padding: '6px' }}>
+                          {describeSummaryRoles(row.summaryDayRolesBefore)} → {describeSummaryRoles(row.summaryDayRolesAfter, row.summaryDayRoleConditionsAfter)}
+                        </td>
+                        <td style={{ padding: '6px' }}>
+                          {describeTierApplicability(row.erpTierApplicabilityBefore)} → {describeTierApplicability(row.erpTierApplicabilityAfter)}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <button type="button" onClick={handleLegacySemanticMigration}>建立舊規則語意遷移草稿</button>
+            </div>
+          )}
+          {legacyMigrationSummary && (
+            <div className="notice-inline" role="status" data-legacy-semantic-migration-summary="">
+              已標記 {legacyMigrationSummary.migratedClassCount} 個舊班：{legacyMigrationSummary.migratedSummaryRoleClassCount} 個摘要角色、{legacyMigrationSummary.migratedTierApplicabilityClassCount} 個級距適用性。來源會保存為 legacy_migration；折扣類別維持原值。請使用「確認變更」檢視並套用新設定版本。
+            </div>
+          )}
 
           {/* #159：舊版 active Run 必須明確確認升級後才能預覽或儲存；舊結果維持不變。 */}
           {canUpgrade && (

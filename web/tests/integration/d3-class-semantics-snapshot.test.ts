@@ -34,7 +34,14 @@ describe('PR-3 additive immutable run class semantics snapshot', () => {
     const calculated = executeCalculationRun(db, 'imp_semantics', 'run_semantics', {
       scheduleVersionId: 'seed-v250922', ruleSetVersion: 'erp-tag-v4', asOfDate: '2026-10-23',
     });
-    saveCalculationRun(db, calculated.run, calculated.results, calculated.classCategories, calculated.classSemantics);
+    const classSemantics = calculated.classSemantics?.map((item) => ({
+      ...item,
+      summaryDayRolesJson: JSON.stringify(['mathDays', 'saturdayTutoringDays']),
+      summaryDayRoleConditionsJson: JSON.stringify([
+        { role: 'saturdayTutoringDays', condition: 'raw_token_contains_six' },
+      ]),
+    }));
+    saveCalculationRun(db, calculated.run, calculated.results, calculated.classCategories, classSemantics);
 
     const loaded = getCalculationRun(db, 'run_semantics');
     const math = loaded?.classSemantics?.find((item) => item.baseName === '國小數學-一A');
@@ -44,11 +51,14 @@ describe('PR-3 additive immutable run class semantics snapshot', () => {
       subjectSource: 'seed',
       category: 'math',
       categorySource: 'seed',
-      summaryDayRoles: ['mathDays'],
+      summaryDayRoles: ['mathDays', 'saturdayTutoringDays'],
       summaryDayRolesStatus: 'configured',
       summaryDayRolesSource: 'seed',
       erpTierApplicability: 'not_applicable',
     });
+    expect(math?.summaryDayRoleConditions).toEqual([
+      { role: 'saturdayTutoringDays', condition: 'raw_token_contains_six' },
+    ]);
     expect(math?.classTypeDefinitionHash).toMatch(/^[a-f0-9]{64}$/);
     expect(() => db!.prepare(
       'UPDATE run_class_semantics SET subject = ? WHERE run_id = ? AND base_name = ?'
@@ -65,7 +75,7 @@ describe('PR-3 additive immutable run class semantics snapshot', () => {
     saveCalculationRun(db, { ...calculated.run, id: 'run_empty_semantics', totalStudents: 0 }, [], [], []);
     expect(getCalculationRun(db, 'run_empty_semantics')?.classSemantics).toEqual([]);
     expect(() => db!.prepare(
-      'UPDATE run_semantics_snapshots SET snapshot_schema_version = 2 WHERE run_id = ?'
+      'UPDATE run_semantics_snapshots SET snapshot_schema_version = 3 WHERE run_id = ?'
     ).run('run_empty_semantics')).toThrow(/immutable/);
 
     db.exec('DROP TRIGGER run_class_semantics_immutable_update');

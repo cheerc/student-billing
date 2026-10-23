@@ -439,6 +439,12 @@ v3 計算同時對照 shadow(v2) 與 compat：
 
 **版本邊界與重算差異（Ruling 7）**：本節描述的是**現行規則**（`erp-tag-v4`），且同一類別語意亦用於 `erp-tag-v3` 重算；不為 v3 保留舊的班名類別推導，也不新增 rule-set 版本。以同一份本機 `data/app.sqlite` rev 82 設定與 431 名學生，比對 `main@83b0127` 和 PR #160 前一版 `c595f4f` 的完整計算輸出（科數、基本折扣、安親／課輔天數與 issue code 集合逐位元比對）：`erp-tag-v1` **0/431**、`erp-tag-v2` **0/431**、`erp-tag-v3` **154/431**、`erp-tag-v4` **154/431**、`excel-v260922-compat` **0/431**。v3／v4 的 154 筆差異是 40 筆科數／基本折扣改變與 139 筆 issue code 集合改變（新增 `CLASS_NOT_MAPPED`）之聯集。這是本機真實資料的單次量測，不是 CI golden 或對所有資料集的保證；相應不變式測試見 `d1-invariance` 與 `issue-112-v3-invariance`。已持久化的歷史 run 不重算、不改寫（03 §4）；其既有快照依儲存的 `category` 讀取，不在讀取時把 `source='auto'` 轉成 `unset`（03 §5.3.4）。§9 的 v3 原文保留供歷史版本對照。
 
+### 9A.7 Issue #148 PR-4 semantic consumers
+
+v4 consumer 只讀當次 Run 的 `classSemantics`：alias 解析後的 `resolvedBaseName`、`category`、八個既有 `summaryDayRoles`、`erpTierApplicability` 與 `fixedFiveDays` 都是該 Run 的不可變語意。ERP token parser 第一階段只保存原文、base name、修飾與離班語法；第二階段才依 Run semantic snapshot 的 `erpTierApplicability` 呼叫 `projectTierForApplicability`。`unset`、未知 Run 或缺少 v4 semantic row 不得以當前班名補值，級距投影為 unavailable。summary roles 只連接既有八欄，不增加欄位、數值公式或收費規則。
+
+v1–v3 歷史 read-only 投影使用明確凍結的舊 semantic projection；unknown/corrupt version 不套用該 projection。v3/v4 適用折扣讀該 Run 的 `classCategories`，v4 類別須與 `classSemantics` 一致；支援快照的 Run 缺類別／語意資料時 side script 與產品讀模型 fail closed，不依現行班名猜測。已保存的舊 Run 不重算或回填。Operator 已核可非 seed 舊設定只可透過明確的一次性遷移操作寫成 `legacy_migration`；該操作建立新設定版本，不改舊 Run，也不改本節 v4 計算公式或 numeric fields（06 D59）。
+
 ## 10. 已觀察但尚未由業務批准變更的差異
 1. 每週星期沒有參與重疊判斷（已於 D30 拍板批准改為同星期比對，實作於新版 `erp-tag-v2`；舊版 `erp-tag-v1` 維持原樣不變；v3 沿用同星期比對）；同時段兩班不做 union 則持續保留。
 2. 科數算類別存在性，且整段寫功課扣 1；同類多班只取第一個來扣天（v1/v2 行為；v3 已由 §9 取代）。

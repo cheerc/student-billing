@@ -19,6 +19,7 @@ import {
 } from '../schedules/overlap-calculator';
 import seedData from '../schedules/schedule-seed.json';
 import { resolveClassEnrollment, ClassSettingLookup, ClassCategory } from '../classification/class-category';
+import { projectTierForApplicability } from '../students/token-parser';
 
 /**
  * 已解析的單一時段：分鐘制起迄、星期，以及 #113 follow-up 的**逐時段**不計扣天旗標。
@@ -191,9 +192,18 @@ export function calculateStudentBilling(
   // 新計算一律走 v4 正式規則，只讀標籤欄。
   const tagDiscounts = parseTagDiscounts(student.tagsRaw);
 
-  const resolvedEnrollments = student.enrollments.map((e) =>
-    resolveClassEnrollment(e, options.aliasMap, options.classSettings)
-  );
+  const resolvedPairs = student.enrollments.map((enrollment) => {
+    const resolved = resolveClassEnrollment(enrollment, options.aliasMap, options.classSettings);
+    return {
+      enrollment: projectTierForApplicability(enrollment, resolved.erpTierApplicability),
+      resolved,
+    };
+  });
+  const effectiveStudent: StudentSnapshot = {
+    ...student,
+    enrollments: resolvedPairs.map((item) => item.enrollment),
+  };
+  const resolvedEnrollments = resolvedPairs.map((item) => item.resolved);
 
   // 2. 科數 (v4 R03) 與基本折扣 (R10)
   const subjectCount = calculateSubjectCountByCategory(resolvedEnrollments.map((r) => r.category));
@@ -236,7 +246,7 @@ export function calculateStudentBilling(
     const isTutoringSide = student.grade !== null && student.grade >= 3 && student.grade <= 6;
 
     // --- 數學類別 ---
-    const mathCandidates = student.enrollments
+    const mathCandidates = effectiveStudent.enrollments
       .map((enr, idx) => ({ enr, idx, res: resolvedEnrollments![idx] }))
       .filter((item) => item.res.category === 'math')
       .sort((a, b) => a.idx - b.idx);
@@ -326,7 +336,7 @@ export function calculateStudentBilling(
     }
 
     // --- 美語類別 ---
-    const englishCandidates = student.enrollments
+    const englishCandidates = effectiveStudent.enrollments
       .map((enr, idx) => ({ enr, idx, res: resolvedEnrollments![idx] }))
       .filter((item) => item.res.category === 'english')
       .sort((a, b) => a.idx - b.idx);
@@ -452,7 +462,7 @@ export function calculateStudentBilling(
 
   // 6. 級距比較 (Tier Comparisons, U43, U47)
   const tierComparisons: TierComparison[] = [];
-  for (const enr of student.enrollments) {
+  for (const enr of effectiveStudent.enrollments) {
     let computedTierForEnr: number | null = null;
     if (student.grade === 1 || student.grade === 2) {
       computedTierForEnr = careDays.anqin.days;
@@ -478,6 +488,7 @@ export function calculateStudentBilling(
       baseName: enr.baseName,
       computedTier: computedTierForEnr,
       erpDeclaredTier: enr.erpBillingTier,
+      tierParseStatus: enr.tierParseStatus,
       scheduleStatus: schStatus,
     });
     tierComparisons.push(comp);
@@ -488,7 +499,7 @@ export function calculateStudentBilling(
     personCode: student.personCode,
     tagsRaw: student.tagsRaw,
     notesRaw: student.notesRaw,
-    enrollments: student.enrollments,
+    enrollments: effectiveStudent.enrollments,
     sibling: tagDiscounts.sibling,
     internalStudent: tagDiscounts.internalStudent,
     specialDiscount: tagDiscounts.specialDiscount,

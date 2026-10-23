@@ -4,6 +4,7 @@ import { getCurrentActiveRun } from '@/adapters/sqlite/runs-repository';
 import { getLatestSettingsVersion, buildSeedDraft, readStoredDraft } from '@/adapters/sqlite/settings-repository';
 import { SEED_CLASSES, classifyErpDualTrack } from '@/domain/schedules/seed-manifest';
 import { normalizeSettingsDraftSemantics } from '@/domain/classification/class-semantics';
+import type { LegacySemanticMigrationCandidate } from '@/domain/classification/legacy-semantic-migration';
 import { SettingsDraft } from '@/contracts/settings';
 import SettingsEditor from '@/components/settings-editor';
 import { getClassNameMatchReport } from '@/application/class-name-match-report';
@@ -54,8 +55,21 @@ export default async function SettingsPage({
   }
 
   const latest = getLatestSettingsVersion(db);
-  const initialDraft: SettingsDraft = latest
-    ? normalizeSettingsDraftSemantics(readStoredDraft(latest.contentJson))
+  const storedDraft = latest ? readStoredDraft(latest.contentJson) : null;
+  const legacySemanticMigrationCandidates: LegacySemanticMigrationCandidate[] = storedDraft
+    ? storedDraft.classes.flatMap((item) => {
+        if (SEED_CLASSES.some((seed) => seed.baseName === item.baseName)) return [];
+        const migrateSummaryDayRoles = item.summaryDayRoles === undefined &&
+          item.summaryDayRolesStatus === undefined && item.summaryDayRolesSource === undefined;
+        const migrateErpTierApplicability = item.erpTierApplicability === undefined &&
+          item.erpTierApplicabilitySource === undefined;
+        return migrateSummaryDayRoles || migrateErpTierApplicability
+          ? [{ baseName: item.baseName, migrateSummaryDayRoles, migrateErpTierApplicability }]
+          : [];
+      })
+    : [];
+  const initialDraft: SettingsDraft = storedDraft
+    ? normalizeSettingsDraftSemantics(storedDraft)
     : buildSeedDraft(SEED_CLASSES, {
         anqin: { start: 780, end: 960 },
         tutoring: { start: 990, end: 1170 },
@@ -81,6 +95,7 @@ export default async function SettingsPage({
         importId={importId}
         currentRevision={active.revision}
         initialDraft={initialDraft}
+        legacySemanticMigrationCandidates={legacySemanticMigrationCandidates}
         unmatched={dualTrack.activeView.unmatched}
         classNameReport={classNameReport}
         reportImportId={reviewImportId}

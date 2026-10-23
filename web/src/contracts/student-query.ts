@@ -27,7 +27,7 @@ export const VALID_TIER_COMPARISONS = new Set(['match', 'mismatch', 'not_applica
 
 const BOOLEAN_KEYS = new Set(['hasClass', 'sibling', 'specialDiscount', 'internalStudent', 'hasExtraDeduction', 'hasIssues', 'tierMismatch']);
 const INTEGER_KEYS = new Set(['grade', 'baseDiscountBps', 'applicableDiscountBps']);
-const NUMBER_KEYS = new Set(['anqinDays', 'tutoringDays', 'billingTier', 'erpBillingTier']);
+const NUMBER_KEYS = new Set(['anqinDays', 'tutoringDays', 'billingTier', 'erpBillingTier', 'previewErpBillingTier']);
 const SINGLE_KEYS = new Set(['q', 'subject', 'careType', 'runId', 'cursor', 'limit', 'options', 'billingTier']);
 
 /** URL 與 application 呼叫共用：不壓掉同一參數的重複值。 */

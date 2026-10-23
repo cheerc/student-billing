@@ -33,12 +33,21 @@ import fs from 'fs';
 import path from 'path';
 import os from 'os';
 import { fileURLToPath } from 'url';
-import { parseSingleClassToken } from '../src/domain/students/token-parser.ts';
-import { applicableRateForClass } from '../src/application/applicable-rate.ts';
+import { parseSingleClassToken, projectTierForApplicability } from '../src/domain/students/token-parser.ts';
+import { historicalRateCategoryOfClass, applicableRateForClass } from '../src/application/applicable-rate.ts';
+import { legacyClassSemanticsOf } from '../src/domain/classification/legacy-class-semantics.ts';
 
 import { parseDiscounts, bpsToLabel, readReport } from './shared/report-xlsx.ts';
 import { fetchRunStudents, fetchRun } from './shared/roster-api.ts';
-import { toApplicableRateContext, buildRunSnapshotContext, shouldWarnMissingSnapshot } from './shared/rate-context.ts';
+import {
+  toApplicableRateContext,
+  buildRunSnapshotContext,
+  shouldWarnMissingSnapshot,
+  classSemanticsForRun,
+  runUsesClassSemanticsSnapshot,
+  snapshotRowFor,
+  usesFrozenLegacyProjection,
+} from './shared/rate-context.ts';
 import { normalizeName, indexByName } from './shared/name-matching.ts';
 import { defineCategories, formatCategorySummary } from './shared/category-registry.ts';
 import { renderShell, escapeHtml } from './shared/report-shell.ts';
@@ -127,7 +136,11 @@ function parseArgs(argv) {
  *
  * Node 24 原生支援 `import './x.ts'`，故 .mjs 可直接引用 TS 領域層，無需建置步驟。
  */
-export function parseTuition(detail) {
+/**
+ * @param {string | null | undefined} detail
+ * @param {{ erpTierApplicability?: 'applicable' | 'not_applicable' | 'unset', summaryDayRoles?: string[] } | undefined} [semantics]
+ */
+export function parseTuition(detail, semantics = undefined) {
   if (!detail) {
     return { days: null, daysRaw: '無學費項', className: null, isHomework: false, sessions: null, tierStatus: 'none' };
   }
@@ -136,26 +149,42 @@ export function parseTuition(detail) {
   const sessionMatch = (tail || '').match(/(\d+)\s*堂課/);
   const sessions = sessionMatch ? parseInt(sessionMatch[1], 10) : null;
 
-  // 寫功課依規則不列入折扣計算，且固定 5 天（02 §8 R13／R14、§9.4 Q7-A）
-  if (className.includes('寫功課')) {
-    return { days: 5, daysRaw: '寫功課(5天)', className, isHomework: true, sessions, tierStatus: 'homework' };
+  const lexicalToken = parseSingleClassToken(className);
+  const applicability = semantics?.erpTierApplicability ?? 'unset';
+  const projected = projectTierForApplicability(lexicalToken, applicability);
+  const isHomework = semantics?.summaryDayRoles?.includes('homeworkDays') ?? false;
+  // The historical report treated the explicitly identified homework role as five days,
+  // independently of ERP tier syntax. Keep that report projection data driven.
+  if (isHomework) {
+    return {
+      days: 5,
+      daysRaw: '寫功課(5天)',
+      className,
+      baseName: lexicalToken.baseName,
+      isHomework: true,
+      sessions,
+      tierStatus: 'homework',
+    };
   }
 
-  const parsed = parseSingleClassToken(className);
-  const tierStatus = parsed.tierParseStatus;
-  const days = parsed.erpBillingTier;
+  const tierStatus = projected.tierParseStatus;
+  const days = projected.erpBillingTier;
 
   let daysRaw;
   if (days === null) {
     // 產品端刻意不給值（未知修飾 / 不適用）。此處不得代為猜 5。
-    daysRaw = tierStatus === 'unavailable' ? `無法解析級距(${parsed.erpBillingTierRaw ?? '未知修飾'})` : '無級距值';
+    daysRaw = applicability === 'unset'
+      ? '級距適用性未設定'
+      : applicability === 'not_applicable'
+        ? '不適用級距'
+        : `無法解析級距(${projected.erpBillingTierRaw ?? '未知修飾'})`;
   } else if (tierStatus === 'defaulted') {
     daysRaw = '5'; // 無後綴，產品端 defaulted 為 5
   } else {
     daysRaw = String(days);
   }
 
-  return { days, daysRaw, className, isHomework: false, sessions, tierStatus };
+  return { days, daysRaw, className, baseName: lexicalToken.baseName, isHomework: false, sessions, tierStatus };
 }
 
 export { parseDiscounts, normalizeName };
@@ -169,12 +198,11 @@ export { parseDiscounts, normalizeName };
 function buildNotes({ statusCategory, excel, web, careCategory }) {
   const notes = [];
   const tags = (web.rawTags || '').split('\n').map(t => t.trim()).filter(Boolean);
-  const tokens = web.tokens ?? [];
-  const homeworkToken = tokens.find(t => t.includes('寫功課'));
-  const careTokens = tokens.filter(t => t.includes('國小輔導'));
-  const otherTokens = tokens.filter(t => !t.includes('國小輔導') && !t.includes('寫功課') && !t.includes('交通車'));
+  const homeworkToken = (web.homeworkTokens ?? [])[0];
+  const careTokens = web.careTokens ?? [];
+  const otherTokens = web.otherTokens ?? [];
   // 離班標記取自 API 已解析欄位（見 compare() 的 withdrawals），不在此重複偵測
-  const withdrawal = (web.withdrawals ?? []).find(w => w.token.includes('國小輔導')) ?? (web.withdrawals ?? [])[0];
+  const withdrawal = (web.withdrawals ?? [])[0];
   const mismatches = (web.tierComparisons || []).filter(c => c.status === 'mismatch');
   const dupIssues = (web.issues || []).filter(i => i.code === 'DUPLICATE_SUBJECT_ENROLLMENT');
 
@@ -357,9 +385,38 @@ function buildNotes({ statusCategory, excel, web, careCategory }) {
  * 查無輔導班時退回空字串：空字串不會命中任何快照，v3 下即為「無法判定」，
  * 這比挑一個看起來合理的班名安全（03 §5.3.4：嚴禁猜測）。
  */
-function careClassNameOf(student) {
-  const care = (student.enrollments ?? []).find((e) => e.baseName?.includes('國小輔導'));
-  return care?.baseName ?? '';
+function categoryForRun(baseName, rateContext) {
+  if (!rateContext || rateContext.known === false) return null;
+  if (runUsesClassSemanticsSnapshot(rateContext)) {
+    return classSemanticsForRun(baseName, rateContext)?.category ?? null;
+  }
+  if (rateContext?.usesClassCategorySnapshot ?? rateContext?.isV3Run) {
+    return snapshotRowFor(rateContext, baseName)?.category ?? null;
+  }
+  return usesFrozenLegacyProjection(rateContext) ? historicalRateCategoryOfClass(baseName) : null;
+}
+
+function enrollmentProjection(student, rateContext) {
+  return (student.enrollments ?? []).map((enrollment) => {
+    const semantic = classSemanticsForRun(enrollment.baseName ?? '', rateContext);
+    return {
+      ...enrollment,
+      semantic,
+      category: categoryForRun(enrollment.baseName ?? '', rateContext),
+    };
+  });
+}
+
+function careClassNameOf(enrollments, rateContext) {
+  const configured = enrollments.find((enrollment) => enrollment.category === 'care');
+  if (configured) return configured.baseName ?? '';
+  // For an explicit historical v3 Run, the frozen projection may identify a lookup key only;
+  // the selected Run's category snapshot still decides whether that class is care/rateable.
+  if (usesFrozenLegacyProjection(rateContext) &&
+      (rateContext?.usesClassCategorySnapshot ?? rateContext?.isV3Run)) {
+    return enrollments.find((enrollment) => historicalRateCategoryOfClass(enrollment.baseName ?? '') === 'care')?.baseName ?? '';
+  }
+  return '';
 }
 
 /** 學生層適用率欄位（`applicableRateForClass` 的輸入）。只挑欄位，不做計算。 */
@@ -375,16 +432,19 @@ function RATE_INPUT_FIELDS(s) {
 /**
  * 比對主流程。
  *
- * @param {{ isV3Run: boolean, classCategories: ReadonlyArray<{ base_name: string, category: string, fixed_five_days: number }> | null } | undefined} [rateContext]
- *        v3 run 的類別快照（形狀即 API `/runs/{id}` 回應）。**v3 run 必須傳入**，
- *        否則適用率會以當前班名推導而與畫面分歧（issue #122）。省略＝v1／v2 語意。
+ * @param {(Partial<import('./shared/rate-context.ts').RunSnapshotPayload> & Pick<import('./shared/rate-context.ts').RunSnapshotPayload, 'isV3Run' | 'classCategories'>) | undefined} [rateContext]
+ *        所選 Run 的歷史 metadata 與類別／語意快照（形狀依 shared rate context）。
+ *        v3/v4 必須提供各自應有的 snapshot；未知或缺失資料不可回退至現行班名。
  */
 export function compare(reportStudents, webStudents, asOfDate, rateContext = undefined) {
   const { map: webByName, duplicates } = indexByName(webStudents);
   const records = [];
 
   for (const entry of reportStudents.values()) {
-    const tuition = parseTuition(entry.tuition);
+    const reportHead = (entry.tuition || '').split(' - ')[0]?.trim() ?? '';
+    const reportBaseName = reportHead ? parseSingleClassToken(reportHead).baseName : '';
+    const reportSemantics = reportBaseName ? classSemanticsForRun(reportBaseName, rateContext) : undefined;
+    const tuition = parseTuition(entry.tuition, reportSemantics);
     const discount = parseDiscounts(entry.discounts);
     const excel = {
       days: tuition.days,
@@ -445,12 +505,29 @@ export function compare(reportStudents, webStudents, asOfDate, rateContext = und
     // 這些學生名冊裡**沒有國小輔導班**，也就沒有「本班」可言，快照查無此班會得到
     // 「無法判定」而把原本顯示的適用率整欄變成 `-`——那是在本修正範圍外減少資訊。
     // 故無輔導班者維持既有「依年級取安親／課輔側」，不新增猜測（這裡沒有班名可用）。
-    const careClassName = careClassNameOf(w);
-    const useSnapshot = !!rateContext && careClassName !== '';
+    const enrollmentSemantics = enrollmentProjection(w, rateContext);
+    const careEnrollments = enrollmentSemantics.filter((enrollment) => enrollment.category === 'care');
+    const careClassName = careClassNameOf(enrollmentSemantics, rateContext);
+    const usesSnapshot = !!rateContext && (rateContext.usesClassCategorySnapshot ?? rateContext.isV3Run);
+    const legacyProjection = usesFrozenLegacyProjection(rateContext);
+    const snapshotUnavailable = !rateContext || rateContext.known === false || (
+      usesSnapshot
+        ? (
+        !Array.isArray(rateContext.classCategories) ||
+        rateContext.classCategories.length === 0 ||
+        (runUsesClassSemanticsSnapshot(rateContext) && (
+          !Array.isArray(rateContext.classSemantics) || careEnrollments.length === 0
+        ))
+        )
+        : !legacyProjection
+    );
+    const useSnapshot = usesSnapshot && careClassName !== '';
     const applicable = useSnapshot
       ? applicableRateForClass(careClassName, { grade, ...RATE_INPUT_FIELDS(w) }, toApplicableRateContext(rateContext))
       : null;
-    const rateBps = useSnapshot
+    const rateBps = snapshotUnavailable
+      ? null
+      : useSnapshot
       ? (applicable.status === 'configured' ? applicable.bps : null)
       : (isAnqin ? w.applicableAnqinBps : (isTutoring ? w.applicableTutoringBps : null));
 
@@ -460,18 +537,27 @@ export function compare(reportStudents, webStudents, asOfDate, rateContext = und
       days,
       daysLabel,
       rateBps,
-      rateNotConfigured: useSnapshot && applicable.status === 'not_configured',
+      rateNotConfigured: snapshotUnavailable || (useSnapshot && applicable.status === 'not_configured'),
       asOfDate,
       baseDiscountBps: w.baseDiscountBps,
       subjectCount: w.subjectCount,
       isEnrolled: care?.isEnrolled ?? false,
       status: care?.status ?? 'unknown',
       hasExtraFlag: care?.hasExtraFlag ?? false,
-      declaredTier: (w.enrollments.find(e => e.baseName?.includes('國小輔導')) || {}).erpBillingTier ?? null,
+      declaredTier: careEnrollments[0]?.erpBillingTier ?? null,
       tokens: w.enrollments.map(e => e.rawToken),
+      careTokens: careEnrollments.map((e) => e.rawToken),
+      homeworkTokens: enrollmentSemantics
+        .filter((e) => e.semantic?.summaryDayRoles.includes('homeworkDays'))
+        .map((e) => e.rawToken),
+      otherTokens: enrollmentSemantics
+        .filter((e) => e.category !== null && e.category !== 'care' && !e.semantic?.summaryDayRoles.includes('homeworkDays'))
+        .map((e) => e.rawToken),
       // 離班標記直接取 API 已解析好的欄位，不在本檔用 regex 重新偵測
       // （review F-minor-2：自訂 regex 與產品錨定行尾的寫法分歧，且屬重複實作）
-      withdrawals: w.enrollments.filter(e => e.withdrawalDate).map(e => ({ token: e.rawToken, date: e.withdrawalDate })),
+      withdrawals: enrollmentSemantics
+        .filter((e) => e.category === 'care' && e.withdrawalDate)
+        .map(e => ({ token: e.rawToken, date: e.withdrawalDate })),
       tierComparisons: w.tierComparisons || [],
       issues: w.issues || [],
       rawTags: w.trace?.rawTags || '',
@@ -762,7 +848,7 @@ async function main() {
   // 否則「這行做對了」沒有任何測試盯得住（單元測試恆以顯式參數傳入 rateContext）。
   const rateContext = buildRunSnapshotContext(run);
   if (shouldWarnMissingSnapshot(run)) {
-    console.warn('警告：此 run 依規則集應有類別快照，API 卻未回傳 classCategories，將退回名稱映射，讀數可能與畫面不同（issue #122）。');
+    console.warn('警告：此 run 的規則版本或類別／語意快照不完整；本報告不以當前班名補推級距或適用率，相關列將標示為無法判定（issue #122／#148）。');
   }
 
   const { records, duplicates } = compare(reportStudents, students, asOfDate, rateContext);

@@ -44,13 +44,67 @@ describe('issue #140 第 3 項：RunInfoLike 宣告 classCategories', () => {
     const run: RunInfoLike = { ruleSetVersion: 'erp-tag-v3', classCategories: [] };
     // 形狀必須相容，否則工具端得再轉一次手，就會出現第二份「怎麼讀快照」的實作
     // #112：payload 一併帶上 ruleSetVersion，讓讀模型能依版本能力旗標決定固定 5 天是否改寫折扣
-    expect(buildRunSnapshotContext(run)).toEqual({ isV3Run: true, classCategories: [], ruleSetVersion: 'erp-tag-v3' });
+    expect(buildRunSnapshotContext(run)).toEqual({
+      known: true,
+      usesClassCategorySnapshot: true,
+      usesClassSemanticsSnapshot: false,
+      isV3Run: true,
+      classCategories: [],
+      ruleSetVersion: 'erp-tag-v3',
+    });
+  });
+
+  it('v4 run 把類別與級距語意快照保留在共用 context', () => {
+    const semantic = {
+      baseName: '1234班',
+      resolvedBaseName: '1234班',
+      category: 'care',
+      summaryDayRoles: [],
+      erpTierApplicability: 'applicable' as const,
+    };
+    const run: RunInfoLike = {
+      ruleSetVersion: 'erp-tag-v4',
+      classCategories: [{ base_name: '1234班', category: 'care', fixed_five_days: 0 }],
+      classSemantics: [semantic],
+    };
+
+    expect(buildRunSnapshotContext(run)).toEqual({
+      known: true,
+      usesClassCategorySnapshot: true,
+      usesClassSemanticsSnapshot: true,
+      isV3Run: true,
+      classCategories: run.classCategories,
+      classSemantics: [semantic],
+      ruleSetVersion: 'erp-tag-v4',
+    });
+  });
+
+  it('unknown/corrupt run version returns an explicit fail-closed context', () => {
+    expect(buildRunSnapshotContext({ ruleSetVersion: 'erp-tag-v99', classCategories: [{ base_name: '國小數學-假班', category: 'math', fixed_five_days: 0 }] }))
+      .toEqual({
+        known: false,
+        usesClassCategorySnapshot: false,
+        usesClassSemanticsSnapshot: false,
+        isV3Run: false,
+        classCategories: null,
+        ruleSetVersion: 'erp-tag-v99',
+      });
+    expect(shouldWarnMissingSnapshot({ ruleSetVersion: 'erp-tag-v99' })).toBe(true);
   });
 });
 
 describe('issue #140 第 2 項：工具端判定與載入層同一套能力旗標', () => {
   it('v3 run 缺快照 → 應警告（本該有卻沒有）', () => {
     expect(shouldWarnMissingSnapshot({ ruleSetVersion: 'erp-tag-v3' })).toBe(true);
+  });
+
+  it('v4 缺類別或語意快照、以及 unknown version → 應警告並 fail closed', () => {
+    expect(shouldWarnMissingSnapshot({ ruleSetVersion: 'erp-tag-v4', classSemantics: [] })).toBe(true);
+    expect(shouldWarnMissingSnapshot({
+      ruleSetVersion: 'erp-tag-v4',
+      classCategories: [],
+    })).toBe(true);
+    expect(shouldWarnMissingSnapshot({ ruleSetVersion: 'erp-tag-v77' })).toBe(true);
   });
 
   it('v1／v2 run 缺快照 → 不警告（本來就沒有快照概念）', () => {

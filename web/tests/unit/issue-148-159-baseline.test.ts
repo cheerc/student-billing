@@ -13,7 +13,7 @@ import {
   type ClassSettingLookup,
 } from '@/domain/classification/class-category';
 import { calculateSubjectCountByCategory } from '@/domain/billing/discount-rules';
-import { parseSingleClassToken } from '@/domain/students/token-parser';
+import { parseSingleClassToken, projectTierForApplicability } from '@/domain/students/token-parser';
 import type { StudentSnapshot } from '@/domain/students/types';
 
 afterEach(() => vi.restoreAllMocks());
@@ -104,7 +104,9 @@ describe('Issues #148 + #159 PR-0: post-#157 synthetic v4 characterization', () 
     });
     expect(calculateSubjectCountByCategory(['none', 'unset'])).toBe(0);
 
-    const tier = parseSingleClassToken('115國小輔導-合成班[團][4_5] (2026-10-01離班)');
+    const lexical = parseSingleClassToken('115國小輔導-合成班[團][4_5] (2026-10-01離班)');
+    expect(lexical).toMatchObject({ erpBillingTierRaw: null, erpBillingTier: null, tierParseStatus: 'unavailable' });
+    const tier = projectTierForApplicability(lexical, 'applicable');
     expect(tier).toMatchObject({
       rawToken: '115國小輔導-合成班[團][4_5] (2026-10-01離班)',
       yearPrefix: '115',
@@ -117,10 +119,10 @@ describe('Issues #148 + #159 PR-0: post-#157 synthetic v4 characterization', () 
       tierParseStatus: 'parsed',
       parseStatus: 'ok',
     });
-    expect(parseSingleClassToken('國小輔導-合成班[團][Starter]')).toMatchObject({
+    expect(projectTierForApplicability(parseSingleClassToken('國小輔導-合成班[團][Starter]'), 'applicable')).toMatchObject({
       erpBillingTier: null, tierParseStatus: 'unavailable', parseStatus: 'needs_review',
     });
-    expect(parseSingleClassToken('任意數學班[團][4_5]')).toMatchObject({
+    expect(projectTierForApplicability(parseSingleClassToken('任意數學班[團][4_5]'), 'not_applicable')).toMatchObject({
       erpBillingTier: null, tierParseStatus: 'not_applicable', parseStatus: 'ok',
     });
   });
@@ -167,16 +169,26 @@ describe('Issues #148 + #159 PR-0: post-#157 synthetic v4 characterization', () 
       }, students);
 
       const classSettings = settings([
-        [summaryNames[0], { classType: 'care', category: 'care', categorySource: 'manual', fixedFiveDays: false }],
-        [summaryNames[1], { classType: 'non_care', category: 'math', categorySource: 'manual', fixedFiveDays: false }],
-        [summaryNames[2], { classType: 'non_care', category: 'english', categorySource: 'manual', fixedFiveDays: false }],
-        ...summaryNames.slice(3).map((name) => [name, {
+        [summaryNames[0], { classType: 'care', category: 'care', categorySource: 'manual', fixedFiveDays: false,
+          erpTierApplicability: 'applicable', summaryDayRoles: [], summaryDayRolesStatus: 'configured' }],
+        [summaryNames[1], { classType: 'non_care', category: 'math', categorySource: 'manual', fixedFiveDays: false,
+          erpTierApplicability: 'not_applicable', summaryDayRoles: ['mathDays'], summaryDayRolesStatus: 'configured' }],
+        [summaryNames[2], { classType: 'non_care', category: 'english', categorySource: 'manual', fixedFiveDays: false,
+          erpTierApplicability: 'not_applicable', summaryDayRoles: ['englishDays'], summaryDayRolesStatus: 'configured' }],
+        ...summaryNames.slice(3).map((name, index) => [name, {
           classType: 'non_care', category: 'none', categorySource: 'manual', fixedFiveDays: false,
+          erpTierApplicability: 'not_applicable',
+          summaryDayRoles: [['chineseDays'], ['homeworkDays'], ['intensiveEnglishDays'], ['saturdayTutoringDays']][index],
+          summaryDayRolesStatus: 'configured',
         }] as [string, ClassSettingLookup]),
-        [fixedCareName, { classType: 'care', category: 'care', categorySource: 'manual', fixedFiveDays: true }],
-        [fixedMathName, { classType: 'non_care', category: 'math', categorySource: 'manual', fixedFiveDays: false }],
-        [policyName, { classType: 'non_care', category: 'math', categorySource: 'manual', fixedFiveDays: false }],
-        [numericName, { classType: 'non_care', category: 'math', categorySource: 'manual', fixedFiveDays: false }],
+        [fixedCareName, { classType: 'care', category: 'care', categorySource: 'manual', fixedFiveDays: true,
+          erpTierApplicability: 'applicable', summaryDayRoles: [], summaryDayRolesStatus: 'configured' }],
+        [fixedMathName, { classType: 'non_care', category: 'math', categorySource: 'manual', fixedFiveDays: false,
+          erpTierApplicability: 'not_applicable', summaryDayRoles: [], summaryDayRolesStatus: 'configured' }],
+        [policyName, { classType: 'non_care', category: 'math', categorySource: 'manual', fixedFiveDays: false,
+          erpTierApplicability: 'not_applicable', summaryDayRoles: [], summaryDayRolesStatus: 'configured' }],
+        [numericName, { classType: 'non_care', category: 'math', categorySource: 'manual', fixedFiveDays: false,
+          erpTierApplicability: 'not_applicable', summaryDayRoles: [], summaryDayRolesStatus: 'configured' }],
       ]);
 
       const scheduleOverride = new Map([

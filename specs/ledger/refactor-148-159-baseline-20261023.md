@@ -186,3 +186,27 @@ Migration `0009_run_class_semantics.sql` adds run-level snapshot presence/schema
 - `npm run typecheck` → passed after adding the read-only schema and preview revalidation. `npm run lint` → passed. `git diff --check` → passed.
 - The reviewer reported an unrelated full-suite `acceptance-env.test.ts` production-build child killed with exit 137 during page-data collection; no full-suite/build/E2E success is claimed. The same reviewer is to review the corrected exact HEAD.
 - Tests cover clear-action visibility and pure projection (including clearing one removed summary role while retaining a valid role), type/layout compatibility rejection, settings and Excel metadata roundtrip, lifecycle behavior, empty and immutable snapshots, corrupt metadata/orphans, and atomic rollback. `data/app.sqlite` and its sidecars were not accessed; fixtures contain synthetic data only.
+
+## PR-4 implementation result: Run semantic consumers
+
+**Branch:** `refactor/148-consumers`
+**Worktree:** `/tmp/issue148-pr4`
+**Base/HEAD before PR-4:** `22138a0725b2c6d2d884388895950d3995fd5530` (PR-3 branch HEAD; PR-4 is rebased onto current `origin/main` before publication).
+**Decision:** D59, Issue #148 PR-4. The operator-approved migration path presents a PII-free, per-field recommendation table before creating the new settings draft.
+
+V4 billing/report, tier, summary, query, roster-change, issue classification, and side-script consumers now read the Run's immutable semantic snapshot. Token parsing remains lexical; tier applicability is projected from the alias-resolved run semantic row. Category rate selection uses the selected Run's class category snapshot. Only explicit known formal v1–v3 history uses the frozen historical projection; omitted/unknown Run context, compat, missing/inconsistent expected snapshots, or v3/v4 snapshot metadata without a resolver fail closed. Summary projection maps declared roles and conditions only to the existing eight columns. `SettingsEditor` includes `summaryDayRoleConditions` in its workbook semantic export mapping; the XLSX roundtrip test verifies a Saturday condition survives hidden-sheet export/import and the imported settings still validate. The explicit operator-approved `legacy_migration` writes a new settings version; it does not alter old Runs. No formula or v4 numeric output change is authorized.
+
+### RED and GREEN evidence
+
+- Before the consumer rewiring, the four side-script/API focused tests were **RED: 21 failures / 117 tests**, covering syntax-only tier parsing without a semantic projection, missing v4 semantic context, and the session-report's name-based fallback. The same tests passed after the shared Run snapshot projection was wired.
+- A new RED regression removed the v4 semantic marker and rows, then applied a subject filter. Before the fix, SQL matched a student from the current enrollment name despite the missing historical snapshot; after the fix, the query is unavailable/empty rather than reconstructed from current text. The classes API likewise reports an unset subject if the v4 semantic snapshot is absent.
+- The migration UI now displays a read-only, per-field recommendation table with anonymous labels before the explicit action. A pure projection test verifies the table model contains no class name; a server-rendered UI test verifies the table is visible and its rows omit that name.
+- Final focused command from `web/`: `npm test -- --run --maxWorkers=1 tests/unit/issue-140-roster-api-contract.test.ts tests/unit/issue-122-compare-tools-snapshot.test.ts tests/unit/compare-billing-report-parse.test.ts tests/unit/compare-session-pricing-report.test.ts tests/unit/issue-148-consumer-semantics.test.ts tests/unit/issue-148-legacy-semantic-migration.test.ts tests/unit/d3-class-semantics-contract.test.ts tests/unit/schedule-table-io.test.ts tests/integration/issue-148-import-tier-preview.test.ts tests/integration/d3-class-semantics-snapshot.test.ts tests/unit/applicable-rate-priority.test.ts tests/unit/summary-table-columns.test.ts tests/unit/summary-table-wiring.test.ts tests/unit/query-student-options-v4.test.ts tests/integration/d1-run-snapshot-readers.test.ts tests/unit/settings-editor-upgrade-v4.test.ts` → **16 files / 226 tests passed**.
+- `npm run typecheck` → passed (`tsc --noEmit`). `npm run lint` → passed (`eslint .`). `git diff --check` → passed.
+- Static scan found the frozen class-name heuristics only in `historicalRateCategoryOfClass` and `legacy-class-semantics.ts`; callers are limited to explicit historical read paths or the approved migration preview/action. This is not a substitute for code review of those boundaries.
+
+### Data and verification limits
+
+- All added test records and class names are synthetic. The local database was not opened or queried.
+- **477-student full-run parity is UNVERIFIED.** Only the import snapshot is available in the current evidence; no corresponding current settings snapshot or saved Run was provided. No private student rows, class labels, or workbook contents are recorded here.
+- This handoff does not claim a full Vitest run, production build, or E2E run for PR-4. Those gates remain for review/CI; the canonical full E2E remains for final #148/#159 closeout. The existing PR-3 suite evidence above is separate and not represented as PR-4 verification.

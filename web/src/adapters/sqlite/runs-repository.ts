@@ -8,6 +8,8 @@ import {
   ErpTierApplicabilitySchema,
   SemanticSettingSourceSchema,
   SummaryDayRoleSchema,
+  SummaryDayRoleConditionSchema,
+  type SummaryDayRoleCondition,
 } from '@/contracts/settings';
 
 export interface CalculationRunRecord {
@@ -93,14 +95,16 @@ export interface RunClassSemanticRecord {
   categorySource: string;
   fixedFiveDays: number;
   summaryDayRolesJson: string;
+  summaryDayRoleConditionsJson: string;
   summaryDayRolesStatus: string;
   summaryDayRolesSource: string;
   erpTierApplicability: string;
   erpTierApplicabilitySource: string;
 }
 
-export interface RunClassSemanticSnapshot extends Omit<RunClassSemanticRecord, 'summaryDayRolesJson' | 'classTypeDefinitionJson'> {
+export interface RunClassSemanticSnapshot extends Omit<RunClassSemanticRecord, 'summaryDayRolesJson' | 'summaryDayRoleConditionsJson' | 'classTypeDefinitionJson'> {
   summaryDayRoles: string[];
+  summaryDayRoleConditions: SummaryDayRoleCondition[];
   classTypeDefinition: Record<string, unknown> | null;
 }
 
@@ -206,18 +210,18 @@ export function saveCalculationRun(
   }
 
   if (run.ruleSetVersion === 'erp-tag-v4' && classSemantics !== undefined) {
-    db.prepare('INSERT INTO run_semantics_snapshots (run_id, snapshot_schema_version) VALUES (?, 1)').run(run.id);
+    db.prepare('INSERT INTO run_semantics_snapshots (run_id, snapshot_schema_version) VALUES (?, 2)').run(run.id);
     const insertSemantics = db.prepare(`
       INSERT INTO run_class_semantics (
         run_id, base_name, resolved_base_name, snapshot_schema_version,
         class_type_id, class_type_definition_json, class_type_definition_hash,
         subject, subject_source, category, category_source, fixed_five_days,
-        summary_day_roles_json, summary_day_roles_status, summary_day_roles_source,
+        summary_day_roles_json, summary_day_role_conditions_json, summary_day_roles_status, summary_day_roles_source,
         erp_tier_applicability, erp_tier_applicability_source
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
     for (const item of classSemantics) {
-      if (item.snapshotSchemaVersion !== 1) throw new Error(`Unsupported run semantics snapshot schema version ${item.snapshotSchemaVersion}`);
+      if (item.snapshotSchemaVersion !== 2) throw new Error(`Unsupported run semantics snapshot schema version ${item.snapshotSchemaVersion}`);
       insertSemantics.run(
         run.id,
         item.baseName,
@@ -232,6 +236,7 @@ export function saveCalculationRun(
         item.categorySource,
         item.fixedFiveDays,
         item.summaryDayRolesJson,
+        item.summaryDayRoleConditionsJson,
         item.summaryDayRolesStatus,
         item.summaryDayRolesSource,
         item.erpTierApplicability,
@@ -284,7 +289,7 @@ export function getCalculationRun(
       'SELECT * FROM run_class_semantics WHERE run_id = ? ORDER BY base_name'
     ).all(runId) as any[];
     if (marker) {
-      if (marker.snapshot_schema_version !== 1) {
+      if (marker.snapshot_schema_version !== 1 && marker.snapshot_schema_version !== 2) {
         throw new Error(`Unsupported run semantics snapshot schema version ${marker.snapshot_schema_version}`);
       }
       record.classSemantics = semantics.map((item) => {
@@ -314,6 +319,18 @@ export function getCalculationRun(
         }
         if (!Array.isArray(summaryDayRoles) || summaryDayRoles.some((role) => !SummaryDayRoleSchema.safeParse(role).success)) {
           throw new Error(`Run semantic roles are invalid for ${runId}/${item.base_name}`);
+        }
+        let summaryDayRoleConditions: unknown;
+        try {
+          summaryDayRoleConditions = marker.snapshot_schema_version >= 2
+            ? JSON.parse(item.summary_day_role_conditions_json)
+            : [];
+        } catch {
+          throw new Error(`Run semantic role conditions JSON is invalid for ${runId}/${item.base_name}`);
+        }
+        if (!Array.isArray(summaryDayRoleConditions) ||
+            summaryDayRoleConditions.some((condition) => !SummaryDayRoleConditionSchema.safeParse(condition).success || !summaryDayRoles.includes((condition as { role: string }).role))) {
+          throw new Error(`Run semantic role conditions are invalid for ${runId}/${item.base_name}`);
         }
         if (!SemanticSettingSourceSchema.safeParse(item.subject_source).success ||
             !SemanticSettingSourceSchema.safeParse(item.summary_day_roles_source).success ||
@@ -346,6 +363,7 @@ export function getCalculationRun(
         categorySource: item.category_source,
         fixedFiveDays: item.fixed_five_days,
         summaryDayRoles,
+        summaryDayRoleConditions,
         summaryDayRolesStatus: item.summary_day_roles_status,
         summaryDayRolesSource: item.summary_day_roles_source,
         erpTierApplicability: item.erp_tier_applicability,

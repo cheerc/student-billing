@@ -1,5 +1,13 @@
 import { describe, it, expect } from 'vitest';
-import { parseTuition, parseDiscounts, normalizeName, compare, BADGES, NEEDS_HUMAN } from '../../scripts/compare-billing-report.mjs';
+import { parseTuition as parseTuitionWithSemantics, parseDiscounts, normalizeName, compare, BADGES, NEEDS_HUMAN } from '../../scripts/compare-billing-report.mjs';
+import { buildRunSnapshotContext } from '../../scripts/shared/rate-context';
+
+const LEGACY_V2_CONTEXT = buildRunSnapshotContext({ ruleSetVersion: 'erp-tag-v2' })!;
+
+const parseTuition = (detail: string | null) => parseTuitionWithSemantics(detail, {
+  erpTierApplicability: 'applicable',
+  summaryDayRoles: [],
+});
 
 /**
  * 帳務比對工具的解析契約。
@@ -77,14 +85,20 @@ describe('帳務比對工具：報表解析契約', () => {
     });
 
     it('寫功課班 → 固定 5 天，且標記為 homework 而非級距', () => {
-      const r = parseTuition('115國小輔導-寫功課[團][五年級] - 40 堂課');
+      const r = parseTuitionWithSemantics('115國小輔導-寫功課[團][五年級] - 40 堂課', {
+        erpTierApplicability: 'not_applicable',
+        summaryDayRoles: ['homeworkDays'],
+      });
       expect(r.isHomework).toBe(true);
       expect(r.days).toBe(5);
       expect(r.tierStatus).toBe('homework');
     });
 
     it('[團] 與 [四年級] 這類年級標記不被誤認為級距', () => {
-      const r = parseTuition('115國小輔導-寫功課[團][四年級] - 40 堂課');
+      const r = parseTuitionWithSemantics('115國小輔導-寫功課[團][四年級] - 40 堂課', {
+        erpTierApplicability: 'not_applicable',
+        summaryDayRoles: ['homeworkDays'],
+      });
       expect(r.isHomework).toBe(true);
       const r2 = parseTuition('115國小輔導-四年級A[團] - 40 堂課');
       expect(r2.tierStatus).toBe('defaulted');
@@ -223,7 +237,7 @@ describe('帳務比對工具：報表解析契約', () => {
     });
 
     const runOne = (report: Record<string, unknown>[], web: Record<string, unknown>[]) =>
-      compare(new Map(report.map(r => [r.name as string, r])), web as never[], '2026-10-14').records[0];
+      compare(new Map(report.map(r => [r.name as string, r])), web as never[], '2026-10-14', LEGACY_V2_CONTEXT).records[0];
 
     // review F-NEW-1：報表確有學費項但級距認不出來，不可標成「報表無學費項」
     it('級距無法解析 → TIER_UNPARSED，不可標成報表無學費項', () => {

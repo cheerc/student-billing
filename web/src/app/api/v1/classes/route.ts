@@ -4,7 +4,9 @@ import { getCalculationRun, getCurrentActiveRun } from '@/adapters/sqlite/runs-r
 import { getLatestSettingsVersion, readStoredDraft } from '@/adapters/sqlite/settings-repository';
 import { SettingsDraft } from '@/contracts/settings';
 import { loadRunSnapshot } from '@/application/run-snapshot';
+import { normalizeSettingsDraftSemantics } from '@/domain/classification/class-semantics';
 import { SEED_CLASSES } from '@/domain/schedules/seed-manifest';
+import { historicalRuleSetMetadata } from '@/domain/billing/rule-set';
 import { sanitizePathParam, maskSensitiveInfo, SecurityError } from '@/contracts/security';
 
 const seedSubjectMap = new Map<string, string>();
@@ -56,6 +58,13 @@ export async function GET(request: NextRequest) {
     }
     const configuredClasses = new Set(draft ? draft.classes.map((c) => c.baseName) : SEED_CLASSES.map((c) => c.baseName));
     const activeClasses = new Set(draft ? draft.classes.filter((c) => c.active).map((c) => c.baseName) : SEED_CLASSES.map((c) => c.baseName));
+    const normalizedDraft = draft ? normalizeSettingsDraftSemantics(draft) : null;
+    const configuredSubjectMap = new Map((normalizedDraft?.classes ?? []).map((cls) => [cls.baseName, cls.subject]));
+    const runMetadata = historicalRuleSetMetadata(run.ruleSetVersion);
+    const requireRunSemanticSnapshot = !runMetadata.known || runMetadata.hasClassSemanticsSnapshot;
+    const runSubjectMap = run.classSemantics === undefined
+      ? undefined
+      : new Map(run.classSemantics.map((semantic) => [semantic.baseName, semantic.subject]));
     const aliasMap = new Map<string, string>();
     if (draft) {
       for (const a of draft.aliases) {
@@ -80,7 +89,7 @@ export async function GET(request: NextRequest) {
         return {
           baseName: r.base_name,
           targetBaseName: null,
-          subject: seedSubjectMap.get(r.base_name) || '未設定',
+          subject: '未設定',
           studentCount: r.student_count,
           mappingStatus: 'undetermined' as const,
           isConfigured: null,
@@ -88,7 +97,12 @@ export async function GET(request: NextRequest) {
         };
       }
       const targetName = aliasMap.get(r.base_name) || r.base_name;
-      const subject = seedSubjectMap.get(targetName) || seedSubjectMap.get(r.base_name) || '未設定';
+      let subject: string;
+      if (requireRunSemanticSnapshot || runSubjectMap !== undefined) {
+        subject = runSubjectMap?.get(r.base_name)?.trim() || '未設定';
+      } else {
+        subject = configuredSubjectMap.get(targetName)?.trim() || seedSubjectMap.get(targetName) || seedSubjectMap.get(r.base_name) || '未設定';
+      }
       const isConfigured = configuredClasses.has(targetName);
       const isActive = activeClasses.has(targetName);
       const isAliased = aliasMap.has(r.base_name);

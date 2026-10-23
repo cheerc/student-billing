@@ -1,6 +1,7 @@
 import {
   DEFAULT_CLASS_TYPE_DEFINITIONS,
   type ClassSetting,
+  type SummaryDayRoleCondition,
   type ClassTypeDefinition,
   type SettingsDraft,
   SettingsDraftReadSchema,
@@ -76,6 +77,7 @@ if (
 export type SemanticClassSetting = ClassSetting & {
   classTypeId: string;
   summaryDayRoles: SummaryDayRole[];
+  summaryDayRoleConditions: SummaryDayRoleCondition[];
   summaryDayRolesStatus: 'configured' | 'unset' | 'unavailable';
   summaryDayRolesSource: 'manual' | 'seed' | 'legacy_migration' | 'unset';
   erpTierApplicability: 'applicable' | 'not_applicable' | 'unset';
@@ -98,6 +100,9 @@ export function clearUnsupportedClassSemantics(
     ? existingRoles.filter((role) => definition.summaryRoleOptions.includes(role))
     : [];
   const removedRoleOptions = allowedRoles.length !== existingRoles.length;
+  const allowedConditions = allowedRoles.length > 0
+    ? (item.summaryDayRoleConditions ?? []).filter((condition) => allowedRoles.includes(condition.role))
+    : [];
   return {
     ...item,
     ...(!supports('subject') ? { subject: '', subjectSource: 'unset' as const } : {}),
@@ -108,16 +113,21 @@ export function clearUnsupportedClassSemantics(
     } : {}),
     ...(!supports('summaryDayRoles') ? {
       summaryDayRoles: [],
+      summaryDayRoleConditions: [],
       summaryDayRolesStatus: 'unset' as const,
       summaryDayRolesSource: 'unset' as const,
     } : {}),
     ...(supports('summaryDayRoles') && removedRoleOptions ? {
       summaryDayRoles: allowedRoles,
+      summaryDayRoleConditions: allowedConditions,
       ...(allowedRoles.length === 0 ? {
         summaryDayRolesStatus: 'unset' as const,
         summaryDayRolesSource: 'unset' as const,
       } : {}),
     } : {}),
+    ...(supports('summaryDayRoles') && !removedRoleOptions && item.summaryDayRoleConditions
+      ? { summaryDayRoleConditions: allowedConditions }
+      : {}),
     ...(!supports('erpTierApplicability') ? {
       erpTierApplicability: 'unset' as const,
       erpTierApplicabilitySource: 'unset' as const,
@@ -131,6 +141,7 @@ function semanticFields(item: ClassSetting): Partial<SemanticClassSetting> {
     subject: item.subject,
     subjectSource: item.subjectSource,
     summaryDayRoles: item.summaryDayRoles ?? [],
+    summaryDayRoleConditions: item.summaryDayRoleConditions ?? [],
     summaryDayRolesStatus: item.summaryDayRolesStatus ?? 'unset',
     summaryDayRolesSource: item.summaryDayRolesSource ?? 'unset',
     erpTierApplicability: item.erpTierApplicability ?? 'unset',
@@ -145,6 +156,7 @@ function comparableSemanticFields(item: ClassSetting): string {
     subject: fields.subject ?? '',
     subjectSource: fields.subjectSource,
     summaryDayRoles: fields.summaryDayRoles,
+    summaryDayRoleConditions: fields.summaryDayRoleConditions,
     summaryDayRolesStatus: fields.summaryDayRolesStatus,
     summaryDayRolesSource: fields.summaryDayRolesSource,
     erpTierApplicability: fields.erpTierApplicability,
@@ -213,6 +225,7 @@ export function normalizeSettingsDraftSemantics(input: SettingsDraft | unknown):
       (legacySettings ? (item.fixedFiveDays === true ? 'care' : 'non_care') : undefined);
     if (!classTypeId) throw new Error(`新設定班級「${item.baseName}」必須明確選擇課程類型`);
     const summaryDayRoles = item.summaryDayRoles ?? seed?.summaryDayRoles ?? [];
+    const summaryDayRoleConditions = item.summaryDayRoleConditions ?? [];
     const rolesSource = item.summaryDayRolesSource ?? (item.summaryDayRolesStatus === 'unset'
       ? 'unset'
       : item.summaryDayRoles ? 'manual' : seed ? 'seed' : 'unset');
@@ -234,6 +247,7 @@ export function normalizeSettingsDraftSemantics(input: SettingsDraft | unknown):
       subjectSource,
       classTypeId,
       summaryDayRoles,
+      summaryDayRoleConditions,
       summaryDayRolesStatus,
       summaryDayRolesSource: rolesSource,
       erpTierApplicability: tierApplicability,

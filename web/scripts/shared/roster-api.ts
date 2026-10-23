@@ -35,6 +35,13 @@ export interface RunInfoLike {
    * 一律走 `rate-context.ts` 的 `buildRunSnapshotContext`。
    */
   classCategories?: RunClassCategorySnapshot[] | null;
+  classSemantics?: Array<{
+    baseName: string;
+    resolvedBaseName: string;
+    category: string;
+    summaryDayRoles: string[];
+    erpTierApplicability: 'applicable' | 'not_applicable' | 'unset';
+  }> | null;
 }
 
 export interface StudentsPageLike<T> {

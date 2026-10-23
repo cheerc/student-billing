@@ -741,7 +741,7 @@ describe('#81：課表 Excel 全量匯出／匯入', () => {
       label: '自習教室',
       scheduleMode: 'timetable',
       supportedAttributeKeys: ['subject', 'category', 'skipDeduction', 'summaryDayRoles', 'erpTierApplicability'],
-      summaryRoleOptions: ['mathDays', 'homeworkDays'],
+      summaryRoleOptions: ['mathDays', 'homeworkDays', 'saturdayTutoringDays'],
     };
     const workbookRows: ScheduleGridRow[] = [{
       rowId: 'synthetic-row-1',
@@ -763,7 +763,8 @@ describe('#81：課表 Excel 全量匯出／匯入', () => {
       fixedFiveDays: false,
       subject: '合成科目',
       subjectSource: 'manual',
-      summaryDayRoles: ['homeworkDays'],
+      summaryDayRoles: ['homeworkDays', 'saturdayTutoringDays'],
+      summaryDayRoleConditions: [{ role: 'saturdayTutoringDays', condition: 'raw_token_contains_six' }],
       summaryDayRolesStatus: 'configured',
       summaryDayRolesSource: 'manual',
       erpTierApplicability: 'not_applicable',

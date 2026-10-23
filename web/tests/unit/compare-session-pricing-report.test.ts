@@ -13,7 +13,10 @@ import {
   SESSION_RATE_CATEGORIES,
 } from '../../scripts/compare-session-pricing-report.mjs';
 import { readMultiTuitionReport } from '../../scripts/shared/report-xlsx';
-import { rateCategoryOfClass } from '../../src/application/applicable-rate';
+import { buildRunSnapshotContext } from '../../scripts/shared/rate-context';
+import { historicalRateCategoryOfClass } from '../../src/application/applicable-rate';
+
+const LEGACY_V2_CONTEXT = buildRunSnapshotContext({ ruleSetVersion: 'erp-tag-v2' })!;
 
 /**
  * 按堂計價帳務比對工具的解析與分類契約。
@@ -26,7 +29,7 @@ import { rateCategoryOfClass } from '../../src/application/applicable-rate';
  *    （95→9500、9→9000、85→8500、8→8000、7→7000、無→10000），
  *    此為報表**字串格式**規格，見 report-xlsx.ts 的 RATE_PATTERNS 說明。
  *  - 堂數：明細字尾 `- NN 堂課` 的字面數字，無換算規則。
- *  - 類別路由：`rateCategoryOfClass` 的名稱子字串規則（國小輔導／國小數學／兒童美語），
+ *  - 類別路由：`historicalRateCategoryOfClass` 的名稱子字串規則（國小輔導／國小數學／兒童美語），
  *    直接引用產品端函式本身測，確保工具沒有另寫一份對照表。
  *  - 學費金額欄位：報表欄 9 起為各班金額欄、表頭即班名；金額以該列數字
  *    與**同名表頭**配對。這是米豆奶報表的版面事實，已於 10-11 月報表實測：
@@ -160,6 +163,25 @@ describe('按堂計價帳務比對工具：報表解析契約', () => {
     });
   });
 
+  it('omitted Run context does not use the historical class-name mapper', () => {
+    const result = compare(
+      new Map([['合成生', {
+        name: '合成生',
+        tuitionRows: ['兒童美語-Dommie[團][W9] - 16 堂課'],
+        discounts: ['兒童美語-Dommie[團][W9] - 課程費8折'],
+        otherDiscounts: [], other: [], billNo: 'SYNTH-BILL', billDate: '2026-10-01', billStatus: '已繳',
+      }]]),
+      [{
+        name: '合成生', personCode: 'SYNTH_001', grade: 4, applicableEnglishBps: 8000,
+        applicableMathBps: 8500, enrollments: [{ rawToken: '兒童美語-Dommie[團][W9]', baseName: '兒童美語-Dommie' }],
+      }],
+      '2026-10-01',
+    ).records[0]!;
+
+    expect(result.statusCategory).toBe('WEB_RATE_NOT_CONFIGURED');
+    expect(result.web!.rateBps).toBeNull();
+  });
+
   /**
    * 非標準折扣偵測。
    *
@@ -205,7 +227,7 @@ describe('按堂計價帳務比對工具：報表解析契約', () => {
    * 類別 → 系統欄位路由。
    *
    * §9.0 明令「不得複寫產品的班名解析，複寫必然漂移」。因此本測試直接以產品端
-   * `rateCategoryOfClass` 為預期值：若工具端自寫一份對照表並與產品分歧，
+   * `historicalRateCategoryOfClass` 為預期值：若工具端自寫一份對照表並與產品分歧，
    * 這裡就會失敗。
    */
   describe('routeRateField：班名 → 系統適用率欄位', () => {
@@ -253,7 +275,7 @@ describe('按堂計價帳務比對工具：報表解析契約', () => {
       }
     });
 
-    it('與產品端 rateCategoryOfClass 對同一組班名必須一致（防止複寫漂移）', () => {
+    it('與產品端 historicalRateCategoryOfClass 對同一組班名必須一致（防止複寫漂移）', () => {
       const classNames = [
         '兒童美語-Dommie[團][W9]', '兒童美語-Gino[團][Starter]', '兒童美語-Archy[團][W7]',
         '115國小數學-三A[團]', '115國小數學-一A[團]', '115國小輔導-三年級[團][3]',
@@ -261,7 +283,7 @@ describe('按堂計價帳務比對工具：報表解析契約', () => {
       ];
       for (const className of classNames) {
         expect(routeRateField(className, student).category, `班名「${className}」路由與產品不一致`)
-          .toBe(rateCategoryOfClass(className));
+          .toBe(historicalRateCategoryOfClass(className));
       }
     });
 
@@ -306,7 +328,7 @@ describe('按堂計價帳務比對工具：報表解析契約', () => {
 
   /** 金額查表省略 → 學費金額皆為 null（比對邏輯不應因此改變分類）。 */
   const runCompare = (report: Record<string, unknown>[], web: Record<string, unknown>[]) =>
-    compare(new Map(report.map(r => [r.name as string, r])) as never, web as never[], '2026-10-14').records;
+    compare(new Map(report.map(r => [r.name as string, r])) as never, web as never[], '2026-10-14', undefined, LEGACY_V2_CONTEXT).records;
 
   describe('compare：分類路由', () => {
     /**

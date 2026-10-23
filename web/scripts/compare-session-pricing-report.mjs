@@ -18,7 +18,7 @@
  *
  * ## 複寫禁令（CLAUDE.md §9.0）
  *
- * 班名 → 類別的判定**一律取產品端 `rateCategoryOfClass`**，本檔不自寫對照表。
+ * 班名 → 類別的判定**一律取產品端 `historicalRateCategoryOfClass`**，本檔不自寫對照表。
  * 複寫必然漂移——國小輔導工具曾在自建白名單裡漏掉 `[5]`、把 `[Starter]`
  * 默默當成 5 天（review F-NEW-2）。此處同樣只保有一份真相。
  *
@@ -35,13 +35,13 @@ import path from 'path';
 import os from 'os';
 import { fileURLToPath } from 'url';
 
-import { rateCategoryOfClass, applicableRateForClass } from '../src/application/applicable-rate.ts';
+import { historicalRateCategoryOfClass, applicableRateForClass } from '../src/application/applicable-rate.ts';
 import { parseSingleClassToken } from '../src/domain/students/token-parser.ts';
 
 import { parseDiscounts, bpsToLabel, readMultiTuitionReport } from './shared/report-xlsx.ts';
 import { fetchRunStudents, fetchRun } from './shared/roster-api.ts';
 import { normalizeName, indexByName } from './shared/name-matching.ts';
-import { toApplicableRateContext, snapshotRowFor, buildRunSnapshotContext, shouldWarnMissingSnapshot } from './shared/rate-context.ts';
+import { toApplicableRateContext, snapshotRowFor, buildRunSnapshotContext, shouldWarnMissingSnapshot, usesFrozenLegacyProjection } from './shared/rate-context.ts';
 import { defineCategories, formatCategorySummary } from './shared/category-registry.ts';
 import { renderShell, escapeHtml } from './shared/report-shell.ts';
 import { assertProjectRoot, assertOutputOutsideProject } from './shared/project-guard.ts';
@@ -250,12 +250,12 @@ function baseClassName(head) {
 /**
  * 報表明細的班名部分 → 系統適用率欄位。
  *
- * 類別判定直接取產品端 `rateCategoryOfClass`，本檔不自寫對照表（§9.0 複寫即漂移）。
+ * 類別判定直接取產品端 `historicalRateCategoryOfClass`，本檔不自寫對照表（§9.0 複寫即漂移）。
  * 欄位名以對照表由**類別**推導，而非把類別字串拼成欄位名——後者會得到
  * `applicableenglishbps` 這種拼錯的名字，而拼錯不會報錯，只會讓數值變 undefined。
  *
  * 本表只列本工具比對的兩類；`care`（國小輔導）不在此列，那由 `billing:compare`
- * 負責。`rateCategoryOfClass` 仍會對輔導班回 'care'，呼叫端據此區分
+ * 負責。`historicalRateCategoryOfClass` 仍會對輔導班回 'care'，呼叫端據此區分
  * 「判定為輔導」（可解釋的結果）與「無法判定」（null，才需要人工介入）。
  */
 const RATE_FIELD_BY_CATEGORY = {
@@ -274,7 +274,7 @@ const RATE_FIELD_BY_CATEGORY = {
  * @param student   名單學生（提供四個 applicable*Bps 欄位）
  */
 export function routeRateField(className, student) {
-  const category = rateCategoryOfClass(className);
+  const category = historicalRateCategoryOfClass(className);
   if (category === null) return { category: null, field: null, bps: null };
   const field = RATE_FIELD_BY_CATEGORY[category] ?? null;
   const bps = field ? (student?.[field] ?? null) : null;
@@ -282,21 +282,27 @@ export function routeRateField(className, student) {
 }
 
 /**
- * 「未接快照」的顯式常數（issue #122）。
+ * Missing/unknown Run context (issue #122 / #148).
  *
- * 不讓呼叫端省略參數就默默落回名稱映射：v3 run 的呼叫端必須明示
- * `{ isV3Run: true, classCategories }`，否則這裡得到的是這個常數——
- * 一眼看得出來「這條路徑沒有快照」，而不是一個看起來很正常的 `undefined`。
+ * It deliberately does not represent a legacy run. Name mapping is enabled only when the
+ * caller supplies an explicitly identified v1-v3 formal Run through the shared context builder.
  */
-export const LEGACY_PRE_ISSUE122_CONTEXT = Object.freeze({ isV3Run: false, classCategories: null });
+export const MISSING_RUN_CONTEXT = Object.freeze({
+  known: false,
+  usesClassCategorySnapshot: false,
+  usesClassSemanticsSnapshot: false,
+  isV3Run: false,
+  classCategories: null,
+  ruleSetVersion: null,
+});
 
 /**
  * 本筆學費應比對的系統適用率。
  *
- * **單一入口**：v3 run 一律走產品端 `applicableRateForClass` 的快照分支
- * （03 §5.3.4：快照優先、缺該班快照時嚴禁以當前班名猜測），v1／v2 才走
- * 名稱映射的 `routeRateField`。CLAUDE.md §9.0：判定邏輯一律取產品函式，
- * 本檔不自寫一份「快照怎麼查、category 怎麼比」的對照表。
+ * **單一入口**：v3/v4 run 一律走產品端 `applicableRateForClass` 的快照分支
+ * （PR-4：缺快照時嚴禁以當前班名猜測），明確 v1/v2 才走名稱映射的
+ * `routeRateField`。Missing/unknown/compat context is unavailable. CLAUDE.md §9.0：
+ * 判定邏輯一律取產品函式，本檔不自寫一份「快照怎麼查、category 怎麼比」的對照表。
  *
  * `context` 的形狀沿用 API 回應（`run.classCategories`），**不在此轉型**：
  * 快照是 `fixed_five_days` 為數字 0/1 的底線命名物件，產品讀模型判 `=== 1`，
@@ -305,12 +311,15 @@ export const LEGACY_PRE_ISSUE122_CONTEXT = Object.freeze({ isV3Run: false, class
  * @param className 報表上的班名（**名冊名**，快照的 `base_name` 存的就是它；
  *                  呼叫端須先以 `baseClassName` 去修飾，本函式不做班名正規化）
  * @param student   名單學生
- * @param context   `{ isV3Run, classCategories }`；省略＝視為未接快照（v1／v2）
+ * @param context   Selected Run's version metadata and snapshots; omitted/unknown is unavailable.
  */
 export function resolveApplicableRate(className, student, context) {
-  const ctx = context ?? LEGACY_PRE_ISSUE122_CONTEXT;
+  const ctx = context;
+  if (!ctx || ctx.known === false) {
+    return { status: 'not_configured', bps: null, category: null, fromSnapshot: false };
+  }
 
-  if (ctx.isV3Run) {
+  if (ctx.usesClassCategorySnapshot ?? ctx.isV3Run) {
     // 快照的查詢與「找不到算什麼」一律走共用層的轉接，兩台工具同源（§9.0）。
     const rate = applicableRateForClass(className, student ?? {}, toApplicableRateContext(ctx));
     const snapshot = snapshotRowFor(ctx, className);
@@ -322,6 +331,10 @@ export function resolveApplicableRate(className, student, context) {
       category: snapshot ? snapshot.category : null,
       fromSnapshot: true,
     };
+  }
+
+  if (!usesFrozenLegacyProjection(ctx)) {
+    return { status: 'not_configured', bps: null, category: null, fromSnapshot: false };
   }
 
   const routed = routeRateField(className, student);
@@ -501,10 +514,9 @@ function buildNotes({ statusCategory, excel, web }) {
  * @param amountLookup   可選：`{ getAmount(name, className) }`。學費金額必須在
  *                       讀表階段就依班名解析（比對邏輯拿不到儲存格），故由呼叫端
  *                       預先解析後以「姓名＋班名」為鍵查回；省略則金額皆為 null。
- * @param rateContext    可選：`{ isV3Run, classCategories }`，形狀即 API 的
- *                       `/runs/{id}` 回應。**v3 run 必須傳入**，否則適用率會落回
- *                       名稱映射而與畫面分歧（issue #122）。省略＝v1／v2 語意。
- * @param {{ isV3Run: boolean, classCategories: ReadonlyArray<{ base_name: string, category: string, fixed_five_days: number }> | null } | undefined} [rateContext]
+ * @param rateContext    所選 `/runs/{id}` 的版本 metadata 與類別／語意快照；unknown、omitted
+ *                       或應有快照缺失時 fail closed。僅明確 v1-v3 formal Runs 使用凍結歷史投影。
+ * @param {(Partial<import('./shared/rate-context.ts').RunSnapshotPayload> & Pick<import('./shared/rate-context.ts').RunSnapshotPayload, 'isV3Run' | 'classCategories'>) | undefined} [rateContext]
  */
 export function compare(reportStudents, webStudents, asOfDate, amountLookup = undefined, rateContext = undefined) {
   const { map: webByName, duplicates } = indexByName(webStudents);
@@ -941,7 +953,7 @@ async function main() {
   // 否則「這行做對了」沒有任何測試盯得住（單元測試恆以顯式參數傳入 rateContext）。
   const rateContext = buildRunSnapshotContext(run);
   if (shouldWarnMissingSnapshot(run)) {
-    console.warn('警告：此 run 依規則集應有類別快照，API 卻未回傳 classCategories，將退回名稱映射，讀數可能與畫面不同（issue #122）。');
+    console.warn('警告：此 run 的規則版本或類別快照不完整；本報告不以當前班名補推適用率，相關列將標示為無法判定（issue #122／#148）。');
   }
 
   const { records, duplicates } = compare(reportStudents, students, asOfDate, {
@@ -955,9 +967,11 @@ async function main() {
     xlsxPath: args.xlsx,
     ruleSetVersion: run.ruleSetVersion || '—',
     numericPolicy: run.numericPolicy || '—',
-    rateSource: rateContext
-      ? `類別快照（${rateContext.classCategories.length} 班，與畫面同源）`
-      : '非快照 run：依當前班名映射',
+    rateSource: rateContext?.known === false
+      ? '規則版本未知：適用率不推測'
+      : rateContext?.usesClassCategorySnapshot
+        ? `類別快照（${Array.isArray(rateContext.classCategories) ? rateContext.classCategories.length : 0} 班，與畫面同源）`
+        : '歷史 run：依凍結的歷史類別映射',
     billAnchorDate: billDates[Math.floor(billDates.length / 2)] || '—',
     duplicateNames: duplicates,
     amountColumns: amounts.classHeadings.length

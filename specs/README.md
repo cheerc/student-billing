@@ -1,10 +1,10 @@
 # 學生收費核對工具：規格與交接入口
 
-版本：2026-10-05。P1 已有本機實作；目前正式規則為 erp-tag-v2（D30），班名候選依D32動態產生。歷史規劃文件中的「尚未實作」不代表目前進度。
+版本：2026-10-23。新 Run 與新計算預覽只使用 `erp-tag-v4`（#159 PR-2）；v1–v3 與 compat 僅供明確的歷史唯讀 projection。#148 PR-3 已保存 bounded class semantics 與 immutable per-run snapshot；PR-4 將現行 consumers 改讀 Run 語意快照，unknown/missing v3/v4 snapshot fail closed，不改 v4 numeric output。歷史規劃文件中的「尚未實作」不代表目前進度。
 
 UI 重設（先課表 → 匯入 → 核對）R0–R5 已交付並合併，驗收見[progress/ui-redesign-acceptance.md](progress/ui-redesign-acceptance.md)。人工驗收已歷七輪修正：第一輪（2026-09-30，受驗 `e1b1a58`）裁決 REJECTED，開啟 R2–R6 的修正循環；**第七輪（2026-10-05，受驗 `6aacb6c1`）簽核 PASS**，R6-F01、R6-F02 在指定條件下皆未重現。交付基準為 release tag **v0.0.1**（`main` `e4b4efce`；`web/package.json` 的 `version` 欄為 `0.1.0`，與 tag 名稱不一致，兩者不是同一個版本號，本文件不作合併）。歷次 FAIL → 修正的對照與第七輪簽核範圍見[progress/manual-acceptance-rounds.md](progress/manual-acceptance-rounds.md)。第一輪的修正計畫與決策如下：
 
-> **進度同步（2026-10-05，取代本段原有的「截至本日尚未實作」敘述）**：原句「其中 erp-tag-v3（D37）截至本日尚未實作，02 仍只有 v1／v2」書寫於 2026-09-30，已於 2026-10-01 實作合併後失效；本段於 2026-10-05 同步。**現況**：erp-tag-v3（D37）已於 2026-10-01 隨 D2a／D2b／D2c／D2d 合併落地（`main` `447134a` 核對）；[02](02-calculation-rules.md) 已於 `## 9. erp-tag-v3 規則段` 寫入 v3 規則（v2 原文與行為保留），故「02 仍只有 v1／v2」亦已不成立。`CURRENT_FORMAL_RULE_SET_VERSION` 仍為 `erp-tag-v2`（`web/src/domain/billing/rule-set.ts:31`），空 DB 預設 v3 屬 Q11 升級裁決——版本現況以 06 與 02 §9 為準。
+> **進度同步（2026-10-23）**：本段以下較早的 v2/v3 進度說明均保留作歷史記錄。現行新計算版本、explicit v4 upgrade gate 與 historical read-only projection 見 [02 §9A](02-calculation-rules.md)、[03 §5.6](03-architecture-api.md)、[06 D57](06-handoff-decisions.md)。Class semantics registry/snapshot 見 [03 §5.7](03-architecture-api.md)、[06 D58](06-handoff-decisions.md)；PR-4 current consumers 與 operator-approved one-time `legacy_migration` 見 [03 §5.8](03-architecture-api.md)、[04 UX102](04-tdd-acceptance.md)、[06 D59](06-handoff-decisions.md)。
 
 - [09 UI／UX 重設規格](09-ui-workflow-redesign-spec.md)（含 2026-09-30 修訂的目標契約）
 - [10 UI 重設實作 Plan](10-ui-workflow-redesign-plan.md)（R0–R5，已交付）
@@ -47,7 +47,8 @@ UI 重設（先課表 → 匯入 → 核對）R0–R5 已交付並合併，驗�
 - 財務報表不匯入此工具。人員在 ERP 財務報表按班級、會計科目逐一核對；未來 agent 可讀此工具 API，另行解讀財務報表。
 - 5 天指週一到週五；3、3.5、4、4.5、5 是每週收費天數／收費級距，不是當月實到天數。
 - 寫功課課程不列入折扣計算；美安是歷史班名，目前未實際開班。
-- 正式erp-tag-v2（D30）從「標籤」計算優惠，備註原文保留、不fallback。舊版讀備註的快取含已確認來源缺陷，僅作診斷。
+- 新 Run 固定 `erp-tag-v4`，從「標籤」計算優惠，備註原文保留、不 fallback。舊版讀備註的歷史 Run 僅唯讀展示；舊診斷表與 raw issue values 保留，不參與新計算。
+- v4 語意 consumer 使用 immutable Run `classSemantics`／`classCategories`；summary roles 只對接八個既有欄位，ERP tier parsing 依明確 applicability。非 seed 舊設定只有經明確一次性 `legacy_migration` 才保存；舊 Run 不回填。
 - 一般安課班名[3_5]為3.5天、無級距後綴為5天，與計算值並列比較、不互相覆寫；離班標記不排除名單。
 - 先不做登入／RBAC；本機測試。未來 Firestore + Vercel + Google 登入，上線前另行規劃。
 - 不串 ERP、不自動開帳單、不在本 session 實作。

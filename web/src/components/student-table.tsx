@@ -60,11 +60,14 @@ export default function StudentTable({ students, loading }: StudentTableProps) {
                     {stu.enrollments.map((enr, eIdx) => (
                       <div key={eIdx} className="token-item">
                         <span className="badge badge-class">{enr.rawToken}</span>
-                        {enr.erpBillingTier !== null && (
+                        {enr.previewErpBillingTier !== undefined && enr.previewErpBillingTier !== null && (
                           <span className="badge badge-tier">
-                            級距: {enr.erpBillingTier} 天
-                            {enr.tierParseStatus === 'defaulted' ? ' (預設)' : ''}
+                            設定預覽級距: {enr.previewErpBillingTier} 天
+                            {enr.previewTierParseStatus === 'defaulted' ? ' (預設)' : ''}
                           </span>
+                        )}
+                        {enr.previewErpBillingTier === null && enr.previewTierParseStatus === 'unavailable' && (
+                          <span className="badge badge-warn">級距待設定／無法判定</span>
                         )}
                         {enr.withdrawalDate && (
                           <span className="badge badge-withdrawal">
