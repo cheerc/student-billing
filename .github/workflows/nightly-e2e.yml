@@ -1,0 +1,101 @@
+# Candidate for Issue #101. The only FULL E2E entrypoint is the exact command below,
+# identical to local developers' `cd web && npm run test:e2e:full`.
+name: Student Billing Nightly E2E
+
+on:
+  schedule:
+    # 03:17 Asia/Taipei = 19:17 UTC on the preceding date.
+    - cron: '17 19 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: student-billing-nightly-e2e-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  chromium-e2e:
+    name: Canonical Full E2E (Chromium)
+    runs-on: ubuntu-latest
+    timeout-minutes: 90  # provisional; calibrate from hosted baseline
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v4
+
+      - name: Setup Node 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install dependencies (include native install scripts)
+        working-directory: web
+        run: npm ci
+
+      - name: Install Chromium and Linux dependencies
+        working-directory: web
+        run: npx --no-install playwright install --with-deps chromium
+
+      - name: Toolchain evidence
+        working-directory: web
+        run: |
+          echo "SHA=$GITHUB_SHA"
+          node --version
+          npm --version
+          npx --no-install playwright --version
+
+      - name: Assert local/nightly Full E2E parity contract
+        working-directory: web
+        run: node scripts/check-e2e-parity.mjs
+
+      - name: Canonical FULL E2E (same command as local)
+        working-directory: web
+        run: npm run test:e2e:full
+
+      # Runner writes summary even if E2E or report merge fails. Never change
+      # workflow outcome to green with continue-on-error / retries.
+      - name: Upload all E2E diagnostics
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: full-e2e-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            web/full-e2e/
+            web/blob-report/full-e2e/
+            web/test-results/full-e2e/
+          if-no-files-found: error
+          retention-days: 7
+
+  report-nightly-failure:
+    name: Track scheduled failure in GitHub Issues
+    needs: chromium-e2e
+    if: ${{ always() && github.event_name == 'schedule' && needs.chromium-e2e.result == 'failure' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - name: Create or update ONE nightly failure issue
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          run_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+          body="Nightly Full E2E failed on main at \`$GITHUB_SHA\`.\n\nRun: $run_url\nReview full-e2e artifacts and triage failure/infra separately.\nFirst attempt failures must not be re-run to green."
+          gh label create nightly-e2e --repo "$GITHUB_REPOSITORY" \
+            --color B60205 --description 'Scheduled full E2E failure' --force
+          existing="$(gh issue list --repo "$GITHUB_REPOSITORY" --state open \
+            --label nightly-e2e --limit 1 --json number --jq '.[0].number // ""')"
+          if [ -n "$existing" ]; then
+            printf '%b\n' "$body" | gh issue comment "$existing" --repo "$GITHUB_REPOSITORY" --body-file -
+          else
+            printf '%b\n' "$body" | gh issue create --repo "$GITHUB_REPOSITORY" \
+              --title 'Nightly Full E2E failed (main)' --label nightly-e2e --body-file -
+          fi

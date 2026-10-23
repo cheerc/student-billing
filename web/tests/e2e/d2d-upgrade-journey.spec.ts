@@ -29,11 +29,13 @@ import { test, expect } from '@playwright/test';
 test.beforeEach(async ({ page }) => {
   await page.goto('/settings');
   const banner = page.locator('[data-upgrade-banner]');
-  // 空 DB／非 v2 現況 → 沒有升級勾選，本檔不適用
-  test.skip(
-    (await banner.count()) === 0,
-    '本檔需要既有 v2 active run；請以 `npm run test:e2e:isolated -- --seed-v2-active tests/e2e/d2d-upgrade-journey.spec.ts` 執行'
-  );
+  const hasV2Banner = (await banner.count()) > 0;
+  if (process.env.E2E_REQUIRE_V2_SEED === '1') {
+    expect(hasV2Banner, 'Full E2E seeded phase must have a v2 active DB; cannot skip').toBe(true);
+  } else {
+    test.skip(!hasV2Banner,
+      '本檔需要既有 v2 active run；請使用 --seed-v2-active 或 full E2E 入口');
+  }
   await expect(page.locator('h1', { hasText: '課表設定' })).toBeVisible({ timeout: 15000 });
   await expect(banner).toBeVisible({ timeout: 15000 });
 });
