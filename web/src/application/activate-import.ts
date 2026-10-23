@@ -2,7 +2,7 @@ import Database from 'better-sqlite3';
 import crypto from 'crypto';
 import { executeCalculationRun, resolveLatestSavedSettings, CalculateRunOptions } from './calculate-run';
 import { saveCalculationRun } from '@/adapters/sqlite/runs-repository';
-import { resolveFormalRuleSetVersion } from './rule-set-resolver';
+import { resolveTargetRuleSetVersion, RuleSetResolutionError } from './rule-set-resolver';
 
 export class ActivateConflictError extends Error {
   statusCode = 409;
@@ -27,10 +27,13 @@ export class ActivateError extends Error {
 /**
  * activate 不接受 client 指定課表版本或設定覆寫（09 §8.2.1）：
  * scheduleVersionId／aliasMap／scheduleOverride 一律由 server 解析最新已儲存設定決定。
- * D1 起規則版本也一樣（F-1）：不接受 ruleSetVersion，由 server 沿用現行 run 的正式軌版本（F-2）。
+ * 新 Run 固定使用 v4；舊 active Run 必須先經 settings upgrade preview/apply 明確升級。
  */
 export interface ActivateOptions
-  extends Omit<CalculateRunOptions, 'scheduleVersionId' | 'aliasMap' | 'scheduleOverride' | 'ruleSetVersion'> {
+  extends Omit<
+    CalculateRunOptions,
+    'scheduleVersionId' | 'aliasMap' | 'scheduleOverride' | 'ruleSetVersion' | 'upgradePreviewId'
+  > {
   importId: string;
   expectedRevision: number;
   idempotencyKey: string;
@@ -114,11 +117,22 @@ export function activateImport(
 
     const nextRevision = activeState.revision + 1;
 
+    // 舊 active Run 只能透過 settings preview/apply 明確升級；activate 不提供升級捷徑。
+    let targetRuleSetVersion;
+    try {
+      targetRuleSetVersion = resolveTargetRuleSetVersion(db);
+    } catch (e) {
+      if (e instanceof RuleSetResolutionError) {
+        throw new ActivateError(409, e.message, 'UPGRADE_REQUIRED');
+      }
+      throw e;
+    }
+
     // 執行全量計算：每一次 activate 由 server 解析最新已儲存設定，
     // 忽略 client 傳入的 scheduleVersionId／alias／時段覆寫（09 §8.2.1）。
-    // 規則版本同樣由 server 決定（F-2）：沿用現行 run 的正式軌版本；沒有現行 run 或現行 run 是診斷軌 → 現行正式軌。
+    // 規則版本同樣由 server 決定（F-2）：新 run 固定使用 v4；舊 active run 需先經明確 settings upgrade。
     const { run, results, classCategories } = executeCalculationRun(db, importId, runId, {
-      ruleSetVersion: resolveFormalRuleSetVersion(db),
+      ruleSetVersion: targetRuleSetVersion,
       numericPolicy: options.numericPolicy,
       asOfDate: options.asOfDate,
       ...resolveLatestSavedSettings(db),

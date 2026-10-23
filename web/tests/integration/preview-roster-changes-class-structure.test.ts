@@ -17,7 +17,7 @@ import { computeImportRosterChanges } from '@/application/import-roster-diff';
 import { saveImportBatch } from '@/adapters/sqlite/import-repository';
 import { resolveFormalRuleSetVersion } from '@/application/rule-set-resolver';
 import { POST as previewPOST } from '@/app/api/v1/imports/preview/route';
-import { calculateSubjectCount, calculateBaseDiscountBps, parseTagDiscounts } from '@/domain/billing/discount-rules';
+import { calculateSubjectCountByCategory, calculateBaseDiscountBps, parseTagDiscounts } from '@/domain/billing/discount-rules';
 import { StudentSnapshot } from '@/domain/students';
 import type { ClassSetting } from '@/contracts/settings';
 
@@ -123,9 +123,9 @@ describe('API: preview 的 rosterDiff.changes 帶 PR-1 逐班資料（報名集�
     withoutTarget.push({ ...target, enrollments: [homeworkOnly] });
 
     // 獨立手算：基準（寫功課）科數 0、basic 10000；本次上傳（含數學＋可能的寫功課）科數 ≥1、basic 仍 10000（1–2 科）
-    const baseOnlyHomework = calculateSubjectCount([
-      { rawToken: 'x', baseName: '國小輔導-寫功課' },
-    ] as never);
+    const baseOnlyHomework = calculateSubjectCountByCategory([
+      resolveClassEnrollment({ rawToken: 'x', baseName: '國小輔導-寫功課' }, undefined, buildClassSettingMap(buildSeedDraft())).category,
+    ]);
     expect(baseOnlyHomework).toBe(0);
     expect(calculateBaseDiscountBps(baseOnlyHomework, false, null)).toBe(10000);
 
@@ -150,22 +150,40 @@ describe('API: preview 的 rosterDiff.changes 帶 PR-1 逐班資料（報名集�
    * PR-1 必須把它當成報名異動（switched），而不是完全看不見。
    */
   it('同類換班出現在 changes，報名集合以 switched 表達（即使折扣未變）', async () => {
-    // 找一位實際有「國小數學」報名的學生（要能把該班換成同類的另一班）
+    // 以 seed 類別表選出已映射為 math 的報名；v4 不再由班名推導類別。
+    const seedClassSettings = buildClassSettingMap(buildSeedDraft());
     const target = incomingStudents.find(
-      (s) => s.enrollments.some((e) => e.baseName.includes('國小數學')) && !parseTagDiscounts(s.tagsRaw).sibling
+      (s) => s.enrollments.some(
+        (e) => resolveClassEnrollment(e, undefined, seedClassSettings).category === 'math'
+      ) && !parseTagDiscounts(s.tagsRaw).sibling
     )!;
     expect(target).toBeDefined();
 
     const swapFrom = target.enrollments.find((e) => e.baseName.includes('國小數學'))!;
-    const swapTo = { ...swapFrom, rawToken: swapFrom.rawToken.replace(swapFrom.baseName, `${swapFrom.baseName}B`), baseName: `${swapFrom.baseName}B` };
+    const alternateMathClass = buildSeedDraft().classes.find(
+      (c) => c.baseName !== swapFrom.baseName &&
+        resolveClassEnrollment({ rawToken: c.baseName, baseName: c.baseName }, undefined, seedClassSettings).category === 'math'
+    )?.baseName;
+    expect(alternateMathClass).toBeDefined();
+    const swapTo = {
+      ...swapFrom,
+      rawToken: swapFrom.rawToken.replace(swapFrom.baseName, alternateMathClass!),
+      baseName: alternateMathClass!,
+    };
 
     const baseStudents = incomingStudents.map((s) =>
       s.personCode === target.personCode ? { ...s, enrollments: [swapFrom] } : s
     );
     // 獨立手算：換班不動類別 → 科數相同 → basic 相同（兩側同一值）
-    expect(calculateSubjectCount([swapFrom])).toBe(calculateSubjectCount([swapTo]));
-    expect(calculateBaseDiscountBps(calculateSubjectCount([swapFrom])!, false, null)).toBe(
-      calculateBaseDiscountBps(calculateSubjectCount([swapTo])!, false, null)
+    const beforeCount = calculateSubjectCountByCategory([
+      resolveClassEnrollment(swapFrom, undefined, seedClassSettings).category,
+    ]);
+    const afterCount = calculateSubjectCountByCategory([
+      resolveClassEnrollment(swapTo, undefined, seedClassSettings).category,
+    ]);
+    expect(beforeCount).toBe(afterCount);
+    expect(calculateBaseDiscountBps(beforeCount!, false, null)).toBe(
+      calculateBaseDiscountBps(afterCount!, false, null)
     );
 
     saveBase('imp_swap', baseStudents);
@@ -288,7 +306,7 @@ describe('API: preview 的 rosterDiff.changes 帶 PR-1 逐班資料（報名集�
     const draftMap = buildClassSettingMap(draft);
     const res = executeCalculationRun(db0, 'imp_manual_category', 'run_manual_category', {
       scheduleVersionId: 'setv_manual_category',
-      ruleSetVersion: 'erp-tag-v3',
+      ruleSetVersion: 'erp-tag-v4',
       aliasMap: draftToAliasMap(draft),
       scheduleOverride: draftToScheduleOverride(draft),
       classSettings: draftMap,

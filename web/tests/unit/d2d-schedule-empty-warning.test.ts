@@ -65,7 +65,7 @@ function makeStudent(personCode: string): StudentSnapshot {
   };
 }
 
-function run(version: 'erp-tag-v2' | 'erp-tag-v3') {
+function run(version: 'erp-tag-v4' = 'erp-tag-v4') {
   return calculateStudentBilling(makeStudent('S-EMPTY'), {
     ruleSetVersion: version,
     aliasMap: new Map(),
@@ -75,29 +75,25 @@ function run(version: 'erp-tag-v2' | 'erp-tag-v3') {
 }
 
 describe('D2d D: 空課表候選（schedule_empty）保留需確認警告', () => {
-  it('前置手算：v2 首班語意選①（空）→ 5 天；v3 選可計算的② → 4.5 天', () => {
-    expect(run('erp-tag-v2').careDays.tutoring.days).toBe(5);
-    expect(run('erp-tag-v3').careDays.tutoring.days).toBe(4.5);
-  });
 
-  it('v3：首班時段為空、次班可計算 → 必須出 SCHEDULE_EMPTY 需確認警告', () => {
-    const codes = run('erp-tag-v3').issues.map((i) => i.code);
+  it('v4：首班時段為空、次班可計算 → 必須出 SCHEDULE_EMPTY 需確認警告', () => {
+    const codes = run('erp-tag-v4').issues.map((i) => i.code);
     expect(codes).toContain('SCHEDULE_EMPTY');
   });
 
-  it('v3：空課表候選必須被標為需確認（tierComparisons needsReview）', () => {
-    const r = run('erp-tag-v3');
+  it('v4：空課表候選必須被標為需確認（tierComparisons needsReview）', () => {
+    const r = run('erp-tag-v4');
     expect(r.tierComparisons.some((c) => c.needsReview)).toBe(true);
   });
 
-  it('v3：美語全部候選皆空時段 → 必須出 SCHEDULE_EMPTY 警告，不靜默', () => {
+  it('v4：美語全部候選皆空時段 → 必須出 SCHEDULE_EMPTY 警告，不靜默', () => {
     const r = calculateStudentBilling(
       {
         ...makeStudent('S-EMPTY-EN'),
         enrollments: [{ ...makeStudent('x').enrollments[0], baseName: '兒童美語-Gino', rawToken: '兒童美語-Gino' }],
       },
       {
-        ruleSetVersion: 'erp-tag-v3',
+        ruleSetVersion: 'erp-tag-v4',
         aliasMap: new Map(),
         classSettings: manualCategories({
           math: ['國小數學-三A', '國小數學-三B'],
@@ -109,9 +105,5 @@ describe('D2d D: 空課表候選（schedule_empty）保留需確認警告', () =
     expect(r.issues.map((i) => i.code)).toContain('SCHEDULE_EMPTY');
   });
 
-  it('v2 行為不變（凍結）：空課表候選不因本次修正而新增警告', () => {
-    // 負向保證：v2 維持原狀，不受 v3 修正影響（F-8：v2 凍結）
-    const codes = run('erp-tag-v2').issues.map((i) => i.code);
-    expect(codes).not.toContain('SCHEDULE_EMPTY');
-  });
+
 });

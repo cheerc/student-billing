@@ -8,6 +8,8 @@
 >
 > **現行 PR-1 契約（Issue #159）：** D55 與下方 #161 snapshot 說明保留為歷史決策記錄。新 run 只執行一次正式計算，不呼叫 compat／shadow-v2，不產生兩個 retired diagnostic issue，也不新增 diagnostics snapshot/version；既有 schema、rows、raw `issues`、`hasIssues`、`issueCounts` 保留不變。`GET /runs/{runId}/comparison` 已移除並回 404。UI 用統一 actionable projection 隱藏兩個 retired code，保留其他 issue 與 tier `needsReview`；明確 API `issueCode` 查詢與 raw response 仍涵蓋歷史值。詳見 §5.5。
 
+> **現行 PR-2 契約（Issue #159）：** 新 Run 與新計算預覽固定 v4。active 任一非 v4 舊 Run（含 v1／v2／v3、compat 或未知版本）的普通 activate／recalculate／apply fail-closed，要求使用者明確選取並確認 v4 升級；before 僅讀取 active old Run 持久化結果，after 才呼叫 v4 calculator。缺少 saved before 時 fail-closed。任何舊 Run、run snapshot、raw issue/count、class category snapshot 都不重算、不回填；v3 snapshot 與 v1/v2 historical read mapping 保留，使用獨立 read-only `historicalRuleSetMetadata`，不再以 calculation capabilities 推測歷史行為。舊成功 idempotency replay 保持原 hash 與 response。詳見 §5.6。
+
 ## 1. 技術選擇
 
 建議 TypeScript + Node.js 24。不是所有資料處理工具唯一最佳語言，但本案主要是 Web 操作、確定性規則、檔案解析與未來 Vercel/Firebase 整合，前後端共用型別與純函式測試的價值大於另建 Python 服務。Python 可留作開發期間 Excel 獨立驗證工具，不成為部署依賴。
@@ -60,7 +62,7 @@ repositories / XLSX adapter / clock & ID provider / file store
 |ScheduleVersion|id、effectiveFrom/To、careWindows、createdAt、source|整套設定版本；初始草稿攜帶 seed 全文 89 筆平鋪時段，消除空 sessions 雙義性|
 |ScheduleSession|scheduleVersionId、sessionId、classId、weekday、startMinute、endMinute、order|一班多時段；重複警告，不自動去重|
 |RuleSet|id、version、parameters、description|P1 用程式定義的版本；parameters 至少含 minutesPerBillingDay、取整門檻 zeroBelow／fullAtOrAbove、課輔整日特例條件（D24）；改參數即新版本；不建任意公式编辑器|
-|CalculationRun|runId、importId、scheduleVersionId、classCatalogVersion、aliasVersion、ruleSetVersion、numericPolicy、asOfDate、status、issueCounts|保存所選正式版本（v1–v4）；new run 經 resolver 選版，目前目標 v4，歷史 compat 不可作正式 run；輸入版本全固定|
+|CalculationRun|runId、importId、scheduleVersionId、classCatalogVersion、aliasVersion、ruleSetVersion、numericPolicy、asOfDate、status、issueCounts|新 run 經 resolver 固定保存 `erp-tag-v4`；既有 v1–v3／compat metadata 僅供歷史讀取，不再提供計算路徑；輸入版本全固定|
 |StudentCalculation|runId、personCode、subjectCount、baseDiscountBps、careDays、flags、issues、trace|穩定輸入產生穩定業務結果|
 |ClassStudentResult|runId、classId、personCode、enrollmentIds、enrolled、applicableDiscount、billingTier、tierComparisons[]、issues|每個enrollment各比較，班級人數去重；不覆寫domain原值|
 |ActiveState|activeImportId、activeRunId、revision|原子更新，UI/API 只能看到完整 run|
@@ -118,7 +120,7 @@ P1 整批重算可接受，5000 筆規模未證明有瓶頸前不實作複雜增
 
 `POST /settings/schedules` 的 P1 UX 可提供「儲存並重算」；不要自動改舊 scheduleVersion。初始草稿直接攜帶 seed 全量 89 筆時段，消除空 sessions 雙義性。無 classId 主鍵前不做更名功能；停用班級一律透過 active=false，不提供硬刪除歷史。
 
-影響計算的設定保存需帶previewId與expectedRevision；預覽hash綁定草稿、import、設定、ruleSet，任一改變回409要求重預覽。預覽草稿設定 TTL 防止陳舊操作，且預覽只跑正式 erp-tag-v1 規則以保證反應速度。保存不得接收與預覽不同草稿。GET /classes 可含 mappingStatus=unmapped 的待設定項目及暫定候選鍵；GET /students 可用 enrollmentKey 查該清單，不因缺classId失去學生。列表 API 執行脫敏保護（不回傳完整電話與自由備註），單一學生明細抽屜 API（GET /students/{personCode}/calculation）按需查閱完整原文；學生資料字元一致性走依人員代碼排序之逐 key SHA-256 hash 比對。就學資料只存不篩。
+影響計算的設定保存需帶previewId與expectedRevision；預覽hash綁定草稿、import、設定、ruleSet，任一改變回409要求重預覽。預覽草稿設定 TTL 防止陳舊操作；新預覽只執行 v4。升級舊 active Run 時，before 讀 persisted 結果，after 執行 v4。保存不得接收與預覽不同草稿。GET /classes 可含 mappingStatus=unmapped 的待設定項目及暫定候選鍵；GET /students 可用 enrollmentKey 查該清單，不因缺classId失去學生。列表 API 執行脫敏保護（不回傳完整電話與自由備註），單一學生明細抽屜 API（GET /students/{personCode}/calculation）按需查閱完整原文；學生資料字元一致性走依人員代碼排序之逐 key SHA-256 hash 比對。就學資料只存不篩。
 
 **歷史 #161 comparison contract（#159 PR-1 已移除 route，現行 GET 回 404）：** 當時 GET /runs/{runId}/comparison?againstRuleSet=excel-v260922-compat 為唯讀診斷；不切換 active。差異語意固定為同一 run 建立當下保存的正式值 `F_run` 與同一輪產生並保存的 compat 值 `C_run`：response 列出所有三個欄位中 `F_run != C_run` 的值，formalValue 必須等於 `student_calculations` 中該 run 的正式保存值。不得以今天重算的 `F_now`／`C_now` 取代歷史結果。
 
@@ -263,14 +265,16 @@ PR-1 raw/actionable issue 相容邊界：`issues`、`hasIssues`、`issueCounts` 
 
 依 [06 D40](06-handoff-decisions.md)（operator 2026-09-30 裁決，decision `d-20260930112930661160-25`）；D1 只改「版本與快照從哪裡讀」，v1／v2／compat 的計算輸出逐欄不變（驗收 [04 UX34](04-tdd-acceptance.md)）。
 
+> 本節 §5.2.1 的原始版本沿用契約是 D1 的歷史實作記錄。#159 PR-2 起新 Run／preview 的現行契約改由 §5.6 覆蓋：新計算只用 v4，舊版 active 需明確升級；`resolveFormalRuleSetVersion` 不得作為新計算授權。
+
 > #159 PR-1 後續狀態：本節中原 comparison route、診斷 snapshot 生成／讀取契約及其測試描述是 D55/#161 的歷史記錄，現行契約以本檔頂端補充與 §5.5 為準。歷史表與 migration 保留，沒有新 run 寫入或 public comparison GET。
 
 #### 5.2.1 規則版本由 server 決定（F-1／F-2／F-3）
 
-- **單一解析器** `application/rule-set-resolver`：`resolveFormalRuleSetVersion(db)`＝有 active run 且其版本為正式軌則沿用（v1／v2／v3／v4），否則（無 active run，或 active run 為歷史診斷軌 compat）採目前 target formal `erp-tag-v4`。名單差異、班級扣天、calculate、preview、activate 都經它取得版本；client 一律不得指定。
-- **activate**：body 不得含 `ruleSetVersion`（route 與 application 層皆拒絕；HTTP 400 `INVALID_REQUEST`，與 calculate 一致）。新 run 的版本＝`resolveFormalRuleSetVersion(db)`（在與 CAS 同一交易內解析）：現行 run 為任一 formal 版本則新 run 沿用該版；歷史 compat active run 回落至目前 target formal `erp-tag-v4`。冪等雜湊只由 `{importId, expectedRevision, asOfDate}` 決定；D1 之前寫入的紀錄（雜湊含 `ruleSetVersion:"erp-tag-v2"`）同 key 同內容的重送仍回原結果。
-- **preview／apply**：`settings_previews.target_rule_set_version`（migration 0007，nullable）記錄 preview 當下由 server 決定的版本（含 settings_only）；apply **只讀這個欄位**建立新 run（`resolveRuleSetForApply`）。欄位為 NULL（0007 之前建立的舊 preview；TTL 15 分鐘，實務上幾乎不存在）＝「建立當時的 active 版本」：apply 與 preview 之間有 revision CAS，active 沒變，所以等於 apply 當下 server 解析的值。記錄值不是正式軌版本（含診斷軌 compat、未知字串）→ 500 `PREVIEW_CORRUPTED`，不建 run、不動 active。
-- **能力旗標**：`domain/billing/rule-set` 的 `ruleSetCapabilities(version)` 逐版明列 `sameWeekdayOnly`、`unknownWeekdayWarning`、`scheduleIncompleteOnUnknownWeekday`；原本散在各處、會改變行為的 4 處 `=== 'erp-tag-v2'` 字面比較（billing-calculator 3 處、schedule-preview 1 處）一律改讀旗標。未列出的版本（含 compat、未知字串）全關＝與舊語意相同。D1 不新增 `erp-tag-v3` 型別成員，也不改 `CURRENT_FORMAL_RULE_SET_VERSION`。**D2 新增版本時須逐項明列旗標值，並稽核未進旗標的預設值字面**（預設值字面共 7 處：`calculate-run.ts` 1、`roster-changes.ts` 3、`comparison/route.ts` 1、`billing-calculator.ts` 2；另 `roster-changes.ts` 的 `classSide` 以 `!== 'excel-v260922-compat'` 決定同星期規則——對 v1 與 calculator 的純時刻比對不一致，D1 依「除 F-1／2／3／5／6／7 外不改任何輸出」原樣保留，交 D2 處置）。
+- **解析器分工（現行 #159 PR-2）**：`resolveFormalRuleSetVersion(db)` 僅用於讀取 active run 的 formal metadata／歷史呈現；新計算入口使用 `resolveTargetRuleSetVersion` 並只回 `erp-tag-v4`。無 active run 時採 v4；active v1／v2／v3、compat 或未知版本且 request 未明確指定 v4 時回 409 `UPGRADE_REQUIRED`。active run row 缺失則 fail-closed。client 不得帶 `ruleSetVersion`。D1 時期 resolver 沿用舊版的說明留作歷史脈絡，不再授權新計算。
+- **activate**：body 不得含 `ruleSetVersion`（route 與 application 層皆拒絕；HTTP 400 `INVALID_REQUEST`）。普通 activate 遇舊 active run 回 409 `UPGRADE_REQUIRED`；須先經 settings preview/apply 明確升級，且 transaction／CAS 內新 run 固定 v4。冪等 lookup/replay 順序不變：舊成功 activation record 同 key／原 request hash 仍回原 response，不建立或覆寫 Run。
+- **preview／apply**：`settings_previews.target_rule_set_version`（migration 0007，nullable）記錄 preview 目標；目前只接受 v4。active 舊版的 settings preview 與唯讀 schedule calculate 須由 upgrade checkbox 明確帶 `targetRuleSetVersion:'erp-tag-v4'`；未勾選時 fail-closed。apply 只讀 preview 記錄值；NULL 舊 preview 僅在 v4 active／無 active 的 CAS 狀態下解析為 v4，舊 active 或記錄舊版目標都回 409 `UPGRADE_REQUIRED`。TTL、revision CAS、冪等與交易 rollback 不變。
+- **歷史 metadata**：新 calculator 固定使用 v4；舊 calculation-capability table 已移除。`historicalRuleSetMetadata(version)` 是獨立、read-only 的明確版本映射，供 v1/v2/v3/compat 歷史讀取（包括 category snapshot、名稱/rate mapping、weekday 與固定 5 天舊呈現語意）；未知版本 fail-closed，不以現行計算邏輯猜舊行為。現行計算不能使用舊版能力旗標或 compat 浮點 kernel。
 
 #### 5.2.2 歷史 run 一律讀該 run 的設定快照（F-5／F-6／F-7）
 
@@ -391,12 +395,12 @@ run 的設定快照＝`run.scheduleVersionId`：`seed-v250922`（該 run 沒有�
 - dirty 只比對**使用者的指定**（`manualAttrs` vs `baselineManualAttrs`）：未指定者一律 `unset`（#157），班名本身已由 rows／baseline 逐列比對涵蓋；若把未指定者的值也帶進 `isSettingsDirty` 的 `classAttrs`，會讓沒有任何指定的空 baseline 與整份班級清單永遠長度不同 → 永遠 dirty。
 - 類別／固定 5 天欄位進 draft JSON，因此 `hashSettingsDraft` 自動涵蓋（值與來源都算，改來源即改 hash），且**不改 `hashSettingsDraft` 契約**（仍是 `sha256(JSON.stringify(draft))`）。
 
-#### 5.4.4 升級確認（Q11；S manifest §2；#112 Ruling 1）
+#### 5.4.4 升級確認（Q11；S manifest §2；#112 Ruling 1；現況依 #159 PR-2）
 - 空 DB 的目標版本為 `TARGET_FORMAL_RULE_SET_VERSION`（D2b 時為 `erp-tag-v3`；#112 起為 **`erp-tag-v4`**；`resolveFormalRuleSetVersion` 在無 active run 時採它）。
-- 既有正式軌 run（v1/v2/v3）**不動**：`resolveTargetRuleSetVersion(db, requested)` 在未指定時沿用現行正式軌版本，因此未勾選升級時既有資料庫的 preview／apply／activate 均維持現行規則版本。
-- 升級必須是**明確動作**：課表設定頁在現行版本為正式軌且未達目標版本（`isFormalRuleSetVersion(appliedRuleSetVersion) && appliedRuleSetVersion !== TARGET_FORMAL_RULE_SET_VERSION`，即 v1、v2、v3）時顯示「改用新規則（v4）」勾選；勾選後 preview payload 帶 `targetRuleSetVersion: 'erp-tag-v4'`；套用成功後生效版本更新為目標版本，升級橫幅即時收斂消失。
-- `SettingsPreviewRequestSchema.targetRuleSetVersion` 以 `z.enum(FORMAL_RULE_SET_VERSION_LIST)` 驗證：非正式軌值（診斷軌、未知字串）一律 400，不猜、不靜默降級。
-- preview 記錄的 `target_rule_set_version` 仍是 apply 唯一採用的來源（D1 F-3）：新 run 的版本＝preview 的目標版本，舊 run 的值與分類不變；失敗不切 active（整段在 `db.transaction`），冪等鍵先於 CAS。
+- 既有非 v4 active run（v1/v2/v3、compat 或未知版本）**不動**：未勾選升級時，普通 activate／recalculate／apply 不建立新 run，而回 409 `UPGRADE_REQUIRED`；明確勾選後 preview target 記錄 v4，apply 只建立 v4 run。升級前結果讀取 persisted old `student_calculations`，不呼叫舊 calculator。active Run row 缺失或沒有可讀取的 saved result 時 fail-closed；不構造 before。
+- 升級必須是**明確動作**：設定頁在目前版本已知且非 v4、compat，或版本未知但仍有 active Run 時，顯示「改用新規則（v4）」勾選；未知版本僅能選擇明確 v4 升級，不推測其歷史語意。勾選後 preview payload 帶 `targetRuleSetVersion: 'erp-tag-v4'`；套用成功後生效版本更新為目標版本，升級橫幅即時收斂消失。
+- `SettingsPreviewRequestSchema.targetRuleSetVersion` 若有提供，現行新計算只接受 `erp-tag-v4`；舊 formal version、診斷軌或未知字串 fail-closed，不猜、不靜默降級。
+- preview 記錄的 `target_rule_set_version` 仍是 apply 唯一採用的來源（D1 F-3），其有效目標固定為 v4；舊 run 的值、issues 與分類 snapshot 不變。失敗不切 active（整段在 `db.transaction`），CAS／TTL／idempotency replay 次序不變。
 
 #### 5.4.5 讀模型接線（N-8 對齊）
 - `applicableRateForClass` 的快照分支改以**注入的快照查詢**（`{ isV3Run／usesSnapshot, ruleSetVersion, findSnapshot }`）取得類別，不再直接吃 `db`：
@@ -409,12 +413,20 @@ run 的設定快照＝`run.scheduleVersionId`：`seed-v250922`（該 run 沒有�
 
 ### 5.5 Issue #159：退役新 run 雙軌 diagnostics，保留歷史 raw contract
 
-- **新 run 計算**：每位學生只呼叫一次該 run 選定的 formal calculator。新 run 不呼叫 `excel-v260922-compat` 或 shadow-v2，不新增 `NUMERIC_POLICY_DIFFERENCE`／`RULESET_POLICY_DIFFERENCE`，不建立 `run_diagnostics` row，也不保存新 diagnostic version。`ruleSetVersion` 仍由現有正式版本 resolver 決定；本 PR 不收斂成單一 v4。
+- **新 run diagnostics（PR-1 行為，沿用至 PR-2）**：每位學生只計算一次；不呼叫 `excel-v260922-compat` 或 shadow-v2，不新增 `NUMERIC_POLICY_DIFFERENCE`／`RULESET_POLICY_DIFFERENCE`，不建立 `run_diagnostics` row，也不保存新 diagnostic version。PR-1 原先保留多個 formal target；PR-2 現行版本收斂為 v4，詳見 §5.6。
 - **歷史 diagnostics**：`run_diagnostics` schema、repository 的歷史讀取欄位、舊 rows 與舊 run 原始 issues 不刪除、不回填、不重算。新 run 的診斷欄位為 NULL／不存在。
 - **Comparison route**：`GET /runs/{runId}/comparison` 已刪除，任何 run 都回 404。比較連結亦從結果頁移除；歷史 snapshot 仍留在 DB，沒有 UI/API route。
 - **Raw API 相容性**：學生 run reader 的 `issues`、`hasIssues`、`issueCounts` 與 `/runs/{runId}/issues` 保持 raw persisted values。明確 `issueCode=NUMERIC_POLICY_DIFFERENCE` 或 `RULESET_POLICY_DIFFERENCE` 仍可查到舊 rows 並回 200；不重用這些 raw 值推導新的 business warning。
 - **Actionable UI projection**：`domain/issues/actionable-issues.ts` 集中定義 retired codes。UI badges、issue list、facets／selection、has-issues filter、名單與 history page counts 只排除這兩碼；其他 issue 全數保留。任一 enrollment 的 tier comparison `needsReview` 即使沒有 actionable issue row 仍可行動確認。API `issueCode` 原始 query 不套此投影；client 將 stale retired-only URL selection 移除，避免空的 UI selection 與篩選名單不一致。
 - **Issue #159 regression coverage**：合成歷史 rows 覆蓋 retired-only、混合 business issue、tier `needsReview`、raw query／raw counts 及 stale URL；synthetic new-run test 驗 formal 一次、compat/shadow 零次與無 diagnostics rows；實際 Next route test 驗 comparison GET 404；transaction failure test 驗 run、student rows、active pointer 與 diagnostics insert 一起 rollback。Real local student data remains private and is not a CI fixture.
+
+### 5.6 Issue #159 PR-2：single-v4 新計算與舊版明確升級
+
+- **新計算版本**：activate、settings preview/apply、schedule calculate、roster diff／recalculate 及 application direct call 均只能建立／計算 v4。`executeCalculationRun` 在 application/domain 共用邊界拒絕其他版本；舊版 calculator 與 compat float kernel 不提供新計算路徑。
+- **舊 active Run**：未指定升級目標時，v1/v2/v3、compat 或未知版本 active Run 的普通 activation、recalculate、preview/apply fail-closed 並引導明確 v4 upgrade。設定頁 checkbox 是升級授權；選取後 schedule preview 與 settings preview 才計算 v4。升級前 `before` 從 active Run 持久化的 `student_calculations` 讀取，不能呼叫舊 calculator 重建；未持久化的舊課程費率維持 unavailable，不從當前公式推回。
+- **升級結果與歷史保存**：confirmed apply 在既有 CAS／TTL／idempotency transaction 內保存新 settings version 與 v4 Run，成功後切換 active pointer；rollback 不留下部分資料。舊 Run、raw issues/counts、category snapshot、diagnostic schema/rows 都不重算、不回填、不刪除。既有成功 activation idempotency replay 保留舊 hash compatibility，先於舊 active guard 回應原 response。
+- **歷史 read-model metadata**：v1/v2 不依賴新增 calculation capability map 進行舊計算；v3/v4 class category snapshot 與 v1/v2 old rate/name mapping 由明確的 read-only `historicalRuleSetMetadata` 分流。未知版本不推測 weekday/snapshot/rate 語意；snapshot availability fail-closed。
+- **PR-2 regression coverage**：直接 v2 calculate 與無升級舊 active activate/apply 失敗；explicit schedule/settings preview 均使用 v4；before 值來自 synthetic persisted v2 row，無舊 calculator invocation；legacy idempotency replay、CAS/TTL/transaction tests 保留。升級 journey 與 restore E2E 均從固定合成 v2 Run／學生結果 row 起步，成功後新 Run v4、舊 Run 保持可查；不使用 calculator 生成 fixture。
 
 ## 6. Agent 使用邊界
 

@@ -38,11 +38,11 @@ function respondForRun(db: Database.Database, runId: string, scope: 'run' | 'act
   if (!run) {
     throw new SchedulePreviewError(404, `找不到計算 run: ${runId}`, 'RUN_NOT_FOUND');
   }
-  // 診斷軌 run 的值不能以正式規則重建
+  // 只為可辨識的歷史版本重建；unknown/corrupt 版本不能套用任一版本的規則猜測。
   if (!isFormalRuleSetVersion(run.ruleSetVersion)) {
     throw new SchedulePreviewError(
       422,
-      `run 使用的規則版本「${run.ruleSetVersion}」為診斷軌，不提供班級扣天快照。`,
+      'run 使用無法辨識或不支援的規則版本，無法安全重建班級扣天。',
       'UNSUPPORTED_RULESET'
     );
   }

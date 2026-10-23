@@ -201,19 +201,26 @@ describe('POST /api/v1/settings/calculate（唯讀計算 read model）', () => {
     }
   });
 
-  it('ruleSetVersion 由 server 決定：active run 為正式軌則採其值；active run 為診斷軌 compat 則改採目標版本 erp-tag-v4', async () => {
+  it('舊 active run 的一般計算 fail-closed；明確選擇 v4 upgrade 後才接受 preview', async () => {
     const db = getDatabase() as any;
     const { runId } = saveReadyAndActivate(db);
     const draft = buildSeedDraft();
 
     db.prepare('UPDATE calculation_runs SET rule_set_version = ? WHERE id = ?').run('erp-tag-v1', runId);
-    let body = await (await calculatePOST(calcReq({ draft, requestKey: 'a' }))).json();
-    expect(body.ruleSetVersion).toBe('erp-tag-v1');
+    let res = await calculatePOST(calcReq({ draft, requestKey: 'a' }));
+    expect(res.status).toBe(409);
+    expect((await res.json()).code).toBe('UPGRADE_REQUIRED');
+    res = await calculatePOST(calcReq({ draft, requestKey: 'a-v4', targetRuleSetVersion: 'erp-tag-v4' }));
+    expect(res.status).toBe(200);
+    expect((await res.json()).ruleSetVersion).toBe('erp-tag-v4');
 
     db.prepare('UPDATE calculation_runs SET rule_set_version = ? WHERE id = ?').run('excel-v260922-compat', runId);
-    body = await (await calculatePOST(calcReq({ draft, requestKey: 'b' }))).json();
-    // 診斷軌不作正式值 → 採目標版本 erp-tag-v4（D2b Q11；#112 起目標正式軌）
-    expect(body.ruleSetVersion).toBe('erp-tag-v4');
+    res = await calculatePOST(calcReq({ draft, requestKey: 'b' }));
+    expect(res.status).toBe(409);
+    expect((await res.json()).code).toBe('UPGRADE_REQUIRED');
+    res = await calculatePOST(calcReq({ draft, requestKey: 'b-v4', targetRuleSetVersion: 'erp-tag-v4' }));
+    expect(res.status).toBe(200);
+    expect((await res.json()).ruleSetVersion).toBe('erp-tag-v4');
   });
 
   it('輸入驗證：缺 requestKey、非 JSON、班名重複 → 400；超過 payload 上限 → 413；跨來源 → 403', async () => {
@@ -495,5 +502,16 @@ describe('GET /api/v1/settings/deductions（指定 run 快照／active／已儲�
     const res = await deductionsGET(dedReq(`?runId=${runId}`));
     expect(res.status).toBe(422);
     expect((await res.json()).code).toBe('UNSUPPORTED_RULESET');
+  });
+
+  it('未知／損毀版本的歷史 run：422 UNSUPPORTED_RULESET，不用 weekday legacy 語意猜測重建', async () => {
+    const { runId } = saveReadyAndActivate(db);
+    db.prepare('UPDATE calculation_runs SET rule_set_version = ? WHERE id = ?').run('erp-tag-v999-corrupt', runId);
+    const res = await deductionsGET(dedReq(`?runId=${runId}`));
+    expect(res.status).toBe(422);
+    const body = await res.json();
+    expect(body.code).toBe('UNSUPPORTED_RULESET');
+    expect(body.error).toContain('無法辨識或不支援');
+    expect(body.error).not.toContain('erp-tag-v999-corrupt');
   });
 });

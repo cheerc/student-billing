@@ -216,7 +216,7 @@ describe('T05: preview→apply 雙階段流程整合測試 (I10/I11/I15/I18/I20)
     expect(oldStudents.totalStudents).toBe(5);
   });
 
-  it('F1/K4: 穩態 preview 不 throw——有／無 active run 兩態皆跟隨正確正式版本', () => {
+  it('F1/K4: 穩態 preview 使用已保存 active Run；沒有可比較的 Run 時 fail-closed', () => {
     // 態 A：有 active run（beforeEach 已 activate，active_run_id 存在）→ 跟隨該 run 版本
     const draftA = buildSeedDraft(SEED_CLASSES, {
       anqin: { start: 780, end: 960 },
@@ -233,16 +233,13 @@ describe('T05: preview→apply 雙階段流程整合測試 (I10/I11/I15/I18/I20)
     const runRow = db.prepare('SELECT rule_set_version FROM calculation_runs WHERE id = ?').get(activeRunId) as any;
     expect(runRow.rule_set_version).toBeDefined();
 
-    // 態 B：無 active run（active_run_id 清空）→ 不 throw，預設最新正式軌 erp-tag-v2
+    // 態 B：沒有 active run 就沒有可作為 before 的保存結果，不能合成預覽前值。
     db.prepare('UPDATE active_state SET active_run_id = NULL WHERE id = 1').run();
     const draftB = buildSeedDraft(SEED_CLASSES, {
       anqin: { start: 780, end: 960 },
       tutoring: { start: 990, end: 1170 },
     });
-    let resB: any;
-    expect(() => {
-      resB = previewSettingsChange(db, previewId, { draft: draftB, expectedRevision: 1 });
-    }).not.toThrow();
-    expect(resB.previewId).toBeDefined();
+    expect(() => previewSettingsChange(db, previewId, { draft: draftB, expectedRevision: 1 }))
+      .toThrowError(/沒有可供比較的已保存 Run/);
   });
 });

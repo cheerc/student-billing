@@ -1,7 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import os from 'os';
 import path from 'path';
-import { getDefaultDatabasePath } from '@/adapters/sqlite/db';
 import {
   assertIsolatedE2eTarget,
   DEFAULT_ISOLATED_E2E_PORT,
@@ -40,9 +39,9 @@ describe('R0：隔離 E2E 守衛 assertIsolatedE2eTarget', () => {
     expect(() => assertIsolatedE2eTarget({ databasePath: '', port: 3100 })).toThrowError(/DATABASE_PATH|資料庫/);
   });
 
-  it('預設資料庫路徑（使用者真實 DB 位置）：拒絕', () => {
+  it('專案預設資料庫路徑：拒絕', () => {
     expect(() =>
-      assertIsolatedE2eTarget({ databasePath: getDefaultDatabasePath(), port: 3100 })
+      assertIsolatedE2eTarget({ databasePath: path.resolve(process.cwd(), '..', 'data', 'app.sqlite'), port: 3100 })
     ).toThrowError(/臨時目錄|預設/);
   });
 

@@ -5,10 +5,9 @@ import type { StudentSnapshot } from '@/domain/students';
 import type { ClassSettingLookup } from '@/domain/classification/class-category';
 
 /**
- * A17 驗收自動化證據：v3 計算規則核心收費與天數不變式之自動化回歸防護。
- * 鎖定 v3 關鍵語意：固定 5 天強制 10000 bps 覆寫、特殊折扣優先序、本班適用折扣 Q7-A 覆寫、
- * 類別科數、衝堂最多扣除選班與額外扣天順序／年級下限保底（#147 / D51）。
- * 防止引入 erp-tag-v4 或後續改動時意外破壞 v3 既有運作。
+ * PR-2 v4 characterization for #112: fixed-five-days and tuition discount are decoupled,
+ * special-discount priority remains intact, and extra deduction still follows the grade floor.
+ * The persisted v3 applicable-rate projection stays a separate historical read test.
  */
 
 function makeStudent(params: {
@@ -45,8 +44,8 @@ function makeStudent(params: {
   };
 }
 
-describe('Ruling 4 / A17: erp-tag-v3 計算規則不變式自動化驗收測試', () => {
-  it('1. v3 固定 5 天強制覆蓋：在 erp-tag-v3 下，輔導班勾選固定 5 天仍將課輔/安親收費率覆蓋為 10000 bps', () => {
+describe('PR-2: erp-tag-v4 billing invariants', () => {
+  it('1. v4 固定 5 天與學費折扣解耦：兩個類別維持兩科折扣率', () => {
     const student = makeStudent({
       personCode: 'V3_INV_1',
       grade: 4,
@@ -58,17 +57,17 @@ describe('Ruling 4 / A17: erp-tag-v3 計算規則不變式自動化驗收測試'
       ['國小數學-四A', { category: 'math', categorySource: 'manual', fixedFiveDays: false }],
     ]);
 
-    const resV3 = calculateStudentBilling(student, {
-      ruleSetVersion: 'erp-tag-v3' as any,
+    const resV4 = calculateStudentBilling(student, {
+      ruleSetVersion: 'erp-tag-v4',
       classSettings: settings,
     });
 
-    // v3 手算：2 科原本 9500，但固定 5 天強制使 tutoring 為 10000
-    expect(resV3.applicableRates.tutoring).toBe(10000);
-    expect(resV3.applicableRates.math).toBe(9500);
+    // v4 手算：2 科收取率為 9500；fixedFiveDays 不覆寫課程折扣。
+    expect(resV4.applicableRates.tutoring).toBe(9500);
+    expect(resV4.applicableRates.math).toBe(9500);
   });
 
-  it('2. v3 特殊折扣優先：帶特殊折扣標籤時，即使固定 5 天，仍優先依特殊折扣計算（#124 不變式）', () => {
+  it('2. v4 特殊折扣優先：帶特殊折扣標籤時，即使固定 5 天，仍依特殊折扣計算（#124 不變式）', () => {
     const student = makeStudent({
       personCode: 'V3_INV_2',
       grade: 4,
@@ -81,17 +80,17 @@ describe('Ruling 4 / A17: erp-tag-v3 計算規則不變式自動化驗收測試'
       ['國小數學-四A', { category: 'math', categorySource: 'manual', fixedFiveDays: false }],
     ]);
 
-    const resV3 = calculateStudentBilling(student, {
-      ruleSetVersion: 'erp-tag-v3' as any,
+    const resV4 = calculateStudentBilling(student, {
+      ruleSetVersion: 'erp-tag-v4',
       classSettings: settings,
     });
 
-    expect(resV3.baseDiscountBps).toBe(9000);
-    expect(resV3.applicableRates.tutoring).toBe(9000);
-    expect(resV3.applicableRates.math).toBe(9000);
+    expect(resV4.baseDiscountBps).toBe(9000);
+    expect(resV4.applicableRates.tutoring).toBe(9000);
+    expect(resV4.applicableRates.math).toBe(9000);
   });
 
-  it('3. v3 applicableRateForClass：固定 5 天之 none 班（如寫功課）本班適用折扣維持 10000 bps（Q7-A）', () => {
+  it('3. persisted v3 applicableRateForClass：固定 5 天之 none 班保留歷史 10000 bps 投影（Q7-A）', () => {
     const rateFields = {
       grade: 4,
       applicableAnqinBps: 9500,
@@ -113,7 +112,7 @@ describe('Ruling 4 / A17: erp-tag-v3 計算規則不變式自動化驗收測試'
     expect(rateV3).toEqual({ status: 'configured', bps: 10000 });
   });
 
-  it('4. v3 天數計算保底與額外扣天順序：固定 5 天受額外扣天扣除，但受年級下限保底（#147 / D51）', () => {
+  it('4. v4 天數計算保底與額外扣天順序：固定 5 天受額外扣天扣除，但受年級下限保底（#147 / D51）', () => {
     const student = makeStudent({
       personCode: 'V3_INV_4',
       grade: 4,
@@ -126,12 +125,12 @@ describe('Ruling 4 / A17: erp-tag-v3 計算規則不變式自動化驗收測試'
       ['國小數學-四A', { category: 'math', categorySource: 'manual', fixedFiveDays: false }],
     ]);
 
-    const resV3 = calculateStudentBilling(student, {
-      ruleSetVersion: 'erp-tag-v3' as any,
+    const resV4 = calculateStudentBilling(student, {
+      ruleSetVersion: 'erp-tag-v4',
       classSettings: settings,
     });
 
     // 5 - 2 = 3 天，年級 4 下限保底為 3.0 天
-    expect(resV3.careDays.tutoring.days).toBe(3);
+    expect(resV4.careDays.tutoring.days).toBe(3);
   });
 });

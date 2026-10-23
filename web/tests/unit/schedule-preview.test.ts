@@ -266,9 +266,11 @@ describe('讀模型與學生 run 同源（seed 全部數學／美語班逐班對
     expect(subjectClasses.length).toBeGreaterThan(30);
 
     for (const c of subjectClasses) {
-      const g1 = calculateStudentBilling(mk(c.classKey, 1), { ruleSetVersion: 'erp-tag-v2', scheduleOverride: override });
+      const category: 'english' | 'math' = c.classKey.includes('美語') ? 'english' : 'math';
+      const classSettings = new Map([[c.classKey, { category, categorySource: 'manual' as const, fixedFiveDays: false }]]);
+      const g1 = calculateStudentBilling(mk(c.classKey, 1), { ruleSetVersion: 'erp-tag-v4', scheduleOverride: override, classSettings });
       expect(g1.careDays.anqin.days, `${c.classKey} 小一安親`).toBe(Math.max(3.5, 5 + c.anqin.rounded));
-      const g3 = calculateStudentBilling(mk(c.classKey, 3), { ruleSetVersion: 'erp-tag-v2', scheduleOverride: override });
+      const g3 = calculateStudentBilling(mk(c.classKey, 3), { ruleSetVersion: 'erp-tag-v4', scheduleOverride: override, classSettings });
       expect(g3.careDays.tutoring.days, `${c.classKey} 小三課輔`).toBe(Math.max(3, 5 + c.tutoring.rounded));
     }
   });

@@ -4,16 +4,12 @@ import { runMigrations } from '@/adapters/sqlite/migrator';
 import { saveImportBatch } from '@/adapters/sqlite/import-repository';
 import { executeCalculationRun } from '@/application/calculate-run';
 import { applicableRateForClass, loadRunClassCategories } from '@/application/applicable-rate';
-import { saveCalculationRun } from '@/adapters/sqlite/runs-repository';
+import { saveCalculationRun, type CalculationRunRecord } from '@/adapters/sqlite/runs-repository';
 import { buildSeedDraft, saveSettingsVersion } from '@/adapters/sqlite/settings-repository';
-import type { ClassSettingLookup } from '@/domain/classification/class-category';
 
 /**
- * D2a 移交項 N-6（PR #43 secondary review）：
- * 原「讀模型」案例只呼叫 executeCalculationRun，沒有走 saveCalculationRun，
- * 因此 calculation_runs 沒有該 run 列，applicableRateForClass 的 v3 分支從未真正被驗到，
- * 實際驗到的是 v2 名稱映射分支（fixture 傳入 10000 讓斷言誤通過）。
- * 本檔的三個案例一律走完整生產呼叫鏈，並以非 10000 的適用率確保斷言真的落在 fixed_five_days 分支。
+ * D2a N-6 historical projection contract and current v4 snapshot persistence.
+ * Historical v2/v3 fixtures are stored synthetic rows. New-run and alias behavior use v4.
  */
 describe('D2b N-6: run_class_categories 快照持久化與讀模型（完整生產呼叫鏈）', () => {
   let db: Database.Database;
@@ -93,24 +89,27 @@ describe('D2b N-6: run_class_categories 快照持久化與讀模型（完整生�
     return (name: string) => rows.find((r) => r.base_name === name);
   }
 
-  /** 走真實生產呼叫鏈：executeCalculationRun → saveCalculationRun。 */
-  function runV3(runId: string, classSettings?: Map<string, ClassSettingLookup>) {
-    const res = executeCalculationRun(db, 'imp_test', runId, {
-      ruleSetVersion: 'erp-tag-v3' as any,
-      classSettings,
-    });
-    saveCalculationRun(db, res.run, res.results, res.classCategories);
-    return res;
+  function saveHistoricalRun(runId: string, version: 'erp-tag-v2' | 'erp-tag-v3', categories?: Array<{
+    baseName: string; category: string; fixedFiveDays: number; mapped: number; source: string;
+  }>) {
+    const run: CalculationRunRecord = {
+      id: runId, importId: 'imp_test', scheduleVersionId: 'seed-v250922', ruleSetVersion: version,
+      numericPolicy: 'integer-minute-rational-v1', asOfDate: '2026-09-30', status: 'completed',
+      issueCounts: {}, totalStudents: 1, createdAt: '2026-09-30T00:00:00.000Z',
+    };
+    saveCalculationRun(db, run, [], categories);
   }
 
-  it('erp-tag-v3 run 會寫入 run_class_categories，且在 saveCalculationRun (生產呼叫鏈) 後不被級聯刪除 (R2-1)', () => {
-    const resV2 = executeCalculationRun(db, 'imp_test', 'run_v2', { ruleSetVersion: 'erp-tag-v2' });
-    saveCalculationRun(db, resV2.run, resV2.results, resV2.classCategories);
+  it('persisted v3 run 保留類別快照、v2 run 沒有快照列 (R2-1)', () => {
+    saveHistoricalRun('run_v2', 'erp-tag-v2');
 
     const v2Rows = db.prepare('SELECT * FROM run_class_categories WHERE run_id = ?').all('run_v2');
     expect(v2Rows.length).toBe(0);
 
-    runV3('run_v3');
+    saveHistoricalRun('run_v3', 'erp-tag-v3', [
+      { baseName: '國小輔導-寫功課', category: 'unset', fixedFiveDays: 0, mapped: 0, source: 'unset' },
+      { baseName: '國小輔導-四年級', category: 'care', fixedFiveDays: 0, mapped: 1, source: 'seed' },
+    ]);
 
     const v3Rows = db.prepare('SELECT * FROM run_class_categories WHERE run_id = ?').all('run_v3') as any[];
     expect(v3Rows.length).toBeGreaterThan(0);
@@ -133,30 +132,28 @@ describe('D2b N-6: run_class_categories 快照持久化與讀模型（完整生�
     expect(seedRow.source).toBe('seed');
   });
 
-  it('v2 run 重存時 student_calculations 不被級聯刪除 (R2-1)', () => {
-    const resV2 = executeCalculationRun(db, 'imp_test', 'run_v2_resave', { ruleSetVersion: 'erp-tag-v2' });
-    saveCalculationRun(db, resV2.run, resV2.results);
+  it('v4 run 重存時 student_calculations 不被級聯刪除 (R2-1)', () => {
+    const resV4 = executeCalculationRun(db, 'imp_test', 'run_v4_resave', { ruleSetVersion: 'erp-tag-v4' });
+    saveCalculationRun(db, resV4.run, resV4.results, resV4.classCategories);
 
-    const beforeCount = (db.prepare('SELECT count(*) as c FROM student_calculations WHERE run_id = ?').get('run_v2_resave') as any).c;
+    const beforeCount = (db.prepare('SELECT count(*) as c FROM student_calculations WHERE run_id = ?').get('run_v4_resave') as any).c;
     expect(beforeCount).toBeGreaterThan(0);
 
     try {
-      saveCalculationRun(db, resV2.run, []);
+      saveCalculationRun(db, resV4.run, []);
     } catch {
       // INSERT INTO 應拋出 UNIQUE/PRIMARY KEY constraint 錯誤而非靜默替換
     }
 
-    const afterCount = (db.prepare('SELECT count(*) as c FROM student_calculations WHERE run_id = ?').get('run_v2_resave') as any).c;
+    const afterCount = (db.prepare('SELECT count(*) as c FROM student_calculations WHERE run_id = ?').get('run_v4_resave') as any).c;
     expect(afterCount).toBe(beforeCount);
   });
 
-  it('讀模型 (N-6): 不列入但固定 5 天的班級顯示 100%，且該斷言真的落在 fixed_five_days 分支（適用率給非 10000 值）', () => {
-    const classSettings = new Map<string, ClassSettingLookup>([
-      ['國小輔導-寫功課', { category: 'none', categorySource: 'manual', fixedFiveDays: true }],
-      // 對照組用的 care 班：#157 後類別必須明確宣告，否則快照是 unset（讀模型回 not_configured）。
-      ['國小輔導-四年級', { category: 'care', categorySource: 'manual', fixedFiveDays: false }],
+  it('historical v3 read model: non-included fixed-five-days class keeps its 10000 bps projection', () => {
+    saveHistoricalRun('run_v3_rate', 'erp-tag-v3', [
+      { baseName: '國小輔導-寫功課', category: 'none', fixedFiveDays: 1, mapped: 1, source: 'manual' },
+      { baseName: '國小輔導-四年級', category: 'care', fixedFiveDays: 0, mapped: 1, source: 'manual' },
     ]);
-    runV3('run_v3_rate', classSettings);
 
     // 適用率刻意使用 8888（非 10000）：若讀到 v2 名稱映射或 math/english 欄位，結果會是 8888 而非 10000，
     // 因此這個斷言能區分「真的命中 fixed_five_days 分支」與「誤命中別的分支」。
@@ -169,7 +166,7 @@ describe('D2b N-6: run_class_categories 快照持久化與讀模型（完整生�
         applicableMathBps: 8888,
         applicableEnglishBps: 8888,
       },
-      { isV3Run: true, findSnapshot: snapshotLookup(db, 'run_v3_rate') }
+      { ruleSetVersion: 'erp-tag-v3', findSnapshot: snapshotLookup(db, 'run_v3_rate') }
     );
     expect(hw).toEqual({ status: 'configured', bps: 10000 });
 
@@ -183,13 +180,15 @@ describe('D2b N-6: run_class_categories 快照持久化與讀模型（完整生�
         applicableMathBps: 8888,
         applicableEnglishBps: 8888,
       },
-      { isV3Run: true, findSnapshot: snapshotLookup(db, 'run_v3_rate') }
+      { ruleSetVersion: 'erp-tag-v3', findSnapshot: snapshotLookup(db, 'run_v3_rate') }
     );
     expect(care).toEqual({ status: 'configured', bps: 8888 });
   });
 
   it('讀模型 (N-6): v3 run 缺該班快照時回 not_configured，不以當前班名猜測', () => {
-    runV3('run_v3_missing');
+    saveHistoricalRun('run_v3_missing', 'erp-tag-v3', [
+      { baseName: '國小輔導-四年級', category: 'care', fixedFiveDays: 0, mapped: 1, source: 'seed' },
+    ]);
 
     const r = applicableRateForClass(
       '國小數學-四A',
@@ -200,7 +199,7 @@ describe('D2b N-6: run_class_categories 快照持久化與讀模型（完整生�
         applicableMathBps: 8888,
         applicableEnglishBps: 8888,
       },
-      { isV3Run: true, findSnapshot: snapshotLookup(db, 'run_v3_missing') }
+      { ruleSetVersion: 'erp-tag-v3', findSnapshot: snapshotLookup(db, 'run_v3_missing') }
     );
     // 國小數學-四A 是 seed 班級但本名單沒人報名，快照無此列 → not_configured（不是 8888 的猜測）
     expect(r.status).toBe('not_configured');
@@ -276,7 +275,7 @@ describe('D2b N-7: alias 解析與 manual 來源的快照回歸', () => {
     seedOneStudent('美語新班-2026春');
 
     const res = executeCalculationRun(db, 'imp_n7', 'run_alias', {
-      ruleSetVersion: 'erp-tag-v3' as any,
+      ruleSetVersion: 'erp-tag-v4',
       aliasMap: new Map([['美語新班-2026春', '兒童美語-Gino']]),
     });
     saveCalculationRun(db, res.run, res.results, res.classCategories);
@@ -300,7 +299,7 @@ describe('D2b N-7: alias 解析與 manual 來源的快照回歸', () => {
     seedOneStudent('國小數學-未對應新班');
 
     const res = executeCalculationRun(db, 'imp_n7', 'run_noalias', {
-      ruleSetVersion: 'erp-tag-v3' as any,
+      ruleSetVersion: 'erp-tag-v4',
     });
     saveCalculationRun(db, res.run, res.results, res.classCategories);
 
@@ -344,7 +343,7 @@ describe('D2b N-7: alias 解析與 manual 來源的快照回歸', () => {
     });
 
     const res = executeCalculationRun(db, 'imp_n7', 'run_manual', {
-      ruleSetVersion: 'erp-tag-v3' as any,
+      ruleSetVersion: 'erp-tag-v4',
       scheduleVersionId: versionId,
     });
     saveCalculationRun(db, res.run, res.results, res.classCategories);

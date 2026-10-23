@@ -53,7 +53,7 @@ describe('Ruling 1: settings-editor 升級入口解耦（支援 v3 升級至 v4�
     expect(html).not.toContain('data-upgrade-banner');
   });
 
-  it('5. 當現行 run 為非正式軌（如 excel-v260922-compat）或 null 時，canUpgrade 為 false，不呈現升級橫幅', () => {
+  it('5. 當現行 run 為 compat 或未知版本時，仍提供明確 v4 升級入口', () => {
     const compatHtml = renderToStaticMarkup(
       React.createElement(SettingsEditor, {
         currentRevision: 1,
@@ -61,7 +61,16 @@ describe('Ruling 1: settings-editor 升級入口解耦（支援 v3 升級至 v4�
         currentRuleSetVersion: 'excel-v260922-compat',
       } as any)
     );
-    expect(compatHtml).not.toContain('data-upgrade-banner');
+    expect(compatHtml).toContain('data-upgrade-banner');
+
+    const unknownHtml = renderToStaticMarkup(
+      React.createElement(SettingsEditor, {
+        currentRevision: 1,
+        initialDraft: buildSeedDraft(),
+        currentRuleSetVersion: 'erp-tag-corrupt',
+      } as any)
+    );
+    expect(unknownHtml).toContain('data-upgrade-banner');
 
     const nullHtml = renderToStaticMarkup(
       React.createElement(SettingsEditor, {

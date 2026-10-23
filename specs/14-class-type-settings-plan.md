@@ -1,6 +1,6 @@
 # 14 課程類型分類與課表設定重構 Plan（#112）
 
-> **Issue #159 PR-1 current status:** References below to frozen compatibility calculation behavior describe historical rule semantics. New runs do not invoke `excel-v260922-compat` or shadow-v2 and do not write comparison snapshots; the comparison UI link and GET route are removed (404). Existing diagnostic schema/data and raw issue values remain unchanged. See [03 §5.5](03-architecture-api.md) and [06 D56](06-handoff-decisions.md). This does not claim PR-2 single-v4 completion.
+> **Issue #159 current status (PR-1 and PR-2):** New Runs and current calculation previews use only `erp-tag-v4`. Active old Runs require an explicit v4 upgrade; upgrade before reads persisted results and after calculates v4. Old Run outputs/snapshots are not recalculated or backfilled. Compatibility formulas and `ruleSetCapabilities` references below describe historical design only. New runs do not invoke compat/shadow-v2 or write comparison snapshots; comparison GET returns 404, while existing diagnostic schema/data and raw issues remain. See [03 §5.5–5.6](03-architecture-api.md), [04 UX98/UX99](04-tdd-acceptance.md), and [06 D56–D57](06-handoff-decisions.md).
 
 日期：2026-10-18。依據：operator 2026-10-18 對話裁示（§0、§6）。狀態（文件建立時）：**spec 定稿，當時計畫實作未開始**。
 
@@ -202,7 +202,7 @@ v3 的扣天候選以 `category==='math'|'english'` 篩選（`web/src/domain/bil
 
 ### 3.4 課程學費折扣只由「列入多科折扣」決定（**收費規則變更，`erp-tag-v4`**）
 
-**這是收費規則變更，非 UI 調整。**於新正式軌規則集版本 **`erp-tag-v4`** 生效（透過 `ruleSetCapabilities` 能力旗標與舊版 `v1`／`v2`／`v3`／`compat` 隔離，見 §3.11、§6 第 4 點）：
+**這是收費規則變更，非 UI 調整。**於新正式軌規則集版本 **`erp-tag-v4`** 生效。當前執行契約已由 #159 PR-2 收斂為所有新計算只用 v4，舊版不再有計算能力旗標或 calculator path；本節其餘版本隔離文字是原始歷史計畫，見 [03 §5.6](03-architecture-api.md)：
 
 - **學生層課程學費折扣（`discount-rules.ts`、`billing-calculator.ts`）**：
   - 在 `erp-tag-v4` 下，**不套用** `discount-rules.ts:186` 的 `homeworkOverwriteApplies`（即移除 `fixedFiveDays` 對 `anqin`／`tutoring` 的 10000 bps 強制覆蓋）。
@@ -320,8 +320,8 @@ v3 的扣天候選以 `category==='math'|'english'` 篩選（`web/src/domain/bil
 
 ### 3.11 計算端與讀模型修改清單
 
-- **`web/src/domain/billing/care-days.ts` 不動**（天數公式不變；額外扣天順序屬 #147）。
-- **`web/src/domain/billing/rule-set.ts` 需修改**：新增正式軌版本 `'erp-tag-v4'`，將 `TARGET_FORMAL_RULE_SET_VERSION` 更新為 `'erp-tag-v4'`，並於 `RuleSetCapabilities` 新增能力旗標（隔離 `v4` 與 `v1`／`v2`／`v3`／`compat`）。
+- **`web/src/domain/billing/care-days.ts` 的計算路徑已扁平為 v4-only**：移除非 v4 分支，但保留原 v4 天數公式與輸出；天數地板不變，額外扣天順序仍依 #147。這是 #159 PR-2 的實作整理，不是新的收費規則。
+- **歷史實作計畫**：原計畫要求新增正式軌版本 `erp-tag-v4`、更新 target version 並新增 `RuleSetCapabilities`。PR-2 現況移除 calculator capability table；歷史讀模型使用明確的 read-only `historicalRuleSetMetadata` mapping。
 - **`web/src/domain/billing/discount-rules.ts` 與 `web/src/domain/billing/billing-calculator.ts` 需修改**（§3.4）：在 `erp-tag-v4` 下不套用 `homeworkOverwriteApplies`（固定 5 天不將 `anqin`／`tutoring` 收費率覆蓋為 10000 bps）。
 - **`web/src/application/applicable-rate.ts` 需修改**（§3.4）：在 `erp-tag-v4` 下，`:74-77` 不再因 `row.fixed_five_days === 1` 強制回傳 `{ status: 'configured', bps: 10000 }`，而是完全依 `row.category` 決定本班適用折扣。
 - **`web/src/application/roster-changes.ts` 需修改**（§3.4 移除機制的**下游**）：`:330-334`（`affectsHomeworkOrMeian`）、`:484` 註解、`:487`、`:514`、`:518-535` 把「寫功課／美安 → 安親／課輔會回到 10000」寫進匯入異動與設定變更影響預覽的折扣變動歸因邏輯。在 `erp-tag-v4` 下固定 5 天不再影響折扣，必須停用該歸因條件，否則會成為死碼或向使用者顯示**錯誤的報名原因**。

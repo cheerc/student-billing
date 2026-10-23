@@ -2,7 +2,7 @@ import type Database from 'better-sqlite3';
 import type { NormalizedStudentQuery, QuerySelection } from '@/contracts/student-query';
 import { parseTagDiscounts } from '@/domain/billing/discount-rules';
 import { getCalculationRun } from '@/adapters/sqlite/runs-repository';
-import { ruleSetCapabilities } from '@/domain/billing/rule-set';
+import { historicalRuleSetMetadata } from '@/domain/billing/rule-set';
 import { ACTIONABLE_HAS_ISSUES_SQL, NO_ACTIONABLE_ISSUE_CODES_SQL } from '@/domain/issues/actionable-issues';
 import { selectionPredicate, classPredicate, branchPredicate, applicableRateColumn, escapeLike, type QueryPredicate } from './student-query-sql';
 
@@ -12,13 +12,15 @@ export function createStudentPredicateBuilder(db: Database.Database, runId: stri
   const run = getCalculationRun(db, runId);
   const snapshots = run?.classCategories;
   const ruleSetVersion = run?.ruleSetVersion;
-  const usesSnapshot = ruleSetCapabilities(ruleSetVersion ?? 'erp-tag-v2').categoryBasedBilling && Array.isArray(snapshots);
+  const runMetadata = historicalRuleSetMetadata(ruleSetVersion ?? '');
+  const usesSnapshot = runMetadata.hasClassCategorySnapshot && Array.isArray(snapshots);
 
   const getApplicableColumn = (className: string): string | null => {
+    if (!runMetadata.known) return null;
     if (usesSnapshot && snapshots) {
       const snap = snapshots.find((s) => s.base_name === className);
       if (!snap) return null;
-      const fixedFiveDaysAffectsRate = !ruleSetCapabilities(ruleSetVersion ?? 'erp-tag-v2').homeworkDiscountDecoupled;
+      const fixedFiveDaysAffectsRate = runMetadata.fixedFiveDaysAffectsRate;
       if (fixedFiveDaysAffectsRate && snap.fixed_five_days === 1) {
         return '10000';
       }

@@ -2,8 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import Database from 'better-sqlite3';
 import { runMigrations } from '@/adapters/sqlite/migrator';
 import { saveImportBatch } from '@/adapters/sqlite/import-repository';
-import { executeCalculationRun } from '@/application/calculate-run';
-import { saveCalculationRun } from '@/adapters/sqlite/runs-repository';
+import { saveCalculationRun, type CalculationRunRecord, type StudentCalculationRecord } from '@/adapters/sqlite/runs-repository';
 import {
   buildSeedDraft,
   getLatestSettingsVersion,
@@ -79,11 +78,27 @@ function seedStudents(db: Database.Database, importId: string) {
   );
 }
 
-function activate(db: Database.Database, importId: string, runId: string, version: string) {
-  const res = executeCalculationRun(db, importId, runId, { ruleSetVersion: version as never });
-  saveCalculationRun(db, res.run, res.results, res.classCategories);
+/** Fixed synthetic pre-#159 v3 history; old rows are read and preserved, never recalculated. */
+function seedHistoricalV3Active(db: Database.Database, importId: string, runId: string) {
+  const now = '2026-09-30T00:00:00.000Z';
+  const run: CalculationRunRecord = {
+    id: runId, importId, scheduleVersionId: 'v1', ruleSetVersion: 'erp-tag-v3',
+    numericPolicy: 'integer-minute-rational-v1', asOfDate: '2026-09-30', status: 'completed',
+    issueCounts: {}, totalStudents: 1, createdAt: now,
+  };
+  const result: StudentCalculationRecord = {
+    id: `${runId}_S001`, runId, personCode: 'S001', name: '測試生', branch: '本部', grade: 4, gradeRaw: '4',
+    subjectCount: 1, baseDiscountBps: 10000, anqinDays: null, anqinDisplay: null, tutoringDays: 5,
+    tutoringDisplay: '5', englishDays: null, mathDays: 2, chineseDays: null, homeworkDays: null,
+    intensiveEnglishDays: null, saturdayTutoringDays: null, applicableAnqinBps: null,
+    applicableTutoringBps: 10000, applicableEnglishBps: null, applicableMathBps: 10000,
+    tierMismatch: false, tierComparisons: [], issues: [], hasIssues: false,
+    trace: { sourceRow: 1, rawTags: '', rawNotes: '', enrollments: [{ baseName: Z }] }, createdAt: now,
+  };
+  saveCalculationRun(db, run, [result], [
+    { baseName: Z, category: 'math', fixedFiveDays: 0, mapped: 1, source: 'seed' },
+  ]);
   db.prepare('UPDATE active_state SET active_run_id = ?, active_import_id = ? WHERE id = 1').run(runId, importId);
-  return res;
 }
 
 /**
@@ -140,7 +155,7 @@ describe('D2d H: UX60 舊 v3 run 的類別快照不被重新分類（專項旅�
     storeDraft(buildSeedDraft(), 'v1', 1);
 
     // 2. 產生舊的 v3 run A
-    activate(db, 'imp_snap', 'run_A', 'erp-tag-v3');
+    seedHistoricalV3Active(db, 'imp_snap', 'run_A');
     const snapA_before = snapshotOf(db, 'run_A');
     // #157：seed 基準的來源是 'seed'（機構既有的班級設定），不是使用者的決定。
     expect(snapA_before.find((r) => r.base_name === Z)).toMatchObject({
@@ -159,7 +174,9 @@ describe('D2d H: UX60 舊 v3 run 的類別快照不被重新分類（專項旅�
     const revision = (
       db.prepare('SELECT revision FROM active_state WHERE id = 1').get() as { revision: number }
     ).revision;
-    const preview = previewSettingsChange(db, 'imp_snap', { draft: draft2, expectedRevision: revision });
+    const preview = previewSettingsChange(db, 'imp_snap', {
+      draft: draft2, expectedRevision: revision, targetRuleSetVersion: 'erp-tag-v4',
+    });
     const applied = applySettingsPreview(db, {
       previewId: preview.previewId,
       expectedRevision: revision,
@@ -185,7 +202,7 @@ describe('D2d H: UX60 舊 v3 run 的類別快照不被重新分類（專項旅�
 
   it('改設定不影響舊 run 的計算列（student_calculations 不回溯改寫）', () => {
     storeDraft(buildSeedDraft(), 'v1', 1);
-    activate(db, 'imp_snap', 'run_A', 'erp-tag-v3');
+    seedHistoricalV3Active(db, 'imp_snap', 'run_A');
 
     const rowsBefore = db
       .prepare('SELECT * FROM student_calculations WHERE run_id = ?')
@@ -201,7 +218,9 @@ describe('D2d H: UX60 舊 v3 run 的類別快照不被重新分類（專項旅�
     const revision = (
       db.prepare('SELECT revision FROM active_state WHERE id = 1').get() as { revision: number }
     ).revision;
-    const preview = previewSettingsChange(db, 'imp_snap', { draft: draft2, expectedRevision: revision });
+    const preview = previewSettingsChange(db, 'imp_snap', {
+      draft: draft2, expectedRevision: revision, targetRuleSetVersion: 'erp-tag-v4',
+    });
     applySettingsPreview(db, {
       previewId: preview.previewId,
       expectedRevision: revision,

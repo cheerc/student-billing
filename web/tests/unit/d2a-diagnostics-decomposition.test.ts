@@ -4,8 +4,8 @@ import { runMigrations } from '@/adapters/sqlite/migrator';
 import { saveImportBatch } from '@/adapters/sqlite/import-repository';
 import { executeCalculationRun } from '@/application/calculate-run';
 
-describe('Issue #159 PR-1: new runs omit retired diagnostic warnings', () => {
-  it('a v3 student with a legacy rule difference keeps formal business issues without diagnostic-only codes', () => {
+describe('Issue #159 PR-2: new v4 runs omit retired diagnostic warnings', () => {
+  it('a synthetic v4 student keeps formal business issues without diagnostic-only codes', () => {
     const db = new Database(':memory:');
     runMigrations(db);
 
@@ -74,20 +74,21 @@ describe('Issue #159 PR-1: new runs omit retired diagnostic warnings', () => {
       ['兒童美語-乙', [{ start: 990, end: 1140, weekday: '二' }]],
     ]);
 
-    // 執行 v3 run
-    const resultV3 = executeCalculationRun(db, 'imp_diag', 'run_v3_diag', {
-      ruleSetVersion: 'erp-tag-v3' as any,
+    // 新 run 一律使用 v4。未映射合成課程仍保留 CLASS_NOT_MAPPED 業務警告。
+    const resultV4 = executeCalculationRun(db, 'imp_diag', 'run_v4_diag', {
+      ruleSetVersion: 'erp-tag-v4',
       scheduleOverride,
     });
 
-    const issuesRaw = resultV3.results[0].issues;
-    const issuesV3 = (Array.isArray(issuesRaw) ? issuesRaw : JSON.parse(issuesRaw as any)) as Array<{ code: string }>;
-    expect(issuesV3.map((i) => i.code)).not.toContain('RULESET_POLICY_DIFFERENCE');
-    expect(issuesV3.map((i) => i.code)).not.toContain('NUMERIC_POLICY_DIFFERENCE');
-    expect(Object.keys(resultV3.run.issueCounts)).not.toContain('RULESET_POLICY_DIFFERENCE');
-    expect(Object.keys(resultV3.run.issueCounts)).not.toContain('NUMERIC_POLICY_DIFFERENCE');
-    expect(resultV3.run.diagnosticAlgorithmVersion).toBeUndefined();
-    expect(resultV3.run.diagnostics).toBeUndefined();
+    const issuesRaw = resultV4.results[0].issues;
+    const issuesV4 = (Array.isArray(issuesRaw) ? issuesRaw : JSON.parse(issuesRaw as any)) as Array<{ code: string }>;
+    expect(issuesV4.map((i) => i.code)).toContain('CLASS_NOT_MAPPED');
+    expect(issuesV4.map((i) => i.code)).not.toContain('RULESET_POLICY_DIFFERENCE');
+    expect(issuesV4.map((i) => i.code)).not.toContain('NUMERIC_POLICY_DIFFERENCE');
+    expect(Object.keys(resultV4.run.issueCounts)).not.toContain('RULESET_POLICY_DIFFERENCE');
+    expect(Object.keys(resultV4.run.issueCounts)).not.toContain('NUMERIC_POLICY_DIFFERENCE');
+    expect(resultV4.run.diagnosticAlgorithmVersion).toBeUndefined();
+    expect(resultV4.run.diagnostics).toBeUndefined();
 
     db.close();
   });

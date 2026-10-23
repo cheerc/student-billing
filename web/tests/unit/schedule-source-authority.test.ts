@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { calculateStudentBilling } from '@/domain/billing/billing-calculator';
+import { buildClassSettingMap } from '@/application/calculate-run';
+import { buildSeedDraft } from '@/adapters/sqlite/settings-repository';
 import { StudentSnapshot } from '@/domain/students';
 
 /**
@@ -35,10 +37,11 @@ const student: StudentSnapshot = {
   ],
   sourceRow: 1,
 };
+const classSettings = buildClassSettingMap(buildSeedDraft());
 
 describe('scheduleOverride 為班級與時段的唯一來源（帶入時不退回 seed）', () => {
   it('未帶 scheduleOverride：使用 seed 課表（一A 有時段 → 有扣天）', () => {
-    const res = calculateStudentBilling(student, { ruleSetVersion: 'erp-tag-v2' });
+    const res = calculateStudentBilling(student, { ruleSetVersion: 'erp-tag-v4', classSettings });
     expect(res.careDays.anqin.days).toBeLessThan(5);
     expect(res.tierComparisons.every((c) => !c.issues.includes('SCHEDULE_NOT_FOUND'))).toBe(true);
   });
@@ -47,7 +50,7 @@ describe('scheduleOverride 為班級與時段的唯一來源（帶入時不退�
     const override = new Map<string, Array<{ start: number; end: number; weekday?: string | null }>>([
       ['其他班', [{ start: 780, end: 900, weekday: '一' }]],
     ]);
-    const res = calculateStudentBilling(student, { ruleSetVersion: 'erp-tag-v2', scheduleOverride: override });
+    const res = calculateStudentBilling(student, { ruleSetVersion: 'erp-tag-v4', scheduleOverride: override, classSettings });
     expect(res.careDays.anqin.days).toBe(5);
     expect(res.issues.map((i) => i.code)).toContain('SCHEDULE_NOT_FOUND');
     expect(res.tierComparisons.every((c) => c.issues.includes('SCHEDULE_NOT_FOUND'))).toBe(true);
@@ -55,7 +58,7 @@ describe('scheduleOverride 為班級與時段的唯一來源（帶入時不退�
 
   it('帶入該班的空覆寫：schedule_empty、不扣天（5 天），tier 比較帶 SCHEDULE_EMPTY', () => {
     const override = new Map<string, Array<{ start: number; end: number; weekday?: string | null }>>([['國小數學-一A', []]]);
-    const res = calculateStudentBilling(student, { ruleSetVersion: 'erp-tag-v2', scheduleOverride: override });
+    const res = calculateStudentBilling(student, { ruleSetVersion: 'erp-tag-v4', scheduleOverride: override, classSettings });
     expect(res.careDays.anqin.days).toBe(5);
     expect(res.tierComparisons.every((c) => c.needsReview && c.issues.includes('SCHEDULE_EMPTY'))).toBe(true);
   });

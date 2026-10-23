@@ -14,25 +14,17 @@ import { projectActionableIssues, projectActionableIssueCounts } from '@/domain/
 import type { CalculateDraft, SettingsDraft } from '@/contracts/settings';
 
 /**
- * D1 不變式（specs/11 §3 D1、04 §8 UX34）：v1／v2／compat 的計算輸出在 D1 前後逐欄相同。
+ * PR-2 v4 invariant: compare the current calculation output to an immutable synthetic golden
+ * generated from the exact PR-1 base. The source SHA and issue normalization are recorded in
+ * d1-v4-current-golden.json. The old v1/v2 direct-calculator goldens remain untouched as
+ * historical evidence; this helper no longer invokes retired calculators.
  *
- * 這個 helper 只使用 8961c03 就已存在的公開函式（calculateStudentBilling、executeCalculationRun、
- * buildSchedulePreview），輸入是 repo 內合成 fixture（conforming-erp-fixture.xlsx，477 人）。
- * golden（tests/fixtures/d1-invariance-golden.json）由**未修改的 8961c03** 執行
- * `npx tsx tests/helpers/generate-d1-invariance-golden.ts` 產生。
- *
- * 政策邊界（operator 裁決 d-20260930131128030911-29 授權）：
- * 本工具屬於狹義之 pre-change baseline 差異特徵化（differential characterization），僅用於驗證重構
- * 前後未發生非預期漂移，不得作為獨立計費正確性 oracle。
- *
- * 每位學生只存業務欄位的 SHA-256 摘要（前 16 碼）：golden 不含任何學生資料，也不放大 repo。
- * 摘要涵蓋：天數（days／displayDays／status／額外扣天旗標／是否報名）、科數、基本折扣、六種課程適用率、
- * 級距比較（含 needsReview 與 issues）、issue code 與訊息、hasIssues；run 層另含八項總表天數、
- * tierMismatch、issueCounts、trace。識別／時間欄位（runId、createdAt、id）不進摘要。
+ * This is differential characterization, not an independent billing correctness oracle.
+ * Per-student SHA-256 digests contain no names, person codes, or source workbook contents.
  */
 
-export type Version = 'erp-tag-v1' | 'erp-tag-v2' | 'excel-v260922-compat';
-export const VERSIONS: Version[] = ['erp-tag-v1', 'erp-tag-v2', 'excel-v260922-compat'];
+export type Version = 'erp-tag-v4';
+export const VERSIONS: Version[] = ['erp-tag-v4'];
 export const CONTEXTS = ['seed', 'saved'] as const;
 export type Context = (typeof CONTEXTS)[number];
 
@@ -41,7 +33,7 @@ const sha16 = (v: unknown) => crypto.createHash('sha256').update(JSON.stringify(
 /**
  * 「已儲存設定」情境：在 seed 全量草稿上做會走到各種狀態的改動——
  *  - 一→一A、四年級A／B→四年級 的班名對應（alias）
- *  - 國小數學-三A 改成含週六與週一的課輔窗口時段（v2 同星期只算週一；v1／compat 純時刻比對會把週六也算進去）
+ *  - 國小數學-三A 改成含週六與週一的課輔窗口時段
  *  - 國小數學-二B 整班移除（schedule_not_found）
  *  - 兒童美語-EA 星期改成「八」（未知星期，v2 fail-closed 並出警告）
  *  - 兒童美語-EB 停用（空覆寫 → schedule_empty）
@@ -188,7 +180,7 @@ export async function computeInvarianceSnapshot(): Promise<InvarianceSnapshot> {
       preview.students
     );
     for (const ctx of CONTEXTS) {
-      for (const version of ['erp-tag-v1', 'erp-tag-v2'] as const) {
+      for (const version of ['erp-tag-v4'] as const) {
         const out = executeCalculationRun(db, 'imp_inv', `run_${ctx}_${version}`, {
           ruleSetVersion: version,
           scheduleVersionId: ctx === 'seed' ? 'seed-v250922' : 'setv_inv',
@@ -239,10 +231,10 @@ export async function computeInvarianceSnapshot(): Promise<InvarianceSnapshot> {
     fs.rmSync(tempDir, { recursive: true, force: true });
   }
 
-  // 讀模型（逐堂／班級扣天／問題）：v1 與 v2 的同星期語意、未知星期警告
+  // Current calculation previews use v4. Historical read behavior has separate metadata tests.
   const savedDraft = buildSavedContextDraft() as unknown as CalculateDraft;
   const schedulePreview: InvarianceSnapshot['schedulePreview'] = {};
-  for (const version of ['erp-tag-v1', 'erp-tag-v2'] as const) {
+  for (const version of ['erp-tag-v4'] as const) {
     schedulePreview[version] = sha16(buildSchedulePreview(savedDraft, version));
   }
 

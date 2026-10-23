@@ -103,7 +103,7 @@ function overrideOf(sessions: Array<{ weekday: string; start: number; end: numbe
 
 function calc(
   sessions: Array<{ weekday: string; start: number; end: number; skipDeduction: boolean }>,
-  version: 'erp-tag-v2' | 'erp-tag-v3' = 'erp-tag-v3'
+  version: 'erp-tag-v4' = 'erp-tag-v4'
 ) {
   return calculateStudentBilling(studentWith(['國小數學-一A']), {
     ruleSetVersion: version,
@@ -325,7 +325,7 @@ describe('#113 follow-up 計算：逐時段扣天', () => {
         { weekday: '一', start: 1080, end: 1170, skipDeduction: true },
         { weekday: '三', start: 1080, end: 1170, skipDeduction: false },
       ],
-      'erp-tag-v2'
+      'erp-tag-v4'
     );
     expect(r.careDays.tutoring.days).toBe(4.5);
   });
@@ -334,7 +334,7 @@ describe('#113 follow-up 計算：逐時段扣天', () => {
     // 手算：只有週三（未勾）可計，它的星期是「八」→ v2 同星期路徑 fail-closed 計 0 並出 1 筆告警。
     // 週一已勾、不列入扣天，因此不因它的星期而告警——這正是「只統計可扣天時段」的語意。
     const r = calculateStudentBilling(studentWith(['國小數學-一A']), {
-      ruleSetVersion: 'erp-tag-v2',
+      ruleSetVersion: 'erp-tag-v4',
       aliasMap: new Map(),
       scheduleOverride: new Map([
         [
@@ -345,6 +345,8 @@ describe('#113 follow-up 計算：逐時段扣天', () => {
           ],
         ],
       ]),
+      // This synthetic class must be explicitly mapped under current v4 classification.
+      classSettings: new Map([['國小數學-一A', { category: 'math' as const, categorySource: 'manual' as const }]]),
     });
     expect(r.issues.filter((i) => i.code === 'UNKNOWN_WEEKDAY')).toHaveLength(1);
   });
@@ -378,7 +380,7 @@ describe('#113 follow-up 預覽：逐堂與班級層', () => {
   it('前置手算：兩堂都不勾 → 班級課輔重疊 180 分、raw −1.0、rounded −1（D24）', () => {
     const core = buildSchedulePreview(
       previewDraft([MON_SESSION, { ...WED_SESSION }]) as never,
-      'erp-tag-v2'
+      'erp-tag-v4'
     );
     expect(core.classes[0].tutoring.totalOverlapMinutes).toBe(180);
     expect(core.classes[0].tutoring.raw).toBeCloseTo(-1.0, 12);
@@ -389,7 +391,7 @@ describe('#113 follow-up 預覽：逐堂與班級層', () => {
   it('只勾週一 → 班級層只算週三（重疊 90 分、rounded −0.5），週一該列標不計扣天', () => {
     const core = buildSchedulePreview(
       previewDraft([{ ...MON_SESSION, skipDeduction: true }, { ...WED_SESSION }]) as never,
-      'erp-tag-v2'
+      'erp-tag-v4'
     );
     expect(core.classes[0].tutoring.totalOverlapMinutes).toBe(90);
     expect(core.classes[0].tutoring.rounded).toBe(-0.5);
@@ -406,7 +408,7 @@ describe('#113 follow-up 預覽：逐堂與班級層', () => {
   it('兩堂都勾 → 班級層重疊 0、raw 0、rounded 0、狀態 no_deduction，且不產生任何問題', () => {
     const core = buildSchedulePreview(
       previewDraft([{ ...MON_SESSION, skipDeduction: true }, { ...WED_SESSION, skipDeduction: true }]) as never,
-      'erp-tag-v2'
+      'erp-tag-v4'
     );
     for (const side of [core.classes[0].anqin, core.classes[0].tutoring]) {
       expect(side.totalOverlapMinutes).toBe(0);
@@ -421,7 +423,7 @@ describe('#113 follow-up 預覽：逐堂與班級層', () => {
   it('勾選的時段仍保留（列與班級都不消失，起迄如實回傳）', () => {
     const core = buildSchedulePreview(
       previewDraft([{ ...MON_SESSION, skipDeduction: true }]) as never,
-      'erp-tag-v2'
+      'erp-tag-v4'
     );
     expect(core.classes).toHaveLength(1);
     expect(core.rows).toHaveLength(1);
@@ -433,7 +435,7 @@ describe('#113 follow-up 預覽：逐堂與班級層', () => {
   it('安親側（1080–1170 與安親窗 780–960 不重疊）勾選後仍標不計扣天、重疊 0', () => {
     const core = buildSchedulePreview(
       previewDraft([{ ...MON_SESSION, skipDeduction: true }]) as never,
-      'erp-tag-v2'
+      'erp-tag-v4'
     );
     expect(core.rows[0].anqin.overlapMinutes).toBe(0);
     expect(core.rows[0].anqin.status).toBe('no_deduction');

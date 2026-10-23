@@ -11,13 +11,14 @@ import {
   draftToScheduleOverride,
   buildSeedDraft,
   getLatestSettingsVersion,
-  readStoredDraft,
 } from '@/adapters/sqlite/settings-repository';
 import { calculateStudentBilling } from '@/domain/billing/billing-calculator';
+import { projectActionableIssues } from '@/domain/issues/actionable-issues';
 import { careWindowsMatchRuleSet, CARE_WINDOWS_MISMATCH_MESSAGE } from './schedule-preview';
-import { resolveTargetRuleSetVersion, resolveFormalRuleSetVersion } from './rule-set-resolver';
+import { resolveTargetRuleSetVersion, RuleSetResolutionError } from './rule-set-resolver';
 import { buildClassSettingMap } from './calculate-run';
 import { loadStudentsForImport } from '@/adapters/sqlite/import-repository';
+import { getCurrentActiveRun } from '@/adapters/sqlite/runs-repository';
 
 export class SettingsPreviewError extends Error {
   statusCode: number;
@@ -181,25 +182,19 @@ export function previewSettingsChange(
   }
 
   const latest = getLatestSettingsVersion(db);
-  const baseDraft: SettingsDraft | null = latest ? readStoredDraft(latest.contentJson) : null;
-  // 影響預覽的「前」＝目前生效的設定（最新已儲存設定；尚無才是 seed），不是永遠的 seed（09 §3.2）
-  const baseAliasMap = baseDraft ? draftToAliasMap(baseDraft) : undefined;
-  const baseScheduleOverride = baseDraft ? draftToScheduleOverride(baseDraft) : undefined;
-  // D2b 1：類別／固定 5 天進「前」側，讓類別式科數的變化也進入影響預覽
-  const baseClassSettings = baseDraft
-    ? buildClassSettingMap(baseDraft)
-    : buildClassSettingMap(buildSeedDraft());
+  // 新計算只允許 v4。舊版 active 預覽必須明確帶 v4（設定頁 upgrade checkbox）；
+  // 其他請求 fail-closed，不會退回舊 calculator 或把舊 run 悄悄重算。
+  let formalRuleSetVersion;
+  try {
+    formalRuleSetVersion = resolveTargetRuleSetVersion(db, requestedVersion);
+  } catch (e) {
+    if (e instanceof RuleSetResolutionError) {
+      throw new SettingsPreviewError(409, e.message, e.code);
+    }
+    throw e;
+  }
 
-  // 預覽的版本：使用者明確指定就用該版本（升級），否則沿用現行正式軌（既有 v2 DB 因此不動、空 DB 得 v3）。
-  // 這個版本同時記錄在 preview 列（target_rule_set_version），apply 建立新 run 時只讀這個值（D1 F-3、Q11），
-  // 使用者在預覽看到的影響與實際套用的規則版本一致。
-  const formalRuleSetVersion = resolveTargetRuleSetVersion(db, requestedVersion);
-
-  // D2d A（S manifest §2.3 第 2 點、04 §8 UX61）：before ＝**active 版本**＋最新已存設定，
-  // after ＝**target 版本**＋草稿。兩側原本都傳 target，導致「同一份草稿只切規則版本」的純升級
-  // 預覽看不到任何差異（畫面顯示 0 人受影響，使用者會誤以為升級沒有影響）。
-  // 未升級（target === active）時兩側同版本，settings_only／import diff 語意不變。
-  const activeRuleSetVersion = resolveFormalRuleSetVersion(db);
+  const activeRun = getCurrentActiveRun(db).run;
 
   if (importId === null) {
     return saveSettingsOnlyPreview(db, draft, expectedRevision, latest?.id ?? 'seed-v250922', formalRuleSetVersion);
@@ -209,6 +204,34 @@ export function previewSettingsChange(
   if (students.length === 0) {
     throw new SettingsPreviewError(404, `找不到匯入批次 ${importId} 之學生資料`);
   }
+  if (!activeRun || activeRun.importId !== importId) {
+    throw new SettingsPreviewError(
+      409,
+      '現行名單沒有可供比較的已保存 Run；請重新啟用名單後再預覽設定。',
+      'ACTIVE_RUN_UNAVAILABLE'
+    );
+  }
+
+  // 「前」一律使用 active Run 實際保存的值。尤其舊版升級時，不能再次呼叫已退役的舊 calculator。
+  const persistedBefore = db.prepare(`
+    SELECT person_code, subject_count, base_discount_bps, anqin_days, tutoring_days,
+      applicable_anqin_bps, applicable_tutoring_bps, applicable_english_bps, applicable_math_bps,
+      issues, tier_comparisons
+    FROM student_calculations WHERE run_id = ?
+  `).all(activeRun.id) as Array<{
+    person_code: string;
+    subject_count: number | null;
+    base_discount_bps: number | null;
+    anqin_days: number | null;
+    tutoring_days: number | null;
+    applicable_anqin_bps: number | null;
+    applicable_tutoring_bps: number | null;
+    applicable_english_bps: number | null;
+    applicable_math_bps: number | null;
+    issues: string;
+    tier_comparisons: string;
+  }>;
+  const beforeByCode = new Map(persistedBefore.map((row) => [row.person_code, row]));
 
   const aliasMap = draftToAliasMap(draft);
   const scheduleOverride = draftToScheduleOverride(draft);
@@ -225,13 +248,34 @@ export function previewSettingsChange(
   let issuesAfter = 0;
 
   for (const stu of students) {
-    // 預覽僅跑正式軌（不跑 compat 診斷以保證反應速度）
-    const before = calculateStudentBilling(stu, {
-      aliasMap: baseAliasMap,
-      scheduleOverride: baseScheduleOverride,
-      classSettings: baseClassSettings,
-      ruleSetVersion: activeRuleSetVersion,
-    });
+    const saved = beforeByCode.get(stu.personCode);
+    if (!saved) {
+      throw new SettingsPreviewError(
+        409,
+        `現行 Run 缺少學生 ${stu.personCode} 的已保存結果；無法安全建立設定預覽。`,
+        'ACTIVE_RUN_INCOMPLETE'
+      );
+    }
+    const beforeTierComparisons = JSON.parse(saved.tier_comparisons || '[]') as Array<{ status?: string; computedTier?: number | null; needsReview?: boolean }>;
+    const beforeIssues = JSON.parse(saved.issues || '[]') as Array<{ code: string }>;
+    const actionableBefore = projectActionableIssues(beforeIssues, beforeTierComparisons);
+    const beforeApplicableRates: Partial<Record<CourseRateDelta['course'], number | null>> = {
+      anqin: saved.applicable_anqin_bps,
+      tutoring: saved.applicable_tutoring_bps,
+      english: saved.applicable_english_bps,
+      math: saved.applicable_math_bps,
+    };
+    const before = {
+      careDays: {
+        anqin: { days: saved.anqin_days },
+        tutoring: { days: saved.tutoring_days },
+      },
+      tierComparisons: beforeTierComparisons,
+      hasIssues: actionableBefore.actionableHasIssues,
+      subjectCount: saved.subject_count,
+      baseDiscountBps: saved.base_discount_bps,
+      applicableRates: beforeApplicableRates,
+    };
     const after = calculateStudentBilling(stu, {
       aliasMap,
       scheduleOverride,
@@ -269,6 +313,9 @@ export function previewSettingsChange(
     for (const { key, label } of PREVIEW_RATE_COURSES) {
       const bRate = before.applicableRates[key];
       const aRate = after.applicableRates[key];
+      // 舊 schema 僅保存四個 applicable_* 欄位；enrichment/chinese before 不可由目前公式重建。
+      // 缺少 persisted before 時略過比較，避免把未知值當 null 製造升級差異。
+      if (bRate === undefined) continue;
       if (bRate !== aRate) {
         courseRateDeltas.push({
           personCode: stu.personCode,
@@ -293,9 +340,9 @@ export function previewSettingsChange(
           personCode: stu.personCode,
           name: stu.name,
           sourceRow: stu.sourceRow,
-          beforeTier: bComp.computedTier,
+          beforeTier: bComp.computedTier ?? null,
           afterTier: aComp.computedTier,
-          beforeStatus: bComp.status,
+          beforeStatus: bComp.status ?? 'unavailable',
           afterStatus: aComp.status,
         });
       }

@@ -10,8 +10,8 @@ export interface IssueDetectionInput {
   internalStudent: boolean;
   specialDiscount: number | null;
   isStaffFamily: boolean;
-  /** D2a: v3 依類別解析之報名清單 (支援 Q8: 固定5天且none) */
-  categoryEnrollments?: Array<{
+  /** Current v4 category-resolved enrollments (supports Q8: fixed-five and none). */
+  categoryEnrollments: Array<{
     rawToken: string;
     baseName: string;
     category: string;
@@ -36,37 +36,17 @@ export function detectStudentIssues(input: IssueDetectionInput): StudentIssue[] 
   const issues: StudentIssue[] = [];
 
   // 1. R17: 同類別重複報名提示 (DUPLICATE_SUBJECT_ENROLLMENT)
-  let categories: [string, Array<{ rawToken: string; erpBillingTier?: number | null }>][];
-
-  if (input.categoryEnrollments) {
-    const englishTokens = input.categoryEnrollments.filter((e) => e.category === 'english');
-    const mathTokens = input.categoryEnrollments.filter((e) => e.category === 'math');
-    const careTokens = input.categoryEnrollments.filter((e) => e.category === 'care');
-    // Q8: 固定 5 天且類別為 none (例如寫功課)
-    const fixedFiveNoneTokens = input.categoryEnrollments.filter((e) => e.fixedFiveDays && e.category === 'none');
-
-    categories = [
-      ['兒童美語', englishTokens],
-      ['國小數學', mathTokens],
-      ['國小輔導', careTokens],
-      ['寫功課', fixedFiveNoneTokens],
-    ];
-  } else {
-    // v2 舊邏輯：名稱關鍵字
-    const englishTokens = input.enrollments.filter((e) => e.baseName.includes('兒童美語'));
-    const mathTokens = input.enrollments.filter((e) => e.baseName.includes('國小數學'));
-    const careTokens = input.enrollments.filter(
-      (e) => (e.baseName.includes('國小輔導') || e.baseName.includes('安親') || e.baseName.includes('課輔')) && !e.baseName.includes('寫功課')
-    );
-    const homeworkTokens = input.enrollments.filter((e) => e.baseName.includes('寫功課'));
-
-    categories = [
-      ['兒童美語', englishTokens],
-      ['國小數學', mathTokens],
-      ['國小輔導', careTokens],
-      ['寫功課', homeworkTokens],
-    ];
-  }
+  const englishTokens = input.categoryEnrollments.filter((e) => e.category === 'english');
+  const mathTokens = input.categoryEnrollments.filter((e) => e.category === 'math');
+  const careTokens = input.categoryEnrollments.filter((e) => e.category === 'care');
+  // Q8: fixed-five class explicitly categorized as none (for example homework).
+  const fixedFiveNoneTokens = input.categoryEnrollments.filter((e) => e.fixedFiveDays && e.category === 'none');
+  const categories: [string, Array<{ rawToken: string; erpBillingTier?: number | null }>] [] = [
+    ['兒童美語', englishTokens],
+    ['國小數學', mathTokens],
+    ['國小輔導', careTokens],
+    ['寫功課', fixedFiveNoneTokens],
+  ];
 
   for (const [catName, tokens] of categories) {
     if (tokens.length > 1) {

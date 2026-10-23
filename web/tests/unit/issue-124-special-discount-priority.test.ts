@@ -16,7 +16,7 @@ import type { StudentSnapshot } from '@/domain/students/types';
  * 優先序依 operator 裁示：特殊折扣 > 寫功課固定 100%）。不使用待測函式輸出當黃金標準。
  */
 
-const V3 = 'erp-tag-v3' as never;
+const V4 = 'erp-tag-v4' as never;
 
 /** 合成學生（僅虛構班名與虛構代碼，無真實個資；CLAUDE.md §3）。 */
 function makeStudent(params: {
@@ -67,7 +67,7 @@ describe('#124：特殊折扣優先於寫功課固定 100%（正式軌）', () =
       baseNames: [HOMEWORK_CLASS],
       tagsRaw: '特殊折扣9折',
     });
-    const r = calculateStudentBilling(s, { ruleSetVersion: V3 });
+    const r = calculateStudentBilling(s, { ruleSetVersion: V4 });
     expect(r.baseDiscountBps).toBe(9000);
     expect(r.applicableRates.anqin).toBe(9000);
     expect(r.applicableRates.tutoring).toBe(9000);
@@ -81,7 +81,7 @@ describe('#124：特殊折扣優先於寫功課固定 100%（正式軌）', () =
       baseNames: [HOMEWORK_CLASS],
       tagsRaw: '特殊折扣95折',
     });
-    const r = calculateStudentBilling(s, { ruleSetVersion: V3 });
+    const r = calculateStudentBilling(s, { ruleSetVersion: V4 });
     expect(r.baseDiscountBps).toBe(9500);
     expect(r.applicableRates.anqin).toBe(9500);
     expect(r.applicableRates.tutoring).toBe(9500);
@@ -91,7 +91,7 @@ describe('#124：特殊折扣優先於寫功課固定 100%（正式軌）', () =
     // 手算：無特殊折扣 → 科數 0、sibling false → effectiveCount 0 → basic 10000；
     // 寫功課 fixedFiveDays=true → 10000（與修正前相同）。
     const s = makeStudent({ personCode: 'T124-A3', grade: 5, baseNames: [HOMEWORK_CLASS] });
-    const r = calculateStudentBilling(s, { ruleSetVersion: V3 });
+    const r = calculateStudentBilling(s, { ruleSetVersion: V4 });
     expect(r.baseDiscountBps).toBe(10000);
     expect(r.applicableRates.anqin).toBe(10000);
     expect(r.applicableRates.tutoring).toBe(10000);
@@ -105,7 +105,7 @@ describe('#124：特殊折扣優先於寫功課固定 100%（正式軌）', () =
       baseNames: [CARE_CLASS],
       tagsRaw: '特殊折扣9折',
     });
-    const r = calculateStudentBilling(s, { ruleSetVersion: V3 });
+    const r = calculateStudentBilling(s, { ruleSetVersion: V4 });
     expect(r.baseDiscountBps).toBe(9000);
     expect(r.applicableRates.anqin).toBe(9000);
     expect(r.applicableRates.tutoring).toBe(9000);
@@ -120,7 +120,7 @@ describe('#124：特殊折扣優先於寫功課固定 100%（正式軌）', () =
       baseNames: [HOMEWORK_CLASS, '115兒童美語', '115國小數學'],
       tagsRaw: '特殊折扣9折',
     });
-    const r = calculateStudentBilling(s, { ruleSetVersion: V3 });
+    const r = calculateStudentBilling(s, { ruleSetVersion: V4 });
     expect(r.baseDiscountBps).toBe(9000);
     expect(r.applicableRates.english).toBe(9000);
     expect(r.applicableRates.math).toBe(9000);
@@ -137,15 +137,13 @@ describe('#124：特殊折扣優先於寫功課固定 100%（正式軌）', () =
       baseNames: [HOMEWORK_CLASS],
       tagsRaw: '園內生,特殊折扣95折',
     });
-    const r = calculateStudentBilling(s, { ruleSetVersion: V3 });
+    const r = calculateStudentBilling(s, { ruleSetVersion: V4 });
     expect(r.baseDiscountBps).toBe(9500);
     expect(r.applicableRates.anqin).toBe(9000);
     expect(r.applicableRates.tutoring).toBe(9500);
   });
 
-  it('A7 診斷軌 excel-v260922-compat 不受本次修正影響（仍照原 Excel 公式回 10000）', () => {
-    // 診斷軌刻意讀備註（CLAUDE.md §2 雙軌制度），且刻意保留原 Excel 公式（#124 Scope 範圍外）。
-    // 手算：compat 由備註讀到 0.9 → basic 9000；寫功課 → 10000（與修正前相同）。
+  it('A7 compatibility history cannot invoke a new calculation', () => {
     const s = makeStudent({
       personCode: 'T124-A7',
       grade: 5,
@@ -153,21 +151,18 @@ describe('#124：特殊折扣優先於寫功課固定 100%（正式軌）', () =
       tagsRaw: '',
       notesRaw: '特殊折扣9折',
     });
-    const r = calculateStudentBilling(s, { ruleSetVersion: 'excel-v260922-compat' });
-    expect(r.baseDiscountBps).toBe(9000);
-    expect(r.applicableRates.anqin).toBe(10000);
-    expect(r.applicableRates.tutoring).toBe(10000);
+    expect(() => calculateStudentBilling(s, { ruleSetVersion: 'excel-v260922-compat' })).toThrow(/請以 v4 明確升級/);
   });
 });
 
 describe('#124：calculateApplicableRate 單元層級', () => {
-  it('U36 修正後：寫功課 ＋ 無特殊折扣仍為 10000', () => {
-    expect(calculateApplicableRate('anqin', 9500, true, true, false)).toBe(10000);
-    expect(calculateApplicableRate('tutoring', 9500, true, true, false)).toBe(10000);
+  it('v4 course helper does not carry old homework-specific switches', () => {
+    expect(calculateApplicableRate('anqin', 9500, true)).toBe(9000);
+    expect(calculateApplicableRate('tutoring', 9500, true)).toBe(9500);
   });
 
-  it('特殊折扣有值時，寫功課的 10000 不再覆蓋', () => {
-    expect(calculateApplicableRate('anqin', 9000, false, true, true)).toBe(9000);
-    expect(calculateApplicableRate('tutoring', 9500, false, true, true)).toBe(9500);
+  it('explicit special discount is already represented by the base rate', () => {
+    expect(calculateApplicableRate('anqin', 9000, false)).toBe(9000);
+    expect(calculateApplicableRate('tutoring', 9500, false)).toBe(9500);
   });
 });

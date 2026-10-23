@@ -37,8 +37,8 @@ const ENGLISH_CLASS = '兒童美語-A';
 
 type Db = ReturnType<typeof import('@/adapters/sqlite').getDatabase>;
 
-function runV3(db: Db, importId: string, runId: string) {
-  const res = executeCalculationRun(db, importId, runId, { ruleSetVersion: 'erp-tag-v3' as never });
+function runV4(db: Db, importId: string, runId: string) {
+  const res = executeCalculationRun(db, importId, runId, { ruleSetVersion: 'erp-tag-v4' as never });
   saveCalculationRun(db, res.run, res.results, res.classCategories);
   return res;
 }
@@ -66,7 +66,11 @@ function careReportEntries(name: string, className: string) {
 function rateContextOf(db: Db, runId: string) {
   const run = getCalculationRun(db, runId);
   expect(run, 'run 必須存在').not.toBeNull();
-  return { isV3Run: true, classCategories: (run as { classCategories?: unknown }).classCategories };
+  return {
+    isV3Run: true,
+    ruleSetVersion: 'erp-tag-v4',
+    classCategories: (run as { classCategories?: unknown }).classCategories,
+  };
 }
 
 describe('issue #140 第 4 項：not_configured 分支的可達性（正式測試）', () => {
@@ -78,12 +82,12 @@ describe('issue #140 第 4 項：not_configured 分支的可達性（正式測�
     saveSyntheticBatch(db, 'imp', 'synthetic.xlsx', '2026-09-30T00:00:00.000Z', [
       makeStudent('S010', [ENGLISH_CLASS], { grade: 3, sourceRow: 1 }),
     ]);
-    runV3(db, 'imp', 'run_v3');
+    runV4(db, 'imp', 'run_v4');
 
     // 前置狀態：該生名冊裡沒有輔導班，快照也就只有美語班
-    const before = queryRunStudents(db, 'run_v3', { limit: 50 }).items[0]!;
+    const before = queryRunStudents(db, 'run_v4', { limit: 50 }).items[0]!;
     expect(before.enrollments.some((e) => e.baseName?.includes('國小輔導'))).toBe(false);
-    const rows = (rateContextOf(db, 'run_v3').classCategories ?? []) as Array<{ base_name: string }>;
+    const rows = (rateContextOf(db, 'run_v4').classCategories ?? []) as Array<{ base_name: string }>;
     expect(rows.some((r) => r.base_name.includes('國小輔導'))).toBe(false);
 
     // 事後補列：run 已凍結，但名冊的報名表可以再長出一筆（0002 的 FK 不阻止）
@@ -98,7 +102,7 @@ describe('issue #140 第 4 項：not_configured 分支的可達性（正式測�
       CARE_CLASS, '團', '[]', null, null, 3, 'parsed', 'parsed', '2026-10-02T00:00:00.000Z'
     );
 
-    const w = queryRunStudents(db, 'run_v3', { limit: 50 }).items[0]!;
+    const w = queryRunStudents(db, 'run_v4', { limit: 50 }).items[0]!;
     // 工具端的 `careClassNameOf` 以 `baseName.includes('國小輔導')` 取班 → 這下取到了
     expect(w.enrollments.some((e) => e.baseName?.includes('國小輔導'))).toBe(true);
 
@@ -106,7 +110,7 @@ describe('issue #140 第 4 項：not_configured 分支的可達性（正式測�
       careReportEntries(w.name, CARE_CLASS),
       [w],
       '2026-10-01',
-      rateContextOf(db, 'run_v3') as never
+      rateContextOf(db, 'run_v4') as never
     );
 
     expect(records[0]!.statusCategory).toBe('WEB_RATE_NOT_CONFIGURED');
@@ -124,9 +128,9 @@ describe('issue #140 第 4 項：not_configured 分支的可達性（正式測�
       makeStudent('S010', [CARE_CLASS], { grade: 3, sourceRow: 1 }),
       makeStudent('S011', [ENGLISH_CLASS], { grade: 3, sourceRow: 2 }),
     ]);
-    runV3(db, 'imp', 'run_v3');
+    runV4(db, 'imp', 'run_v4');
 
-    const items = queryRunStudents(db, 'run_v3', { limit: 50 }).items;
+    const items = queryRunStudents(db, 'run_v4', { limit: 50 }).items;
     const noCare = items.find((s) => s.personCode === 'S011')!;
     expect(noCare.enrollments.some((e) => e.baseName?.includes('國小輔導'))).toBe(false);
 
@@ -134,7 +138,7 @@ describe('issue #140 第 4 項：not_configured 分支的可達性（正式測�
       careReportEntries(noCare.name, ENGLISH_CLASS),
       [noCare],
       '2026-10-01',
-      rateContextOf(db, 'run_v3') as never
+      rateContextOf(db, 'run_v4') as never
     );
 
     // `careClassName !== ''` 為假 → 這條界線讓它維持既有年級側讀數。

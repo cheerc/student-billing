@@ -1,4 +1,3 @@
-import { ParsedToken } from '../students/types';
 import { TagDiscounts } from './types';
 import { ClassCategory } from '../classification/class-category';
 
@@ -19,7 +18,7 @@ const EXTRA_DEDUCTION_RULES: [string, number][] = [
 
 /**
  * 解析學生標籤欄位 (R05–R08)。
- * 正式軌 (erp-tag-v1) 僅讀取標籤欄位，空標籤不向備註 fallback。
+ * 現行正式計算僅讀取標籤欄位，空標籤不向備註 fallback。
  */
 export function parseTagDiscounts(tagsRaw: string | null | undefined): TagDiscounts {
   if (!tagsRaw) {
@@ -79,39 +78,13 @@ export function parseTagDiscounts(tagsRaw: string | null | undefined): TagDiscou
 }
 
 /**
- * 計算已補科數 (R09, v2 行為)。
- * 統計三類科別存在性：國小輔導、國小數學、兒童美語。
- * 若含寫功課則減 1 (寫功課不列入多科折扣)。
- */
-export function calculateSubjectCount(tokens: ParsedToken[]): number | null {
-  if (tokens.length === 0) {
-    return null;
-  }
-
-  const hasCare = tokens.some(
-    (t) => t.baseName.includes('國小輔導') || t.baseName.includes('安親') || t.baseName.includes('課輔')
-  );
-  const hasMath = tokens.some((t) => t.baseName.includes('國小數學'));
-  const hasEnglish = tokens.some((t) => t.baseName.includes('兒童美語'));
-
-  const k = (hasCare ? 1 : 0) + (hasMath ? 1 : 0) + (hasEnglish ? 1 : 0);
-
-  if (k > 0) {
-    const hasHomework = tokens.some((t) => t.baseName.includes('寫功課'));
-    return Math.max(0, k - (hasHomework ? 1 : 0));
-  }
-
-  return 0;
-}
-
-/**
- * D2a: 類別式科數計算 (R03, D37 ①, v3 行為)。
+ * 類別式科數計算 (R03, D37 ①; current v4 behavior).
  * 學生所報班級涵蓋的類別種數 (care, math, english)，同類只算 1 科。
  * `none`（使用者明確指定不列入）與 `unset`（#157 Ruling 2：使用者尚未指定）皆不計入——
  * 兩者計算結果相同，差異只在呈現與提示。
  * 取代 R09 名稱判斷與寫功課減 1。
  */
-export function calculateSubjectCountV3(categories: ClassCategory[]): number | null {
+export function calculateSubjectCountByCategory(categories: ClassCategory[]): number | null {
   if (categories.length === 0) {
     return null;
   }
@@ -169,30 +142,18 @@ export function calculateBaseDiscountBps(
  *   （不列入比較、固定 5 天下限），與學生基本折扣是否被覆蓋是兩件事；
  *   學生自帶的特殊折扣不在此覆蓋範圍內。
  *
- * `hasSpecialDiscount` 由呼叫點依**規則軌道**決定：正式軌（erp-tag-v1/v2/v3）
- * 依標籤欄的 R07 結果傳入；診斷軌 `excel-v260922-compat` 刻意保留原 Excel 公式
- * （CLAUDE.md §2 雙軌制度），固定傳 false。
+ * 現行 v4 的固定 5 天設定不覆寫課程學費折扣；特殊折扣已由 baseDiscountBps 決定。
  */
 export function calculateApplicableRate(
   courseType: 'anqin' | 'tutoring' | 'english' | 'math' | 'enrichment' | 'chinese',
   baseDiscountBps: number | null,
-  isInternalStudent: boolean,
-  hasHomeworkOrMeian: boolean,
-  hasSpecialDiscount: boolean,
-  homeworkDiscountDecoupled: boolean = false
+  isInternalStudent: boolean
 ): number | null {
   if (baseDiscountBps === null) {
     return null;
   }
 
-  // #124：特殊折扣有值時不套用寫功課/美安的 10000 覆蓋。
-  // #112 erp-tag-v4：固定 5 天與課程學費折扣解耦，homeworkDiscountDecoupled 為真時不套用 10000 覆蓋。
-  const homeworkOverwriteApplies = !homeworkDiscountDecoupled && hasHomeworkOrMeian && !hasSpecialDiscount;
-
   if (courseType === 'anqin') {
-    if (homeworkOverwriteApplies) {
-      return 10000;
-    }
     if (isInternalStudent) {
       return Math.max(9000, baseDiscountBps - 500);
     }
@@ -200,9 +161,6 @@ export function calculateApplicableRate(
   }
 
   if (courseType === 'tutoring') {
-    if (homeworkOverwriteApplies) {
-      return 10000;
-    }
     return baseDiscountBps;
   }
 

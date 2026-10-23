@@ -4,7 +4,7 @@ import { parseTagDiscounts } from '@/domain/billing/discount-rules';
 import { normalizeStudentQuery, type QueryValue } from '@/contracts/student-query';
 import { createStudentPredicateBuilder } from './student-query-predicates';
 import { rateCategoryOfClass } from './applicable-rate';
-import { ruleSetCapabilities } from '@/domain/billing/rule-set';
+import { historicalRuleSetMetadata } from '@/domain/billing/rule-set';
 import { projectActionableIssues } from '@/domain/issues/actionable-issues';
 import { ALLOWED_RUN_QUERY_PARAMS, validateRunQueryParams, QueryStudentError } from './query-students';
 
@@ -56,20 +56,21 @@ export function queryStudentOptions(db: Database.Database, runId: string, params
   // Ruling 3: 優先自 run.classCategories 快照讀取班級類別（非快照 run 才退回 rateCategoryOfClass）
   let category: 'care' | 'math' | 'english' | null = null;
   let isFixedFiveV3 = false;
-  const usesSnapshot = ruleSetCapabilities(run.ruleSetVersion).categoryBasedBilling && Array.isArray(run.classCategories);
+  const runMetadata = historicalRuleSetMetadata(run.ruleSetVersion);
+  const usesSnapshot = runMetadata.known && runMetadata.hasClassCategorySnapshot && Array.isArray(run.classCategories);
 
   if (classKey !== null) {
     if (usesSnapshot && run.classCategories) {
       const snap = run.classCategories.find((c) => c.base_name === classKey);
       if (snap) {
-        if (!ruleSetCapabilities(run.ruleSetVersion).homeworkDiscountDecoupled && snap.fixed_five_days === 1) {
+        if (runMetadata.fixedFiveDaysAffectsRate && snap.fixed_five_days === 1) {
           isFixedFiveV3 = true;
         }
         if (snap.category === 'care' || snap.category === 'math' || snap.category === 'english') {
           category = snap.category;
         }
       }
-    } else {
+    } else if (runMetadata.known) {
       category = rateCategoryOfClass(classKey);
     }
   }

@@ -1,8 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import { computeRosterChanges } from '@/application/roster-changes';
+import { buildClassSettingMap } from '@/application/calculate-run';
 import { buildSeedDraft, draftToAliasMap, draftToScheduleOverride } from '@/adapters/sqlite/settings-repository';
 import { calculateStudentBilling } from '@/domain/billing/billing-calculator';
-import { parseTagDiscounts, calculateSubjectCount, calculateBaseDiscountBps } from '@/domain/billing/discount-rules';
+import { parseTagDiscounts, calculateSubjectCountByCategory, calculateBaseDiscountBps } from '@/domain/billing/discount-rules';
 import { StudentSnapshot } from '@/domain/students';
 
 /**
@@ -65,9 +66,22 @@ describe('R4 operator 裁決：異動以 before/after 計算結果判定（非�
   const contexts = () => {
     const beforeDraft = buildSeedDraft();
     const afterDraft = buildSeedDraft();
+    const beforeClassSettings = buildClassSettingMap(beforeDraft);
+    const afterClassSettings = buildClassSettingMap(afterDraft);
+    // Synthetic names in this unit suite have explicit v4 settings rather than name-based inference.
+    beforeClassSettings.set('兒童美語-一A', { category: 'english', categorySource: 'manual' });
+    afterClassSettings.set('兒童美語-一A', { category: 'english', categorySource: 'manual' });
     return {
-      beforeCtx: { aliasMap: draftToAliasMap(beforeDraft), scheduleOverride: draftToScheduleOverride(beforeDraft) },
-      afterCtx: { aliasMap: draftToAliasMap(afterDraft), scheduleOverride: draftToScheduleOverride(afterDraft) },
+      beforeCtx: {
+        aliasMap: draftToAliasMap(beforeDraft),
+        scheduleOverride: draftToScheduleOverride(beforeDraft),
+        classSettings: beforeClassSettings,
+      },
+      afterCtx: {
+        aliasMap: draftToAliasMap(afterDraft),
+        scheduleOverride: draftToScheduleOverride(afterDraft),
+        classSettings: afterClassSettings,
+      },
     };
   };
 
@@ -92,8 +106,8 @@ describe('R4 operator 裁決：異動以 before/after 計算結果判定（非�
       const after = student('S1', ['國小輔導-一A'], { grade: 3 });
 
       // 前置（獨立手算：同報名同課表，僅年級帶不同 → 安親分支與課輔分支的天數各為 R11／R12 下限）
-      const b = calculateStudentBilling(before, { ...beforeCtx, ruleSetVersion: 'erp-tag-v2' });
-      const a = calculateStudentBilling(after, { ...afterCtx, ruleSetVersion: 'erp-tag-v2' });
+      const b = calculateStudentBilling(before, { ...beforeCtx, ruleSetVersion: 'erp-tag-v4' });
+      const a = calculateStudentBilling(after, { ...afterCtx, ruleSetVersion: 'erp-tag-v4' });
       expect(b.careDays.anqin.isEnrolled).toBe(true);
       expect(b.careDays.tutoring.isEnrolled).toBe(false);
       expect(a.careDays.anqin.isEnrolled).toBe(false);
@@ -123,8 +137,8 @@ describe('R4 operator 裁決：異動以 before/after 計算結果判定（非�
       const before = student('S1', ['國小輔導-一A'], { grade: 1, tagsRaw: '園內生' });
       const after = student('S1', ['國小輔導-一A'], { grade: 1, tagsRaw: '' });
 
-      const b = calculateStudentBilling(before, { ...beforeCtx, ruleSetVersion: 'erp-tag-v2' });
-      const a = calculateStudentBilling(after, { ...afterCtx, ruleSetVersion: 'erp-tag-v2' });
+      const b = calculateStudentBilling(before, { ...beforeCtx, ruleSetVersion: 'erp-tag-v4' });
+      const a = calculateStudentBilling(after, { ...afterCtx, ruleSetVersion: 'erp-tag-v4' });
       expect(b.applicableRates.anqin).not.toBe(a.applicableRates.anqin);
       expect(b.careDays.anqin.days).toBe(a.careDays.anqin.days); // 天數不變
 
@@ -143,13 +157,13 @@ describe('R4 operator 裁決：異動以 before/after 計算結果判定（非�
       after = student('S1', ['國小數學-一A', '兒童美語-一A', '國小輔導-一A'], { grade: 3 });
 
       // 前置（獨立手算 R10：科數 2 → 9500；科數 3 → 9000）
-      expect(calculateSubjectCount(before.enrollments)).toBe(2);
+      expect(calculateSubjectCountByCategory(['math', 'english'])).toBe(2);
       expect(calculateBaseDiscountBps(2, false, null)).toBe(9500);
-      expect(calculateSubjectCount(after.enrollments)).toBe(3);
+      expect(calculateSubjectCountByCategory(['math', 'english', 'care'])).toBe(3);
       expect(calculateBaseDiscountBps(3, false, null)).toBe(9000);
 
-      const b = calculateStudentBilling(before, { ...beforeCtx, ruleSetVersion: 'erp-tag-v2' });
-      const a = calculateStudentBilling(after, { ...afterCtx, ruleSetVersion: 'erp-tag-v2' });
+      const b = calculateStudentBilling(before, { ...beforeCtx, ruleSetVersion: 'erp-tag-v4' });
+      const a = calculateStudentBilling(after, { ...afterCtx, ruleSetVersion: 'erp-tag-v4' });
       expect(b.baseDiscountBps).toBe(9500);
       expect(a.baseDiscountBps).toBe(9000);
 
@@ -280,16 +294,11 @@ describe('R4 operator 裁決：異動以 before/after 計算結果判定（非�
     });
 
     /**
-     * domain 只取每位學生「第一個國小數學」與「第一個兒童美語」計算扣天（billing-calculator.ts）。
-     * 第二門數學不影響天數 → 退掉它不算異動；明細也不該把它當成造成變化的原因。
+     * v4 selects the math class with the largest positive deduction. The two synthetic classes
+     * yield tutoring deductions 0 (一A) and 1 (三A), so removing 三A changes 4 to 5 days.
+     * The enrollment change remains separately visible under PR-1's -75 contract.
      */
-    /**
-     * Round3 PR-1 語意更新（decisions d-20261002173610753099-75）：**退出**一科要獨立列出，
-     * 即使計費結果相同。原先此處斷言「不算異動」，是 d-…-4 的舊契約（那時只看計算結果），
-     * 已被 -75 取代（spike §B1 RC04／§B3 CB 同源）。
-     * 保留的保證：折扣／適用率／天數仍不變（無 dayChange、無 discountChange）。
-     */
-    it('第二門數學不計入扣天：小三 [一A,三A]→[一A] 計費結果相同 → 仍是異動，但只有報名異動（-75）', () => {
+    it('v4 選最大扣天：移除原本選中的三A後，小三課輔天數由 4 回到 5，並列出報名異動', () => {
       const { beforeCtx, afterCtx } = contexts();
       const before = student('S1', ['國小數學-一A', '國小數學-三A'], { grade: 3 });
       const after = student('S1', ['國小數學-一A'], { grade: 3 });
@@ -299,9 +308,19 @@ describe('R4 operator 裁決：異動以 before/after 計算結果判定（非�
       expect(result.changes).toHaveLength(1);
       expect(result.stats.changedCount).toBe(1);
       expect(result.stats.unchangedCount).toBe(0);
-      // 計費面完全不變：沒有天數、沒有折扣、沒有適用率變動
-      expect(result.changes[0].dayChange).toBeNull();
+      // 三A 週一與週三各與課輔窗重疊 90 分，共 180 分 → D24 扣 1 天。
+      expect(result.changes[0].dayChange).toMatchObject({
+        beforeTutoringDays: 4,
+        afterTutoringDays: 5,
+      });
       expect(result.changes[0].discountChange).toBeNull();
+      const removed = result.changes[0].dayChange!.classBreakdown.find((r) => r.baseName === '國小數學-三A')!;
+      expect(removed).toMatchObject({
+        presence: 'removed',
+        statusBefore: 'calculated',
+        beforeTutoringDeduction: 1,
+        statusAfter: 'no_enrollment',
+      });
       // 只有報名集合少了一班
       expect(result.changes[0].enrollmentChanges.map((e) => [e.baseName, e.presence])).toEqual([
         ['國小數學-一A', 'kept'],
@@ -310,26 +329,21 @@ describe('R4 operator 裁決：異動以 before/after 計算結果判定（非�
       expect(result.changes[0].classDiscountChanges).toEqual([]);
     });
 
-    it('第一門數學被換掉時，原本排第二的三A變成計入：明細標為 kept，但 before 側為 not_counted（不是扣 0 天）', () => {
+    it('v4 已選中的三A仍是唯一報名班：移除零扣天一A後計費不變，明細標示三A兩側均計入', () => {
       const { beforeCtx, afterCtx } = contexts();
-      // 小三課輔：before 計入的是一A（課輔扣 0）→ 5；after 只剩三A（課輔扣 1.0）→ max(3, 5−1)=4
+      // 三A 兩堂平日課各重疊 90 分，D24 合計扣 1 天；一A 與課輔窗重疊 0 分。
       const before = student('S1', ['國小數學-一A', '國小數學-三A'], { grade: 3 });
       const after = student('S1', ['國小數學-三A'], { grade: 3 });
 
       const change = computeRosterChanges([before], [after], beforeCtx, afterCtx).changes[0];
-      expect(change.dayChange!.beforeTutoringDays).toBe(5);
-      expect(change.dayChange!.afterTutoringDays).toBe(4);
+      expect(change.dayChange).toBeNull();
 
-      const rows = change.dayChange!.classBreakdown;
-      const first = rows.find((r) => r.baseName === '國小數學-一A')!;
-      expect(first.presence).toBe('removed');
-      expect(first.beforeTutoringDeduction).toBe(0);
-
-      const second = rows.find((r) => r.baseName === '國小數學-三A')!;
-      expect(second.presence).toBe('kept'); // 兩側都有報名
-      expect(second.statusBefore).toBe('not_counted'); // 但 before 時排第二、不計入
-      expect(second.beforeTutoringDeduction).toBeNull();
-      expect(second.afterTutoringDeduction).toBe(1);
+      const beforeCalc = calculateStudentBilling(before, { ...beforeCtx, ruleSetVersion: 'erp-tag-v4' });
+      const afterCalc = calculateStudentBilling(after, { ...afterCtx, ruleSetVersion: 'erp-tag-v4' });
+      expect(beforeCalc.selection?.math?.selectedBaseName).toBe('國小數學-三A');
+      expect(afterCalc.selection?.math?.selectedBaseName).toBe('國小數學-三A');
+      expect(beforeCalc.careDays.tutoring.days).toBe(4);
+      expect(afterCalc.careDays.tutoring.days).toBe(4);
     });
 
     it('折扣異動附科數與標籤 before & after（可查原因）', () => {
@@ -467,7 +481,7 @@ describe('R4 operator 裁決：異動以 before/after 計算結果判定（非�
       const before = student('S1', ['國小數學-三A'], { grade: 1 });
       const after = student('S1', ['國小數學-三A'], { grade: 1 });
 
-      const b = calculateStudentBilling(before, { ...beforeCtx, ruleSetVersion: 'erp-tag-v2' });
+      const b = calculateStudentBilling(before, { ...beforeCtx, ruleSetVersion: 'erp-tag-v4' });
       // 小一未報名安親 → anqin 不適用；不可顯示為 100% 收取率
       expect(b.applicableRates.anqin).toBe(10000);
       expect(b.careDays.anqin.isEnrolled).toBe(false);

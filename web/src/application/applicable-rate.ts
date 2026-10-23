@@ -10,7 +10,7 @@
  * SQL（query-students）與選項端點（query-student-options）共用同一個類別判斷，畫面也以此為準。
  */
 
-import { ruleSetCapabilities } from '@/domain/billing/rule-set';
+import { historicalRuleSetMetadata } from '@/domain/billing/rule-set';
 
 export type RateCategory = 'care' | 'math' | 'english';
 
@@ -70,11 +70,14 @@ export function applicableRateForClass(
   s: ApplicableRateFields,
   context?: ApplicableRateContext
 ): ApplicableRate {
+  if (context?.ruleSetVersion && !historicalRuleSetMetadata(context.ruleSetVersion).known) {
+    return { status: 'not_configured' };
+  }
   // Ruling 5: 旗標回退優先序為 usesSnapshot > ruleSetVersion > isV3Run
   const usesSnapshot =
     context?.usesSnapshot ??
     (context?.ruleSetVersion
-      ? ruleSetCapabilities(context.ruleSetVersion).categoryBasedBilling
+      ? historicalRuleSetMetadata(context.ruleSetVersion).hasClassCategorySnapshot
       : context?.isV3Run ?? false);
 
   if (usesSnapshot && context?.findSnapshot) {
@@ -87,7 +90,7 @@ export function applicableRateForClass(
     const fixedFiveDaysAffectsRate =
       context.fixedFiveDaysAffectsRate ??
       (context.ruleSetVersion
-        ? !ruleSetCapabilities(context.ruleSetVersion).homeworkDiscountDecoupled
+        ? historicalRuleSetMetadata(context.ruleSetVersion).fixedFiveDaysAffectsRate
         : context.isV3Run ?? false);
 
     if (fixedFiveDaysAffectsRate && row.fixed_five_days === 1) {

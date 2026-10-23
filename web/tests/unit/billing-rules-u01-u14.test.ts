@@ -3,7 +3,6 @@ import {
   calculateOverlapMinutes,
   calculateSessionDeduction,
   calculateClassDeductionD24,
-  calculateClassDeductionCompat,
   CARE_WINDOWS,
 } from '@/domain/schedules/overlap-calculator';
 
@@ -46,19 +45,11 @@ describe('U01–U14: 時段重疊、單堂扣天與取整規則測試', () => {
     expect(ded.rawDeduction).toBe(-1);
   });
 
-  it('U06 (原生 Excel 錨點): 17:00–19:00 → 正式與 compat 皆為 -1，絕不產生 NUMERIC_POLICY_DIFFERENCE', () => {
+  it('U06: 17:00–19:00 → v4 正式扣天為 -1', () => {
     // 17:00 = 1020, 19:00 = 1140. 重疊 120，end 在 18:30 與 19:30 之間
     const dedD24 = calculateClassDeductionD24([{ start: 1020, end: 1140 }], 'tutoring');
-    const dedCompat = calculateClassDeductionCompat([{ start: 1020, end: 1140 }], 'tutoring');
-
     expect(dedD24.raw).toBe(-1);
     expect(dedD24.rounded).toBe(-1);
-
-    expect(dedCompat.raw).toBe(-1);
-    expect(dedCompat.rounded).toBe(-1);
-
-    // 兩者一致，不產生差異
-    expect(dedD24.rounded).toBe(dedCompat.rounded);
   });
 
   it('U07: 17:31–19:30 → 119 分鐘，end 不小於 19:30，raw = -119/180', () => {
@@ -83,20 +74,19 @@ describe('U01–U14: 時段重疊、單堂扣天與取整規則測試', () => {
     expect(d3.rawDeduction).toBeCloseTo(-150 / 180, 6);
   });
 
-  it('U09: R03 扣天量取整對照 (erp-tag-v1 vs compat)', () => {
-    const testCases: [number, number, number][] = [
-      // [d, expectedD24, expectedCompat]
-      [0, 0, 0],
-      [1 / 6, 0, 0],
-      [1 / 3, -0.5, -0.5],
-      [2 / 3, -0.5, -0.5],
-      [0.75, -0.5, -1],
-      [1, -1, -1],
-      [1.25, -1, -1.5],
-      [2 / 9, 0, -0.5],
+  it('U09: v4 R03 扣天量取整 expected', () => {
+    const testCases: [number, number][] = [
+      [0, 0],
+      [1 / 6, 0],
+      [1 / 3, -0.5],
+      [2 / 3, -0.5],
+      [0.75, -0.5],
+      [1, -1],
+      [1.25, -1],
+      [2 / 9, 0],
     ];
 
-    for (const [d, expD24, expCompat] of testCases) {
+    for (const [d, expected] of testCases) {
       let sessions: { start: number; end: number }[];
       if (d <= 1) {
         const minutes = Math.round(d * 180);
@@ -110,10 +100,7 @@ describe('U01–U14: 時段重疊、單堂扣天與取整規則測試', () => {
       }
 
       const resD24 = calculateClassDeductionD24(sessions, 'anqin');
-      const resCompat = calculateClassDeductionCompat(sessions, 'anqin');
-
-      expect(resD24.rounded).toBe(expD24);
-      expect(resCompat.rounded).toBe(expCompat);
+      expect(resD24.rounded).toBe(expected);
     }
   });
 
@@ -171,7 +158,7 @@ describe('U01–U14: 時段重疊、單堂扣天與取整規則測試', () => {
     expect(res.rounded).toBe(-0.5);
   });
 
-  it('U13: 同日兩堂重疊／週六一堂 (erp-tag-v1 照每列相加不做星期排除；erp-tag-v2 週六重疊為 0)', () => {
+  it('U13: 同日兩堂逐列相加；v4 只計同一星期的重疊', () => {
     // 1. 同日兩堂時間重疊照每列相加，不做 union 去重 (週一 13:00–14:30 與 14:00–15:30 各 90 分鐘，共 180 分鐘)
     const sameDaySessions = [
       { start: 780, end: 870, weekday: '一' }, // 90 分鐘
@@ -182,18 +169,12 @@ describe('U01–U14: 時段重疊、單堂扣天與取整規則測試', () => {
     expect(resSameDay.rounded).toBe(-1);
 
     // 2. 週六一堂 13:00–15:00 (120 分鐘)
-    // 舊版 erp-tag-v1: sameWeekdayOnly=false，按時刻重疊算 120 分鐘 -> -0.5
-    const resV1 = calculateClassDeductionD24([{ start: 780, end: 900, weekday: '六' }], 'anqin', { sameWeekdayOnly: false });
-    expect(resV1.totalOverlapMinutes).toBe(120);
-    expect(resV1.rounded).toBe(-0.5);
-
-    // 新版 erp-tag-v2 (D30): sameWeekdayOnly=true，週六對一～五窗口重疊為 0 -> 0 天
-    const resV2 = calculateClassDeductionD24([{ start: 780, end: 900, weekday: '六' }], 'anqin', { sameWeekdayOnly: true });
-    expect(resV2.totalOverlapMinutes).toBe(0);
-    expect(resV2.rounded).toBe(0);
+    const result = calculateClassDeductionD24([{ start: 780, end: 900, weekday: '六' }], 'anqin', { sameWeekdayOnly: true });
+    expect(result.totalOverlapMinutes).toBe(0);
+    expect(result.rounded).toBe(0);
   });
 
-  it('DIFF-01 (原生 Excel 錨點): 同班兩堂各 18 分鐘加總 → 正式 0 天，Excel compat -0.5 天', () => {
+  it('v4 以精確分鐘策略處理同班兩堂各 18 分鐘加總', () => {
     // 兩堂各 13:00–13:18 (780–798)
     const sessions = [
       { start: 780, end: 798 },
@@ -201,16 +182,8 @@ describe('U01–U14: 時段重疊、單堂扣天與取整規則測試', () => {
     ];
 
     const formal = calculateClassDeductionD24(sessions, 'anqin');
-    const compat = calculateClassDeductionCompat(sessions, 'anqin');
-
     // 精確分鐘合計 36 分鐘，d = 0.2 < 0.3 -> 取整 0
     expect(formal.rounded).toBe(0);
-
-    // 原生 Excel 浮點累積誤差 -> 取整 -0.5
-    expect(compat.rounded).toBe(-0.5);
-
-    // 兩者分歧，觸發 DIFF-01
-    expect(formal.rounded).not.toBe(compat.rounded);
   });
 
   it('U14: 更改安親時間窗除數仍為 180 分鐘', () => {

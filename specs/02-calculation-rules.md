@@ -4,7 +4,9 @@
 
 依 review r2 記錄的使用者確認，ERP 改版後「標籤」才是優惠標記權威欄位；目前人工把標籤貼到備註供舊公式讀取。本次檔案尚未套用 workaround，其快取不是正式業務正確答案。初版 P1 預設 `erp-tag-v1`；目前正式目標版本為 `erp-tag-v4`。`excel-v260922-compat` 的公式／欄位讀取規則僅保留作歷史版本解讀，不可啟用為現行正式開單依據。5 天是週一到週五；天數為收費級距；寫功課不列入折扣；美安是歷史班型。
 
-> **#159 PR-1 現行執行契約：** 新 run 只執行其選定的正式計算，不呼叫 compat 或 shadow-v2，不產生 `NUMERIC_POLICY_DIFFERENCE`／`RULESET_POLICY_DIFFERENCE`，也不寫新 diagnostics snapshot。下方 §9.7 保留 #112/#161 的歷史設計記錄，不代表目前仍產生這些診斷。既有 run 的 raw issues／counts 與 `run_diagnostics` 內容不重算；兩個舊 issue code 仍供 raw API 查詢。結果 UI 的 actionable projection 排除這兩碼，但保留其他 business issues 與 tier `needsReview`。
+> **#159 PR-1 diagnostics contract (historical; superseded by PR-2 below):** PR-1 stopped compat/shadow-v2 and new diagnostics snapshots while preserving raw historic issues and UI actionable projection. PR-2 additionally fixes every new calculation to v4 and removes old calculator paths. The remaining §9.7 dual-track material is historical design, not current runtime behavior.
+
+> **#159 PR-2 現行計算入口：** 新 Run 與新計算預覽只允許 `erp-tag-v4`。active 任一非 v4 舊 Run（含 v1／v2／v3、compat 或未知版本）不會透過一般 activate／recalculate／apply 偷偷沿用舊版本或轉成 v4；使用者須在設定頁明確選取升級 v4。升級預覽的 `before` 讀取舊 Run 已保存的結果，`after` 才以 v4 計算；舊 Run 與其計算值、issues、settings/category snapshot 均不重算或回填。下方 v1／v2／v3／compat 公式和版本差異只描述歷史結果或舊 run 的只讀呈現，不代表產品仍提供舊版計算入口。詳見 [03 §5.6](03-architecture-api.md) 與 [06 D57](06-handoff-decisions.md)。
 
 |版本|標記來源|數值策略|用途|
 |---|---|---|---|

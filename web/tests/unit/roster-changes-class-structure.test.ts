@@ -23,29 +23,22 @@ import { StudentSnapshot } from '@/domain/students';
  */
 
 /**
- * 依規則版本建立 context（PR65 note 移交 PR-2 補齊）。
- *
- * `decidesSubjectCount` 依 `ruleSetCapabilities(version).categoryBasedBilling` 分派到
- * v3 的類別式（R03）或 v1／v2 的名稱式（R09，含「有寫功課則 k−1」）。兩條路徑對寫功課的
- * 判定**相反且各自正確**（v3：寫功課不計科數、只經 hasHomeworkOrMeian 影響 care；
- * v1／v2：寫功課改變計入科數 → 是所有類別的真實原因），因此兩條路徑都必須有單元覆蓋。
+ * Current v4 context: category-based subject count comes from explicit settings, and this suite
+ * checks roster-change explanations without invoking retired calculators.
  */
-const contexts = (
-  classSettings?: Map<string, ClassSettingLookup>,
-  ruleSetVersion: 'erp-tag-v2' | 'erp-tag-v3' = 'erp-tag-v2'
-) => {
+const contexts = (classSettings?: Map<string, ClassSettingLookup>) => {
   const draft = buildSeedDraft();
   /**
-   * #157 Ruling 1：類別不再由班名推導，因此 v3 的類別式科數必須有 classSettings 才有語意。
+   * #157 Ruling 1：類別不再由班名推導，因此類別式科數必須有 classSettings 才有語意。
    * 這裡以 seed 草稿（本身攜帶 seed 49 班的明確類別，見 buildSeedDraft）為底，
-   * 再讓呼叫端覆寫個別班；v1／v2 走名稱式路徑，完全不受 classSettings 影響。
+   * 再讓呼叫端覆寫個別班；舊版計算不再由此測試呼叫。
    */
   const ctx = {
     aliasMap: draftToAliasMap(draft),
     scheduleOverride: draftToScheduleOverride(draft),
     // 呼叫端給的項目覆蓋 seed 的宣告；其餘 seed 班維持 buildSeedDraft 的明確類別。
     classSettings: new Map([...buildClassSettingMap(draft), ...(classSettings ?? [])]),
-    ruleSetVersion,
+    ruleSetVersion: 'erp-tag-v4',
   };
   return { beforeCtx: ctx, afterCtx: ctx };
 };
@@ -172,7 +165,7 @@ describe('PR-1 §1 報名班級集合（enrollmentChanges）與異動判定', ()
 
   /**
    * RC04（spike §B1）：before 只有寫功課 → after 加報數學。
-   * v3 下科數 0 → 1，但基本折扣都是 10000、天數也沒變 → 現行判定為「未異動」。
+   * v4 下科數 0 → 1，但基本折扣都是 10000、天數也沒變 → 現行判定為「未異動」。
    * 報名集合確實變了（-75／-68：新增／退出／換班即使折扣未變也要出現）→ 必須出現在 changes。
    */
   it('RC04：只有寫功課 → 加報數學，即使折扣與天數皆未變也出現在 changes', () => {
@@ -327,18 +320,8 @@ describe('PR-1 §5 結構化原因（reasons：型別化資料，非文案）', 
     }
   });
 
-  /**
-   * Lead r1 裁定（rework：報名原因只列「真的會影響該班適用率輸入」者）：
-   * 寫功課讓 `hasHomeworkOrMeian` 改變 → **只影響 care（安親／課輔）**。
-   *
-   * 手算（before 三年級：輔導＋數學 → 科數 2 → basic 9500；after 輔導＋寫功課 → 科數 1 → basic 10000；
-   *       寫功課 → hasHomeworkOrMeian=true → 課輔適用率固定 10000）：
-   *   - 輔導班（care，kept）：9500 → 10000 ✔ 會變動；原因＝退數學（enrollment_removed）＋加寫功課（enrollment_added）
-   *   - 數學班：before only，不列
-   * → 若實作無過濾，輔導班的 reasons 會同時出現寫功課與數學退班；本案例要求兩者都在（寫功課**確實**影響 care），
-   *   另一案例（無維護交通車）才驗證 none 類別班不得出現。
-   */
-  it('寫功課是 care 班的原因（影響 hasHomeworkOrMeian），但只掛在 care 班上', () => {
+  /** v4 keeps #112 fixed-five-days behavior decoupled from course discount reasons. */
+  it('寫功課不再作為 care 折扣原因；只保留退出數學班的實際原因', () => {
     const { beforeCtx, afterCtx } = contexts();
     const before = student('R3', ['國小輔導-一A', '國小數學-一A'], { grade: 3 });
     const after = student('R3', ['國小輔導-一A', '國小輔導-寫功課'], { grade: 3 });
@@ -348,9 +331,8 @@ describe('PR-1 §5 結構化原因（reasons：型別化資料，非文案）', 
     expect(change.classDiscountChanges.map((c) => [c.baseName, c.sideOf, c.beforeBps, c.afterBps])).toEqual([
       ['國小輔導-一A', 'care', 9500, 10000],
     ]);
-    // 兩個原因都在（退掉數學 ＋ 加寫功課）；順序＝先 added 再 removed
+    // v4 下寫功課不再改變課程收費率；退掉數學是唯一造成類別數變化的原因。
     expect(change.classDiscountChanges[0].reasons).toEqual([
-      { kind: 'enrollment_added', className: '國小輔導-寫功課', rawToken: '國小輔導-寫功課[團]' },
       { kind: 'enrollment_removed', className: '國小數學-一A', rawToken: '國小數學-一A[團]' },
     ]);
   });
@@ -669,42 +651,36 @@ describe('PR-1 §1 classSettings 接線（spike §B4：與 run 端類別解析�
   });
 });
 
-describe('PR-2 補齊：v3（類別式 R03）路徑的 reasons（PR65 secondary note 移交）', () => {
+describe('PR-2 補齊：v4 類別式 R03 路徑的 reasons（PR65 secondary note 移交）', () => {
   /**
-   * 手算依 02 R03（v3 計入科數＝計入類別集合大小，同類只算 1 科、none 不列入）與 R10：
-   * v3 下寫功課**不進**計入科數，因此它不是數學班的決定者；它只經 hasHomeworkOrMeian 影響 care。
-   * 這與 v1／v2（R09 含寫功課 k−1）相反，兩條路徑各自正確，必須分開驗。
+   * 手算依 02 R03（計入科數＝計入類別集合大小，同類只算 1 科、none 不列入）與 R10：
+   * 寫功課**不進**計入科數，因此它不是數學班的決定者；它只經 hasHomeworkOrMeian 影響 care。
    */
-  it('v3：加寫功課不掛數學班（科數不變 → 不是決定者），只掛 care', () => {
+  it('v4：加寫功課不掛數學班（科數不變 → 不是決定者），只掛 care', () => {
     const classSettings = new Map<string, ClassSettingLookup>([
       ['國小輔導-寫功課', { category: 'none', fixedFiveDays: true }],
     ]);
-    const { beforeCtx, afterCtx } = contexts(classSettings, 'erp-tag-v3');
+    const { beforeCtx, afterCtx } = contexts(classSettings);
     // before：輔導一A＋數學三A（科數 {care, math} = 2 → 9500）
-    // after ：＋寫功課（v3 不計科數 → 仍 2 → 9500）；但寫功課使 hasHomeworkOrMeian=true
-    //        → 課輔適用率回到 10000 → 輔導班 9500 → 10000（真變動）
+    // after ：＋寫功課（不計科數 → 仍 2 → 9500）；v4 不以固定五天改寫課程適用率。
     const before = student('V1', ['國小輔導-一A', '國小數學-三A'], { grade: 3 });
     const after = student('V1', ['國小輔導-一A', '國小數學-三A', '國小輔導-寫功課'], { grade: 3 });
 
     const change = only(computeRosterChanges([before], [after], beforeCtx, afterCtx))[0];
 
-    const careItem = change.classDiscountChanges.find((c) => c.baseName === '國小輔導-一A');
-    expect(careItem, '寫功課使課輔適用率回到 10000 → 輔導班有變動').toBeDefined();
-    expect(careItem!.beforeBps).toBe(9500);
-    expect(careItem!.afterBps).toBe(10000);
-    expect(careItem!.reasons).toEqual([{ kind: 'enrollment_added', className: '國小輔導-寫功課', rawToken: '國小輔導-寫功課[團]' }]);
+    expect(change.classDiscountChanges).toHaveLength(0);
 
     const mathItem = change.classDiscountChanges.find((c) => c.baseName === '國小數學-三A');
     if (mathItem) {
       expect(
         mathItem.reasons.some((r) => 'className' in r && r.className === '國小輔導-寫功課'),
-        'v3：寫功課不決定計入科數，不得掛到數學班'
+        'v4：寫功課不決定計入科數，不得掛到數學班'
       ).toBe(false);
     }
   });
 
-  it('v3：退出唯一的輔導班 → 掛在數學班（care 類別消失 → 科數 2 → 1 → 10000）', () => {
-    const { beforeCtx, afterCtx } = contexts(undefined, 'erp-tag-v3');
+  it('v4：退出唯一的輔導班 → 掛在數學班（care 類別消失 → 科數 2 → 1 → 10000）', () => {
+    const { beforeCtx, afterCtx } = contexts();
     // before：輔導一A＋數學三A（{care, math} = 2 → 9500）
     // after ：只剩數學三A（{math} = 1 → 10000）→ 數學班 9500 → 10000
     const before = student('V2', ['國小輔導-一A', '國小數學-三A'], { grade: 3 });
@@ -722,12 +698,12 @@ describe('PR-2 補齊：v3（類別式 R03）路徑的 reasons（PR65 secondary 
 
   /**
    * operator decision d-20261002220111995309-79（寫功課不計多科、固定 5 天）：
-   * 同時報寫功課 ＋ 數學 ＋ 美語 → v3 計入 {math, english} = 2 → effectiveCount 2 → 9500（95折）。
+   * 同時報寫功課 ＋ 數學 ＋ 美語 → v4 計入 {math, english} = 2 → effectiveCount 2 → 9500（95折）。
    */
-  it('v3：寫功課＋數學＋美語 → 科數 2 → 95折（d-…-79）', () => {
-    const { beforeCtx, afterCtx } = contexts(undefined, 'erp-tag-v3');
+  it('v4：寫功課＋數學＋美語 → 科數 2 → 95折（d-…-79）', () => {
+    const { beforeCtx, afterCtx } = contexts();
     // before：數學 ＋ 美語（{math, english} = 2 → 9500）
-    // after ：＋寫功課（v3 不計科數 → 仍 2 → 9500）
+    // after ：＋寫功課（不計科數 → 仍 2 → 9500）
     const before = student('V3', ['國小數學-三A', '兒童美語-EA'], { grade: 3 });
     const after = student('V3', ['國小數學-三A', '兒童美語-EA', '國小輔導-寫功課'], { grade: 3 });
     const change = only(computeRosterChanges([before], [after], beforeCtx, afterCtx))[0];
