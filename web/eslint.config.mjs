@@ -1,3 +1,9 @@
 import nextConfig from "eslint-config-next";
+import { globalIgnores } from 'eslint/config';
 
-export default nextConfig;
+const eslintConfig = [
+  ...nextConfig,
+  globalIgnores(['full-e2e/**', 'blob-report/full-e2e/**', 'test-results/full-e2e/**']),
+];
+
+export default eslintConfig;

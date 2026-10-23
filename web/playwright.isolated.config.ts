@@ -19,16 +19,26 @@ const databasePath = process.env.E2E_DATABASE_PATH;
 
 assertIsolatedE2eTarget({ databasePath, port });
 
+const isFull = process.env.E2E_FULL_RUN === '1';
+const fullSlug = process.env.E2E_SPEC_SLUG;
+if (isFull && (!fullSlug || !/^[a-z0-9][a-z0-9_-]*$/.test(fullSlug))) {
+  throw new Error('E2E_FULL_RUN requires a safe E2E_SPEC_SLUG');
+}
+
 const baseURL = `http://127.0.0.1:${port}`;
 
 export default defineConfig({
   testDir: './tests/e2e',
   fullyParallel: false,
   workers: 1,
-  reporter: 'list',
+  reporter: isFull ? [['list'], ['blob']] : 'list',
+  forbidOnly: isFull,
+  retries: 0,
+  outputDir: isFull ? `test-results/full-e2e/${fullSlug}` : 'test-results',
   use: {
     baseURL,
-    trace: 'on-first-retry',
+    trace: isFull ? 'retain-on-failure' : 'on-first-retry',
+    screenshot: isFull ? 'only-on-failure' : 'off',
   },
   projects: [
     {

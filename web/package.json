@@ -18,6 +18,7 @@
     "backup": "tsx scripts/backup-restore.ts backup",
     "restore": "tsx scripts/backup-restore.ts restore",
     "test:e2e:isolated": "tsx scripts/e2e-isolated.ts",
+    "test:e2e:full": "node scripts/e2e-full.mjs",
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
     "test:perf:recompute-isolated": "tsx scripts/perf-recompute-isolated.ts",

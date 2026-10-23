@@ -26,6 +26,8 @@ coverage/
 playwright-report/
 test-results/
 blob-report/
+# Nightly/full E2E merged reports, manifests and per-spec logs (may contain test data).
+web/full-e2e/
 *.tsbuildinfo
 next-env.d.ts
 
