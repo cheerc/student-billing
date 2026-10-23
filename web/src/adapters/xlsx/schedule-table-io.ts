@@ -14,7 +14,7 @@
 import ExcelJS from 'exceljs';
 import type { ScheduleGridRow, ClassType } from '@/contracts/settings';
 import { timeStringToMinutes } from '@/contracts/settings';
-import type { ClassCategory } from '@/domain/classification/class-category';
+import type { ClassCategory, WritableCategorySource } from '@/domain/classification/class-category';
 import { CATEGORY_LABELS, resolveClassAttributes } from '@/domain/classification/class-attributes';
 import { normalizeWeekday } from '@/domain/schedules/overlap-calculator';
 
@@ -99,11 +99,12 @@ export interface ScheduleImportRow {
 /** 匯入結果：可餵給編輯器取代整份草稿的列，以及每班的屬性。 */
 export interface ScheduleImportResult {
   rows: ScheduleImportRow[];
-  /** 匯入的屬性一律視為使用者明確指定（manual）：匯入是顯式動作，不該被任何自動判定覆寫回去。 */
+  /** 匯入明確類別為 manual；「（未設定）」保留 unset，不得升格為使用者指定。 */
   classAttrs: Array<{
     className: string;
     classType: ClassType;
     category: ClassCategory;
+    categorySource: WritableCategorySource;
     fixedFiveDays: boolean;
   }>;
 }
@@ -413,6 +414,7 @@ export async function parseScheduleWorkbook(input: Buffer | Uint8Array): Promise
       className,
       classType: a.classType,
       category: a.category,
+      categorySource: a.category === 'unset' ? 'unset' : 'manual',
       fixedFiveDays: a.fixedFiveDays,
     })),
   };

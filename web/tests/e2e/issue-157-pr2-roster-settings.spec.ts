@@ -12,6 +12,10 @@ test.describe('Issue #157 PR-2：從課表頁設定 roster-only 班級', () => {
   });
 
   test('直接加入名單中的新班、明確設定類別、儲存重載後解除未對應警告', async ({ page }) => {
+    const reportBeforeResponse = await page.request.get('/api/v1/settings/class-name-report');
+    expect(reportBeforeResponse.ok()).toBe(true);
+    const aliasCoveredCountBefore = (await reportBeforeResponse.json()).aliasCoveredCount as number;
+
     const rosterOnly = page.getByRole('region', { name: '名單中尚未加入課表設定的班級' });
     await expect(rosterOnly).toBeVisible();
     const rosterRow = rosterOnly.locator(`[data-roster-only-class="${ROSTER_ONLY_CLASS}"]`);
@@ -60,6 +64,11 @@ test.describe('Issue #157 PR-2：從課表頁設定 roster-only 班級', () => {
       `/api/v1/runs/${encodeURIComponent(runId)}/issues?issueCode=CLASS_NOT_MAPPED&classId=${encodeURIComponent(ROSTER_ONLY_CLASS)}`
     );
     expect(issuesResponse.ok()).toBe(true);
-    expect((await issuesResponse.json()).items).toHaveLength(0);
+    const issues = (await issuesResponse.json()).items as Array<{ message: string }>;
+    expect(issues.filter((issue) => issue.message.includes(`「${ROSTER_ONLY_CLASS}」`))).toHaveLength(0);
+
+    const reportAfterResponse = await page.request.get('/api/v1/settings/class-name-report');
+    expect(reportAfterResponse.ok()).toBe(true);
+    expect((await reportAfterResponse.json()).aliasCoveredCount).toBe(aliasCoveredCountBefore);
   });
 });

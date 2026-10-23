@@ -172,8 +172,8 @@ describe('#81：課表 Excel 全量匯出／匯入', () => {
       // 逐列還原：只有第 1 列是 true
       expect(result.rows.map((r) => r.skipDeduction)).toEqual([true, false, false]);
       expect(result.classAttrs).toEqual([
-        { className: '兒童美語-Gino', classType: 'non_care', category: 'english', fixedFiveDays: false },
-        { className: '國小數學-一A', classType: 'non_care', category: 'math', fixedFiveDays: false },
+        { className: '兒童美語-Gino', classType: 'non_care', category: 'english', categorySource: 'manual', fixedFiveDays: false },
+        { className: '國小數學-一A', classType: 'non_care', category: 'math', categorySource: 'manual', fixedFiveDays: false },
       ]);
     });
 
@@ -353,7 +353,7 @@ describe('#81：課表 Excel 全量匯出／匯入', () => {
         },
       ]);
       expect(result.classAttrs).toEqual([
-        { className: '國小輔導-四年級', classType: 'care', category: 'care', fixedFiveDays: true },
+        { className: '國小輔導-四年級', classType: 'care', category: 'care', categorySource: 'manual', fixedFiveDays: true },
       ]);
     });
 
@@ -379,8 +379,8 @@ describe('#81：課表 Excel 全量匯出／匯入', () => {
       const buffer = await buildScheduleWorkbook(FIXTURE_ROWS, FIXTURE_ATTRS);
       const result = await parseScheduleWorkbook(buffer);
       expect(result.classAttrs).toEqual([
-        { className: '兒童美語-Gino', classType: 'non_care', category: 'english', fixedFiveDays: false },
-        { className: '國小數學-一A', classType: 'non_care', category: 'math', fixedFiveDays: false },
+        { className: '兒童美語-Gino', classType: 'non_care', category: 'english', categorySource: 'manual', fixedFiveDays: false },
+        { className: '國小數學-一A', classType: 'non_care', category: 'math', categorySource: 'manual', fixedFiveDays: false },
       ]);
     });
 
@@ -549,7 +549,7 @@ describe('#81：課表 Excel 全量匯出／匯入', () => {
         categorySource: (attr as typeof attr & { categorySource?: 'manual' | 'unset' }).categorySource,
         fixedFiveDays: attr.fixedFiveDays,
       }));
-      const persisted = gridRowsToClasses(scheduleImportRowsToGridRows(imported.rows), existingClasses);
+      const persisted = gridRowsToClasses(scheduleImportRowsToGridRows(imported), existingClasses);
 
       expect(persisted.find((cls) => cls.baseName === '數學關鍵字新班'))
         .toMatchObject({ category: 'unset', categorySource: 'unset' });

@@ -275,8 +275,8 @@ run 的設定快照＝`run.scheduleVersionId`：`seed-v250922`（該 run 沒有�
 `settings_versions.content_json`（與 `settings_previews.draft_json`）只經 `readStoredDraft(json)` 讀取；先前 7 處各自 `JSON.parse(contentJson) as SettingsDraft`（繞過 zod）已收斂，並以 src 掃描測試防止回頭。D1 的 `readStoredDraft` **不改形狀**（不補預設、不去除未知欄位、不改欄位順序），否則 `draftHash`（＝sha256(JSON.stringify(draft))，對欄位順序敏感；不在 D1 範圍，F-12）會與 D1 前不同。版本界線規則（D2 新增設定欄位時遵守）：
 
 1. v1／v2 的計算與讀取永遠不讀新欄位；
-2. 欄位缺失＝自動偵測，只在新規則版本讀取當下解析，不回寫舊快照；
-3. 新設定快照只寫手動覆寫的值與來源，自動項省略欄位（見 §5.4.1）；新 run 的類別快照則寫出當次實際採用的有效值與來源（見 §5.3.4）。兩者不可混稱為「新快照一律完整」；
+2. 新設定欄位缺失時只在讀取當下解析，不回寫舊快照；#157 起類別缺值為 `unset`（seed 基準依 §5.4.1 套用），不依班名推導；
+3. 新設定草稿寫使用者的 `manual` 指定與明確撤回 `unset`；seed 基準與舊 `auto` 相容值省略（見 §5.4.1）；新 run 的類別快照則寫出當次實際採用的有效值與來源（見 §5.3.4）。兩者不可混稱為「新快照一律完整」；
 4. 新規則版本的 run 建立時，把「實際採用的類別」寫入 `run_class_categories`，之後不再重新偵測（舊 run 不重新分類）。
 
 #### 5.2.4 migration 0007（純增量）與班名比對報告
@@ -314,13 +314,13 @@ run 的設定快照＝`run.scheduleVersionId`：`seed-v250922`（該 run 沒有�
 - 禁止以字面 `=== 'erp-tag-v2'` 比較，新舊行為一律經由能力旗標分流。
 
 #### 5.3.2 班級設定草稿資料模型擴充
-- `ClassSettingSchema` 支援班級屬性可選欄位：`classType`（'care'|'non_care'，specs/14 §3.1）、`category`（'care'|'math'|'english'|'none'）、`categorySource`（'auto'|'manual'）、`fixedFiveDays`（boolean，specs/14 §3.3 簡化為純布林，移除 fixedSource）。
-- 讀取已存舊設定 JSON 時維持 `readStoredDraft` 唯一入口不改形狀，舊快照無新欄位時在 v3 計算當下依班名自動偵測補齊，不回寫舊快照。
+- `ClassSettingSchema` 支援班級屬性可選欄位：`classType`（'care'|'non_care'，specs/14 §3.1）、`category`（'care'|'math'|'english'|'none'|'unset'）、`categorySource`（有效值 `manual`／`seed`／`unset`；`auto` 僅為舊資料的讀取相容值）、`fixedFiveDays`（boolean，specs/14 §3.3 簡化為純布林，移除 fixedSource）。
+- `category` 不依班名推導。讀取已存舊設定 JSON 維持 `readStoredDraft` 為唯一 JSON 入口；有效類別由解析層套用 `manual > explicit unset > seed > unset`。seed 值只在讀取時套用，不回寫草稿；舊快照仍保留原形狀。
 - `isSettingsDirty` 支援 `baseline.classAttrs` 與 `currentAttrs` 之變更比對（F-13）。
 
 #### 5.3.3 計算路徑接線與未對應班契約
-- 類別解析單一來源：名冊班名有對應系統班級時，採用該系統班級設定；無對應時依米豆奶班名自動偵測（Q1 寫功課優先、Q2 包含式、Q7-A 固定 5 天；優先序 安親課輔 > 數學 > 美語）。
-- **未對應班（Q4-b）**：未對應班若自動偵測為 `care`、`math` 或 `english`，出需確認警告 `CLASS_NOT_MAPPED`（「班名未對應課表，請確認米豆奶班名或系統班級名稱」）；若自動偵測為 `none`（如交通車、正音班）則不出警告。未對應之數學／美語班因無時段，扣天沿用 0 fallback。
+- 類別解析單一來源：名冊班名有對應系統班級時，採用該系統班級的有效設定；無對應時一律為 `category='unset'`、`categorySource='unset'`、`fixedFiveDays=false`，不依名冊班名推導。
+- **未對應班（#157）**：所有未對應班一律出需確認警告 `CLASS_NOT_MAPPED`（「班名未對應課表，請確認米豆奶班名或系統班級名稱」），其類別、科數與固定 5 天對計算的貢獻為零；`mapped=0` 的 run 快照寫 `unset`。名單只提供待處理班名，不改變此計算契約。
 - **美語缺課表警告（F-8）**：v3 下美語班找不到排課時發出 `SCHEDULE_NOT_FOUND` 需確認警告（對齊數學班）。
 
 #### 5.3.4 run 類別快照與讀模型
@@ -348,23 +348,23 @@ run 的設定快照＝`run.scheduleVersionId`：`seed-v250922`（該 run 沒有�
 ### 5.4 班級類別設定 UI、升級確認與讀模型接線（D2b；#112 v4 能力旗標見末段）
 
 #### 5.4.1 設定草稿的類別／固定 5 天欄位與來源
-- 班級屬性包含課程類型 `classType`（`care`／`non_care`，specs/14 §3.1）、多科折扣類別 `category`（`care`／`math`／`english`／`none`，帶 `categorySource: 'auto' | 'manual'`），以及固定 5 天 `fixedFiveDays`（布林，specs/14 §3.3/§3.10 移除 auto 偵測與 fixedSource，純布林勾選框）。
+- 班級屬性包含課程類型 `classType`（`care`／`non_care`，specs/14 §3.1）、多科折扣類別 `category`（`care`／`math`／`english`／`none`／`unset`），以及固定 5 天 `fixedFiveDays`（布林，specs/14 §3.3/§3.10 移除 auto 偵測與 fixedSource，純布林勾選框）。`categorySource` 的有效來源為 `manual`、`seed`、`unset`；舊 `auto` 僅供舊草稿相容讀取，不可新寫入。
 - **有效值解析**（`domain/classification/class-attributes` 的 `resolveClassAttributes`）：
   - `classType`：已儲存值優先；未設定時依 8 個 seed `care_window` 班（或歷史已存 `fixedFiveDays: true`）預設為 `care`，其餘預設為 `non_care`。
-  - `category`：已儲存值優先；缺值時來源為 `auto` 並依班名自動偵測；手動值恰等於自動偵測值時仍為 `manual`。
+  - `category`：使用者明確指定 (`manual`) 優先，其次是明確撤回 (`unset`)，再套用 seed 班基準 (`seed`)；其他班未指定時為 `unset`。缺少來源或舊來源為 `auto` 的舊推導值不採用。班名不參與類別解析。
   - `fixedFiveDays`：已儲存值優先（specs/14 §3.3/§3.10 移除 fixedSource，純布林勾選框，未設定時為 false）。
-  - 舊快照（無新欄位）讀取當下即得到正確的有效值，**不回寫**（03 §5.2 版本界線規則第 2 點）；改班名時未手動者依新名重新解析。
-- 寫回 draft 時（`groupGridRowsToClasses`）：每班**必寫入 `classType`**；`category` 與 `categorySource` 僅在手動指定（`manual`）時寫入；`fixedFiveDays` 在有顯式設定值時（existing?.fixedFiveDays !== undefined）隨班寫入。未手動之 `category` 不寫入以維持「缺欄位＝依班名自動偵測」的語意。
+  - 舊快照（無新欄位）讀取當下即得到有效值，**不回寫**（03 §5.2 版本界線規則第 2 點）；改班名時 manual 隨班帶走、unset 保持 unset、seed 依目標班名套用基準。
+- 寫回 draft 時共用 `persistClassAttributes`：每班**必寫入 `classType`**；`manual` 與 `unset` 寫入類別及來源（撤回需持久化為 `category='unset'`／`categorySource='unset'`）；`seed` 與舊 `auto` 省略；有顯式值時寫入 `fixedFiveDays`，包含 `false`。Excel 匯入的「（未設定）」也使用 `unset` 來源。
 
 #### 5.4.2 班級生命週期（Q9；班名＝分組 key）
 以 `rowId` 對 baseline 追蹤（`detectClassLifecycle`，與既有 `detectSplitClasses` 同一資料結構）：
 
 | 情境 | 判定 | 設定繼承 |
 |---|---|---|
-| 整班改名（原班全部列改成同一新名） | `rename` | 手動值帶到新名；`auto` 者依新名重新偵測（`carryAttributesOnRename`） |
-| 拆班（原班的列改成 ≥2 個名） | `split`（沿用 D28 警告） | 原名（若仍有列）保留；新名各自自動偵測 |
+| 整班改名（原班全部列改成同一新名） | `rename` | manual 值隨班帶走；unset 保持 unset；seed 依目標班名重新解析（`carryAttributesOnRename`） |
+| 拆班（原班的列改成 ≥2 個名） | `split`（沿用 D28 警告） | 原名（若仍有列）保留；新名依有效來源解析，未指定者為 unset |
 | 同名合併（≥2 個 baseline 班併成 baseline 沒有的新名） | `merge` | 設定相同→沿用；**不同→阻擋儲存**並要求選擇（`detectMergeConflicts`） |
-| 新班 | `new` | 自動偵測 |
+| 新班 | `new` | 依使用者指定或 seed 基準解析；未指定者為 unset |
 | 停班（`active=false`） | `inactive` | 設定保留；行為同 v2 |
 | alias 指向 | 以**目標系統班**的設定為準 | alias 本身不帶類別（Q13） |
 

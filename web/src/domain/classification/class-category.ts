@@ -38,10 +38,17 @@ export interface ClassAttributes {
  * - `'auto'`：只作為**舊資料的讀取值**存在（`specs/06` D53 Ruling 5：其值一律不採用，
  *   不把系統推導值升格為使用者的決定）。新寫入的路徑不會產生這個值。
  */
-export type CategorySource = 'manual' | 'unset' | 'seed' | 'auto';
+/** 舊設定可讀取的來源；新設定與 run 不得寫入此值。 */
+export type LegacyCategorySource = 'auto';
 
-/** 有效類別的來源（讀取後的結果；`'auto'` 永不出現在結果中）。 */
-export type EffectiveCategorySource = 'manual' | 'unset' | 'seed';
+/** 可寫入設定的來源：使用者指定或明確撤回。 */
+export type WritableCategorySource = 'manual' | 'unset';
+
+/** 有效類別的來源（讀取後的結果；不包含舊資料 `auto`）。 */
+export type EffectiveCategorySource = WritableCategorySource | 'seed';
+
+/** 設定讀取值＝有效來源＋僅供相容解析的舊來源。 */
+export type CategorySource = EffectiveCategorySource | LegacyCategorySource;
 
 export interface ResolvedClassEnrollment {
   rawToken: string;

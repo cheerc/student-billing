@@ -109,6 +109,8 @@ test.describe('Imports Page E2E Test (R3 匯入頁一次完成使用名單)', ()
      */
     const navResults = page.locator('[data-testid="nav-item-results"]');
     await expect(navResults).toHaveClass(/nav-item-highlight/);
+    // `.nav-item` transitions all properties; wait for the static halo to finish entering before checking its exact CSS.
+    await expect(navResults).toHaveCSS('box-shadow', 'rgba(37, 99, 235, 0.4) 0px 0px 0px 2px');
     // 高亮的是柔和靜態外框，不是動畫（UI/UX Pro Max：Continuous Animation 只用於載入指示器）
     const highlight = await navResults.evaluate((el) => {
       const s = getComputedStyle(el);

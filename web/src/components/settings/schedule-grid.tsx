@@ -30,7 +30,14 @@ interface ScheduleGridProps {
   rows: ScheduleGridRow[];
   onUpdateRow: (rowId: string, updates: Partial<ScheduleGridRow>) => void;
   onDeleteRow: (rowId: string) => void;
-  onAddRow: (row: Omit<ScheduleGridRow, 'rowId'>, classType?: ClassType) => void;
+  onAddRow: (
+    row: Omit<ScheduleGridRow, 'rowId'>,
+    classType?: ClassType,
+    options?: { initialCategory?: 'unset' }
+  ) => void;
+  rosterOnlyClasses?: Array<{ baseName: string; students: number; tokens: number }>;
+  rosterOnlyLocked?: boolean;
+  rosterOnlyStaleMessage?: string | null;
   calculating: boolean;
   calculateResult: CalculatePreviewResponse | null;
   /**
@@ -116,6 +123,9 @@ export function ScheduleGrid({
   onUpdateRow,
   onDeleteRow,
   onAddRow,
+  rosterOnlyClasses = [],
+  rosterOnlyLocked = false,
+  rosterOnlyStaleMessage = null,
   calculating,
   calculateResult,
   calculateInputRows,
@@ -138,6 +148,7 @@ export function ScheduleGrid({
   const [search, setSearch] = useState('');
   const [weekdayFilter, setWeekdayFilter] = useState('');
   const [showAddForm, setShowAddForm] = useState(false);
+  const [pendingRosterOnlyClass, setPendingRosterOnlyClass] = useState<string | null>(null);
   const importInputRef = useRef<HTMLInputElement | null>(null);
 
   const getClassType = useCallback(
@@ -296,7 +307,8 @@ export function ScheduleGrid({
         // #113 follow-up：新增的時段預設不計扣天＝關（未勾選）。
         skipDeduction: false,
       },
-      newClassType
+      newClassType,
+      pendingRosterOnlyClass === null ? undefined : { initialCategory: 'unset' }
     );
 
     setActiveTypeTab(newClassType);
@@ -306,6 +318,22 @@ export function ScheduleGrid({
     setNewStartTime('');
     setNewEndTime('');
     setShowAddForm(false);
+    setPendingRosterOnlyClass(null);
+  };
+
+  const handleAddRosterOnlyClass = (baseName: string) => {
+    const alreadyRepresented = rows.some((row) => row.className.trim() === baseName);
+    if (rosterOnlyLocked || alreadyRepresented || showAddForm) return;
+
+    setPendingRosterOnlyClass(baseName);
+    setNewClassName(baseName);
+    setNewTeacher('');
+    setNewWeekday('');
+    setNewStartTime('');
+    setNewEndTime('');
+    // The class type is an explicit form choice; use the visible tab only as its initial selection.
+    setNewClassType(activeTypeTab);
+    setShowAddForm(true);
   };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -403,6 +431,7 @@ export function ScheduleGrid({
           onClick={() => {
             setShowAddForm((prev) => {
               if (!prev) setNewClassType(activeTypeTab);
+              else setPendingRosterOnlyClass(null);
               return !prev;
             });
           }}
@@ -410,6 +439,60 @@ export function ScheduleGrid({
           {showAddForm ? '取消新增' : '＋ 新增班級'}
         </button>
       </div>
+
+      {rosterOnlyClasses.length > 0 && (
+        <section
+          className="roster-only-schedule-section"
+          aria-label="名單中尚未加入課表設定的班級"
+          data-roster-only-section=""
+        >
+          <h2>名單中尚未加入課表設定的班級</h2>
+          <p className="note">
+            這些班級來自目前檢視的名單，尚未出現在課表設定中。加入後請自行選擇課程類型、折扣類別與適用設定。
+          </p>
+          {rosterOnlyStaleMessage && (
+            <p className="notice-warn" role="status" data-roster-only-stale="">
+              {rosterOnlyStaleMessage}最新報告完成前，不能依這份舊清單加入班級。請到「班名對應」頁重新載入。
+            </p>
+          )}
+          <div className="scroll table-scroll-container">
+            <table className="data-table roster-only-schedule-table">
+              <thead>
+                <tr>
+                  <th>班級名稱</th>
+                  <th>學生</th>
+                  <th>報名筆數</th>
+                  <th>狀態</th>
+                  <th>操作</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rosterOnlyClasses.map((item) => {
+                  const alreadyRepresented = rows.some((row) => row.className.trim() === item.baseName);
+                  return (
+                    <tr key={item.baseName} data-roster-only-class={item.baseName}>
+                      <td>{item.baseName}</td>
+                      <td>{item.students} 位</td>
+                      <td>{item.tokens}</td>
+                      <td>尚未加入課表設定</td>
+                      <td>
+                        <button
+                          type="button"
+                          className="btn-secondary"
+                          disabled={rosterOnlyLocked || alreadyRepresented || showAddForm}
+                          onClick={() => handleAddRosterOnlyClass(item.baseName)}
+                        >
+                          加入課表設定
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      )}
 
       {/* Excel 匯入錯誤橫幅（整批拒絕時顯示，角色為 alert） */}
       {importError && (

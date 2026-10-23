@@ -2,6 +2,8 @@ import { z } from 'zod';
 import seedData from '../domain/schedules/schedule-seed.json';
 import { deriveSubject } from '../domain/schedules/seed-manifest';
 import { FORMAL_RULE_SET_VERSION_LIST } from '@/domain/billing/rule-set';
+import { persistClassAttributes } from '@/domain/classification/persist-class-attributes';
+import type { CategorySource } from '@/domain/classification/class-category';
 
 /**
  * seed 內的 8 個預設安親課輔班（source=care_window）。
@@ -239,22 +241,14 @@ function groupGridRowsToClasses<S>(
         (DEFAULT_CARE_CLASS_NAMES.has(className) || existing?.fixedFiveDays === true));
     const classType: ClassType = isCare ? 'care' : 'non_care';
 
-    // 03 §5.3.4：草稿寫出使用者明確指定或撤回的類別；從未指定者不寫類別欄位。
-    // 固定 5 天為純布林值（無 fixedSource），有設定值則隨班保留。
-    //
-    // #157：寫出 `manual`（使用者的決定）與 `unset`（使用者**明確撤回**）兩種來源。
-    // `unset` 必須寫出——否則撤回的班在下次讀取時會被 seed 基準還原成原本的類別，
-    // 使用者的撤回就失效了（Ruling C 的精神：撤回必須真的撤回）。
-    // `seed` 基準不寫出：它可由 seed 表重新推得，寫進草稿只會污染使用者的設定內容。
-    const attrs = {
-      ...((existing?.categorySource === 'manual' || existing?.categorySource === 'unset') &&
-      existing?.category !== undefined
-        ? { category: existing.category, categorySource: existing.categorySource }
-        : {}),
-      ...(existing?.fixedFiveDays !== undefined
-        ? { fixedFiveDays: existing.fixedFiveDays }
-        : {}),
-    };
+    // Both editor save and grid serialization use this single source rule: manual/unset write,
+    // seed/legacy auto do not, and explicit fixedFiveDays=false remains in the draft.
+    const attrs = persistClassAttributes({
+      classType,
+      category: existing?.category,
+      categorySource: existing?.categorySource,
+      fixedFiveDays: existing?.fixedFiveDays,
+    });
 
     classes.push({
       baseName: className,
@@ -372,7 +366,7 @@ export interface ClassAttributeSetting {
   className: string;
   classType?: ClassType;
   category?: 'care' | 'math' | 'english' | 'none' | 'unset';
-  categorySource?: 'auto' | 'manual' | 'unset' | 'seed';
+  categorySource?: CategorySource;
   fixedFiveDays?: boolean;
 }
 

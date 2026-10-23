@@ -367,3 +367,29 @@ describe('R2 UI 元件與排課工作流程（RED 測試）', () => {
     });
   });
 });
+
+describe('Issue #157 PR-2：Schedule tab roster-only classes', () => {
+  it('shows report classes and disables add while the report is stale', () => {
+    const html = renderToStaticMarkup(
+      React.createElement(ScheduleGrid, {
+        rows: buildSeedGridRows(),
+        onUpdateRow: () => {},
+        onDeleteRow: () => {},
+        onAddRow: () => {},
+        calculating: false,
+        calculateResult: null,
+        rosterOnlyClasses: [{ baseName: '國小數學-一', students: 3, tokens: 4 }],
+        rosterOnlyLocked: true,
+        rosterOnlyStaleMessage: '無法取得最新的班名比對報告。',
+      })
+    );
+
+    expect(html).toContain('aria-label="名單中尚未加入課表設定的班級"');
+    expect(html).toContain('data-roster-only-class="國小數學-一"');
+    expect(html).toContain('3 位');
+    expect(html).toContain('<td>4</td>');
+    expect(html).toContain('尚未加入課表設定');
+    expect(html).toContain('data-roster-only-stale');
+    expect(html).toMatch(/<button[^>]*disabled=""[^>]*>加入課表設定<\/button>/);
+  });
+});

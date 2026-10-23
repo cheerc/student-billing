@@ -161,7 +161,7 @@ describe('class-category 純函式架構約束', () => {
     expect(fs.existsSync(path.join(SRC, 'domain', 'classification', 'class-category.ts'))).toBe(true);
   });
 
-  it('src 內 importers 恰為這七個檔案；模組本身不 import DB 或 UI', () => {
+  it('src 內 importers 恰為這八個檔案；模組本身不 import DB 或 UI', () => {
     const own = path.join(SRC, 'domain', 'classification', 'class-category.ts');
     const importers: string[] = [];
     for (const file of walk(SRC)) {
@@ -179,6 +179,7 @@ describe('class-category 純函式架構約束', () => {
       'application/roster-changes.ts',
       'components/settings-editor.tsx',
       'components/settings/schedule-grid.tsx',
+      'contracts/settings.ts',
       'domain/billing/billing-calculator.ts',
       'domain/billing/discount-rules.ts',
     ].sort());
