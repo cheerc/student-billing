@@ -10,6 +10,7 @@ import { generateImportPreview } from '@/application/import-preview';
 import { executeCalculationRun } from '@/application/calculate-run';
 import { buildSchedulePreview } from '@/application/schedule-preview';
 import { calculateStudentBilling } from '@/domain/billing/billing-calculator';
+import { projectActionableIssues, projectActionableIssueCounts } from '@/domain/issues/actionable-issues';
 import type { CalculateDraft, SettingsDraft } from '@/contracts/settings';
 
 /**
@@ -163,7 +164,7 @@ export async function computeInvarianceSnapshot(): Promise<InvarianceSnapshot> {
     }
   }
 
-  // run 層：executeCalculationRun（含 compat 對照的 NUMERIC_POLICY_DIFFERENCE、八項總表天數、trace）
+  // run 層：executeCalculationRun（PR-1 formal 結果、八項總表天數、trace 與歷史基準的正規化比較）
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sb-d1-inv-'));
   const db = createDatabase(path.join(tempDir, 'inv.sqlite'));
   const run: InvarianceSnapshot['run'] = {};
@@ -194,8 +195,9 @@ export async function computeInvarianceSnapshot(): Promise<InvarianceSnapshot> {
           asOfDate: '2026-01-01',
           ...contextOptions(ctx),
         });
-        const digests = out.results.map((r) =>
-          sha16([
+        const digests = out.results.map((r) => {
+          const actionable = projectActionableIssues(r.issues, r.tierComparisons);
+          return sha16([
             r.personCode,
             r.subjectCount,
             r.baseDiscountBps,
@@ -215,17 +217,18 @@ export async function computeInvarianceSnapshot(): Promise<InvarianceSnapshot> {
             r.applicableMathBps,
             r.tierMismatch,
             r.tierComparisons,
-            r.issues,
-            r.hasIssues,
+            actionable.actionableIssues,
+            actionable.actionableHasIssues,
             r.trace,
-          ])
-        );
+          ]);
+        });
+        const actionableIssueCounts = projectActionableIssueCounts(out.run.issueCounts);
         run[`${ctx}/${version}`] = {
           count: out.results.length,
           digests,
           rollup: sha16([rollup(digests), out.run.ruleSetVersion, out.run.numericPolicy, out.run.scheduleVersionId, out.run.asOfDate, out.run.totalStudents]),
-          issueCodeCounts: Object.fromEntries(Object.entries(out.run.issueCounts).sort()),
-          runIssueCounts: Object.fromEntries(Object.entries(out.run.issueCounts).sort()),
+          issueCodeCounts: Object.fromEntries(Object.entries(actionableIssueCounts).sort()),
+          runIssueCounts: Object.fromEntries(Object.entries(actionableIssueCounts).sort()),
           anqinDaysSum: out.results.reduce((a, r) => a + (r.anqinDays ?? 0), 0),
           tutoringDaysSum: out.results.reduce((a, r) => a + (r.tutoringDays ?? 0), 0),
         };

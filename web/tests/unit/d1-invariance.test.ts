@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import golden from '../fixtures/d1-invariance-golden.json';
+import pr1RunGolden from '../fixtures/d1-invariance-pr1-run-golden.json';
 import { computeInvarianceSnapshot, type InvarianceSnapshot } from '../helpers/d1-invariance-snapshot';
 
 /**
@@ -15,13 +16,18 @@ import { computeInvarianceSnapshot, type InvarianceSnapshot } from '../helpers/d
  * 之測試 expected，仍必須依據規格獨立手算或由外部驗證建立。
  *
  * 比對粒度：合成 fixture 477 人 × {seed 設定、已儲存設定（含 alias／週六時段／整班移除／未知星期／停班）}
- * × {v1、v2、compat}（calculateStudentBilling），以及 run 層 {seed、saved} × {v1、v2}
- * （executeCalculationRun：八項總表天數、NUMERIC_POLICY_DIFFERENCE、issueCounts、trace），
- * 加上讀模型 buildSchedulePreview（v1、v2）。業務欄位涵蓋天數、科數、基本折扣、課程適用率、
+ * × {v1、v2、compat}（calculateStudentBilling），以及 run 層 {seed、saved} × {v1、v2} 的業務總數。
+ * PR-1 刻意停止新 run 的 compat／shadow 診斷，因此 run-level 原始 issues digest 與舊 golden 的差異是核准的行為變更；
+ * 此處仍比對學生數、天數總和與去除兩種退役診斷碼後的業務 issueCounts。加上讀模型 buildSchedulePreview（v1、v2）。業務欄位涵蓋天數、科數、基本折扣、課程適用率、
  * 級距比較、issue code 集合（另含訊息文字）。
  */
 
 const G = golden as unknown as InvarianceSnapshot;
+const PR1_RUN = pr1RunGolden as {
+  sourceBaseSha: string;
+  normalization: string;
+  run: InvarianceSnapshot['run'];
+};
 
 function firstDiffs(actual: string[], expected: string[], limit = 5): string {
   const out: string[] = [];
@@ -31,7 +37,7 @@ function firstDiffs(actual: string[], expected: string[], limit = 5): string {
   return out.join(', ');
 }
 
-describe('D1 不變式：v1／v2／compat 的計算輸出與 8961c03 golden 逐欄相同', () => {
+describe('D1 不變式：v1／v2／compat 計算基準與 PR-1 新 run 投影', () => {
   let actual: InvarianceSnapshot;
 
   it('前提：golden 涵蓋 477 人、calculator 6 組（2 情境 × 3 版本）、run 4 組、讀模型 2 組', () => {
@@ -46,6 +52,12 @@ describe('D1 不變式：v1／v2／compat 的計算輸出與 8961c03 golden 逐�
     ]);
     expect(Object.keys(G.run).sort()).toEqual(['saved/erp-tag-v1', 'saved/erp-tag-v2', 'seed/erp-tag-v1', 'seed/erp-tag-v2']);
     expect(Object.keys(G.schedulePreview).sort()).toEqual(['erp-tag-v1', 'erp-tag-v2']);
+  });
+
+  it('PR-1 run golden 來自固定 base 並只正規化兩種退役問題及其 hasIssues 投影', () => {
+    expect(PR1_RUN.sourceBaseSha).toBe('606750c9a070027f4ca3a1ee7ae909605cb04a85');
+    expect(PR1_RUN.normalization).toContain('remove issues with code NUMERIC_POLICY_DIFFERENCE or RULESET_POLICY_DIFFERENCE');
+    expect(Object.keys(PR1_RUN.run).sort()).toEqual(['saved/erp-tag-v1', 'saved/erp-tag-v2', 'seed/erp-tag-v1', 'seed/erp-tag-v2']);
   });
 
   it('前提：各版本在「已儲存設定」情境確實走到不同狀態（否則不變式沒有鑑別力）', () => {
@@ -78,12 +90,17 @@ describe('D1 不變式：v1／v2／compat 的計算輸出與 8961c03 golden 逐�
   }
 
   for (const key of Object.keys(G.run)) {
-    it(`executeCalculationRun ${key}：八項總表天數、issueCounts、trace 逐人摘要與 rollup 相同`, () => {
+    it(`executeCalculationRun ${key}：normalized per-student output digest, rollup, and business issueCounts match fixed base`, () => {
       const a = actual.run[key];
-      const g = G.run[key];
-      expect(firstDiffs(a.digests, g.digests), `${key} 逐人差異（前 5 筆）`).toBe('');
+      const g = PR1_RUN.run[key];
+      expect(firstDiffs(a.digests, g.digests), `${key} per-student normalized differences (first 5)`).toBe('');
       expect(a.rollup).toBe(g.rollup);
+      expect(a.count).toBe(g.count);
+      expect(a.anqinDaysSum).toBe(g.anqinDaysSum);
+      expect(a.tutoringDaysSum).toBe(g.tutoringDaysSum);
       expect(a.runIssueCounts).toEqual(g.runIssueCounts);
+      expect(a.runIssueCounts).not.toHaveProperty('NUMERIC_POLICY_DIFFERENCE');
+      expect(a.runIssueCounts).not.toHaveProperty('RULESET_POLICY_DIFFERENCE');
     });
   }
 

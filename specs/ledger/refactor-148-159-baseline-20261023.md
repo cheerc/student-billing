@@ -76,3 +76,27 @@ This demonstrates sensitivity to a material D24 calculation change. It is not pr
 - No performance conclusions are drawn. The current code visibly computes formal plus compat for each new-run student and adds a shadow-v2 calculation for v4; this is an inventory only, with no timing claim.
 - Existing active formal v1/v2/v3 inheritance is documented from resolver behavior, not exercised in the new synthetic run.
 - This ledger does not implement PR-1 through PR-5 or claim all semantics are free of existing name gates. The name-gated `mathDays` limitation above is deliberately preserved as baseline evidence.
+
+## PR-1 implementation result: diagnostics retirement and historical UI projection
+
+**Branch:** `refactor/159-retire-diagnostics`
+
+**Worktree:** `/tmp/issue159-pr1`
+
+**Base:** `db781305c49f8bc39ea859a7b470278247d4988a` (latest main when PR-1 worktree was created).
+**Scope:** new runs no longer invoke compat or shadow-v2 and do not write diagnostic snapshots; comparison link/route is removed (GET 404); old schema/rows and raw issue fields/query behavior remain. A centralized actionable projection removes only `NUMERIC_POLICY_DIFFERENCE` and `RULESET_POLICY_DIFFERENCE` from UI issue badges/lists/facets/filters and history/page counts. Business issues and tier `needsReview` remain actionable. This is not the PR-2 single-v4 change.
+
+The D1 run golden added for this PR contains only synthetic student/class fixtures and per-student SHA-256 digests; it contains no names, person codes, source workbook content, or local database rows. Its source is exact immutable PR-0 base `606750c9a070027f4ca3a1ee7ae909605cb04a85`. Normalization removes only the two retired issue entries/counts and recalculates the expected derived `hasIssues` from remaining actionable issues or tier `needsReview`; numeric/display/summary/tier/trace outputs and per-student digests remain compared. Existing direct-calculator goldens are unchanged.
+
+### RED evidence
+
+- Before removing extra calculations, `npx vitest run tests/unit/issue-148-159-baseline.test.ts` expected 5 formal calls for 5 synthetic students but observed 15 calls (formal + compat + shadow-v2). The zero-compat/zero-shadow assertion was RED on the PR-0 runtime and passed after PR-1.
+- Before adding the historical actionable projection, `npx vitest run tests/integration/issue-159-actionable-history.test.ts` found no `actionableIssues` projection for the synthetic retired-only history row; the regression was RED, then passed with the centralized projection. Mixed business warning and tier-review rows are also covered.
+- No mutation was made to production behavior to fabricate either failure. The separate PR-0 D24 mutation evidence above remains unchanged.
+
+### Verification
+
+- From `web/`: `npm run typecheck` → passed (`tsc --noEmit`).
+- From `web/`: `npx vitest run tests/unit/issue-148-159-baseline.test.ts tests/integration/issue-159-actionable-history.test.ts tests/unit/issue-159-actionable-ui.test.ts tests/integration/issue-159-comparison-404.test.ts tests/integration/history-view.test.ts tests/integration/issue-161-diagnostics-atomicity.test.ts tests/integration/issue-161-diagnostics-audit.test.ts tests/integration/api-runs.test.ts tests/integration/d1-run-snapshot-readers.test.ts tests/unit/d1-invariance.test.ts tests/unit/d2a-diagnostics-decomposition.test.ts` → 11 files, 46 tests passed. This includes an actual Next.js request to the removed route, which returned 404, plus separate unavailable-new-run and manually inserted synthetic historical-snapshot audit cases.
+- `git diff --check` → passed.
+- Real local roster comparison remains separate and unverified by CI. `data/app.sqlite` was not accessed; no private source data was used.

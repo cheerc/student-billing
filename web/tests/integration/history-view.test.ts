@@ -131,6 +131,23 @@ describe('匯入紀錄資料層（buildHistoryEntries）', () => {
     expect(history.issueCount).toBe(3);
   });
 
+  it('歷史清單隱藏兩種已退役診斷問題，但保留混合列的真實業務問題數與 raw counters', () => {
+    const legacyCounts = { NUMERIC_POLICY_DIFFERENCE: 2, RULESET_POLICY_DIFFERENCE: 1 };
+    const mixedCounts = { NUMERIC_POLICY_DIFFERENCE: 2, CONFLICTING_NOTE_SOURCE: 1 };
+    saveImportBatch(db, batch('imp_legacy', '2026-09-01T02:00:00.000Z'), []);
+    saveCalculationRun(db, run('run_legacy', 'imp_legacy', '2026-09-02T02:00:00.000Z', { issueCounts: legacyCounts }), []);
+    saveImportBatch(db, batch('imp_mixed', '2026-09-03T02:00:00.000Z'), []);
+    saveCalculationRun(db, run('run_mixed', 'imp_mixed', '2026-09-04T02:00:00.000Z', { issueCounts: mixedCounts }), []);
+
+    const entries = new Map(buildHistoryEntries(db).map((entry) => [entry.runId, entry]));
+    expect(entries.get('run_legacy')?.issueCount).toBe(0);
+    expect(entries.get('run_mixed')?.issueCount).toBe(1);
+    expect(JSON.parse((db.prepare('SELECT issue_counts FROM calculation_runs WHERE id = ?').get('run_legacy') as any).issue_counts))
+      .toEqual(legacyCounts);
+    expect(JSON.parse((db.prepare('SELECT issue_counts FROM calculation_runs WHERE id = ?').get('run_mixed') as any).issue_counts))
+      .toEqual(mixedCounts);
+  });
+
   it('技術資訊（長 ID、規則版本、雜湊）另放 tech 欄位，不混在日常欄位', () => {
     saveImportBatch(db, batch('imp_1', '2026-09-01T02:00:00.000Z'), []);
     saveCalculationRun(db, run('run_1', 'imp_1', '2026-09-02T02:00:00.000Z'), []);

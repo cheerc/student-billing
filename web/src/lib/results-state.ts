@@ -3,6 +3,7 @@ import {
   readResultsUrl, pruneStudentFilters, exactlyOneClass, findStudentField, displayValue,
   STUDENT_FILTER_KEYS, type ResultsUrlState, type OptionsByKey,
 } from './results-filters';
+import { isRetiredDiagnosticIssue } from '@/domain/issues/actionable-issues';
 
 export interface ResultsFilterState extends ResultsUrlState {
   invalid: boolean;
@@ -16,10 +17,24 @@ function dropApplicable(state: ResultsFilterState): void {
   delete state.filters.applicableDiscountBps;
 }
 
+function dropRetiredIssueCodes(state: ResultsFilterState): void {
+  const selected = state.filters.issueCode;
+  if (!selected) return;
+  const field = findStudentField('issueCode')!;
+  const kept: string[] = [];
+  for (const wire of selected) {
+    if (isRetiredDiagnosticIssue(wire)) state.pruned.push({ column: field.column, label: displayValue(field, wire) });
+    else kept.push(wire);
+  }
+  if (kept.length) state.filters.issueCode = kept;
+  else delete state.filters.issueCode;
+}
+
 /** SSR 與 client Back 還原共用的 URL 解析／合法性判斷；不讀 DB。 */
 export function parseResultsState(raw: Parameters<typeof readResultsUrl>[0]): ResultsFilterState {
   const state: ResultsFilterState = { ...readResultsUrl(raw), invalid: false, pruned: [] };
   dropApplicable(state);
+  dropRetiredIssueCodes(state);
   try {
     normalizeStudentQuery(state.filters, new Set(STUDENT_FILTER_KEYS));
   } catch (error) {

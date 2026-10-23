@@ -3,6 +3,7 @@ import type { NormalizedStudentQuery, QuerySelection } from '@/contracts/student
 import { parseTagDiscounts } from '@/domain/billing/discount-rules';
 import { getCalculationRun } from '@/adapters/sqlite/runs-repository';
 import { ruleSetCapabilities } from '@/domain/billing/rule-set';
+import { ACTIONABLE_HAS_ISSUES_SQL } from '@/domain/issues/actionable-issues';
 import { selectionPredicate, classPredicate, branchPredicate, applicableRateColumn, escapeLike, type QueryPredicate } from './student-query-sql';
 
 /** 同一次 request 共用特殊折扣集合；各欄 facet 不重複全 run 掃描。 */
@@ -42,7 +43,7 @@ export function createStudentPredicateBuilder(db: Database.Database, runId: stri
     const classes = classPredicate(importId, 'sc', selected.enrollmentKey);
     add(classes);
     for (const [key, column] of Object.entries({
-      grade: 'sc.grade', baseDiscountBps: 'sc.base_discount_bps', anqinDays: 'sc.anqin_days', tutoringDays: 'sc.tutoring_days', hasIssues: 'sc.has_issues',
+      grade: 'sc.grade', baseDiscountBps: 'sc.base_discount_bps', anqinDays: 'sc.anqin_days', tutoringDays: 'sc.tutoring_days', hasIssues: ACTIONABLE_HAS_ISSUES_SQL,
     })) add(selectionPredicate(selected[key], column));
 
     const classValues = selected.enrollmentKey && !selected.enrollmentKey.none
@@ -120,6 +121,6 @@ export function createStudentPredicateBuilder(db: Database.Database, runId: stri
       }
       add({ sql: `(${terms.join(' OR ')})`, args: termArgs });
     }
-    return { where: { sql: clauses.join(' AND '), args }, classes, mismatch, issues: selectionPredicate({ values: [true], none: false }, 'sc.has_issues') };
+    return { where: { sql: clauses.join(' AND '), args }, classes, mismatch, issues: { sql: ACTIONABLE_HAS_ISSUES_SQL, args: [] } };
   };
 }

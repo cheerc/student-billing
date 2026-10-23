@@ -48,7 +48,7 @@ export interface RuleSetCapabilities {
   maxDeductionSelection: boolean;
   /** D2a / F-8: 美語缺課表補上需確認警告 (SCHEDULE_NOT_FOUND)。 */
   missingEnglishScheduleWarning: boolean;
-  /** D2a / Q12: 診斷標籤兩段式分解 (RULESET_POLICY_DIFFERENCE 與 NUMERIC_POLICY_DIFFERENCE)。 */
+  /** Historical D2a / Q12 capability metadata. #159 PR-1 retains the flag for version history, but new runs no longer invoke this diagnostic decomposition. */
   diagnosticsDecomposition: boolean;
   /** D2a / Q4-b: 未對應班標記 CLASS_NOT_MAPPED。（#157 Ruling 3 起範圍為「所有未對應班」，
    *  不再限 care/math/english；旗標本身只描述 v3 以後具此能力的軌道，不承載範圍。） */

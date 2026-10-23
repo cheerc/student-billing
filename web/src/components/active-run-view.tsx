@@ -563,13 +563,6 @@ export default function ActiveRunView({
         <div className="tech-pre">
           {isHistory ? `Run ID：${runId}｜基準日 ${asOfDate}` : `Run ID：${runId}｜版本 rev ${revision}｜基準日 ${asOfDate}`}
         </div>
-        <a
-          href={`/api/v1/runs/${runId}/comparison?againstRuleSet=excel-v260922-compat`}
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          計算說明（雙軌差異 JSON）
-        </a>
       </details>
 
       {/* 結果雙頁籤（09 §2；09 §6 鍵盤可操作：方向鍵／Home／End、Enter／Space、tabpanel 對應） */}

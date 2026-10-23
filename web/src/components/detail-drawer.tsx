@@ -142,11 +142,11 @@ function DrawerPanel({ student, onClose }: { student: StudentCalculationItem; on
         {/* Drawer Body */}
         <div style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '20px' }}>
           {/* 問題警告區塊 */}
-          {student.issues.length > 0 && (
+          {student.actionableIssues.length > 0 && (
             <div className="alert alert-warning" style={{ margin: 0 }}>
-              <strong>待確認事項 ({student.issues.length})：</strong>
+              <strong>待確認事項 ({student.actionableIssues.length})：</strong>
               <ul style={{ paddingLeft: '18px', marginTop: '6px' }}>
-                {student.issues.map((iss, i) => (
+                {student.actionableIssues.map((iss, i) => (
                   <li key={i} style={{ fontSize: '0.8125rem' }}>
                     <strong>{issueLabel(iss.code)}</strong>：{issueMessage(iss)}
                   </li>
