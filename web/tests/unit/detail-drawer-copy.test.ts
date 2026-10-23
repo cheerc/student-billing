@@ -28,6 +28,7 @@ const base = {
   applicableAnqinBps: null, applicableTutoringBps: null,
   applicableEnglishBps: null, applicableMathBps: null,
   tierMismatch: false, tierComparisons: [], issues: [], hasIssues: false,
+  actionableIssues: [], actionableHasIssues: false,
   trace: { rawTags: '' }, createdAt: '2026-10-04T00:00:00.000Z',
   enrollments: [], sourceRow: 2, classText: null,
 };

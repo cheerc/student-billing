@@ -25,6 +25,8 @@ describe('Ruling 4: SummaryTable ruleSetVersion 與快照接線防回歸單元�
     tutoringDisplay: '5',
     issues: [],
     tierComparisons: [],
+    actionableIssues: [],
+    actionableHasIssues: false,
     enrollments: [
       {
         rawToken: '國小輔導-寫功課[團]',
