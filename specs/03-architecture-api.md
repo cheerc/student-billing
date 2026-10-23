@@ -380,7 +380,7 @@ run 的設定快照＝`run.scheduleVersionId`：`seed-v250922`（該 run 沒有�
 
 | 情境 | 判定 | 設定繼承 |
 |---|---|---|
-| 整班改名（原班全部列改成同一新名） | `rename` | manual 值隨班帶走；unset 保持 unset；seed 依目標班名重新解析（`carryAttributesOnRename`） |
+| 整班改名（原班全部列改成同一新名） | `rename` | 既有 `category`／`fixedFiveDays` 沿既有規則處理：manual 隨班、unset 保持 unset、seed 類別依目標班名重新解析；PR-3 新增的 subject、summary roles、tier applicability 與 class type 定義隨來源班帶走，包含 seed 來源具體值 |
 | 拆班（原班的列改成 ≥2 個名） | `split`（沿用 D28 警告） | 原名（若仍有列）保留；新名依有效來源解析，未指定者為 unset |
 | 同名合併（≥2 個 baseline 班併成 baseline 沒有的新名） | `merge` | 設定相同→沿用；**不同→阻擋儲存**並要求選擇（`detectMergeConflicts`） |
 | 新班 | `new` | 依使用者指定或 seed 基準解析；未指定者為 unset |
@@ -433,9 +433,9 @@ run 的設定快照＝`run.scheduleVersionId`：`seed-v250922`（該 run 沒有�
 ### 5.7 Issue #148 PR-3：bounded class semantics 設定與 run snapshot
 
 - **Registry schema**：設定版本保存 `classTypeDefinitions[]`，每個定義包含 stable `id`、`label`、`scheduleMode`、`supportedAttributeKeys` 與 `summaryRoleOptions`；每班以 `classTypeId` 指向一個定義。內建 `care`／`non_care` 必須存在且維持既有排課形式。`care_window` 不可宣告逐時段 `skipDeduction`，`timetable` 不可宣告 `fixedFiveDays`，因現有版型沒有可編輯的對應控制。definition 只描述既有兩種排課版型與已支援欄位，不可保存任意公式或程式碼。
-- **獨立語意欄位**：`subject`、`category`、`fixedFiveDays`、`summaryDayRoles` 與 `erpTierApplicability` 彼此獨立；subject 不由 category 推導，category 不由 classType 推導。UI 按 definition 宣告提供欄位；既存但不支援的值不可靜默丟棄，設定驗證須拒絕。無設定時明確保存 `unset`／`unavailable`，新 class name 不觸發執行期名稱推論。
+- **獨立語意欄位**：`subject`、`category`、`fixedFiveDays`、`summaryDayRoles` 與 `erpTierApplicability` 彼此獨立；subject 不由 category 推導，category 不由 classType 推導。UI 按 definition 宣告提供欄位；有實際效果但不受支援的既存值不可靜默丟棄，設定驗證須拒絕，並提供明確清除／確認切換流程。`fixedFiveDays:false` 是中性預設值，不算不支援的已設定值；沒有 `classTypeDefinitions` 的歷史草稿以唯讀相容路徑解析並保留原有旗標，不在讀取時清除或回填。無設定時明確保存 `unset`／`unavailable`，新 class name 不觸發執行期名稱推論。
 - **Seed 範圍**：49 個既有 seed class 由逐班 synthetic fixture 明列 classType、summary roles、tier applicability、subject 與既有 category；seed 缺一列即測試失敗。非 seed 班不批次推論或回填。僅沿用八個既有 summary/day 欄位，不新增第九欄或公式。
-- **XLSX 與生命週期**：課表工作簿以 hidden metadata sheet roundtrip bounded definitions 與逐班語意；一般課表列格式與舊工作簿維持相容。rename 可帶來源設定，既有 merge target 保持 target 值，不一致的來源 merge 阻擋；類型仍被引用時不得刪除。
+- **XLSX 與生命週期**：課表工作簿以 hidden metadata sheet roundtrip bounded definitions 與逐班語意；一般課表列格式與舊工作簿維持相容。rename 帶走來源班的具體 subject、summary roles、tier applicability 與 class type（包含 seed 來源值）；category 仍按 #157 的既有 rename 規則處理。既有 merge target 保持 target 值，不一致的來源 merge 阻擋；類型仍被引用時不得刪除。
 - **Additive run snapshot**：migration 0009 新增一對一 `run_semantics_snapshots` presence/schema marker 與 `run_class_semantics` rows，不改寫舊 `run_class_categories`。新 v4 run 必須在 save 時明確提供 `classSemantics`；`[]` 表示有效的空 snapshot，`undefined` 不可寫入。read 時驗 schema version、definition JSON/schema/hash、classType id 關係、role/source/category/scalar 欄位；markerless run 有 semantic rows 是損毀。snapshot 與 `calculation_runs`、學生結果及 category rows 共用同一 transaction，任一寫入失敗整筆 rollback。
 - **PR-3 non-goals**：summary roles 與 tier applicability 在 PR-3 僅為可設、可匯出入、可保存及可讀取的 metadata；calculator、八欄投影、報表、token parsing、tier consumer 與 v4 numeric output 不改。任何需要商業規則或金額變化的路徑必須等另行授權。
 

@@ -146,8 +146,8 @@ function applyManualAttrsToClasses<T extends { baseName: string; classType?: 'ca
         classType: m?.classType ?? c.classType,
         category: m?.category,
         categorySource: m?.categorySource,
-        // The legacy grid stores an effective false default. It must not become an unsupported
-        // configured value; keep an explicit class value so draft validation can still block it.
+        // The legacy grid stores an effective false default. Preserve it for compatibility;
+        // the semantics contract treats false as neutral and rejects only unsupported true values.
         fixedFiveDays: definition && !definition.supportedAttributeKeys.includes('fixedFiveDays')
           ? existingFixedFiveDays
           : m?.fixedFiveDays ?? existingFixedFiveDays,

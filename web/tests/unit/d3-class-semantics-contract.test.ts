@@ -179,6 +179,24 @@ describe('PR-3 bounded class semantics contract', () => {
     expect(SettingsDraftSchema.safeParse(newDraft).success).toBe(false);
   });
 
+  it('preserves historical fixedFiveDays on legacy settings and treats false as neutral on new timetable types', () => {
+    const historical = normalizeSettingsDraftSemantics({
+      classes: [{ baseName: '舊非安親班', subject: '', classType: 'non_care', fixedFiveDays: false, sessions: [] }],
+      aliases: [], careWindows: CARE_WINDOWS,
+    });
+    expect(historical.classes[0].fixedFiveDays).toBe(false);
+
+    const neutral = {
+      classes: [{ baseName: '合成課程', subject: '', classTypeId: 'non_care', classType: 'non_care', fixedFiveDays: false, sessions: [] }],
+      classTypeDefinitions: [...DEFAULT_CLASS_TYPE_DEFINITIONS], aliases: [], careWindows: CARE_WINDOWS,
+    };
+    expect(SettingsDraftSchema.safeParse(neutral).success).toBe(true);
+    expect(SettingsDraftSchema.safeParse({
+      ...neutral,
+      classes: [{ ...neutral.classes[0], fixedFiveDays: true }],
+    }).success).toBe(false);
+  });
+
   it('carries configured semantics on rename, preserves an existing merge target and detects conflicting merges', () => {
     const source = {
       baseName: '原班', subject: '科目甲', subjectSource: 'manual' as const,
@@ -198,6 +216,31 @@ describe('PR-3 bounded class semantics contract', () => {
     expect(detectSemanticMergeConflicts([{ mergedName: '合併班', sources: ['原班', '另一班'] }], [
       source, { ...source, baseName: '另一班', subject: '科目乙' },
     ])).toHaveLength(1);
+  });
+
+  it('carries seed-derived semantics with the class when a seed class is renamed', () => {
+    const seedName = '國小數學-一A';
+    const seedSemantics = SEED_CLASS_SEMANTICS.get(seedName)!;
+    const source = {
+      baseName: seedName, subject: seedSemantics.subject, subjectSource: 'seed' as const,
+      teacher: null, active: true, sessions: [], classTypeId: seedSemantics.classTypeId,
+      classType: 'non_care' as const, category: 'math' as const, categorySource: 'seed' as const,
+      summaryDayRoles: seedSemantics.summaryDayRoles, summaryDayRolesStatus: 'configured' as const,
+      summaryDayRolesSource: 'seed' as const,
+      erpTierApplicability: seedSemantics.erpTierApplicability,
+      erpTierApplicabilitySource: 'seed' as const,
+    };
+    const renamed = carryClassSemanticsOnRename(
+      [{ ...source, baseName: '自訂名稱', subject: '', summaryDayRoles: [] }],
+      [source],
+      [{ from: seedName, to: '自訂名稱' }],
+      new Set()
+    );
+    expect(renamed[0]).toMatchObject({
+      subject: seedSemantics.subject, subjectSource: 'seed',
+      summaryDayRoles: seedSemantics.summaryDayRoles, summaryDayRolesSource: 'seed',
+      erpTierApplicability: seedSemantics.erpTierApplicability, erpTierApplicabilitySource: 'seed',
+    });
   });
 
   it('requires an explicit clear when a class type no longer supports saved values', () => {

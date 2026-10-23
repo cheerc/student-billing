@@ -649,7 +649,10 @@ function validateDraftSemantics(
     if (cls.category && cls.category !== 'unset' && !definition.supportedAttributeKeys.includes('category')) {
       ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['classes', index, 'category'], message: `課程類型 ${id} 不支援折扣類別` });
     }
-    if (cls.fixedFiveDays !== undefined && !definition.supportedAttributeKeys.includes('fixedFiveDays')) {
+    // Historical settings may contain old fixedFiveDays values even on timetable classes.
+    // New drafts may keep the neutral false default, but true is only supported by a class type
+    // that explicitly declares the field.
+    if (draft.classTypeDefinitions !== undefined && cls.fixedFiveDays === true && !definition.supportedAttributeKeys.includes('fixedFiveDays')) {
       ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['classes', index, 'fixedFiveDays'], message: `課程類型 ${id} 不支援固定 5 天` });
     }
     if (cls.sessions?.some((session) => session.skipDeduction === true) && !definition.supportedAttributeKeys.includes('skipDeduction')) {

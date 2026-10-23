@@ -181,7 +181,7 @@ export function ClassSemanticsPanel({
           const unsupported: string[] = [];
           if (item.subject?.trim() && !supports('subject')) unsupported.push('科目');
           if (item.category && item.category !== 'unset' && !supports('category')) unsupported.push('折扣類別');
-          if (item.fixedFiveDays !== undefined && !supports('fixedFiveDays')) unsupported.push('固定 5 天');
+          if (item.fixedFiveDays === true && !supports('fixedFiveDays')) unsupported.push('固定 5 天');
           if (item.sessions.some((session) => session.skipDeduction) && !supports('skipDeduction')) unsupported.push('不計扣天');
           const unavailableRoles = roles.filter((role) => !roleOptions.includes(role));
           if ((roles.length > 0 || item.summaryDayRolesStatus === 'configured') && !supports('summaryDayRoles')) unsupported.push('摘要角色');
@@ -220,7 +220,7 @@ export function ClassSemanticsPanel({
                       const incompatible = [
                         item.subject?.trim() && !next.supportedAttributeKeys.includes('subject') ? '科目' : null,
                         item.category && item.category !== 'unset' && !next.supportedAttributeKeys.includes('category') ? '折扣類別' : null,
-                        item.fixedFiveDays !== undefined && !next.supportedAttributeKeys.includes('fixedFiveDays') ? '固定 5 天' : null,
+                        item.fixedFiveDays === true && !next.supportedAttributeKeys.includes('fixedFiveDays') ? '固定 5 天' : null,
                         item.sessions.some((session) => session.skipDeduction) && !next.supportedAttributeKeys.includes('skipDeduction') ? '不計扣天' : null,
                         (roles.length > 0 || item.summaryDayRolesStatus === 'configured') && !next.supportedAttributeKeys.includes('summaryDayRoles') ? '摘要角色' : null,
                         item.erpTierApplicability && item.erpTierApplicability !== 'unset' && !next.supportedAttributeKeys.includes('erpTierApplicability') ? 'ERP 級距適用性' : null,

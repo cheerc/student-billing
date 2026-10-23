@@ -166,21 +166,10 @@ export function carryClassSemanticsOnRename(
     const before = sources.get(from);
     const target = output.get(to);
     if (!before || !target) continue;
-    const seedTarget = SEED_CLASS_SEMANTICS.get(to);
     const carried = semanticFields(before);
-    const useSeedSubject = before.subjectSource === 'seed';
-    const useSeedRoles = before.summaryDayRolesSource === 'seed';
-    const useSeedTier = before.erpTierApplicabilitySource === 'seed';
     output.set(to, {
       ...target,
       ...carried,
-      subject: useSeedSubject ? seedTarget?.subject ?? '' : before.subject ?? '',
-      subjectSource: useSeedSubject ? (seedTarget ? 'seed' : 'unset') : before.subjectSource ?? 'unset',
-      summaryDayRoles: useSeedRoles ? seedTarget?.summaryDayRoles ?? [] : before.summaryDayRoles ?? [],
-      summaryDayRolesStatus: useSeedRoles ? (seedTarget ? 'configured' : 'unset') : before.summaryDayRolesStatus ?? 'unset',
-      summaryDayRolesSource: useSeedRoles ? (seedTarget ? 'seed' : 'unset') : before.summaryDayRolesSource ?? 'unset',
-      erpTierApplicability: useSeedTier ? seedTarget?.erpTierApplicability ?? 'unset' : before.erpTierApplicability ?? 'unset',
-      erpTierApplicabilitySource: useSeedTier ? (seedTarget ? 'seed' : 'unset') : before.erpTierApplicabilitySource ?? 'unset',
     });
   }
   return [...output.values()];
