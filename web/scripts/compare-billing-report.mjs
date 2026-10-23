@@ -388,7 +388,10 @@ function buildNotes({ statusCategory, excel, web, careCategory }) {
 function categoryForRun(baseName, rateContext) {
   if (!rateContext || rateContext.known === false) return null;
   if (runUsesClassSemanticsSnapshot(rateContext)) {
-    return classSemanticsForRun(baseName, rateContext)?.category ?? null;
+    const categorySnapshot = snapshotRowFor(rateContext, baseName);
+    const semantics = classSemanticsForRun(baseName, rateContext);
+    if (!categorySnapshot || !semantics || semantics.category !== categorySnapshot.category) return null;
+    return categorySnapshot.category;
   }
   if (rateContext?.usesClassCategorySnapshot ?? rateContext?.isV3Run) {
     return snapshotRowFor(rateContext, baseName)?.category ?? null;
@@ -404,6 +407,18 @@ function enrollmentProjection(student, rateContext) {
       semantic,
       category: categoryForRun(enrollment.baseName ?? '', rateContext),
     };
+  });
+}
+
+/** A valid v4 snapshot must cover every enrollment and agree across both immutable projections. */
+function hasCompleteV4EnrollmentSnapshots(student, rateContext) {
+  if (!runUsesClassSemanticsSnapshot(rateContext)) return true;
+  if (!Array.isArray(student.enrollments)) return false;
+  return student.enrollments.every((enrollment) => {
+    const baseName = enrollment.baseName ?? '';
+    const categorySnapshot = snapshotRowFor(rateContext, baseName);
+    const semantics = classSemanticsForRun(baseName, rateContext);
+    return !!categorySnapshot && !!semantics && semantics.category === categorySnapshot.category;
   });
 }
 
@@ -520,7 +535,7 @@ export function compare(reportStudents, webStudents, asOfDate, rateContext = und
         ))
         )
         : !legacyProjection
-    );
+    ) || !hasCompleteV4EnrollmentSnapshots(w, rateContext);
     const useSnapshot = usesSnapshot && careClassName !== '';
     const applicable = useSnapshot
       ? applicableRateForClass(careClassName, { grade, ...RATE_INPUT_FIELDS(w) }, toApplicableRateContext(rateContext))

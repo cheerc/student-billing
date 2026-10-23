@@ -236,8 +236,11 @@ describe('帳務比對工具：報表解析契約', () => {
       ...over,
     });
 
-    const runOne = (report: Record<string, unknown>[], web: Record<string, unknown>[]) =>
-      compare(new Map(report.map(r => [r.name as string, r])), web as never[], '2026-10-14', LEGACY_V2_CONTEXT).records[0];
+    const runOne = (
+      report: Record<string, unknown>[],
+      web: Record<string, unknown>[],
+      context = LEGACY_V2_CONTEXT,
+    ) => compare(new Map(report.map(r => [r.name as string, r])), web as never[], '2026-10-14', context).records[0];
 
     // review F-NEW-1：報表確有學費項但級距認不出來，不可標成「報表無學費項」
     it('級距無法解析 → TIER_UNPARSED，不可標成報表無學費項', () => {
@@ -270,6 +273,61 @@ describe('帳務比對工具：報表解析契約', () => {
     it('名單確無此人 → NOT_IN_WEB', () => {
       const r = runOne([reportStudent('查無此人')], [webStudent('其他人')]);
       expect(r.statusCategory).toBe('NOT_IN_WEB');
+    });
+
+    it('v4 缺 enrollment semantic row 時不退回學生層級率；完整快照證明無 care enrollment 才保留年級率', () => {
+      const careClass = '國小輔導-一A';
+      const v4Context = (category: string, semanticCategory: string | null) => ({
+        known: true,
+        usesClassCategorySnapshot: true,
+        usesClassSemanticsSnapshot: true,
+        isV3Run: true,
+        ruleSetVersion: 'erp-tag-v4',
+        classCategories: [{ base_name: careClass, category, fixed_five_days: 0 }],
+        classSemantics: semanticCategory === null ? [] : [{
+          baseName: careClass,
+          resolvedBaseName: careClass,
+          category: semanticCategory,
+          summaryDayRoles: [],
+          erpTierApplicability: 'applicable' as const,
+        }],
+      });
+
+      const missingSemantic = runOne(
+        [reportStudent('缺語意快照')],
+        [webStudent('缺語意快照', { applicableAnqinBps: 8888 })],
+        v4Context('care', null),
+      );
+      const contradictorySemantic = runOne(
+        [reportStudent('類別快照矛盾')],
+        [webStudent('類別快照矛盾', { applicableAnqinBps: 8888 })],
+        v4Context('care', 'math'),
+      );
+
+      expect(missingSemantic.web).toMatchObject({ rateBps: null, rateNotConfigured: true });
+      expect(contradictorySemantic.web).toMatchObject({ rateBps: null, rateNotConfigured: true });
+
+      const mathClass = '國小數學-一A';
+      const noCareRate = runOne(
+        [reportStudent('完整快照無安親班')],
+        [webStudent('完整快照無安親班', {
+          applicableAnqinBps: 8888,
+          enrollments: [{ rawToken: mathClass, baseName: mathClass }],
+        })],
+        {
+          ...v4Context('math', 'math'),
+          classCategories: [{ base_name: mathClass, category: 'math', fixed_five_days: 0 }],
+          classSemantics: [{
+            baseName: mathClass,
+            resolvedBaseName: mathClass,
+            category: 'math',
+            summaryDayRoles: [],
+            erpTierApplicability: 'not_applicable' as const,
+          }],
+        },
+      );
+
+      expect(noCareRate.web).toMatchObject({ rateBps: 8888, rateNotConfigured: false });
     });
 
     it('報表無學費項 → EXCEL_NO_TUITION', () => {
