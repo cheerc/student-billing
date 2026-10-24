@@ -1,6 +1,7 @@
 import { test, expect } from '@playwright/test';
 import path from 'path';
 import { openFilter, applyFilter } from './helpers/header-filter';
+import { applyLegacySemanticRecommendations } from './helpers/legacy-semantics';
 
 /** conforming-erp-fixture 的值（09 §7：筆數只在測試/fixture，不進產品文案）。 */
 const FIXTURE_TIER_MISMATCH = 5;
@@ -202,6 +203,8 @@ test.describe('R4 重寫：核對結果頁 E2E 驗收（學生總表 12 欄 + �
 
   test('UX12: 級距差異篩選＝fixture 的 5 筆，列內容與抽屜可查；吻合＋待確認含「班名未對應課表」（中文名稱，代碼不外露）', async ({ page }) => {
     await ensureActivated(page);
+    await applyLegacySemanticRecommendations(page);
+    await page.goto('/');
 
     const counts = page.locator('.counts-line');
     const table = page.locator('.results-table');

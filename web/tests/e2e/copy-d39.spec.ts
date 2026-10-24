@@ -7,6 +7,7 @@ import {
   openSchedule,
   xlsxUpload,
 } from './helpers/c-batch';
+import { applyLegacySemanticRecommendations } from './helpers/legacy-semantics';
 
 /**
  * specs/04 UX32／09 §7（11 C；D39）：使用者實際會走到的四處定稿文案，加上 A 批遺留的預覽 400。
@@ -129,6 +130,7 @@ async function openMapping(page: Page): Promise<void> {
 test.describe('UX32 D39 (1) 課表影響預覽：單位是「人」', () => {
   test('有現行資料時：「系統計算天數與米豆奶入班天數不符：N 人 → M 人」，數字取自實際預覽；沒有 mismatch／筆', async ({ page }) => {
     await activateFixture(page);
+    await applyLegacySemanticRecommendations(page);
     await openMapping(page);
     const row = page.locator('tr', { hasText: '國小數學-一' });
     await row.locator('input.input-target-classname').fill('國小數學-一A');

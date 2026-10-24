@@ -976,7 +976,8 @@ body {
 .savebar {
   position: sticky;
   bottom: 16px;
-  margin-top: 24px;
+  /* Keep the last controls in the nested schedule scroller above this sticky bar. */
+  margin-top: 144px;
   padding: 14px 20px;
   background: #ffffff;
   border: 1px solid var(--border-color);

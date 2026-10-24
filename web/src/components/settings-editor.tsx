@@ -112,7 +112,7 @@ function describeSummaryRoles(roles: SummaryDayRole[] | null, conditions: Array<
   return roles.map((role) => {
     const label = SUMMARY_ROLE_LABELS[role];
     const condition = conditions.find((item) => item.role === role);
-    return condition?.condition === 'raw_token_contains_six' ? `${label}（原始 token 含「六」）` : label;
+    return condition?.condition === 'raw_token_contains_six' ? `${label}（班名包含「六」）` : label;
   }).join('、');
 }
 
@@ -162,6 +162,10 @@ function applyManualAttrsToClasses<T extends { baseName: string; classType?: 'ca
   definitions: readonly ClassTypeDefinition[] = DEFAULT_CLASS_TYPE_DEFINITIONS
 ): Array<T & Record<string, unknown>> {
   return classes.map((c) => {
+    // Roster-only semantic projections deliberately have no schedule class type. Their
+    // default grid attributes must never be written back as if they were schedule rows.
+    if ((c as T & { semanticOnly?: boolean }).semanticOnly) return c;
+
     const clean = { ...c };
     delete clean.category;
     delete clean.categorySource;
@@ -1339,9 +1343,9 @@ export default function SettingsEditor({
           {legacyMigrationPending && (
             <div className="notice-warn" role="status" data-legacy-semantic-migration="" style={{ marginBottom: '16px' }}>
               <p style={{ marginTop: 0 }}>
-                舊設定尚未保存摘要欄位角色與 ERP 級距適用性。可依一次性舊規則建立明確的 <code>legacy_migration</code> 草稿；類別與既有 Run 不會被改寫，仍須經下方影響預覽後套用。
+                部分舊班尚未明確設定摘要計算欄位或登記級距比對方式。以下依舊有規則整理建議；原有折扣類別與歷史計算結果會保留，套用前仍可先檢視影響。
               </p>
-              <p>以下是唯讀建議表，項目以匿名編號呈現，不包含班名或學生識別資料。套用後來源會標記為 <code>legacy_migration</code>。</p>
+              <p>建議表以編號呈現每項設定，不會顯示班名或學生資料。</p>
               <div style={{ overflowX: 'auto' }}>
                 <table aria-label="舊規則語意遷移匿名建議表" style={{ width: '100%', borderCollapse: 'collapse', marginBottom: '12px' }}>
                   <thead>
@@ -1366,12 +1370,12 @@ export default function SettingsEditor({
                   </tbody>
                 </table>
               </div>
-              <button type="button" onClick={handleLegacySemanticMigration}>建立舊規則語意遷移草稿</button>
+              <button type="button" onClick={handleLegacySemanticMigration}>加入建議設定</button>
             </div>
           )}
           {legacyMigrationSummary && (
             <div className="notice-inline" role="status" data-legacy-semantic-migration-summary="">
-              已標記 {legacyMigrationSummary.migratedClassCount} 個舊班：{legacyMigrationSummary.migratedSummaryRoleClassCount} 個摘要角色、{legacyMigrationSummary.migratedTierApplicabilityClassCount} 個級距適用性。來源會保存為 legacy_migration；折扣類別維持原值。請使用「確認變更」檢視並套用新設定版本。
+              已為 {legacyMigrationSummary.migratedClassCount} 個舊班加入建議設定：{legacyMigrationSummary.migratedSummaryRoleClassCount} 個摘要欄位、{legacyMigrationSummary.migratedTierApplicabilityClassCount} 個級距比對設定。原有折扣類別會保留；請按「確認變更」檢視影響並套用。
             </div>
           )}
 
