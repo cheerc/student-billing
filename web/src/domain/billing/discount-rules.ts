@@ -16,20 +16,33 @@ const EXTRA_DEDUCTION_RULES: [string, number][] = [
   ['安課額外扣1.5天', 1.5],
 ];
 
+export interface TagDiscountEvidence {
+  discounts: TagDiscounts;
+  /** 命中的原始固定短語；不包含或曝光其他原始標籤文字。 */
+  siblingToken: string | null;
+  specialDiscountTokens: string[];
+  internalStudentToken: string | null;
+}
+
 /**
- * 解析學生標籤欄位 (R05–R08)。
- * 現行正式計算僅讀取標籤欄位，空標籤不向備註 fallback。
+ * 解析學生標籤並保留命中的固定短語供唯讀說明使用。
+ * 正式計算與呈現共用同一組規則及優先序；空標籤不向備註 fallback。
  */
-export function parseTagDiscounts(tagsRaw: string | null | undefined): TagDiscounts {
+export function parseTagDiscountEvidence(tagsRaw: string | null | undefined): TagDiscountEvidence {
   if (!tagsRaw) {
     return {
-      extraDeduction: null,
-      sibling: false,
-      specialDiscount: null,
-      internalStudent: false,
-      isStaffFamily: false,
-      hasMultipleSpecialDiscounts: false,
-      hasMultipleExtraDeductions: false,
+      discounts: {
+        extraDeduction: null,
+        sibling: false,
+        specialDiscount: null,
+        internalStudent: false,
+        isStaffFamily: false,
+        hasMultipleSpecialDiscounts: false,
+        hasMultipleExtraDeductions: false,
+      },
+      siblingToken: null,
+      specialDiscountTokens: [],
+      internalStudentToken: null,
     };
   }
 
@@ -49,16 +62,8 @@ export function parseTagDiscounts(tagsRaw: string | null | undefined): TagDiscou
   const sibling = tagsRaw.includes('有兄弟姊妹折扣');
 
   // 3. 特殊折扣 (R07)
-  let specialDiscount: number | null = null;
-  let specialMatchCount = 0;
-  for (const [pattern, val] of SPECIAL_DISCOUNT_RULES) {
-    if (tagsRaw.includes(pattern)) {
-      specialMatchCount++;
-      if (specialDiscount === null) {
-        specialDiscount = val;
-      }
-    }
-  }
+  const specialMatches = SPECIAL_DISCOUNT_RULES.filter(([pattern]) => tagsRaw.includes(pattern));
+  const specialDiscount = specialMatches[0]?.[1] ?? null;
 
   // 4. 園內生 (R08)
   const internalStudent = tagsRaw.includes('園內生');
@@ -67,14 +72,24 @@ export function parseTagDiscounts(tagsRaw: string | null | undefined): TagDiscou
   const isStaffFamily = tagsRaw.includes('員工家屬');
 
   return {
-    extraDeduction,
-    sibling,
-    specialDiscount,
-    internalStudent,
-    isStaffFamily,
-    hasMultipleSpecialDiscounts: specialMatchCount > 1,
-    hasMultipleExtraDeductions: extraMatchCount > 1,
+    discounts: {
+      extraDeduction,
+      sibling,
+      specialDiscount,
+      internalStudent,
+      isStaffFamily,
+      hasMultipleSpecialDiscounts: specialMatches.length > 1,
+      hasMultipleExtraDeductions: extraMatchCount > 1,
+    },
+    siblingToken: sibling ? '有兄弟姊妹折扣' : null,
+    specialDiscountTokens: specialMatches.map(([pattern]) => pattern),
+    internalStudentToken: internalStudent ? '園內生' : null,
   };
+}
+
+/** 計算端維持原本 TagDiscounts 契約；呈現端如需來源片段可呼叫 parseTagDiscountEvidence。 */
+export function parseTagDiscounts(tagsRaw: string | null | undefined): TagDiscounts {
+  return parseTagDiscountEvidence(tagsRaw).discounts;
 }
 
 /**

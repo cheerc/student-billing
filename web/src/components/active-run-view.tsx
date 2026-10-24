@@ -166,7 +166,14 @@ export default function ActiveRunView({
   const [historyCursors, setHistoryCursors] = useState<string[]>([]);
 
   // 抽屜狀態
-  const [selectedStudent, setSelectedStudent] = useState<StudentCalculationItem | null>(null);
+  const [drawerSelection, setDrawerSelection] = useState<{
+    runId: string;
+    student: StudentCalculationItem | null;
+  }>(() => ({ runId, student: null }));
+  // Reset the selection during render when the route supplies another Run. This keeps a stale
+  // student's drawer from appearing for even one frame after the runId prop changes.
+  if (drawerSelection.runId !== runId) setDrawerSelection({ runId, student: null });
+  const selectedStudent = drawerSelection.runId === runId ? drawerSelection.student : null;
 
   const filtersRef = useRef(filters);
   const qRef = useRef('');
@@ -191,11 +198,11 @@ export default function ActiveRunView({
   useEffect(() => {
     if (!selectedStudent) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setSelectedStudent(null);
+      if (e.key === 'Escape') setDrawerSelection({ runId, student: null });
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [selectedStudent]);
+  }, [selectedStudent, runId]);
 
   /** 查詢學生名單。只採用「最新一次」的回應：晚到的舊回應不得覆蓋新條件的結果（03 §5.1）。 */
   const load = useCallback(
@@ -678,7 +685,7 @@ export default function ActiveRunView({
               classSemanticSnapshots={classSemanticSnapshots ?? null}
               ruleSetVersion={classCategoryRuleSetVersion ?? null}
               renderFilter={renderFilter}
-              onSelectStudent={(s) => setSelectedStudent(s)}
+              onSelectStudent={(student) => setDrawerSelection({ runId, student })}
               onResetFilters={handleResetFilters}
             />
             {!restoring && <div className="results-pager">
@@ -705,7 +712,8 @@ export default function ActiveRunView({
       {/* 學生計算明細側欄 Drawer */}
       <DetailDrawer
         student={selectedStudent}
-        onClose={() => setSelectedStudent(null)}
+        ruleSetVersion={classCategoryRuleSetVersion ?? null}
+        onClose={() => setDrawerSelection({ runId, student: null })}
       />
     </div>
   );
