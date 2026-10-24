@@ -19,6 +19,7 @@ import {
   StudentCalculationItem,
 } from '@/application/query-students';
 import type { RunStudentOptions } from '@/application/query-student-options';
+import { isCurrentRunResponse } from '@/application/run-scope';
 import {
   BLANK,
   EMPTY,
@@ -219,9 +220,19 @@ export default function ActiveRunView({
       try {
         const res = await fetch(`/api/v1/runs/${runId}/students?${params.toString()}`, { signal: ac.signal });
         const json = await res.json().catch(() => null);
-        if (seq !== seqRef.current) return;
+        if (seq !== seqRef.current || ac.signal.aborted) return;
         if (!res.ok) {
           setError(describeLoadError('查詢學生總表', readRawFailure(res.status, json)));
+          return;
+        }
+        if (!isCurrentRunResponse({
+          expectedRunId: runId,
+          responseRunId: json?.runId,
+          requestSequence: seq,
+          currentSequence: seqRef.current,
+          requestActive: !ac.signal.aborted,
+        })) {
+          setError(describeLoadError('查詢學生總表', { raw: '回應資料與目前的 Run 不一致' }));
           return;
         }
         setData(json);
@@ -253,7 +264,13 @@ export default function ActiveRunView({
         const res = await fetch(`/api/v1/runs/${runId}/students?${params.toString()}`, { signal: ac.signal });
         if (!res.ok) throw new Error('無法載入篩選選項');
         const json = (await res.json()) as RunStudentOptions;
-        if (seq !== optionsSeqRef.current || JSON.stringify(filtersRef.current) !== JSON.stringify(next) || qRef.current !== q) return null;
+        if (!isCurrentRunResponse({
+          expectedRunId: runId,
+          responseRunId: json?.runId,
+          requestSequence: seq,
+          currentSequence: optionsSeqRef.current,
+          requestActive: !ac.signal.aborted,
+        }) || JSON.stringify(filtersRef.current) !== JSON.stringify(next) || qRef.current !== q) return null;
         optionsRef.current = json;
         setOptions(json);
         if (!resolveDeferred) return next;
@@ -276,8 +293,11 @@ export default function ActiveRunView({
   );
 
   useEffect(() => () => {
+    seqRef.current++;
+    abortRef.current?.abort();
     optionsSeqRef.current++;
     optionsAbortRef.current?.abort();
+    if (qTimer.current) clearTimeout(qTimer.current);
   }, []);
 
   const resetPaging = () => {
@@ -346,6 +366,7 @@ export default function ActiveRunView({
 
   // 掛載：還原頁內保存的姓名搜尋與捲動位置；條件與頁籤來自網址（伺服器已還原）
   useEffect(() => {
+    let active = true;
     const savedQ = readStorage(Q_KEY(runId));
     const nav = (performance.getEntriesByType?.('navigation')?.[0] as PerformanceNavigationTiming | undefined)?.type;
     const returning = Date.now() - lastPopAt < 3000 || nav === 'back_forward' || nav === 'reload';
@@ -363,11 +384,13 @@ export default function ActiveRunView({
       awaitingLoad.current = true;
       const startingFilters = filtersRef.current;
       queueMicrotask(async () => {
+        if (!active) return;
         if (savedQ) {
           setSearchQuery(savedQ);
           setAppliedQ(savedQ);
         }
         const next = restored.deferredRate ? await ensureApplicableOptions(startingFilters, true) : startingFilters;
+        if (!active) return;
         if (!restored.deferredRate) void ensureApplicableOptions(startingFilters);
         if (!next || JSON.stringify(filtersRef.current) !== JSON.stringify(next)) return;
         void load(next, qRef.current, null);
@@ -375,6 +398,7 @@ export default function ActiveRunView({
     } else {
       void ensureApplicableOptions(filtersRef.current);
     }
+    return () => { active = false; };
     // 只在掛載時執行一次
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -685,7 +709,9 @@ export default function ActiveRunView({
               classSemanticSnapshots={classSemanticSnapshots ?? null}
               ruleSetVersion={classCategoryRuleSetVersion ?? null}
               renderFilter={renderFilter}
-              onSelectStudent={(student) => setDrawerSelection({ runId, student })}
+              onSelectStudent={(student) => {
+                if (student.runId === runId) setDrawerSelection({ runId, student });
+              }}
               onResetFilters={handleResetFilters}
             />
             {!restoring && <div className="results-pager">

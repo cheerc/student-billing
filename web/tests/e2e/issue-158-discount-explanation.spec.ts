@@ -5,7 +5,7 @@ import { XLSX_MIME } from './helpers/c-batch';
 const SYNTHETIC_TAGS = '有兄弟姊妹折扣, 特殊折扣85折, 園內生';
 
 /** 合成名冊；保留來源 OOXML 形狀，只含匿名、人工設定的測試值。 */
-async function workbook(): Promise<Buffer> {
+async function workbook(tagsRaw: string): Promise<Buffer> {
   const rows = [
     ['人員代碼', '姓名', '所屬分校', '所屬班級', '年級', '標籤', '備註'],
     [
@@ -14,7 +14,7 @@ async function workbook(): Promise<Buffer> {
       '合成分校',
       '國小數學-三A[團]\n兒童美語-EA[團]',
       '小三',
-      SYNTHETIC_TAGS,
+      tagsRaw,
       '',
     ],
   ];
@@ -29,16 +29,20 @@ async function workbook(): Promise<Buffer> {
   return zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' });
 }
 
-test('Issue #158：本次 Run 明細說明折扣因素、安親差異與保存結果', async ({ page }) => {
+async function uploadAndActivate(page: import('@playwright/test').Page, fileName: string, tagsRaw: string) {
   await page.goto('/imports');
   await page.locator('input[type="file"]').setInputFiles({
-    name: 'issue-158-synthetic.xlsx',
+    name: fileName,
     mimeType: XLSX_MIME,
-    buffer: await workbook(),
+    buffer: await workbook(tagsRaw),
   });
   await expect(page.locator('.stats-grid')).toBeVisible({ timeout: 20_000 });
   await page.getByRole('button', { name: '使用這份名單', exact: true }).click();
   await expect(page.locator('.success-stage-card')).toBeVisible({ timeout: 20_000 });
+}
+
+test('Issue #158：本次 Run 明細說明折扣因素、安親差異與保存結果', async ({ page }) => {
+  await uploadAndActivate(page, 'issue-158-first-run.xlsx', SYNTHETIC_TAGS);
 
   await page.goto('/');
   const table = page.locator('.results-table');
@@ -79,4 +83,32 @@ test('Issue #158：本次 Run 明細說明折扣因素、安親差異與保存�
   await drawer.locator('summary', { hasText: '原始資料' }).click();
   await expect(drawer).toContainText(SYNTHETIC_TAGS);
   await expect(table).toBeVisible();
+
+  // Create a second Run for the same anonymous student with different tags.
+  await uploadAndActivate(page, 'issue-158-second-run.xlsx', '');
+  await page.locator('.success-stage-card').getByRole('link', { name: '前往核對結果 →' }).click();
+  await expect(page).toHaveURL('/');
+  const currentTrigger = page.locator('[data-student-trigger="SYNTH158"]');
+  await currentTrigger.click();
+  const currentExplanation = page.getByRole('dialog').locator('[data-discount-explanation]');
+  // Two categories, no discount tags: saved basic and all four course rates are 95%.
+  await expect(currentExplanation).toContainText('兄弟姊妹折扣：無');
+  await expect(currentExplanation).toContainText('特殊折扣：無');
+  await expect(currentExplanation).toContainText('園內生：無');
+  await expect(currentExplanation).toContainText('基本折扣率：');
+  await expect(currentExplanation).toContainText('95折');
+
+  // The historical Run keeps its own immutable rawTags and saved rates after a newer import.
+  await page.goto('/history');
+  const historicalRun = page.locator('tbody tr[data-status="history"] a', { hasText: '查看當時結果' });
+  await expect(historicalRun).toHaveCount(1);
+  const historicalHref = await historicalRun.getAttribute('href');
+  expect(historicalHref).toBeTruthy();
+  await page.goto(historicalHref!);
+  await page.locator('[data-student-trigger="SYNTH158"]').click();
+  const historicalExplanation = page.getByRole('dialog').locator('[data-discount-explanation]');
+  await expect(historicalExplanation).toContainText('2 + 1 = 3 科');
+  await expect(historicalExplanation).toContainText('特殊折扣85折');
+  await expect(historicalExplanation).toContainText('安親: 9折');
+  await expect(historicalExplanation).toContainText('課輔: 85折');
 });
