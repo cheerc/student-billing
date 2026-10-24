@@ -47,6 +47,7 @@ export default async function HistoryRunPage({
 
   return (
     <ActiveRunView
+      key={run.id}
       mode="history"
       runId={run.id}
       revision={0}

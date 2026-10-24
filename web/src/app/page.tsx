@@ -44,6 +44,7 @@ export default async function HomePage({
     return (
       <div>
         <ActiveRunView
+          key={activeRun.id}
           initialDeductions={getScheduleDeductions(db, { runId: activeRun.id })}
           runId={activeRun.id}
           revision={currentActive.revision}

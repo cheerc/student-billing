@@ -5,10 +5,13 @@ import { StudentCalculationItem } from '@/application/query-students';
 import { formatBaseDiscount } from '@/components/summary-table';
 import { issueLabel, issueMessage } from '@/lib/issue-copy';
 import { formatDiscountBps } from '@/application/roster-changes';
+import { buildDiscountExplanation } from '@/application/discount-explanation';
 
 interface DetailDrawerProps {
   student: StudentCalculationItem | null;
   onClose: () => void;
+  /** The exact rule set version for this student's immutable Run. */
+  ruleSetVersion?: string | null;
 }
 
 const FOCUSABLE =
@@ -29,9 +32,9 @@ const FOCUSABLE =
 const formatApplicableRate = (bps: number | null): string =>
   bps === null ? '—' : formatDiscountBps(bps);
 
-export default function DetailDrawer({ student, onClose }: DetailDrawerProps) {
+export default function DetailDrawer({ student, onClose, ruleSetVersion = null }: DetailDrawerProps) {
   if (!student) return null;
-  return <DrawerPanel student={student} onClose={onClose} />;
+  return <DrawerPanel student={student} onClose={onClose} ruleSetVersion={ruleSetVersion} />;
 }
 
 /**
@@ -39,10 +42,33 @@ export default function DetailDrawer({ student, onClose }: DetailDrawerProps) {
  * 開啟時焦點移入；Tab／Shift+Tab 在抽屜內循環（focus trap）；Esc 關閉；
  * 關閉後焦點回到觸發點（該學生列的姓名按鈕，找不到才回到開啟前的焦點元素）。
  */
-function DrawerPanel({ student, onClose }: { student: StudentCalculationItem; onClose: () => void }) {
+function DrawerPanel({
+  student,
+  onClose,
+  ruleSetVersion,
+}: {
+  student: StudentCalculationItem;
+  onClose: () => void;
+  ruleSetVersion: string | null;
+}) {
   const { trace } = student;
   const panelRef = useRef<HTMLDivElement | null>(null);
   const personCode = student.personCode;
+  const hasRawTags = trace !== null && typeof trace === 'object' && Object.prototype.hasOwnProperty.call(trace, 'rawTags');
+  const rawTags = hasRawTags ? trace.rawTags : undefined;
+  const explanation = buildDiscountExplanation({
+    ruleSetVersion,
+    subjectCount: student.subjectCount,
+    baseDiscountBps: student.baseDiscountBps,
+    applicable: {
+      anqin: student.applicableAnqinBps,
+      tutoring: student.applicableTutoringBps,
+      english: student.applicableEnglishBps,
+      math: student.applicableMathBps,
+    },
+    rawTags,
+    hasRawTags,
+  });
 
   useEffect(() => {
     const opener = document.activeElement as HTMLElement | null;
@@ -228,6 +254,7 @@ function DrawerPanel({ student, onClose }: { student: StudentCalculationItem; on
 
           {/* 折扣比對與推導 */}
           <div
+            data-discount-explanation
             style={{
               backgroundColor: '#f8fafc',
               border: '1px solid var(--border-color)',
@@ -239,7 +266,77 @@ function DrawerPanel({ student, onClose }: { student: StudentCalculationItem; on
               折扣推導
             </h4>
             <div style={{ fontSize: '0.8125rem', display: 'flex', flexDirection: 'column', gap: '6px' }}>
-              <div>已補科數：<strong>{student.subjectCount !== null ? `${student.subjectCount} 科` : '無班級'}</strong></div>
+              {explanation.status !== 'verified_v4' && (
+                <p role="note" style={{ margin: 0, color: 'var(--text-muted)' }}>
+                  {explanation.status === 'historical_limited'
+                    ? explanation.sourceAvailable
+                      ? '歷史折扣說明受限；本區只顯示該次已保存結果，原始標籤可在下方「原始資料」查看。'
+                      : '歷史折扣說明受限，且標籤來源資料不可用；本區只顯示該次已保存結果。'
+                    : explanation.status === 'source_unavailable'
+                      ? '標籤來源資料不足，無法還原本次折扣推導。'
+                      : '無法依已保存資訊完整還原本次推導，請人工核對。'}
+                </p>
+              )}
+              <div>
+                列入折扣的科數：
+                <strong>
+                  {student.subjectCount === null
+                    ? '無報名（無班級）'
+                    : typeof student.subjectCount === 'number'
+                      ? `${student.subjectCount} 科`
+                      : '無法判定'}
+                </strong>
+              </div>
+              {explanation.factors && (
+                <>
+                  <div>
+                    兄弟姊妹折扣：
+                    <strong>
+                      {explanation.factors.sibling
+                        ? `有｜標籤命中「${explanation.factors.siblingToken}」` + (
+                          student.subjectCount === null ? '；無報名時不加算科數' : '；折扣級距計算 +1 科'
+                        )
+                        : '無'}
+                    </strong>
+                  </div>
+                  <div>
+                    折扣級距計算科數：
+                    <strong>
+                      {explanation.factors.effectiveCountExpression === null
+                        ? '無報名，不計算科數級距'
+                        : `${explanation.factors.effectiveCountExpression}${explanation.factors.specialDiscountBps === null
+                          ? '（一般級距依此決定基本折扣率）'
+                          : '（僅供說明；特殊折扣優先，級距未用來決定基本折扣率）'}`}
+                    </strong>
+                  </div>
+                  <div>
+                    特殊折扣：
+                    <strong>
+                      {explanation.factors.specialDiscountBps === null
+                        ? '無'
+                        : `${formatDiscountBps(explanation.factors.specialDiscountBps)}｜優先採用並覆蓋一般級距；標籤命中${explanation.factors.specialDiscountTokens.map((token) => `「${token}」`).join('、')}`}
+                    </strong>
+                  </div>
+                  {explanation.factors.hasMultipleSpecialDiscounts && (
+                    <div role="note" style={{ color: 'var(--text-muted)' }}>
+                      同時命中多個特殊折扣標籤，已沿用既有優先順序，請人工核對標籤內容。
+                    </div>
+                  )}
+                  <div>
+                    園內生：
+                    <strong>
+                      {explanation.factors.internalStudent
+                        ? `有｜標籤命中「${explanation.factors.internalStudentToken}」；僅調整安親，基本率優惠 5 個百分點，最低收費率為 9 折`
+                        : '無'}
+                    </strong>
+                  </div>
+                  {explanation.factors.internalLabelNeedsReview && (
+                    <div role="note" style={{ color: 'var(--text-muted)' }}>
+                      標籤文字可能含否定說法；系統依既有標籤規則命中，請人工核對。
+                    </div>
+                  )}
+                </>
+              )}
               <div>
                 基本折扣率：
                 <strong>
@@ -250,6 +347,9 @@ function DrawerPanel({ student, onClose }: { student: StudentCalculationItem; on
               </div>
               <div style={{ marginTop: '6px', borderTop: '1px dashed #cbd5e1', paddingTop: '6px' }}>
                 各課程學費折扣：
+                <span style={{ marginLeft: '6px', color: 'var(--text-muted)' }}>
+                  （各課程情境參考，不代表已報讀該課程）
+                </span>
                 {/* issue #100：四個科目改用與學生總表相同的短標（無折扣／95折／9折），
                     不再顯示 bps 除以 100 的工程式百分比；null 一律「—」（見 formatApplicableRate）。 */}
                 <span style={{ marginLeft: '6px' }}>安親: {formatApplicableRate(student.applicableAnqinBps)}</span>

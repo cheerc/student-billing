@@ -23,6 +23,7 @@ npm run test:e2e:full               # EXACT command used by nightly workflow
 ```bash
 cd web
 npm run test:e2e:isolated -- tests/e2e/imports.spec.ts
+npm run test:e2e:isolated -- tests/e2e/issue-158-discount-explanation.spec.ts
 npm run test:e2e:isolated -- --seed-v2-active tests/e2e/d2d-upgrade-restore.spec.ts
 npm run test:e2e:isolated -- --seed-v2-active tests/e2e/d2d-upgrade-journey.spec.ts
 ```
