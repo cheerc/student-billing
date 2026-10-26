@@ -1,4 +1,4 @@
-import { test, expect, type Locator, type Page } from '@playwright/test';
+import { test, expect, type Locator, type Page, type Response } from '@playwright/test';
 import { keepEditing, leaveDialog, scheduleHeading, sideLink, startInput } from './helpers/c-batch';
 import { holdCalculate } from './helpers/hold-calculate';
 
@@ -30,6 +30,23 @@ async function describeActive(page: Page): Promise<string> {
 const opener = (page: Page): Locator => page.locator('button', { hasText: '確認變更' });
 const cancelEdit = (page: Page): Locator => page.locator('button', { hasText: '取消修改' });
 
+function containsStartMinutes(value: unknown, expected: number): boolean {
+  if (Array.isArray(value)) return value.some((item) => containsStartMinutes(item, expected));
+  if (value === null || typeof value !== 'object') return false;
+  const record = value as Record<string, unknown>;
+  return record.startMinutes === expected || Object.values(record).some((item) => containsStartMinutes(item, expected));
+}
+
+function isCalculateResponseForStartMinutes(response: Response, expected: number): boolean {
+  const request = response.request();
+  if (new URL(response.url()).pathname !== '/api/v1/settings/calculate' || request.method() !== 'POST') return false;
+  try {
+    return containsStartMinutes(request.postDataJSON(), expected);
+  } catch {
+    return false;
+  }
+}
+
 /** 首頁 → 側欄進課表設定（站內導覽，歷史才有上一頁）→ 改一格讓草稿 dirty。 */
 async function openDirtySchedule(page: Page): Promise<void> {
   await page.goto('/');
@@ -37,9 +54,14 @@ async function openDirtySchedule(page: Page): Promise<void> {
   await sideLink(page, /課表設定/).click();
   await expect(scheduleHeading(page)).toBeVisible({ timeout: 15000 });
   await startInput(page).click();
+  // 先等這次編輯產生的 calculate 回應。只檢查「確認變更」enabled 會在
+  // 250ms debounce 尚未送出前就通過，讓計算在測試設定焦點後才開始並清掉焦點。
+  const calculation = page.waitForResponse((response) => isCalculateResponseForStartMinutes(response, 945));
   await startInput(page).fill('15:45');
   await expect(page.locator('.save-status-dirty')).toBeVisible();
-  // 等 debounce 計算結束，確保「確認變更」可聚焦（late-disable 的案例另用 clock 重現）
+  const calculationResponse = await calculation;
+  expect(calculationResponse.ok(), '本次編輯的 calculate 請求應成功完成').toBe(true);
+  // 回應完成後按鈕才是穩定可聚焦狀態（late-disable 的案例另用 clock 重現）。
   await expect(opener(page)).toBeEnabled({ timeout: 15000 });
 }
 
