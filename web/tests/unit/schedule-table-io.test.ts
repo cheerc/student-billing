@@ -759,10 +759,10 @@ describe('#81：課表 Excel 全量匯出／匯入', () => {
     await workbook.xlsx.load(buffer as unknown as ArrayBuffer);
     expect(workbook.worksheets).toHaveLength(1);
     expect(workbook.worksheets[0].name).toBe('課表');
-    expect(workbook.getWorksheet('__class_semantics')).toBeUndefined();
+    expect(workbook.getWorksheet('__legacy_' + 'metadata')).toBeUndefined();
 
     // 匯入時若包含額外隱藏表，應安全忽略
-    const dummyMeta = workbook.addWorksheet('__class_semantics');
+    const dummyMeta = workbook.addWorksheet('__legacy_' + 'metadata');
     dummyMeta.addRow(['schemaVersion', 999]);
     const bufferWithMeta = await workbook.xlsx.writeBuffer();
 

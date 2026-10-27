@@ -17,14 +17,14 @@ export function AppNav() {
     if (pathname === '/') resetImportGuide();
   }, [pathname]);
 
-  const isSchedule = pathname.startsWith('/settings');
-  const isImports = pathname.startsWith('/imports');
-  const isResults = pathname === '/';
-  const isHistory = pathname.startsWith('/history');
+  const currentPath = pathname ?? '';
+  const isSchedule = currentPath.startsWith('/settings');
+  const isImports = currentPath.startsWith('/imports');
+  const isResults = currentPath === '/';
   // 柔和靜態外框（非脈衝／非無限循環）：UI/UX Pro Max Continuous Animation —
   // 無限動畫只該用於載入指示器，不用於裝飾性元素。高亮表達「下一步在哪裡」，
   // 不是「發生了什麼」，因此不用 aria-live／role=alert，只靠既有項目名稱與連結語意。
-  const highlightResults = shouldHighlightResults(guideActive, pathname);
+  const highlightResults = shouldHighlightResults(guideActive, currentPath);
 
   return (
     <aside className="side" aria-label="主要導覽">
@@ -66,19 +66,6 @@ export function AppNav() {
           <span className="step-label">核對結果</span>
         </Link>
       </nav>
-
-      <div className="sidefoot">
-        <Link
-          href="/history"
-          className={`nav-item ${isHistory ? 'active' : ''}`}
-          aria-current={isHistory ? 'page' : undefined}
-        >
-          <span className="step-label">匯入紀錄</span>
-        </Link>
-        <div className="sidefoot-hint">
-          依日期或檔名，查過去匯入的名單與當時的結果
-        </div>
-      </div>
     </aside>
   );
 }

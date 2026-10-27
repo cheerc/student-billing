@@ -39,7 +39,7 @@ export interface RunInfoLike {
     baseName: string;
     resolvedBaseName: string;
     category: string;
-    summaryDayRoles: string[];
+    isHomework?: boolean;
     erpTierApplicability: 'applicable' | 'not_applicable' | 'unset';
   }> | null;
 }

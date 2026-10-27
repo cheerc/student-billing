@@ -47,6 +47,7 @@ describe('GET /api/v1/settings/class-name-report', () => {
       makeStudent('p1', ['國小數學-二A']),
       makeStudent('p2', ['國小數學-二A', '國小輔導-三年級']),
     ]);
+    activateBatch(db, 'imp_old', 'k-act-old');
     saveSyntheticBatch(db, 'imp_new', 'new.xlsx', '2026-09-10T08:00:00.000Z', [
       makeStudent('s1', ['國小數學-一A']),
       makeStudent('s2', ['國小數學-一']),
@@ -59,7 +60,6 @@ describe('GET /api/v1/settings/class-name-report', () => {
     saveSettings(db, 'setv_new', 2, { ...base, aliases: [] });
     saveRun(db, 'run_old', 'imp_new', 'setv_old', '2026-09-11T00:00:00.000Z');
     saveRun(db, 'run_gone', 'imp_new', 'setv_missing', '2026-09-11T01:00:00.000Z');
-    activateBatch(db, 'imp_old', 'k-act-old');
     return db;
   }
 

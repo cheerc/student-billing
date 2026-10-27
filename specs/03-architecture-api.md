@@ -470,3 +470,33 @@ P4 提議以 `organizations/{orgId}/imports`、`runs/{runId}/results`、`classes
 遷移程序：本機一致性備份 → 版本化 export → 雲端 staging import → 筆數、內容 hash、代表結果／完整結果比對 → 登入和授權驗證 → 切换 → 保留可回復本機備份。不沿用 Vercel 執行檔案系統作正式 SQLite 持久儲存。
 
 Google 登入只代表確認身份，仍需要機構成員授權。P4 上線 plan 必須討論受邀名單、權限、伺服器授權、機密配置、儲存規則、備份與稽核。現在只規劃這個閘門，不提前實作 RBAC。
+
+### 5.9 單一現況留存模型與 11 條全站 API 契約（D60 定案，Issue #177 Phase 4）
+
+#### 5.9.1 SQLite 單一現況留存模型
+依 2026-10-27 Operator 拍板之 D60 決策，系統全面減法，移除歷史 Run 博物館與 `/history` 路由。SQLite 資料庫永遠只保留唯一一份最新已啟用學生名單、唯一一份最新課表設定與唯一一筆當前計算 Run：
+1. **Migration 0012/0013 壓實**：
+   - `0012` DROP `run_diagnostics`、`run_class_semantics`、`run_semantics_snapshots` 廢表及 triggers；
+   - `0013` 清理舊資料：刪除非當前 active 的舊 runs、舊 batches、舊 settings versions、所有暫存 previews 與 idempotency records。
+2. **寫入端自動維護單一現況**：
+   - `POST /api/v1/imports/preview`：保留現行 `active_state.active_import_id` 供 `computeImportRosterChanges` 逐人異動明細比對，同時自動清除非 active 且非本次上傳的其他廢棄預覽批次；
+   - `POST /api/v1/imports/{id}/activate`（按下「使用這份名單」同一交易內）：切換 `active_state` 至新 `importId` 與新 `runId` 後，立即刪除舊 runs 與舊 batches（級聯清理舊學生與舊計算列）；
+   - `POST /api/v1/settings/apply`（按下「儲存課表」同一交易內）：寫入新設定版本後，立即刪除舊 settings_versions 與舊 calculation_runs。
+
+#### 5.9.2 全站 11 條 API 路由契約
+全站路由精簡為 3 頁 UI（`/settings`、`/imports`、`/`）與 11 條 API：
+- **Agent 查帳唯讀核心（4 條 GET 路由）**：
+  1. `GET /api/v1/runs/current`：回傳唯一現況 `activeRunId`, `activeImportId`, `revision`, `run`（含 `classCategories` 單一類別快照）。
+  2. `GET /api/v1/runs/{runId}`：回傳指定 Run 之元資料與單一權威快照 `classCategories[]`。
+  3. `GET /api/v1/runs/{runId}/students`：分頁與多欄篩選查詢學生計算結果（支援 `?options=true` 表頭選項統計）。
+  4. `GET /api/v1/classes`：回傳當前課表與名冊班級對應狀態（`baseName`, `targetBaseName`, `classType`, `category`, `fixedFiveDays`, `mappingStatus`, `isConfigured`, `isActive`, `studentCount`；無 `?runId=` 分支、無 `subject` 依賴）。
+- **Web 操作工作流路由（7 條）**：
+  5. `POST /api/v1/settings/calculate`（課表即時試算，固定 v4）
+  6. `POST /api/v1/settings/preview`（課表影響預覽，固定 v4）
+  7. `POST /api/v1/settings/apply`（原子儲存最新課表、重算現況並清理舊資料）
+  8. `POST /api/v1/settings/schedule-table`（課表 9 欄 Excel 一鍵匯出／匯入）
+  9. `GET /api/v1/settings/class-name-report`（現況班名比對報告，無上一份名單收據考古機）
+  10. `POST /api/v1/imports/preview`（上傳學生名單預覽＋新舊名單異動明細 `rosterDiff`）
+  11. `POST /api/v1/imports/{previewId}/activate`（啟用最新學生名單為唯一現況，固定 v4，無升級門檻）
+- **已砍除之 6 條孤兒 API**：
+  `GET /api/v1/imports`、`GET /api/v1/imports/{previewId}/students`、`GET /api/v1/runs`、`GET /api/v1/runs/{runId}/students/{personCode}`、`GET /api/v1/runs/{runId}/issues`、`GET /api/v1/settings/deductions`。

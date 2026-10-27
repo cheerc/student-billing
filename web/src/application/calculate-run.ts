@@ -33,7 +33,6 @@ export function buildClassSettingMap(draft: SettingsDraft): Map<string, ClassSet
   const map = new Map<string, ClassSettingLookup>();
   for (const c of draft.classes) {
     map.set(c.baseName, {
-      semanticOnly: c.semanticOnly,
       classType: c.classType ?? (c.classTypeId === 'care' ? 'care' : c.classTypeId === 'non_care' ? 'non_care' : undefined),
       category: c.category,
       categorySource: c.categorySource,
@@ -271,7 +270,6 @@ export function executeCalculationRun(
     // 也同步寫入課表設定中的啟用班級與別名目標（若尚未在名冊中出現）
     if (classSettings) {
       for (const [className, cls] of classSettings) {
-        if (cls.semanticOnly) continue;
         if (!classCategoryMap.has(className)) {
           const { category, categorySource } = effectiveCategoryOf(className, cls);
           const classType = (cls.classType ?? cls.classTypeId) as ('care' | 'non_care' | null) ?? null;

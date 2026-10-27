@@ -180,8 +180,8 @@ describe('R1a(B5)：settings preview／apply 的 import 由 server 依 active_st
 
     beforeEach(() => {
       importA = saveBatch('a');
-      importB = saveBatch('b');
       activateImport(db, { importId: importA, expectedRevision: 0, idempotencyKey: 'b5-act-a' });
+      importB = saveBatch('b');
     });
 
     it('preview 帶非 active 的 ready 批次 B：400 IMPORT_MISMATCH，active 仍是 A，不寫入預覽', () => {

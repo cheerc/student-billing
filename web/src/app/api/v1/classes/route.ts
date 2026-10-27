@@ -1,68 +1,26 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextResponse } from 'next/server';
 import { getDatabase } from '@/adapters/sqlite';
-import { getCalculationRun, getCurrentActiveRun } from '@/adapters/sqlite/runs-repository';
-import { getLatestSettingsVersion, readStoredDraft } from '@/adapters/sqlite/settings-repository';
-import { SettingsDraft } from '@/contracts/settings';
-import { loadRunSnapshot } from '@/application/run-snapshot';
-import { SEED_CLASSES } from '@/domain/schedules/seed-manifest';
-import { sanitizePathParam, maskSensitiveInfo, SecurityError } from '@/contracts/security';
+import { getCurrentActiveRun } from '@/adapters/sqlite/runs-repository';
+import { getLatestSettingsVersion, readStoredDraft, buildSeedDraft, draftToAliasMap } from '@/adapters/sqlite/settings-repository';
+import { maskSensitiveInfo, SecurityError } from '@/contracts/security';
 
-const seedSubjectMap = new Map<string, string>();
-for (const cls of SEED_CLASSES) {
-  seedSubjectMap.set(cls.baseName, cls.subject);
-}
-
-export async function GET(request: NextRequest) {
+export async function GET() {
   try {
-    const url = new URL(request.url);
-    const rawRunId = url.searchParams.get('runId');
     const db = getDatabase();
+    const active = getCurrentActiveRun(db);
+    const runId = active.activeRunId;
 
-    let runId = rawRunId;
-    if (runId) {
-      runId = sanitizePathParam(runId, 'runId');
-    } else {
-      const active = getCurrentActiveRun(db);
-      runId = active.activeRunId;
+    if (!runId || !active.run) {
+      return NextResponse.json({ error: '目前無已啟用之計算 run' }, { status: 400 });
     }
 
-    if (!runId) {
-      return NextResponse.json({ error: '目前無已啟用之計算 run，且未指定 runId' }, { status: 400 });
-    }
+    const run = active.run;
+    const latestSettings = getLatestSettingsVersion(db);
+    const draft = latestSettings ? readStoredDraft(latestSettings.contentJson) : buildSeedDraft();
 
-    const run = getCalculationRun(db, runId);
-    if (!run) {
-      return NextResponse.json({ error: `找不到計算 run: ${runId}` }, { status: 404 });
-    }
-
-    // 設定來源（D1 F-6）：
-    //  - 明確指定 runId：讀「該 run 當時的設定快照」（run.scheduleVersionId），不用最新設定；快照缺失＝無法判定，不猜；
-    //  - 未指定 runId（現行 run）：維持讀最新已儲存設定（尚無才用 seed）。
-    const useRunSnapshot = Boolean(rawRunId);
-    let draft: SettingsDraft | null;
-    let snapshotStatus: 'ok' | 'unavailable' = 'ok';
-    if (useRunSnapshot) {
-      const snapshot = loadRunSnapshot(db, run.scheduleVersionId);
-      if (snapshot) {
-        // seed 快照＝該 run 用 seed 課表計算（無已儲存設定）；以 null 沿用下方 seed 判斷
-        draft = snapshot.settingsRevision === null ? null : snapshot.draft;
-      } else {
-        draft = null;
-        snapshotStatus = 'unavailable';
-      }
-    } else {
-      const latestSettings = getLatestSettingsVersion(db);
-      draft = latestSettings ? readStoredDraft(latestSettings.contentJson) : null;
-    }
-    const scheduleClasses = draft?.classes;
-    const configuredClasses = new Set(scheduleClasses ? scheduleClasses.map((c) => c.baseName) : SEED_CLASSES.map((c) => c.baseName));
-    const activeClasses = new Set(scheduleClasses ? scheduleClasses.filter((c) => c.active).map((c) => c.baseName) : SEED_CLASSES.map((c) => c.baseName));
-    const aliasMap = new Map<string, string>();
-    if (draft) {
-      for (const a of draft.aliases) {
-        aliasMap.set(a.rawBaseName, a.targetBaseName);
-      }
-    }
+    const classMap = new Map(draft.classes.map((c) => [c.baseName, c]));
+    const aliasMap = draftToAliasMap(draft);
+    const categorySnapshots = new Map((run.classCategories ?? []).map((c) => [c.base_name, c]));
 
     // 查詢本批各班級及其去重學生數
     const rows = db
@@ -76,23 +34,12 @@ export async function GET(request: NextRequest) {
       .all(run.importId) as { base_name: string; student_count: number }[];
 
     const items = rows.map((r) => {
-      if (snapshotStatus === 'unavailable') {
-        // 該 run 當時的設定快照已不存在：對應狀態無法判定，不猜 mapped／unmapped
-        return {
-          baseName: r.base_name,
-          targetBaseName: null,
-          subject: '未設定',
-          studentCount: r.student_count,
-          mappingStatus: 'undetermined' as const,
-          isConfigured: null,
-          isActive: null,
-        };
-      }
-      const targetName = aliasMap.get(r.base_name) || r.base_name;
-      const subject = seedSubjectMap.get(targetName) || seedSubjectMap.get(r.base_name) || '未設定';
-      const isConfigured = configuredClasses.has(targetName);
-      const isActive = activeClasses.has(targetName);
-      const isAliased = aliasMap.has(r.base_name);
+      const baseName = r.base_name;
+      const isAliased = aliasMap.has(baseName);
+      const targetBaseName = aliasMap.get(baseName) || baseName;
+      const targetClass = classMap.get(targetBaseName);
+      const isConfigured = Boolean(targetClass);
+      const isActive = targetClass ? targetClass.active : null;
 
       let mappingStatus: 'mapped' | 'unmapped' | 'aliased' = 'unmapped';
       if (isAliased) {
@@ -101,22 +48,37 @@ export async function GET(request: NextRequest) {
         mappingStatus = 'mapped';
       }
 
+      const snap = categorySnapshots.get(baseName);
+      let classType: 'care' | 'non_care' | null = null;
+      let category: 'care' | 'math' | 'english' | 'none' | 'unset' = 'unset';
+      let fixedFiveDays = false;
+
+      if (snap) {
+        classType = (snap.class_type as 'care' | 'non_care' | null) ?? null;
+        category = (snap.category as 'care' | 'math' | 'english' | 'none' | 'unset') ?? 'unset';
+        fixedFiveDays = snap.fixed_five_days === 1;
+      } else if (targetClass) {
+        classType = targetClass.classType ?? null;
+        category = targetClass.category ?? 'unset';
+        fixedFiveDays = targetClass.fixedFiveDays ?? false;
+      }
+
       return {
-        baseName: r.base_name,
-        targetBaseName: targetName,
-        subject,
-        studentCount: r.student_count,
+        baseName,
+        targetBaseName,
+        classType,
+        category,
+        fixedFiveDays,
         mappingStatus,
         isConfigured,
         isActive,
+        studentCount: r.student_count,
       };
     });
 
     return NextResponse.json(
       {
-        runId,
-        settingsScope: useRunSnapshot ? 'run_snapshot' : 'latest_settings',
-        snapshotStatus,
+        activeRunId: runId,
         totalClasses: items.length,
         items,
       },

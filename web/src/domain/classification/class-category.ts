@@ -62,30 +62,23 @@ export interface ResolvedClassEnrollment {
   classTypeId: string | null;
   subject: string;
   subjectSource: 'manual' | 'seed' | 'legacy_migration' | 'unset';
-  summaryDayRoles: Array<'anqinDays' | 'tutoringDays' | 'englishDays' | 'mathDays' | 'chineseDays' | 'homeworkDays' | 'intensiveEnglishDays' | 'saturdayTutoringDays'>;
   summaryDayRoleConditions: Array<{ role: 'saturdayTutoringDays'; condition: 'raw_token_contains_six' }>;
-  summaryDayRolesStatus: 'configured' | 'unset' | 'unavailable';
   erpTierApplicability: 'applicable' | 'not_applicable' | 'unset';
   erpTierApplicabilitySource: 'manual' | 'seed' | 'legacy_migration' | 'unset';
 }
 
 export interface ClassSettingLookup {
-  semanticOnly?: boolean;
   classType?: 'care' | 'non_care';
   classTypeId?: string;
   classTypeDefinition?: {
     id: string;
     label: string;
     scheduleMode: 'care_window' | 'timetable';
-    supportedAttributeKeys: Array<'subject' | 'category' | 'fixedFiveDays' | 'skipDeduction' | 'summaryDayRoles' | 'erpTierApplicability'>;
     summaryRoleOptions: Array<'anqinDays' | 'tutoringDays' | 'englishDays' | 'mathDays' | 'chineseDays' | 'homeworkDays' | 'intensiveEnglishDays' | 'saturdayTutoringDays'>;
   };
   subject?: string;
   subjectSource?: 'manual' | 'seed' | 'legacy_migration' | 'unset';
-  summaryDayRoles?: Array<'anqinDays' | 'tutoringDays' | 'englishDays' | 'mathDays' | 'chineseDays' | 'homeworkDays' | 'intensiveEnglishDays' | 'saturdayTutoringDays'>;
   summaryDayRoleConditions?: Array<{ role: 'saturdayTutoringDays'; condition: 'raw_token_contains_six' }>;
-  summaryDayRolesStatus?: 'configured' | 'unset' | 'unavailable';
-  summaryDayRolesSource?: 'manual' | 'seed' | 'legacy_migration' | 'unset';
   erpTierApplicability?: 'applicable' | 'not_applicable' | 'unset';
   erpTierApplicabilitySource?: 'manual' | 'seed' | 'legacy_migration' | 'unset';
   category?: ClassCategory;
@@ -163,16 +156,14 @@ export function resolveClassEnrollment(
 
   if (cls) {
     const { category, categorySource } = effectiveCategoryOf(resolvedBaseName, cls);
-    const mapped = !cls.semanticOnly;
+    const mapped = true;
     const fixedFiveDays = cls.fixedFiveDays ?? false;
     const classType = ((cls.classType ?? cls.classTypeId) as ('care' | 'non_care' | null)) ?? null;
-    const erpTierApplicability = cls.semanticOnly && classType === 'care' && !fixedFiveDays
-      ? 'applicable'
-      : deriveErpTierApplicability({
-          mapped,
-          classType,
-          fixedFiveDays,
-        });
+    const erpTierApplicability = deriveErpTierApplicability({
+      mapped,
+      classType,
+      fixedFiveDays,
+    });
 
     return {
       rawToken: token.rawToken,
@@ -186,9 +177,7 @@ export function resolveClassEnrollment(
       classTypeId: cls.classTypeId ?? cls.classType ?? null,
       subject: cls.subject ?? '',
       subjectSource: cls.subjectSource ?? 'unset',
-      summaryDayRoles: cls.summaryDayRoles ?? [],
       summaryDayRoleConditions: cls.summaryDayRoleConditions ?? [],
-      summaryDayRolesStatus: cls.summaryDayRolesStatus ?? 'unavailable',
       erpTierApplicability,
       erpTierApplicabilitySource: cls.erpTierApplicabilitySource ?? 'unset',
     };
@@ -206,9 +195,7 @@ export function resolveClassEnrollment(
     classTypeId: null,
     subject: '',
     subjectSource: 'unset',
-    summaryDayRoles: [],
     summaryDayRoleConditions: [],
-    summaryDayRolesStatus: 'unavailable',
     erpTierApplicability: 'not_applicable',
     erpTierApplicabilitySource: 'unset',
   };

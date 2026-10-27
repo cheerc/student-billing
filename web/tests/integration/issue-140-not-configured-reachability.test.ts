@@ -54,10 +54,10 @@ function runV4(db: Db, importId: string, runId: string) {
     category: 'care',
     categorySource: 'seed',
     fixedFiveDays: 0,
-    summaryDayRolesJson: '[]',
+    isHomeworkJson: '[]',
     summaryDayRoleConditionsJson: '[]',
-    summaryDayRolesStatus: 'configured',
-    summaryDayRolesSource: 'seed',
+    isHomeworkStatus: 'configured',
+    isHomeworkSource: 'seed',
     erpTierApplicability: 'applicable',
     erpTierApplicabilitySource: 'seed',
   }];

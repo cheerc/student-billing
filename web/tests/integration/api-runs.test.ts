@@ -9,7 +9,6 @@ import { generateImportPreview } from '@/application/import-preview';
 import { POST as activatePOST } from '@/app/api/v1/imports/[previewId]/activate/route';
 import { GET as currentGET } from '@/app/api/v1/runs/current/route';
 import { GET as studentsGET } from '@/app/api/v1/runs/[runId]/students/route';
-import { GET as studentDetailGET } from '@/app/api/v1/runs/[runId]/students/[personCode]/route';
 import { saveApprovedLegacyMigrationFixtureSettings } from '../helpers/d1-test-kit';
 
 describe('T04: 正式 Run 相關 API 整合測試 (03 §5)', () => {
@@ -105,27 +104,6 @@ describe('T04: 正式 Run 相關 API 整合測試 (03 §5)', () => {
     const body = await res.json();
     expect(body.totalStudents).toBe(4);
     expect(body.items).toHaveLength(4);
-  });
-
-  it('GET /api/v1/runs/{runId}/students/{personCode} 應回傳單一學生完整明細，無匹配回傳 404', async () => {
-    const reqOk = new NextRequest(
-      `http://127.0.0.1:3000/api/v1/runs/${runId}/students/STU0001`
-    );
-    const resOk = await studentDetailGET(reqOk, {
-      params: Promise.resolve({ runId, personCode: 'STU0001' }),
-    });
-    expect(resOk.status).toBe(200);
-    const detail = await resOk.json();
-    expect(detail.personCode).toBe('STU0001');
-    expect(detail.trace).toBeDefined();
-
-    const req404 = new NextRequest(
-      `http://127.0.0.1:3000/api/v1/runs/${runId}/students/NONEXISTENT`
-    );
-    const res404 = await studentDetailGET(req404, {
-      params: Promise.resolve({ runId, personCode: 'NONEXISTENT' }),
-    });
-    expect(res404.status).toBe(404);
   });
 
 });

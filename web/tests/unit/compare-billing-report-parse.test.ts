@@ -6,7 +6,7 @@ const LEGACY_V2_CONTEXT = buildRunSnapshotContext({ ruleSetVersion: 'erp-tag-v2'
 
 const parseTuition = (detail: string | null) => parseTuitionWithSemantics(detail, {
   erpTierApplicability: 'applicable',
-  summaryDayRoles: [],
+  isHomework: false,
 });
 
 /**
@@ -87,7 +87,7 @@ describe('帳務比對工具：報表解析契約', () => {
     it('寫功課班 → 固定 5 天，且標記為 homework 而非級距', () => {
       const r = parseTuitionWithSemantics('115國小輔導-寫功課[團][五年級] - 40 堂課', {
         erpTierApplicability: 'not_applicable',
-        summaryDayRoles: ['homeworkDays'],
+        isHomework: true,
       });
       expect(r.isHomework).toBe(true);
       expect(r.days).toBe(5);
@@ -97,7 +97,7 @@ describe('帳務比對工具：報表解析契約', () => {
     it('[團] 與 [四年級] 這類年級標記不被誤認為級距', () => {
       const r = parseTuitionWithSemantics('115國小輔導-寫功課[團][四年級] - 40 堂課', {
         erpTierApplicability: 'not_applicable',
-        summaryDayRoles: ['homeworkDays'],
+        isHomework: true,
       });
       expect(r.isHomework).toBe(true);
       const r2 = parseTuition('115國小輔導-四年級A[團] - 40 堂課');
@@ -288,7 +288,7 @@ describe('帳務比對工具：報表解析契約', () => {
           baseName: careClass,
           resolvedBaseName: careClass,
           category: semanticCategory,
-          summaryDayRoles: [],
+          isHomework: false,
           erpTierApplicability: 'applicable' as const,
         }],
       });
@@ -321,7 +321,7 @@ describe('帳務比對工具：報表解析契約', () => {
             baseName: mathClass,
             resolvedBaseName: mathClass,
             category: 'math',
-            summaryDayRoles: [],
+            isHomework: false,
             erpTierApplicability: 'not_applicable' as const,
           }],
         },

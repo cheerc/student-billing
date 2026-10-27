@@ -111,7 +111,7 @@ describe('T05: preview→apply 雙階段流程整合測試 (I10/I11/I15/I18/I20)
   });
 
   it('requires clearing an unsupported legacy fixedFiveDays value before saving a new settings version', () => {
-    const draft = { ...buildSeedDraft(), classTypeDefinitions: undefined };
+    const draft = buildSeedDraft();
     const mathClass = draft.classes.find((item) => item.baseName === '國小數學-一A')!;
     mathClass.classType = 'non_care';
     mathClass.fixedFiveDays = true;
@@ -206,11 +206,9 @@ describe('T05: preview→apply 雙階段流程整合測試 (I10/I11/I15/I18/I20)
     expect(applied.mismatchCount).toBe(17);
     expect(applied.totalStudents).toBe(477);
 
-    // 舊 run 仍可查且維持 4 mismatch
+    // Single current state: previous run was pruned upon apply
     const oldRun = getCalculationRun(db, activeRunId);
-    expect(oldRun).toBeDefined();
-    const oldStudents = queryRunStudents(db, activeRunId, { tierMismatch: true, limit: 100 });
-    expect(oldStudents.totalStudents).toBe(4);
+    expect(oldRun).toBeNull();
 
     // 新 run 為 17 mismatch
     const newStudents = queryRunStudents(db, applied.runId!, { tierMismatch: true, limit: 100 });

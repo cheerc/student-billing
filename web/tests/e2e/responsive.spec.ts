@@ -26,7 +26,7 @@ const VIEWPORTS = [
   { name: '768x1024', width: 768, height: 1024 },
 ];
 
-const NAV_ENTRIES = ['課表設定', '匯入學生', '核對結果', '匯入紀錄'];
+const NAV_ENTRIES = ['課表設定', '匯入學生', '核對結果'];
 
 interface Row {
   viewport: string;
@@ -103,9 +103,6 @@ test.describe('R5 UX20 響應式驗收', () => {
       await page.goto('/');
       await expect(page.locator('h2', { hasText: '還沒有可核對的學生資料' })).toBeVisible();
       await check('home-empty');
-      await page.goto('/history');
-      await expect(page.getByText('還沒有匯入紀錄')).toBeVisible({ timeout: 15000 });
-      await check('history-empty');
     }
 
     // ── 準備資料：上傳並使用（合成 fixture）─────────────────────
@@ -116,10 +113,6 @@ test.describe('R5 UX20 響應式驗收', () => {
     await page.locator('button', { hasText: '使用這份名單' }).click();
     await expect(page.locator('.success-stage-card')).toBeVisible({ timeout: 15000 });
 
-    // 歷史檢視的網址（取自匯入紀錄的連結）
-    await page.goto('/history');
-    const historyHref = await page.locator('a', { hasText: '查看當時結果' }).first().getAttribute('href');
-    expect(historyHref).toMatch(/^\/history\//);
 
     for (const vp of VIEWPORTS) {
       await page.setViewportSize({ width: vp.width, height: vp.height });
@@ -231,14 +224,6 @@ test.describe('R5 UX20 響應式驗收', () => {
       await expect(page.locator('.stats-grid')).toBeVisible({ timeout: 15000 });
       await check('imports-preview');
 
-      // ── 匯入紀錄與歷史檢視 ────────────────────────────────────
-      // 等內容真的出現再斷言（Next dev 首次編譯時 loading.tsx 的外殼會暫時與內容並存）
-      await page.goto('/history');
-      await expect(page.locator('.history-current')).toBeVisible({ timeout: 15000 });
-      await check('history');
-      await page.goto(historyHref!);
-      await expect(page.locator('.data-banner-history')).toBeVisible({ timeout: 15000 });
-      await check('history-detail');
     }
 
     if (resultFile) {
@@ -246,6 +231,6 @@ test.describe('R5 UX20 響應式驗收', () => {
       fs.writeFileSync(resultFile, JSON.stringify(rows, null, 2));
     }
     // 每個尺寸 × 每個頁面都有量測（4 × 11：空狀態 2、結果 3、設定 2、匯入 2、紀錄 2）
-    expect(rows).toHaveLength(VIEWPORTS.length * 11);
+    expect(rows).toHaveLength(VIEWPORTS.length * 8);
   });
 });

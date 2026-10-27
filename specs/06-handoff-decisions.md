@@ -104,6 +104,8 @@
 |安親／課輔窗口是否開放編輯？|**已答（D33，decision `d-20260929073427734990-0`）**：窗口固定不變，UI 唯讀、不做編輯|已結案|
 |設定是否需要有效日期？|**已答（D33）**：不需要；窗口固定，無需依日期選版。現行 effectiveFrom／To 只寫入不讀取（09 §8.2.1），UI 不提供|已結案|
 
+|D60|**Operator 2026-10-27 決策：系統全面減法、單一現況留存與 Agent 查帳 API 收斂。** 1. **D60-1 班級設定與級距推導**：拆除 #148 語意面板（ClassSemanticsPanel）與舊班遷移建議表（legacy-semantic-migration）。班級設定只留 classType（care／non_care）、category（care／math／english／none／unset）、fixedFiveDays（care 班專屬）與 skipDeduction（non_care 逐堂）。已對應 && care && !fixedFiveDays 自動比對米豆奶週級距；care && fixedFiveDays 保底 5 天且不解析後綴；non_care 不適用級距；未對應班單獨出 CLASS_NOT_MAPPED。 2. **D60-2 六欄舊點名表天數**：退役非收費天數欄位（美語／數學／中文／寫功課／加重美語／週六課輔天數），新計算只產出並顯示 anqinDays（安親天數）與 tutoringDays（課輔天數），DetailDrawer 縮減為 2 格天數卡。 3. **D60-3 單一現行規則（erp-tag-v4）與無遷移殘留**：移除 v1/v2/v3/compat 相容層、v4 升級勾選橫幅、--seed-v2-active E2E runner 與 run_diagnostics、run_class_semantics、run_semantics_snapshots 三張廢表；以增量壓實 Migration 0012/0013 清理舊歷史資料。 4. **D60-4 匯入紀錄頁（/history）與單一現況模型**：移除 /history、/history/[runId] 與側欄入口；SQLite 永遠只保留唯一一份最新已啟用學生名單、唯一一份最新課表設定、唯一一筆當前計算 Run。 5. **D60-5 上傳時的新舊名單異動明細**：保留 /imports 預覽時與前次現況名單的逐人異動明細（rosterDiff），清理舊批次的時機嚴格定在 activateImport（按下「使用這份名單」成交當下），確保預覽時 active_import_id 仍在。 6. **D60-6 課表儲存預覽與全站 API 收斂**：保留課表設定儲存前的 ImpactDialog 影響預覽；全站收斂為 3 頁 UI + 11 條 API（4 條 Agent 查帳 GET API：/runs/current、/runs/[runId]、/runs/[runId]/students、/classes + 7 條 Web 操作工作流路由）。|授權依據為 2026-10-27 Operator 拍板（Issue #177），細節見 specs/15-class-semantics-simplification-plan.md。本條為系統架構最高原則之一。|
+
 ## 5. 下一個 plan 必須具體回答
 
 1. Node 24 的安裝／啟動方式、框架與 lockfile；不可建立 Git，除非當時用户已授權。

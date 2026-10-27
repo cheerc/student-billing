@@ -149,6 +149,7 @@ export function applySettingsPreview(
     // 不建假 run、不寫 student_calculations、不改 active import／run。
     if (preview.importId === null) {
       db.prepare(`UPDATE active_state SET revision = ?, updated_at = ? WHERE id = 1`).run(nextRevision, now);
+      db.prepare('DELETE FROM settings_versions WHERE id != ?').run(settingsVersionId);
       result = {
         mode: 'settings_only',
         settingsVersionId,
@@ -184,6 +185,8 @@ export function applySettingsPreview(
     db.prepare(
       `UPDATE active_state SET active_run_id = ?, revision = ?, updated_at = ? WHERE id = 1`
     ).run(runId, nextRevision, now);
+    db.prepare('DELETE FROM settings_versions WHERE id != ?').run(settingsVersionId);
+    db.prepare('DELETE FROM calculation_runs WHERE id != ?').run(runId);
 
     result = {
       mode: 'with_students',

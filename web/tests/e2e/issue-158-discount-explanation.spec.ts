@@ -98,17 +98,5 @@ test('Issue #158：本次 Run 明細說明折扣因素、安親差異與保存�
   await expect(currentExplanation).toContainText('基本折扣率：');
   await expect(currentExplanation).toContainText('95折');
 
-  // The historical Run keeps its own immutable rawTags and saved rates after a newer import.
-  await page.goto('/history');
-  const historicalRun = page.locator('tbody tr[data-status="history"] a', { hasText: '查看當時結果' });
-  await expect(historicalRun).toHaveCount(1);
-  const historicalHref = await historicalRun.getAttribute('href');
-  expect(historicalHref).toBeTruthy();
-  await page.goto(historicalHref!);
-  await page.locator('[data-student-trigger="SYNTH158"]').click();
-  const historicalExplanation = page.getByRole('dialog').locator('[data-discount-explanation]');
-  await expect(historicalExplanation).toContainText('2 + 1 = 3 科');
-  await expect(historicalExplanation).toContainText('特殊折扣85折');
-  await expect(historicalExplanation).toContainText('安親: 9折');
-  await expect(historicalExplanation).toContainText('課輔: 85折');
+
 });

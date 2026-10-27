@@ -93,7 +93,6 @@ export function isCompleteTimeRange<T extends { startMinutes: number | null; end
 /** 單一班級設定物件 Schema（未套用 refinement，供 extend 使用） */
 const ClassSettingObjectSchema = z.object({
   baseName: z.string().min(1),
-  semanticOnly: z.boolean().optional(),
   teacher: z.string().nullable().default(null),
   active: z.boolean().default(true),
   sessions: z.array(SessionSchema).default([]),
@@ -267,11 +266,7 @@ function groupGridRowsToClasses<S>(
     });
   }
 
-  for (const item of existingClasses ?? []) {
-    if (item.semanticOnly && !grouped.has(item.baseName)) {
-      classes.push(item as Omit<ClassSetting, 'sessions'> & { sessions: S[] });
-    }
-  }
+
 
   return classes;
 }
@@ -282,7 +277,6 @@ export function classesToGridRows(classes: ClassSetting[]): ScheduleGridRow[] {
   let rowSeq = 1;
 
   for (const c of classes) {
-    if (c.semanticOnly) continue;
     if (c.sessions.length > 0) {
       for (const s of c.sessions) {
         rows.push({

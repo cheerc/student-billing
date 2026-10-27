@@ -59,6 +59,13 @@ export async function POST(request: Request | NextRequest) {
       preview.students
     );
 
+    // Maintain single current state: clean up discarded unactivated preview batches
+    if (baseImportId) {
+      db.prepare("DELETE FROM import_batches WHERE id != ? AND id != ? AND status = 'ready'").run(baseImportId, saveResult.batchId);
+    } else {
+      db.prepare("DELETE FROM import_batches WHERE id != ? AND status = 'ready'").run(saveResult.batchId);
+    }
+
     // 名單差異以「實際保存的批次」整批對比基準名單，並以 before/after 計算結果判定異動
     // （operator 裁決 d-20260929111803466480-4／-5，不是報名 token 指紋）。
     // 重複上傳時 batchId 為既有批次；若它就是基準則不自我比較（baseImportId:null）。

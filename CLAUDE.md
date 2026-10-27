@@ -11,11 +11,11 @@
 
 ### P1 核心功能 (In Scope)
 - 任意檔名之學生名單 XLSX 匯入，依必要標頭解析（支援欄位重排與隱藏），相容非 Excel 原生之 inlineStr OOXML。
-- 真實名單預覽、去重人數統計、班級與學生篩選、本地 SQLite 持久化。
-- 八項總表計算（安親天數、課輔天數、美語天數、數學天數、中文天數、寫功課天數、加重美語天數、週六課輔天數）。
+- 真實名單預覽、去重人數統計、班級與學生篩選、本地 SQLite 持久化（單一現況留存模型：1 筆最新啟用計算 Run、1 筆最新啟用學生名單、1 筆最新課表設定版本；上傳預覽保留與現況名單之逐人異動明細 `rosterDiff`）。
+- 天數計算（安親天數、課輔天數；點名表專用之 6 項非收費天數欄位已依 D60 退役）。
 - 課程適用折扣計算、ERP 登記級距比對、差異提示與計算過程解釋。
 - 課程類型（安親課輔班／非安親課輔班）、課程、老師、每週時段、別名映射 (Alias) 維護，支援 Preview（影響評估）與 Apply（原子套用與重算）。
-- 本地最小唯讀 API 供查詢指定 Run 之計算結果。
+- 本地最小唯讀 API 供查詢當前 Run 之計算結果（全站收斂為 4 條 Agent 查帳 GET API + 7 條 Web 流程路由）。
 
 ### P1 負向範圍 (Negative Scope - 絕對禁止在 P1 實作)
 - 不匯入財務報表、不自動對帳、不計算應收帳款金額。（此為**產品功能**之限制。另有 §9 的產品外離線輔助工具 `billing:compare`（國小輔導）與 `billing:compare:sessions`（按堂計價），可手動產出差異報告供人工核對帳務——它們不是產品功能，見 §9.0）
@@ -35,21 +35,22 @@
 
 若文件內容或要求出現衝突，依下列優先順序判定：
 
-1. **使用者最新明確決策**：`specs/06-handoff-decisions.md`（D01–D59，特別是 D17、D24、D33 UI 重設方向、D52 雙審查與解耦裁決、D57 #159 PR-2 現行 v4-only runtime、D58 #148 PR-3 bounded class semantics data contract，以及 D59 PR-4 semantic consumers）。
+1. **使用者最新明確決策**：`specs/06-handoff-decisions.md`（D01–D60，特別是 D17、D24、D33 UI 重設方向、D52 雙審查與解耦裁決、D57 #159 PR-2 現行 v4-only runtime、D58 #148 PR-3 bounded class semantics data contract、D59 PR-4 semantic consumers，以及 D60 系統全面減法、單一現況留存與 Agent 查帳 API 收斂）。
 2. **正式規則與契約規格**：
-   - `specs/02-calculation-rules.md`（收費規則 R01–R18、§9A erp-tag-v4 解耦段、欄位契約、結構化班名）
-   - `specs/03-architecture-api.md`（不可變快照、資料模型、交易與 API 契約）
-   - `specs/04-tdd-acceptance.md`（U01–U74、I01–I20、UX01–UX102、原生 Excel 實測錨點）
-   - `specs/09-ui-workflow-redesign-spec.md`（先課表→匯入→核對的畫面與操作流程，及其必要 API／設定生命週期放寬；授權來源為 D33，不改 02 計費規則）
+   - `specs/02-calculation-rules.md`（收費規則 R01–R18、§9A erp-tag-v4 解耦段與 D60 規則減法、欄位契約、結構化班名）
+   - `specs/03-architecture-api.md`（單一現況留存模型、不可變快照、資料模型、交易與 11 條 API 契約）
+   - `specs/04-tdd-acceptance.md`（U01–U74、I01–I20、UX01–UX105、原生 Excel 實測錨點）
+   - `specs/09-ui-workflow-redesign-spec.md`（先課表→匯入→核對 3 頁 UI 流程，及其必要 API／設定生命週期放寬；授權來源為 D33 與 D60，不改 02 計費規則）
 3. **執行計畫**：
    - `specs/07-p1-implementation-plan.md`（T00–T07 依序執行，展示 A/B/C 交付節點）
    - `specs/10-ui-workflow-redesign-plan.md`（UI 重設 R0–R5 分批；驗收矩陣在 04 §8，本檔不定義規則）
    - `specs/11-ui-acceptance-fix-plan.md`（第一次人工驗收修正 PR-0、A、S、B1、B2、C、D 分批；決策 D34–D39 在 06，驗收列 UX25 起在 04 §8，本檔不定義規則）
    - `specs/12-round2-acceptance-fix-plan.md`（第二次人工驗收修正 R2-F01／R2-F02 與驗收工具 T1／T2／T3；驗收列 UX74 起在 04 §8，工具指令在該檔 §4，本檔不定義規則）
    - `specs/14-class-type-settings-plan.md`（課程類型分類與課表設定重構規格與拆分計畫：依課程類型分頁、固定 5 天旗標與課程學費折扣解耦；授權來源為 2026-10-18 operator 裁決，實作時同步更新 02／03／04／09，拆分見該檔 §6）
+   - `specs/15-class-semantics-simplification-plan.md`（系統全面減法、單一現況留存模型與 Agent 查帳 API 收斂計畫：拆除語意面板、退役點名表 6 欄天數、單一現行規則 erp-tag-v4、移除 /history、Migration 0012/0013、收斂為 3 頁 UI + 11 條 API；授權來源為 2026-10-27 operator D60 裁決）
 4. **歷史 Review 與交接記錄**：`specs/reviews/*`（僅供脈絡參考，若有數字或推論與 04 §3 或 D24 衝突，以最新正式規格為準）。
 
-第 2 層各文件各管其域：02 管計費規則、03 管資料模型與交易不變式、04 管驗收、09 管 UI 流程。09 對 01／03 的 UI 流程與設定生命週期放寬，僅限 D33 授權且 09 §8 明列的範圍；02 計費規則與 03 §4 的不可變快照／交易不變式不因 09 改變。
+第 2 層各文件各管其域：02 管計費規則、03 管資料模型與交易不變式、04 管驗收、09 管 UI 流程。09 對 01／03 的 UI 流程與設定生命週期放寬，僅限 D33/D60 授權且 09 §8 明列的範圍；02 計費規則與 03 §4 的不可變快照／交易不變式不因 09 改變。
 
 ### 核心業務決策原則
 - **D17（最高原則）**：系統職責在於**照實呈現計算結果**與**顯眼標記不一致處**。ERP 登記可能有人為錯誤，正是需要藉由工具發現；嚴禁為了使計算結果吻合 ERP 而修改課表或扭曲計算公式。特例狀況交由人工開單處理。
@@ -58,10 +59,9 @@
   - $0.3 \le \text{frac} < 0.8$：扣 $0.5$ 天
   - $\ge 0.8$：扣 $1.0$ 天
   最後轉為負扣天。原 Excel 負數 INT/MOD 公式導致實質門檻變為 0.2 / 0.7，屬歷史缺陷。
-- **正式規則與歷史相容版本**：
-  - 正式軌：使用 run 保存的正式 rule set（目前目標為 `erp-tag-v4`）；優惠標記只讀「標籤」欄，不從備註 fallback，備註原文完整保留。
-  - `excel-v260922-compat`：PR-2 移除舊 calculators 與 compat float kernel，僅保留已保存的歷史 run 結果供 read-only 呈現。PR-1 已停止新 run diagnostics，移除比較頁與 `GET /runs/{runId}/comparison`（GET 回 404）；既有 run、診斷表列與 raw issue 值不重寫。兩個舊診斷碼仍保留於 `KNOWN_ISSUE_CODES` 及明確 raw API 篩選，結果頁 UI 的 actionable projection 則排除 `NUMERIC_POLICY_DIFFERENCE`／`RULESET_POLICY_DIFFERENCE`，保留其他問題與 `needsReview` 級距警告。歷史決策 D55 保留原文。
-  - #159 PR-2 起，所有新 Run 與新計算預覽固定使用 `erp-tag-v4`。active run 為任一非 v4 版本（v1／v2／v3、compat 或未知版本）時，普通 activate／recalculate／apply 不會沿用或猜測版本，會要求使用者明確預覽並確認升級 v4；升級前值只讀舊 Run 已保存的結果，升級後才計算 v4。舊 Run、歷史 issue、設定與類別快照不重算、不回填；歷史 read-model 用獨立的 read-only 版本 metadata，不能用新計算能力表推導舊結果。舊成功 idempotency replay 仍先回傳原回應。
+- **正式規則與單一現況留存模型（D60）**：
+  - **單一現行規則**：系統計算全面採用 `erp-tag-v4`；舊版相容層、升級勾選橫幅與廢表已由 Migration 0012/0013 全數清除；優惠標記只讀「標籤」欄，不從備註 fallback，備註原文完整保留。
+  - **單一現況模型**：SQLite 資料庫永遠只保留 1 筆最新啟用計算 Run、1 筆最新啟用學生名單與 1 筆最新課表設定版本；上傳名單預覽嚴格保留與前次現況名單之逐人異動明細 (`rosterDiff`)；在 `activateImport` 及 `applySettingsPreview` 交易內自動清理舊資料；全站移除 `/history` 路由，收斂為 3 頁 UI 與 11 條 API。
 - **規則參數化**：每日 180 分鐘、0.3/0.8 門檻、課輔整日特例集中於 `ruleSet` 參數；變更參數需建立新版本並重算，舊 Run 結果不可變。P1 不做參數編輯 UI。
 
 ---
@@ -180,7 +180,7 @@
 
 - 不視為產品功能、不列入交付範圍、不隨產品版本演進維護。
 - 維護優先度等同一般開發工具：能用、能重跑即可，不追求與產品同級別的覆蓋。實際防護只有 `tests/unit/compare-billing-report-parse.test.ts` 與 `tests/unit/compare-session-pricing-report.test.ts`。**不得**宣稱「型別或未定義變數由 lint 守護」：eslint 對 `.mjs` 未啟用 `no-undef`／`no-unused-vars`，且 `tsconfig` 未開 `checkJs`，`.mjs` 內的型別錯誤不會被 `npm run typecheck` 攔下（review F-NEW-5／F-minor-4 已實測確認兩者皆放行）。
-- **不得自行推測 Run 語意**：兩支工具都先用 `parseSingleClassToken` 解析原始 token 語法；v4 級距適用性取所選 Run 的 `classSemantics.erpTierApplicability`，由 `projectTierForApplicability` 投影。v3/v4 費率類別取該 Run 的 `classCategories`；v4 課程語意取 `classSemantics`。已知 v1–v3 formal Run 歷史讀取僅走明確凍結的 historical projection；`excel-v260922-compat`、omitted/unknown context 或應有而缺少的快照必須警告並顯示 unavailable，不能回退現行班名規則。離班標記取 API 已解析的 `enrollment.withdrawalDate`。複寫解析必然漂移——review F-NEW-2 曾漏 `[5]` 並把 `[Starter]` 默默當成 5 天；F-minor-2 又以自訂 regex 重複偵測離班而與產品錨定行尾的寫法分歧。按堂計價工具的「折扣分派到哪一門課」同樣取 `parseSingleClassToken` 的 `baseName`（去方括號修飾），不自寫剝方括號的 regex。見 [03 §5.8](specs/03-architecture-api.md) 與 [06 D59](specs/06-handoff-decisions.md)。
+- **不得自行推測 Run 語意**：兩支工具都先用 `parseSingleClassToken` 解析原始 token 語法；費率類別取該 Run 的 `classCategories`；課程語意取 `classSemantics`。系統採單一現況留存模型（D60），僅留單一 active run（舊 run 歷史與 `/history` 均已移除）。離班標記取 API 已解析的 `enrollment.withdrawalDate`。複寫解析必然漂移——review F-NEW-2 曾漏 `[5]` 並把 `[Starter]` 默默當成 5 天；F-minor-2 又以自訂 regex 重複偵測離班而與產品錨定行尾的寫法分歧。按堂計價工具的「折扣分派到哪一門課」同樣取 `parseSingleClassToken` 的 `baseName`（去方括號修飾），不自寫剝方括號的 regex。見 [03 §5.8](specs/03-architecture-api.md) 與 [06 D59/D60](specs/06-handoff-decisions.md)。
 - 執行一律走 `npm run billing:compare` 或 `npm run billing:compare:sessions`（走既有 `tsx`）。裸 `node` 無法解析產品 TS 內部的無副檔名 import（`./types`），會 `ERR_MODULE_NOT_FOUND`。
 - 若日後確認有長期需求，經 operator 決定後**另案**檢討是否正式納入專案；在此之前維持現狀。
 

@@ -70,7 +70,8 @@ describe('批次 E：核對基準日來源（UX75／UX77）', () => {
     const applied = applySettingsPreview(db, { previewId: preview.previewId, expectedRevision: active.revision, idempotencyKey: 'batch-e-apply' });
     expect(applied.runId).not.toBe(active.runId);
     expect.soft(getCalculationRun(db, applied.runId!)?.asOfDate, '儲存不是重選核對基準日').toBe(D);
-    expect(getCalculationRun(db, active.runId), '舊 run 不回填任何欄位').toEqual(oldRun);
+    // Single current state: older run is pruned
+    expect(getCalculationRun(db, active.runId)).toBeNull();
   });
 
   it('UX77：未帶 asOfDate 的真實計算入口退回 Asia/Taipei 今天', async () => {

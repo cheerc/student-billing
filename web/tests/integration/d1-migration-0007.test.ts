@@ -93,7 +93,7 @@ describe('UX42：migration 0007——settings_previews.target_rule_set_version�
   it('fresh DB：跑完全部 migration 後，0007 物件符合契約（版本 1–8 依序套用）', () => {
     db = createDatabase(path.join(tempDir, 'fresh.sqlite'));
     runMigrations(db, REAL_DIR);
-    expect(getAppliedMigrations(db).map((m) => m.version)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
+    expect(getAppliedMigrations(db).map((m) => m.version)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13]);
 
     const target = col('settings_previews', 'target_rule_set_version');
     expect(target, 'settings_previews.target_rule_set_version').toBeDefined();
@@ -124,20 +124,22 @@ describe('UX42：migration 0007——settings_previews.target_rule_set_version�
     const result = runMigrations(db, REAL_DIR);
     expect(result.applied).toEqual([
       expect.stringMatching(/^0007_/),
-      '0008_run_diagnostics.sql',
+      expect.stringMatching(/^0008_/),
       '0009_run_class_semantics.sql',
       '0010_run_class_semantic_role_conditions.sql',
       '0011_single_class_categories_snapshot.sql',
       '0012_drop_legacy_tables.sql',
+      '0013_retain_single_current_state.sql',
     ]);
     expect(dump()).toEqual({
-      ...before,
+      active: before.active,
+      batches: before.batches,
       runs: (before.runs as Array<Record<string, unknown>>).map((run) => ({ ...run, diagnostic_algorithm_version: null })),
+      versions: before.versions,
+      idempotency: [],
+      previews: [],
     });
-    expect(db.prepare('SELECT preview_id, target_rule_set_version AS t FROM settings_previews ORDER BY preview_id').all()).toEqual([
-      { preview_id: 'setprev_a', t: null },
-      { preview_id: 'setprev_b', t: null },
-    ]);
+    expect(db.prepare('SELECT preview_id, target_rule_set_version AS t FROM settings_previews ORDER BY preview_id').all()).toEqual([]);
     expect((db.prepare('SELECT COUNT(*) AS n FROM run_class_categories').get() as { n: number }).n).toBe(0);
   });
 

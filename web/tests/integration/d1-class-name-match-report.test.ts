@@ -94,6 +94,8 @@ describe('班名比對報告 read model（新模組 @/application/class-name-mat
       makeStudent('p4', ['兒童美語-EA']),
       makeStudent('p5', ['國小數學-一A']),
     ]);
+    saveSettings(db, 'setv_1', 1, smallDraft());
+    activateBatch(db, 'imp_old', 'k-act-old');
     saveSyntheticBatch(db, 'imp_new', 'new.xlsx', '2026-09-10T08:00:00.000Z', [
       makeStudent('s1', ['國小數學-一A', '國小輔導-四年級']),
       makeStudent('s2', ['國小數學-一', '國小輔導-四年級']),
@@ -103,8 +105,6 @@ describe('班名比對報告 read model（新模組 @/application/class-name-mat
       makeStudent('s6', ['正音A班', '正音A班']),
       makeStudent('s7', ['國小輔導-三年級A']),
     ]);
-    saveSettings(db, 'setv_1', 1, smallDraft());
-    activateBatch(db, 'imp_old', 'k-act-old');
     return db;
   }
 

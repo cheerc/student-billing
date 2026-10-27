@@ -64,12 +64,14 @@ test.describe('Issue #157 PR-2：從課表頁設定 roster-only 班級', () => {
       })
     );
 
-    const issuesResponse = await page.request.get(
-      `/api/v1/runs/${encodeURIComponent(runId)}/issues?issueCode=CLASS_NOT_MAPPED&classId=${encodeURIComponent(ROSTER_ONLY_CLASS)}`
+    const studentsResponse = await page.request.get(
+      `/api/v1/runs/${encodeURIComponent(runId)}/students`
     );
-    expect(issuesResponse.ok()).toBe(true);
-    const issues = (await issuesResponse.json()).items as Array<{ message: string }>;
-    expect(issues.filter((issue) => issue.message.includes(`「${ROSTER_ONLY_CLASS}」`))).toHaveLength(0);
+    expect(studentsResponse.ok()).toBe(true);
+    const studentsData = await studentsResponse.json();
+    const students = (studentsData.items || []) as Array<{ issues?: Array<{ code: string; message: string }> }>;
+    const issues = students.flatMap((s) => s.issues || []);
+    expect(issues.filter((issue) => issue.code === 'CLASS_NOT_MAPPED' && issue.message.includes(`「${ROSTER_ONLY_CLASS}」`))).toHaveLength(0);
 
     const reportAfterResponse = await page.request.get('/api/v1/settings/class-name-report');
     expect(reportAfterResponse.ok()).toBe(true);

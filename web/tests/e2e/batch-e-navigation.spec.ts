@@ -32,7 +32,7 @@ for (const { mode, blankTeacher } of [
     });
     await ensureB2Activated(page);
     const runId = await currentRunId(page);
-    const entry = mode === 'history' ? `/history/${runId}` : '/';
+    const entry = '/';
     await page.goto(entry);
     await expect(tab(page, '學生總表')).toHaveAttribute('aria-selected', 'true');
     requests.length = 0;

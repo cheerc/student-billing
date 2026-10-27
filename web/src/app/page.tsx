@@ -2,11 +2,8 @@ import Link from 'next/link';
 import { getDatabase } from '@/adapters/sqlite';
 import { getLatestSettingsVersion } from '@/adapters/sqlite/settings-repository';
 import { formatDateTime } from '@/lib/datetime';
-import { getLatestReadyBatch } from '@/adapters/sqlite/import-repository';
 import { getCurrentActiveRun } from '@/adapters/sqlite/runs-repository';
-import { queryImportStudents } from '@/application/roster-query';
 import { resolveResultsView } from '@/application/results-view';
-import RosterView from '@/components/roster-view';
 import ActiveRunView from '@/components/active-run-view';
 import { findUnmappedClasses, getScheduleDeductions } from '@/application/schedule-deductions';
 import { getImportBatch } from '@/adapters/sqlite/import-repository';
@@ -23,7 +20,7 @@ export default async function HomePage({
   const db = getDatabase();
   const currentActive = getCurrentActiveRun(db);
 
-  // 若已有啟用的正式 Run，進入展示B核對總表
+  // 若已有啟用的正式 Run，進入核對總表
   if (currentActive.run && currentActive.activeRunId) {
     const activeRun = currentActive.run;
     const classRows = db
@@ -61,34 +58,6 @@ export default async function HomePage({
           initialFilters={view.filters}
           initialDeductionFilters={view.deductionFilters}
           initialNotices={{ invalid: view.invalid, pruned: view.pruned }}
-        />
-      </div>
-    );
-  }
-
-  // 若尚未啟用但有 ready 批次，呈現展示A名冊與「啟用計算」按鈕
-  const latestBatch = getLatestReadyBatch(db);
-  if (latestBatch) {
-    const classRows = db
-      .prepare(`
-        SELECT DISTINCT base_name
-        FROM student_enrollments
-        WHERE import_id = ?
-        ORDER BY base_name ASC
-      `)
-      .all(latestBatch.id) as { base_name: string }[];
-
-    const availableClasses = classRows.map((r) => r.base_name);
-    const initialData = queryImportStudents(db, latestBatch.id, { limit: 50 });
-
-    return (
-      <div>
-        <RosterView
-          importId={latestBatch.id}
-          fileName={latestBatch.fileName}
-          initialAvailableClasses={availableClasses}
-          initialData={initialData}
-          currentRevision={currentActive.revision}
         />
       </div>
     );
