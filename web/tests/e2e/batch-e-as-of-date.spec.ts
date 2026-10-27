@@ -21,7 +21,21 @@ test('UX75：課表儲存沿用 UI 明選的基準日，歷史 run 保持不變'
   await expect(page.locator('.schedule-table')).toBeVisible();
   const teacher = page.locator('input.input-teacher').first();
   const previous = await teacher.inputValue();
-  await teacher.fill(`${previous}合成修改`);
+  const editedTeacher = `${previous}合成修改`;
+  // 等待包含本次修改的計算，避免 debounce 在點擊過程中停用按鈕。
+  const calculation = page.waitForResponse((response) => {
+    const request = response.request();
+    if (new URL(response.url()).pathname !== '/api/v1/settings/calculate' || request.method() !== 'POST') return false;
+    try {
+      return request.postDataJSON().draft.classes.some((item: { teacher?: string | null; slots?: { teacher?: string | null }[] }) =>
+        item.teacher === editedTeacher || item.slots?.some((slot) => slot.teacher === editedTeacher));
+    } catch {
+      return false;
+    }
+  });
+  await teacher.fill(editedTeacher);
+  expect((await calculation).ok()).toBe(true);
+  await expect(page.getByRole('button', { name: '確認變更', exact: true })).toBeEnabled();
   await page.getByRole('button', { name: '確認變更', exact: true }).click();
   const dialog = page.locator('dialog.impact-dialog');
   await expect(dialog).toBeVisible();
