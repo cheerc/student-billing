@@ -189,11 +189,10 @@ describe('T06: 剩餘 P1 讀取端點整合測試 (03 §5)', () => {
     expect((db.prepare('SELECT COUNT(*) AS n FROM calculation_runs').get() as any).n).toBe(runsBefore);
   });
 
-  it('現行歷史 run 為 erp-tag-v1 時，普通再次啟用 fail-closed 且不建立新 run', async () => {
+  it('再次啟用直接以單一現行規則 erp-tag-v4 建立新 run', async () => {
     const db = getDatabase();
     db.prepare('UPDATE calculation_runs SET rule_set_version = ? WHERE id = ?').run('erp-tag-v1', runId);
     const active = db.prepare('SELECT revision, active_run_id, active_import_id FROM active_state WHERE id = 1').get() as any;
-    const runsBefore = (db.prepare('SELECT COUNT(*) AS n FROM calculation_runs').get() as any).n;
 
     const activateReq = new NextRequest(
       `http://127.0.0.1:3000/api/v1/imports/${previewId}/activate`,
@@ -209,9 +208,9 @@ describe('T06: 剩餘 P1 讀取端點整合測試 (03 §5)', () => {
     const activateRes = await activatePOST(activateReq, {
       params: Promise.resolve({ previewId }),
     });
-    expect(activateRes.status).toBe(409);
-    expect((await activateRes.json()).code).toBe('UPGRADE_REQUIRED');
-    expect(db.prepare('SELECT revision, active_run_id, active_import_id FROM active_state WHERE id = 1').get()).toEqual(active);
-    expect((db.prepare('SELECT COUNT(*) AS n FROM calculation_runs').get() as any).n).toBe(runsBefore);
+    expect(activateRes.status).toBe(200);
+    const body = await activateRes.json();
+    const newRun = db.prepare('SELECT rule_set_version FROM calculation_runs WHERE id = ?').get(body.runId) as any;
+    expect(newRun.rule_set_version).toBe('erp-tag-v4');
   });
 });

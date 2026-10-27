@@ -15,10 +15,6 @@ const reportsRoot = path.join(webRoot, 'full-e2e');
 const blobRoot = path.join(webRoot, 'blob-report', 'full-e2e');
 const outputRoot = path.join(webRoot, 'test-results', 'full-e2e');
 const manifestPath = path.join(reportsRoot, 'manifest.json');
-// Both existing upgrade specs require the v2 active DB; keep the 2-case journey last.
-const seededFiles = ['d2d-upgrade-restore.spec.ts', 'd2d-upgrade-journey.spec.ts'];
-const seededSet = new Set(seededFiles);
-const seededJourneyFile = 'd2d-upgrade-journey.spec.ts';
 let infraFailure = false;
 
 if (process.cwd() !== webRoot) {
@@ -31,13 +27,12 @@ if (!fs.existsSync(path.join(webRoot, 'package-lock.json')) || !fs.existsSync(pa
 }
 
 const specs = fs.readdirSync(specRoot).filter(f => f.endsWith('.spec.ts')).sort();
-const missingSeededFiles = seededFiles.filter(file => !specs.includes(file));
-if (!specs.length || missingSeededFiles.length) {
-  console.error(`Invalid inventory: ${specs.length} specs; required seeded specs missing: ${missingSeededFiles.join(', ') || 'none'}`);
+if (!specs.length) {
+  console.error('Invalid inventory: 0 specs found');
   process.exit(1);
 }
 const slugOf = f => f.slice(0, -'.spec.ts'.length).replace(/[^a-zA-Z0-9_-]/g, '-').toLowerCase();
-const runOrder = [...specs.filter(f => !seededSet.has(f)), ...seededFiles];
+const runOrder = [...specs];
 const slugs = specs.map(slugOf);
 if (new Set(slugs).size !== specs.length || slugs.some(s => !s)) {
   console.error('Duplicate/invalid report slug in E2E spec filenames');
@@ -60,7 +55,6 @@ const manifest = {
   node: process.version,
   os: `${os.platform()}-${os.arch()}`,
   specFiles: specs,
-  seededSpecFiles: seededFiles,
   runs: [],
   complete: false,
 };
@@ -95,30 +89,21 @@ async function runLogged(program, args, env, file) {
 }
 
 let executeStatus = 0;
-let seededPhaseReset = false;
 for (const spec of runOrder) {
   const slug = slugOf(spec);
-  const seeded = seededSet.has(spec);
-  // Before the v2-seeded phase, reset the Next dev cache again.
-  // All ordinary specs are deliberately serial; within that phase .next is shared.
-  if (seeded && !seededPhaseReset) {
-    fs.rmSync(path.join(webRoot, '.next'), { recursive: true, force: true });
-    seededPhaseReset = true;
-  }
   const file = `tests/e2e/${spec}`;
   const blobFile = path.join(blobRoot, `report-${slug}.zip`);
   const childEnv = {
     ...process.env,
     E2E_FULL_RUN: '1',
     E2E_SPEC_SLUG: slug,
-    E2E_REQUIRE_V2_SEED: seeded ? '1' : '0',
     PLAYWRIGHT_BLOB_OUTPUT_FILE: blobFile,
   };
-  const args = ['run', 'test:e2e:isolated', '--', ...(seeded ? ['--seed-v2-active'] : []), file];
+  const args = ['run', 'test:e2e:isolated', '--', file];
   const began = Date.now();
-  console.log(`\n=== FULL E2E ${runOrder.indexOf(spec) + 1}/${runOrder.length}: ${file} (${seeded ? 'v2-seeded' : 'fresh DB'}${spec === seededJourneyFile ? ', final journey' : ''}) ===`);
+  console.log(`\n=== FULL E2E ${runOrder.indexOf(spec) + 1}/${runOrder.length}: ${file} ===`);
   const result = await runLogged('npm', args, childEnv, path.join(reportsRoot, 'logs', `${slug}.log`));
-  manifest.runs.push({ file: spec, seeded, exitCode: result.code, signal: result.signal, durationMs: Date.now() - began });
+  manifest.runs.push({ file: spec, exitCode: result.code, signal: result.signal, durationMs: Date.now() - began });
   saveManifest();
   if (result.code !== 0 || result.signal) executeStatus = 1;
 }

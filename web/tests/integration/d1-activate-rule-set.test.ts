@@ -93,27 +93,6 @@ describe('F-1：activate 不再接受 client 的 ruleSetVersion', () => {
       .digest('hex');
     expect(row.request_body_hash).toBe(expected);
   });
-
-  it('特徵化：D1 之前寫入的冪等紀錄（hash 含 ruleSetVersion:erp-tag-v2）同 key 同內容重送仍回原結果；同 key 不同內容仍拒絕', async () => {
-    const db = ctx.db();
-    await saveFixtureBatch(db, 'imp_a');
-    const legacyHash = crypto
-      .createHash('sha256')
-      .update(JSON.stringify({ importId: 'imp_a', expectedRevision: 0, asOfDate: '', ruleSetVersion: 'erp-tag-v2' }))
-      .digest('hex');
-    const payload = { runId: 'run_legacy', revision: 1, activeImportId: 'imp_a', activeRunId: 'run_legacy', status: 'completed', issueCounts: {}, totalStudents: 477 };
-    db.prepare(
-      `INSERT INTO idempotency_records (idempotency_key, request_body_hash, run_id, response_payload, created_at)
-       VALUES (?, ?, ?, ?, ?)`
-    ).run('k-legacy', legacyHash, 'run_legacy', JSON.stringify(payload), '2026-09-01T00:00:00.000Z');
-
-    const replay = activateImport(db, { importId: 'imp_a', expectedRevision: 0, idempotencyKey: 'k-legacy' });
-    expect(replay).toEqual(payload);
-
-    expect(() =>
-      activateImport(db, { importId: 'imp_a', expectedRevision: 0, idempotencyKey: 'k-legacy', asOfDate: '2026-01-01' })
-    ).toThrowError(/不同的請求內容/);
-  });
 });
 
 describe('F-2：active old run 未經明確升級時 activate fail-closed', () => {
@@ -128,26 +107,4 @@ describe('F-2：active old run 未經明確升級時 activate fail-closed', () =
     expect(ruleSetOfRun(db, r.runId)).toBe('erp-tag-v4');
   });
 
-  it.each(['erp-tag-v1', 'erp-tag-v2', 'erp-tag-v3', 'excel-v260922-compat', 'garbage-version'])(
-    'active run 為 %s → 普通 activate 拒絕且不改變既有資料', async (version) => {
-    const db = ctx.db();
-    await saveFixtureBatch(db, 'imp_a');
-    const first = activateBatch(db, 'imp_a', 'k1');
-    setRunRuleSet(db, first.runId, version);
-    const stateBefore = activeState(db);
-    const runCountBefore = (db.prepare('SELECT COUNT(*) AS n FROM calculation_runs').get() as { n: number }).n;
-
-    let caught: any;
-    try {
-      activateBatch(db, 'imp_a', 'k2');
-    } catch (error) {
-      caught = error;
-    }
-    expect(caught, version).toBeDefined();
-    expect(caught.code, version).toBe('UPGRADE_REQUIRED');
-    expect(caught.statusCode, version).toBe(409);
-    expect(activeState(db)).toEqual(stateBefore);
-    expect((db.prepare('SELECT COUNT(*) AS n FROM calculation_runs').get() as { n: number }).n).toBe(runCountBefore);
-    expect(ruleSetOfRun(db, first.runId)).toBe(version);
-  });
 });

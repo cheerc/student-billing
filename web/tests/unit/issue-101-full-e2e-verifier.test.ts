@@ -121,11 +121,17 @@ describe('Issue #101 full E2E report verifier', () => {
     ['missing merged JUnit', (current: Fixture) => fs.rmSync(path.join(current.reports, 'junit.xml'))],
     ['missing merged HTML', (current: Fixture) => fs.rmSync(path.join(current.reports, 'playwright-report', 'index.html'))],
     ['missing per-spec log', (current: Fixture) => fs.rmSync(path.join(current.reports, 'logs', 'demo.log'))],
-    ['missing test case from a multi-case spec', (current: Fixture) => {
+    ['spec with zero executed test cases', (current: Fixture) => {
       const filename = path.join(current.reports, 'results.json');
       const json = JSON.parse(fs.readFileSync(filename, 'utf8'));
-      json.suites[1].specs.pop();
-      json.stats.expected = 3;
+      json.suites[1].specs = [];
+      json.stats.expected = 1;
+      writeJson(filename, json);
+    }],
+    ['stats expected mismatch', (current: Fixture) => {
+      const filename = path.join(current.reports, 'results.json');
+      const json = JSON.parse(fs.readFileSync(filename, 'utf8'));
+      json.stats.expected = 999;
       writeJson(filename, json);
     }],
     ['skipped test case', (current: Fixture) => {
@@ -161,16 +167,10 @@ describe('Issue #101 full E2E report verifier', () => {
       manifest.runs.pop();
       writeJson(filename, manifest);
     }],
-    ['manifest still declares a seeded stage', (current: Fixture) => {
+    ['unexpected extra spec in manifest', (current: Fixture) => {
       const filename = path.join(current.reports, 'manifest.json');
       const manifest = JSON.parse(fs.readFileSync(filename, 'utf8'));
-      manifest.seededSpecFiles = ['second.spec.ts'];
-      writeJson(filename, manifest);
-    }],
-    ['run flagged as seeded', (current: Fixture) => {
-      const filename = path.join(current.reports, 'manifest.json');
-      const manifest = JSON.parse(fs.readFileSync(filename, 'utf8'));
-      manifest.runs[0].seeded = true;
+      manifest.runs.push({ file: 'extra.spec.ts', exitCode: 0, signal: null });
       writeJson(filename, manifest);
     }],
   ])('fails closed for %s', (_name, mutate) => {

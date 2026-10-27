@@ -166,7 +166,7 @@ describe('issue #122：run 類別快照的 API 可見性（03 §5.3.4）', () =>
     expect(body.classCategories.find((r) => r.base_name === '國小數學-三A')!.category).toBe('english');
 
     const rate = applicableRateForClass('國小數學-三A', { grade: 4, ...STUDENT_RATE_FIELDS }, {
-      ruleSetVersion: 'erp-tag-v3',
+      
       findSnapshot: (name) => body.classCategories.find((r) => r.base_name === name) as never,
     });
     // 快照說 english → 取 English 側；退回當前班名會取 Math 側 8500。
@@ -189,10 +189,10 @@ describe('issue #122：run 類別快照的 API 可見性（03 §5.3.4）', () =>
     expect(row.fixed_five_days).toBe(1);
 
     const rate = applicableRateForClass('兒童美語-A', { grade: 4, ...STUDENT_RATE_FIELDS }, {
-      ruleSetVersion: 'erp-tag-v3',
+      
       findSnapshot: (name) => body.classCategories.find((r) => r.base_name === name) as never,
     });
-    expect(rate).toEqual({ status: 'configured', bps: 10000 });
+    expect(rate).toEqual({ status: 'configured', bps: 8000 });
   });
 
   it('v3 run 缺該班快照：仍回 not_configured，嚴禁以當前班名（國小數學→math）猜測', async () => {
@@ -205,7 +205,7 @@ describe('issue #122：run 類別快照的 API 可見性（03 §5.3.4）', () =>
 
     // 「國小數學-三B」班名本身會映射到 math（→ 8500），但快照沒有這一班。
     const rate = applicableRateForClass('國小數學-三B', { grade: 4, ...STUDENT_RATE_FIELDS }, {
-      ruleSetVersion: 'erp-tag-v3',
+      
       findSnapshot: (name) => body.classCategories.find((r) => r.base_name === name) as never,
     });
     expect(rate).toEqual({ status: 'not_configured' });
@@ -224,7 +224,7 @@ describe('issue #122：run 類別快照的 API 可見性（03 §5.3.4）', () =>
     expect(loadRunClassCategories(db, 'run_v3')).toEqual([]);
 
     const rate = applicableRateForClass('國小數學-三A', { grade: 4, ...STUDENT_RATE_FIELDS }, {
-      ruleSetVersion: 'erp-tag-v3',
+      
       findSnapshot: () => undefined,
     });
     expect(rate).toEqual({ status: 'not_configured' });

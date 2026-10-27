@@ -2,36 +2,33 @@ import type Database from 'better-sqlite3';
 import type { NormalizedStudentQuery, QuerySelection } from '@/contracts/student-query';
 import { parseTagDiscounts } from '@/domain/billing/discount-rules';
 import { getCalculationRun } from '@/adapters/sqlite/runs-repository';
-import { historicalRuleSetMetadata } from '@/domain/billing/rule-set';
-import { ACTIONABLE_HAS_ISSUES_SQL, NO_ACTIONABLE_ISSUE_CODES_SQL } from '@/domain/issues/actionable-issues';
-import { selectionPredicate, classPredicate, branchPredicate, applicableRateColumn, escapeLike, type QueryPredicate } from './student-query-sql';
+import { selectionPredicate, classPredicate, branchPredicate, escapeLike, type QueryPredicate } from './student-query-sql';
+
+/** 有任何問題，或任一級距比對需人工確認（needsReview）。與畫面的「有問題」判斷同一定義。 */
+const HAS_ISSUES_SQL = `(
+  json_array_length(sc.issues) > 0
+  OR EXISTS (
+    SELECT 1 FROM json_each(sc.tier_comparisons) review_tier
+    WHERE json_extract(review_tier.value, '$.needsReview') = 1
+  )
+)`;
 
 /** 同一次 request 共用特殊折扣集合；各欄 facet 不重複全 run 掃描。 */
 export function createStudentPredicateBuilder(db: Database.Database, runId: string, importId: string) {
   let specialCodes: string[] | undefined;
   const run = getCalculationRun(db, runId);
-  const snapshots = run?.classCategories;
-  const ruleSetVersion = run?.ruleSetVersion;
-  const runMetadata = historicalRuleSetMetadata(ruleSetVersion ?? '');
-  const usesSnapshot = runMetadata.hasClassCategorySnapshot && Array.isArray(snapshots);
+  const snapshots = run?.classCategories ?? [];
 
+  // 班級類別一律取該 Run 的單一類別快照；缺該班快照＝無法判定（null），不以班名猜測。
   const getApplicableColumn = (className: string): string | null => {
-    if (!runMetadata.known) return null;
-    if (usesSnapshot && snapshots) {
-      const snap = snapshots.find((s) => s.base_name === className);
-      if (!snap) return null;
-      const fixedFiveDaysAffectsRate = runMetadata.fixedFiveDaysAffectsRate;
-      if (fixedFiveDaysAffectsRate && snap.fixed_five_days === 1) {
-        return '10000';
-      }
-      if (snap.category === 'care') {
-        return '(CASE WHEN sc.grade IN (1,2) THEN sc.applicable_anqin_bps WHEN sc.grade BETWEEN 3 AND 6 THEN sc.applicable_tutoring_bps ELSE NULL END)';
-      }
-      if (snap.category === 'math') return 'sc.applicable_math_bps';
-      if (snap.category === 'english') return 'sc.applicable_english_bps';
-      return null;
+    const snap = snapshots.find((s) => s.base_name === className);
+    if (!snap) return null;
+    if (snap.category === 'care') {
+      return '(CASE WHEN sc.grade IN (1,2) THEN sc.applicable_anqin_bps WHEN sc.grade BETWEEN 3 AND 6 THEN sc.applicable_tutoring_bps ELSE NULL END)';
     }
-    return applicableRateColumn(className);
+    if (snap.category === 'math') return 'sc.applicable_math_bps';
+    if (snap.category === 'english') return 'sc.applicable_english_bps';
+    return null;
   };
   return (query: NormalizedStudentQuery, excludedKey?: string, replacement?: QuerySelection) => {
     const selected = { ...query.selections };
@@ -45,7 +42,7 @@ export function createStudentPredicateBuilder(db: Database.Database, runId: stri
     const classes = classPredicate(importId, 'sc', selected.enrollmentKey);
     add(classes);
     for (const [key, column] of Object.entries({
-      grade: 'sc.grade', baseDiscountBps: 'sc.base_discount_bps', anqinDays: 'sc.anqin_days', tutoringDays: 'sc.tutoring_days', hasIssues: ACTIONABLE_HAS_ISSUES_SQL,
+      grade: 'sc.grade', baseDiscountBps: 'sc.base_discount_bps', anqinDays: 'sc.anqin_days', tutoringDays: 'sc.tutoring_days', hasIssues: HAS_ISSUES_SQL,
     })) add(selectionPredicate(selected[key], column));
 
     const classValues = selected.enrollmentKey && !selected.enrollmentKey.none
@@ -82,12 +79,10 @@ export function createStudentPredicateBuilder(db: Database.Database, runId: stri
       add(column ? selectionPredicate(selected.applicableDiscountBps, column) : { sql: '0', args: [] });
     }
     if (query.q) add({ sql: "(sc.name LIKE ? ESCAPE '\\' OR sc.person_code LIKE ? ESCAPE '\\')", args: [`%${escapeLike(query.q)}%`, `%${escapeLike(query.q)}%`] });
-    if (query.subject) add(!runMetadata.known
-      ? { sql: '0', args: [] }
-      : {
-        sql: "EXISTS (SELECT 1 FROM student_enrollments e WHERE e.import_id = ? AND e.person_code = sc.person_code AND (e.base_name LIKE ? ESCAPE '\\' OR e.raw_token LIKE ? ESCAPE '\\'))",
-        args: [importId, `%${escapeLike(query.subject)}%`, `%${escapeLike(query.subject)}%`],
-      });
+    if (query.subject) add({
+      sql: "EXISTS (SELECT 1 FROM student_enrollments e WHERE e.import_id = ? AND e.person_code = sc.person_code AND (e.base_name LIKE ? ESCAPE '\\' OR e.raw_token LIKE ? ESCAPE '\\'))",
+      args: [importId, `%${escapeLike(query.subject)}%`, `%${escapeLike(query.subject)}%`],
+    });
     for (const [key, column, source] of [
       ['issueCode', "json_extract(j.value, '$.code')", 'sc.issues'],
       ['tierComparison', "json_extract(j.value, '$.status')", 'sc.tier_comparisons'],
@@ -99,7 +94,7 @@ export function createStudentPredicateBuilder(db: Database.Database, runId: stri
       const termArgs: Array<string | number> = [];
       for (const value of group.values) {
         if (value === null) {
-          parts.push(key === 'issueCode' ? NO_ACTIONABLE_ISSUE_CODES_SQL : `json_array_length(${source}) = 0`);
+          parts.push(`json_array_length(${source}) = 0`);
         }
         else { parts.push(`EXISTS (SELECT 1 FROM json_each(${source}) j WHERE ${column} = ?)`); termArgs.push(String(value)); }
       }
@@ -127,6 +122,6 @@ export function createStudentPredicateBuilder(db: Database.Database, runId: stri
       }
       add({ sql: `(${terms.join(' OR ')})`, args: termArgs });
     }
-    return { where: { sql: clauses.join(' AND '), args }, classes, mismatch, issues: { sql: ACTIONABLE_HAS_ISSUES_SQL, args: [] } };
+    return { where: { sql: clauses.join(' AND '), args }, classes, mismatch, issues: { sql: HAS_ISSUES_SQL, args: [] } };
   };
 }

@@ -103,7 +103,6 @@ describe('settings_only：無現行名單時只存課表（UX01–UX04）', () =
       expect(prev.tierTransitions).toBeNull();
       expect(prev.issueDelta).toBeNull();
       expect(active()).toMatchObject({ active_import_id: null, active_run_id: null, revision: 0 });
-      expect(count('run_diagnostics')).toBe(0);
       // 預覽鎖定「無名單」：import_id 為 NULL（migration 0006）
       const row = db.prepare('SELECT import_id FROM settings_previews WHERE preview_id = ?').get(prev.previewId) as any;
       expect(row.import_id).toBeNull();
@@ -120,7 +119,6 @@ describe('settings_only：無現行名單時只存課表（UX01–UX04）', () =
       const ver = db.prepare('SELECT id, revision FROM settings_versions').get() as any;
       expect(ver).toEqual({ id: applied.settingsVersionId, revision: 1 });
       expect(count('calculation_runs')).toBe(0);
-      expect(count('run_diagnostics')).toBe(0);
       expect(count('student_calculations')).toBe(0);
       expect(count('import_batches')).toBe(0);
       expect(active()).toEqual({ active_import_id: null, active_run_id: null, revision: 1 });
@@ -341,7 +339,6 @@ describe('settings_only：HTTP route（preview／apply）', () => {
     const prev = await pres.json();
     expect(prev.mode).toBe('settings_only');
     expect(prev.affectedStudents).toBeNull();
-    expect((db.prepare('SELECT COUNT(*) AS n FROM run_diagnostics').get() as any).n).toBe(0);
 
     const ares = await applyPOST(req('apply', { previewId: prev.previewId, expectedRevision: 0, idempotencyKey: 'so-route-1' }));
     expect(ares.status).toBe(200);
@@ -351,7 +348,6 @@ describe('settings_only：HTTP route（preview／apply）', () => {
     const st = db.prepare('SELECT active_import_id, active_run_id, revision FROM active_state WHERE id = 1').get();
     expect(st).toEqual({ active_import_id: null, active_run_id: null, revision: 1 });
     expect((db.prepare('SELECT COUNT(*) AS n FROM calculation_runs').get() as any).n).toBe(0);
-    expect((db.prepare('SELECT COUNT(*) AS n FROM run_diagnostics').get() as any).n).toBe(0);
   });
 
   it('client 以 null 表示無名單且確無現行名單：一致，走 settings_only（200）', async () => {

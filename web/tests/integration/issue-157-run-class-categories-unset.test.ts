@@ -86,7 +86,7 @@ describe('Issue #157 快照：未對應班 category=unset、source=unset', () =>
   it('未對應班一律寫 category=unset、source=unset、mapped=0（不論班名為何）', () => {
     const res = runV4('run_157_unmapped');
     // 快照的唯一寫入點是 saveCalculationRun（D2c N-1），讀模型才查得到。
-    saveCalculationRun(db, res.run, res.results, res.classCategories, res.classSemantics);
+    saveCalculationRun(db, res.run, res.results, res.classCategories);
     const rows = loadRunClassCategories(db, 'run_157_unmapped');
 
     // executeCalculationRun 產出的快照物件與讀模型必須一致（同一組事實）

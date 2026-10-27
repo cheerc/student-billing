@@ -57,7 +57,7 @@ describe('Issue #177 Phase 2: UI 與課表契約收斂 (TDD RED -> GREEN)', () =
         React.createElement(DetailDrawer, {
           student: mockStudentBase,
           onClose: () => {},
-          ruleSetVersion: 'erp-tag-v4',
+          
         })
       );
 

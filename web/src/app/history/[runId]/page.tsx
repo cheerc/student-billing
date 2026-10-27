@@ -69,8 +69,6 @@ export default async function HistoryRunPage({
       }
       unmappedClasses={findUnmappedClasses(db, run.id, availableClasses)}
       classCategorySnapshots={run.classCategories ?? null}
-      classSemanticSnapshots={run.classSemantics ?? null}
-      classCategoryRuleSetVersion={run.ruleSetVersion}
     />
   );
 }

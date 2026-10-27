@@ -202,28 +202,6 @@ describe('POST /api/v1/settings/calculate（唯讀計算 read model）', () => {
     }
   });
 
-  it('舊 active run 的一般計算 fail-closed；明確選擇 v4 upgrade 後才接受 preview', async () => {
-    const db = getDatabase() as any;
-    const { runId } = saveReadyAndActivate(db);
-    const draft = buildSeedDraft();
-
-    db.prepare('UPDATE calculation_runs SET rule_set_version = ? WHERE id = ?').run('erp-tag-v1', runId);
-    let res = await calculatePOST(calcReq({ draft, requestKey: 'a' }));
-    expect(res.status).toBe(409);
-    expect((await res.json()).code).toBe('UPGRADE_REQUIRED');
-    res = await calculatePOST(calcReq({ draft, requestKey: 'a-v4', targetRuleSetVersion: 'erp-tag-v4' }));
-    expect(res.status).toBe(200);
-    expect((await res.json()).ruleSetVersion).toBe('erp-tag-v4');
-
-    db.prepare('UPDATE calculation_runs SET rule_set_version = ? WHERE id = ?').run('excel-v260922-compat', runId);
-    res = await calculatePOST(calcReq({ draft, requestKey: 'b' }));
-    expect(res.status).toBe(409);
-    expect((await res.json()).code).toBe('UPGRADE_REQUIRED');
-    res = await calculatePOST(calcReq({ draft, requestKey: 'b-v4', targetRuleSetVersion: 'erp-tag-v4' }));
-    expect(res.status).toBe(200);
-    expect((await res.json()).ruleSetVersion).toBe('erp-tag-v4');
-  });
-
   it('輸入驗證：缺 requestKey、非 JSON、班名重複 → 400；超過 payload 上限 → 413；跨來源 → 403', async () => {
     getDatabase();
     const draft = buildSeedDraft();

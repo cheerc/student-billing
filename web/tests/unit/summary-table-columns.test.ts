@@ -65,9 +65,21 @@ function item(over: Partial<StudentCalculationItem> = {}): StudentCalculationIte
   } as StudentCalculationItem;
 }
 
+const defaultSnapshots = [
+  { base_name: '國小輔導-一A', category: 'care', fixed_five_days: 0 },
+  { base_name: '國小數學-三A', category: 'math', fixed_five_days: 0 },
+  { base_name: '兒童美語-Gino', category: 'english', fixed_five_days: 0 },
+  { base_name: '國語文-合成', category: 'none', fixed_five_days: 0 },
+];
+
 const render = (students: StudentCalculationItem[], props: Record<string, unknown> = {}) =>
   renderToStaticMarkup(
-    React.createElement(SummaryTable, { students, onSelectStudent: () => {}, ...props })
+    React.createElement(SummaryTable, {
+      students,
+      onSelectStudent: () => {},
+      classCategorySnapshots: props.classCategorySnapshots !== undefined ? props.classCategorySnapshots as any : (props.ruleSetVersion ? defaultSnapshots : null),
+      ...props,
+    })
   );
 
 describe('09 §5.1：學生總表預設欄位為 12 欄，既有欄位移不刪功能', () => {

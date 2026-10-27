@@ -2,7 +2,6 @@ import Database from 'better-sqlite3';
 import { getCurrentActiveRun, getCalculationRun } from '@/adapters/sqlite/runs-repository';
 import { DeductionsResponse, getScheduleDeductions } from './schedule-deductions';
 import { SchedulePreviewError } from './schedule-preview';
-import { countActionableIssues } from '@/domain/issues/actionable-issues';
 
 /**
  * 匯入紀錄（specs/09 §2 次入口、§8.3 只讀；UX21）。
@@ -87,7 +86,7 @@ export function buildHistoryEntries(db: Database.Database): HistoryEntry[] {
 
   for (const r of runRows) {
     const counts = JSON.parse(r.issue_counts || '{}') as Record<string, number>;
-    const issueCount = countActionableIssues(counts);
+    const issueCount = Object.values(counts).reduce((sum, count) => sum + (Number(count) || 0), 0);
     entries.push({
       key: r.run_id,
       kind: 'run',

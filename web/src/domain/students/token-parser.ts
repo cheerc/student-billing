@@ -1,5 +1,4 @@
 import { ParsedToken } from './types';
-import { legacyClassSemanticsOf } from '@/domain/classification/legacy-class-semantics';
 
 const KNOWN_TIERS_MAP: Record<string, number> = {
   '3': 3,
@@ -121,15 +120,6 @@ export function projectTierForApplicability(
   };
 }
 
-/** Preserve the frozen import-time tier projection as read-back evidence only.
- * New v4 Runs must call `projectTierForApplicability` with their saved semantic row instead. */
-export function projectLegacyImportTierEvidence(token: ParsedToken): ParsedToken {
-  return projectTierForApplicability(
-    token,
-    legacyClassSemanticsOf(token.baseName).erpTierApplicability
-  );
-}
-
 /**
  * 解析以換行分隔的多個班名 token。
  */
@@ -142,44 +132,4 @@ export function parseClassTokens(classText: string | null | undefined): ParsedTo
     .filter((s) => s.length > 0);
 
   return lines.map((line) => parseSingleClassToken(line));
-}
-
-/**
- * 抽取舊版數學相容計算鍵 (U32)。
- * 從整段文字找第一個「國小數學-」到其後第一個「[團]」（含「[團]」）。
- */
-export function extractLegacyMathKey(tokens: ParsedToken[]): string | null {
-  for (const token of tokens) {
-    const raw = token.rawToken;
-    const matchIndex = raw.indexOf('國小數學-');
-    if (matchIndex >= 0) {
-      const fromMath = raw.substring(matchIndex);
-      const groupIndex = fromMath.indexOf('[團]');
-      if (groupIndex >= 0) {
-        return fromMath.substring(0, groupIndex + 3);
-      }
-      return fromMath;
-    }
-  }
-  return null;
-}
-
-/**
- * 抽取舊版美語相容計算鍵 (U32)。
- * 從整段文字找第一個「兒童美語-」到其後第一個「[團]」（含「[團]」）。
- */
-export function extractLegacyEnglishKey(tokens: ParsedToken[]): string | null {
-  for (const token of tokens) {
-    const raw = token.rawToken;
-    const matchIndex = raw.indexOf('兒童美語-');
-    if (matchIndex >= 0) {
-      const fromEnglish = raw.substring(matchIndex);
-      const groupIndex = fromEnglish.indexOf('[團]');
-      if (groupIndex >= 0) {
-        return fromEnglish.substring(0, groupIndex + 3);
-      }
-      return fromEnglish;
-    }
-  }
-  return null;
 }

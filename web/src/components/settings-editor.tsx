@@ -48,7 +48,6 @@ import {
   readRawFailure,
   type UserFacingError,
 } from '@/lib/user-messages';
-import { TARGET_FORMAL_RULE_SET_VERSION } from '@/domain/billing/rule-set';
 
 interface SettingsEditorProps {
   importId: string | null;
@@ -285,18 +284,7 @@ export default function SettingsEditor({
   const reqSeqRef = useRef(0);
   const latestReqKeyRef = useRef<string>('');
 
-  // D2b 4（Q11）：是否已明確確認要改用新規則（v4）。未確認時一切照現行版本走，既有 v2 DB 不動。
-  const [upgradeConfirmed, setUpgradeConfirmed] = useState(false);
-  // D2d r3／F-2：`currentRuleSetVersion` 是 server-render prop，session 內不更新，
-  // 套用成功後 `canUpgrade` 仍為 true → banner 仍在、isDirty 仍 true、離頁仍被攔截。
-  // 改用**本地 state 追蹤「目前生效的版本」**（初始取 server prop）；套用成功後設為
-  // **apply 記錄的** `targetRuleSetVersion`——apply 的結果才是權威，不主動猜目標版本。
-  // 缺值時保守不變（`?? prev`），不製造未知狀態。
-  const [appliedRuleSetVersion, setAppliedRuleSetVersion] = useState<string | null>(currentRuleSetVersion);
-  const canUpgrade =
-    appliedRuleSetVersion !== null &&
-    appliedRuleSetVersion !== TARGET_FORMAL_RULE_SET_VERSION;
-  const isUpgrading = canUpgrade && upgradeConfirmed;
+
 
   // 儲存確認視窗狀態
   const [isImpactDialogOpen, setIsImpactDialogOpen] = useState(false);
@@ -476,12 +464,8 @@ export default function SettingsEditor({
     [effectiveManualAttrs]
   );
 
-  // D2d E（04 §8 UX61；Q11）：只勾「改用新規則」、不改任何課表設定，也算有未儲存的變更。
-  const upgradeChanged = canUpgrade && upgradeConfirmed;
-
   const isDirty = useMemo(() => {
     return (
-      upgradeChanged ||
       isSettingsDirty(
         { ...baseline, classAttrs: [...baselineManualAttrs.entries()].map(([className, a]) => toClassAttributeSetting({ ...a, className })) },
         rows,
@@ -490,7 +474,7 @@ export default function SettingsEditor({
       ) ||
       mapsDiffer(baselineManualAttrs, effectiveManualAttrs)
     );
-  }, [upgradeChanged, baseline, baselineManualAttrs, rows, draft.aliases, manualAttrSettings, effectiveManualAttrs]);
+  }, [baseline, baselineManualAttrs, rows, draft.aliases, manualAttrSettings, effectiveManualAttrs]);
 
   /**
    * 課表每個班級目前有效的類別／固定 5 天（使用者的指定優先，未指定者為 unset）。
@@ -615,7 +599,6 @@ export default function SettingsEditor({
           body: JSON.stringify({
             requestKey,
             draft: calcDraft,
-            ...(isUpgrading ? { targetRuleSetVersion: TARGET_FORMAL_RULE_SET_VERSION } : {}),
           }),
         });
 
@@ -642,7 +625,7 @@ export default function SettingsEditor({
     }, 250);
 
     return () => clearTimeout(timer);
-  }, [rows, draft, effectiveManualAttrs, isUpgrading]);
+  }, [rows, draft, effectiveManualAttrs]);
 
   // 更新時段列
   const handleUpdateRow = (rowId: string, updates: Partial<ScheduleGridRow>) => {
@@ -828,7 +811,6 @@ export default function SettingsEditor({
     }));
     setManualAttrs(new Map(baselineManualAttrs));
     setPreview(null);
-    setUpgradeConfirmed(false);
   };
 
   // 取消修改
@@ -862,8 +844,6 @@ export default function SettingsEditor({
         draft: updatedDraft,
         expectedRevision: revision,
       };
-      // 升級流程（Q11）：只有使用者明確勾選「改用新規則」才帶目標版本；否則沿用現行版本（v2 DB 不動）
-      if (isUpgrading) payload.targetRuleSetVersion = TARGET_FORMAL_RULE_SET_VERSION;
       if (hasActiveImport && importId) {
         payload.importId = importId;
       }
@@ -938,16 +918,7 @@ export default function SettingsEditor({
       if (typeof json?.appliedAt === 'string') setSavedAt(json.appliedAt);
       setIsImpactDialogOpen(false);
       setPreview(null);
-      // D2d r3／F-2：套用成功後把「目前生效的版本」更新為 **apply 記錄的** target 版
-      // （`previewSettingsChange` 回傳的 `targetRuleSetVersion` 就是寫進 preview 列、
-      //   apply 唯一採用的值，見 `apply-settings.ts` `resolveRuleSetForApply`）。
-      // 這讓 `canUpgrade` 轉 false → banner 消失、isDirty 歸零、離頁守衛不再攔截。
-      // 刻意**不**加 `router.refresh()`／`revalidatePath()`：那會連帶重新取得 rows／
-      // baseline／manualAttrs，把上面「就地更新 baseline」這條既有路徑整段作廢並擴大回歸面；
-      // 版本判斷只需要這一項。
-      const appliedVersion = preview?.targetRuleSetVersion ?? null;
-      if (appliedVersion) setAppliedRuleSetVersion(appliedVersion);
-      setUpgradeConfirmed(false);
+
       showToast(preview.mode === 'settings_only' ? '課表已成功儲存' : '課表已套用並完成重算');
 
       // F3：儲存成功後，就地刷新班名比對報告（維持同頁即時更新，不需整頁 reload）。
@@ -998,32 +969,7 @@ export default function SettingsEditor({
           {/* 唯讀照顧窗口摘要 */}
           <WindowSummary />
 
-          {/* #159：舊版 active Run 必須明確確認升級後才能預覽或儲存；舊結果維持不變。 */}
-          {canUpgrade && (
-            <div
-              className={isUpgrading ? 'notice-inline' : 'notice-warn'}
-              role="status"
-              data-upgrade-banner=""
-              style={{ marginBottom: '16px' }}
-            >
-              <label style={{ display: 'flex', gap: '8px', alignItems: 'flex-start' }}>
-                <input
-                  type="checkbox"
-                  checked={upgradeConfirmed}
-                  data-upgrade-confirm=""
-                  aria-label="改用新規則（erp-tag-v4）"
-                  onChange={(e) => {
-                    setUpgradeConfirmed(e.target.checked);
-                    setPreview(null);
-                  }}
-                />
-                <span>
-                  <strong>改用新規則（v4）</strong>：現行 Run 使用舊版規則，必須先勾選並預覽，才能套用課表變更。
-                  確認後會以 v4 重新計算現行名單並建立新 Run；既有舊結果會保留，不會改寫。
-                </span>
-              </label>
-            </div>
-          )}
+
 
           {/* #80：折扣類別與固定 5 天已併入下方「89 筆平鋪時段表格」，同一列一次完成（不再有獨立的屬性卡片） */}
           {/* 89 筆平鋪時段表格（含班級屬性欄、Excel 匯出入工具列） */}
@@ -1123,7 +1069,7 @@ export default function SettingsEditor({
           <button
             type="button"
             className="btn-primary"
-            disabled={!isDirty || calculating || mergeConflicts.length > 0 || (canUpgrade && hasActiveImport && !isUpgrading)}
+            disabled={!isDirty || calculating || mergeConflicts.length > 0}
             onClick={handleOpenReview}
           >
             確認變更

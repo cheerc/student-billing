@@ -14,9 +14,8 @@ import {
   getLatestSettingsVersion,
 } from '@/adapters/sqlite/settings-repository';
 import { calculateStudentBilling } from '@/domain/billing/billing-calculator';
-import { projectActionableIssues } from '@/domain/issues/actionable-issues';
 import { careWindowsMatchRuleSet, CARE_WINDOWS_MISMATCH_MESSAGE } from './schedule-preview';
-import { resolveTargetRuleSetVersion, RuleSetResolutionError } from './rule-set-resolver';
+import { TARGET_FORMAL_RULE_SET_VERSION } from '@/domain/billing/rule-set';
 import { buildClassSettingMap } from './calculate-run';
 import { loadStudentsForImport } from '@/adapters/sqlite/import-repository';
 import { getCurrentActiveRun } from '@/adapters/sqlite/runs-repository';
@@ -155,7 +154,7 @@ export function previewSettingsChange(
   if (!parsed.success) {
     throw new SettingsPreviewError(400, `設定草稿格式錯誤：${parsed.error.message}`, 'INVALID_DRAFT');
   }
-  const { expectedRevision, targetRuleSetVersion: requestedVersion } = parsed.data;
+  const { expectedRevision } = parsed.data;
   const draft = parsed.data.draft;
   // 窗口固定（D33）：draft.careWindows 只允許 ruleSet 值，不同即 400，不靜默忽略（09 §8.1）
   if (!careWindowsMatchRuleSet(draft)) {
@@ -184,17 +183,8 @@ export function previewSettingsChange(
   }
 
   const latest = getLatestSettingsVersion(db);
-  // 新計算只允許 v4。舊版 active 預覽必須明確帶 v4（設定頁 upgrade checkbox）；
-  // 其他請求 fail-closed，不會退回舊 calculator 或把舊 run 悄悄重算。
-  let formalRuleSetVersion;
-  try {
-    formalRuleSetVersion = resolveTargetRuleSetVersion(db, requestedVersion);
-  } catch (e) {
-    if (e instanceof RuleSetResolutionError) {
-      throw new SettingsPreviewError(409, e.message, e.code);
-    }
-    throw e;
-  }
+  // 單一現行規則：新計算固定使用 erp-tag-v4。
+  const formalRuleSetVersion = TARGET_FORMAL_RULE_SET_VERSION;
 
   const activeRun = getCurrentActiveRun(db).run;
 
@@ -260,7 +250,7 @@ export function previewSettingsChange(
     }
     const beforeTierComparisons = JSON.parse(saved.tier_comparisons || '[]') as Array<{ status?: string; computedTier?: number | null; needsReview?: boolean }>;
     const beforeIssues = JSON.parse(saved.issues || '[]') as Array<{ code: string }>;
-    const actionableBefore = projectActionableIssues(beforeIssues, beforeTierComparisons);
+    const hadIssuesBefore = beforeIssues.length > 0 || beforeTierComparisons.some((c) => c.needsReview === true);
     const beforeApplicableRates: Partial<Record<CourseRateDelta['course'], number | null>> = {
       anqin: saved.applicable_anqin_bps,
       tutoring: saved.applicable_tutoring_bps,
@@ -273,7 +263,7 @@ export function previewSettingsChange(
         tutoring: { days: saved.tutoring_days },
       },
       tierComparisons: beforeTierComparisons,
-      hasIssues: actionableBefore.actionableHasIssues,
+      hasIssues: hadIssuesBefore,
       subjectCount: saved.subject_count,
       baseDiscountBps: saved.base_discount_bps,
       applicableRates: beforeApplicableRates,

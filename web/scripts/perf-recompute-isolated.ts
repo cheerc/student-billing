@@ -10,7 +10,7 @@ import { activateImport } from '../src/application/activate-import.js';
 import { queryRunStudents } from '../src/application/query-students.js';
 import { executeCalculationRun, resolveLatestSavedSettings } from '../src/application/calculate-run.js';
 import { saveCalculationRun } from '../src/adapters/sqlite/runs-repository.js';
-import { resolveTargetRuleSetVersion } from '../src/application/rule-set-resolver.js';
+import { TARGET_FORMAL_RULE_SET_VERSION } from '../src/domain/billing/rule-set';
 import {
   summarizeTimings, assertRecomputePerformanceBudget, assertImportToQueryablePerformanceBudget,
 } from './perf-contract.js';
@@ -82,12 +82,12 @@ async function measureImportToQueryable(fixtureBuf: Buffer, dir: string, index: 
 function measureRecompute(db: Database.Database, importId: string, index: number) {
   const runId = `gate_recompute_${index}`;
   const started = performance.now();
-  const { run, results, classCategories, classSemantics } = executeCalculationRun(db, importId, runId, {
-    ruleSetVersion: resolveTargetRuleSetVersion(db),
+  const { run, results, classCategories } = executeCalculationRun(db, importId, runId, {
+    ruleSetVersion: TARGET_FORMAL_RULE_SET_VERSION,
     asOfDate: '2026-10-04',
     ...resolveLatestSavedSettings(db),
   });
-  saveCalculationRun(db, run, results, classCategories, classSemantics);
+  saveCalculationRun(db, run, results, classCategories);
   const ms = performance.now() - started;
 
   // 非空轉：結果筆數與學生數一致，且新 run 真的可查。

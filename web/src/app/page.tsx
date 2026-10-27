@@ -11,7 +11,6 @@ import ActiveRunView from '@/components/active-run-view';
 import { findUnmappedClasses, getScheduleDeductions } from '@/application/schedule-deductions';
 import { getImportBatch } from '@/adapters/sqlite/import-repository';
 import { loadRunClassCategories } from '@/application/applicable-rate';
-import { historicalRuleSetMetadata } from '@/domain/billing/rule-set';
 
 export const dynamic = 'force-dynamic';
 
@@ -55,12 +54,7 @@ export default async function HomePage({
             updatedAt: activeRun.createdAt,
           }}
           unmappedClasses={findUnmappedClasses(db, activeRun.id, availableClasses)}
-          classCategorySnapshots={
-            // 歷史讀取 metadata：v3／v4 有不可變類別快照；v1／v2 走舊名班 mapper。
-            historicalRuleSetMetadata(activeRun.ruleSetVersion).hasClassCategorySnapshot ? loadRunClassCategories(db, activeRun.id) : null
-          }
-          classSemanticSnapshots={activeRun.classSemantics ?? null}
-          classCategoryRuleSetVersion={activeRun.ruleSetVersion}
+          classCategorySnapshots={loadRunClassCategories(db, activeRun.id)}
           initialData={view.data}
           initialOptions={view.options}
           initialView={view.view}

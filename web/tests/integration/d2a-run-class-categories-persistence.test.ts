@@ -134,13 +134,13 @@ describe('D2b N-6: run_class_categories 快照持久化與讀模型（完整生�
 
   it('v4 run 重存時 student_calculations 不被級聯刪除 (R2-1)', () => {
     const resV4 = executeCalculationRun(db, 'imp_test', 'run_v4_resave', { ruleSetVersion: 'erp-tag-v4' });
-    saveCalculationRun(db, resV4.run, resV4.results, resV4.classCategories, resV4.classSemantics);
+    saveCalculationRun(db, resV4.run, resV4.results, resV4.classCategories);
 
     const beforeCount = (db.prepare('SELECT count(*) as c FROM student_calculations WHERE run_id = ?').get('run_v4_resave') as any).c;
     expect(beforeCount).toBeGreaterThan(0);
 
     try {
-      saveCalculationRun(db, resV4.run, [], [], resV4.classSemantics);
+      saveCalculationRun(db, resV4.run, [], []);
     } catch {
       // INSERT INTO 應拋出 UNIQUE/PRIMARY KEY constraint 錯誤而非靜默替換
     }
@@ -149,7 +149,7 @@ describe('D2b N-6: run_class_categories 快照持久化與讀模型（完整生�
     expect(afterCount).toBe(beforeCount);
   });
 
-  it('historical v3 read model: non-included fixed-five-days class keeps its 10000 bps projection', () => {
+  it('read model: none category fixed-five-days class returns not_configured (decoupled)', () => {
     saveHistoricalRun('run_v3_rate', 'erp-tag-v3', [
       { baseName: '國小輔導-寫功課', category: 'none', fixedFiveDays: 1, mapped: 1, source: 'manual' },
       { baseName: '國小輔導-四年級', category: 'care', fixedFiveDays: 0, mapped: 1, source: 'manual' },
@@ -166,9 +166,9 @@ describe('D2b N-6: run_class_categories 快照持久化與讀模型（完整生�
         applicableMathBps: 8888,
         applicableEnglishBps: 8888,
       },
-      { ruleSetVersion: 'erp-tag-v3', findSnapshot: snapshotLookup(db, 'run_v3_rate') }
+      {  findSnapshot: snapshotLookup(db, 'run_v3_rate') }
     );
-    expect(hw).toEqual({ status: 'configured', bps: 10000 });
+    expect(hw).toEqual({ status: 'not_configured' });
 
     // 對照組：同樣的類別欄位（care），非固定 5 天 → 依年級取課輔側 8888，證明兩條分支確實不同
     const care = applicableRateForClass(
@@ -180,7 +180,7 @@ describe('D2b N-6: run_class_categories 快照持久化與讀模型（完整生�
         applicableMathBps: 8888,
         applicableEnglishBps: 8888,
       },
-      { ruleSetVersion: 'erp-tag-v3', findSnapshot: snapshotLookup(db, 'run_v3_rate') }
+      {  findSnapshot: snapshotLookup(db, 'run_v3_rate') }
     );
     expect(care).toEqual({ status: 'configured', bps: 8888 });
   });
@@ -199,7 +199,7 @@ describe('D2b N-6: run_class_categories 快照持久化與讀模型（完整生�
         applicableMathBps: 8888,
         applicableEnglishBps: 8888,
       },
-      { ruleSetVersion: 'erp-tag-v3', findSnapshot: snapshotLookup(db, 'run_v3_missing') }
+      {  findSnapshot: snapshotLookup(db, 'run_v3_missing') }
     );
     // 國小數學-四A 是 seed 班級但本名單沒人報名，快照無此列 → not_configured（不是 8888 的猜測）
     expect(r.status).toBe('not_configured');
@@ -275,10 +275,10 @@ describe('D2b N-7: alias 解析與 manual 來源的快照回歸', () => {
     seedOneStudent('美語新班-2026春');
 
     const res = executeCalculationRun(db, 'imp_n7', 'run_alias', {
-      ruleSetVersion: 'erp-tag-v4',
+      
       aliasMap: new Map([['美語新班-2026春', '兒童美語-Gino']]),
     });
-    saveCalculationRun(db, res.run, res.results, res.classCategories, res.classSemantics);
+    saveCalculationRun(db, res.run, res.results, res.classCategories);
 
     const issues = res.results[0].issues as Array<{ code: string }>;
     expect(issues.some((i) => i.code === 'CLASS_NOT_MAPPED')).toBe(false);
@@ -299,9 +299,9 @@ describe('D2b N-7: alias 解析與 manual 來源的快照回歸', () => {
     seedOneStudent('國小數學-未對應新班');
 
     const res = executeCalculationRun(db, 'imp_n7', 'run_noalias', {
-      ruleSetVersion: 'erp-tag-v4',
+      
     });
-    saveCalculationRun(db, res.run, res.results, res.classCategories, res.classSemantics);
+    saveCalculationRun(db, res.run, res.results, res.classCategories);
 
     const issues = res.results[0].issues as Array<{ code: string }>;
     expect(issues.some((i) => i.code === 'CLASS_NOT_MAPPED')).toBe(true);
@@ -350,10 +350,10 @@ describe('D2b N-7: alias 解析與 manual 來源的快照回歸', () => {
     });
 
     const res = executeCalculationRun(db, 'imp_n7', 'run_manual', {
-      ruleSetVersion: 'erp-tag-v4',
+      
       scheduleVersionId: versionId,
     });
-    saveCalculationRun(db, res.run, res.results, res.classCategories, res.classSemantics);
+    saveCalculationRun(db, res.run, res.results, res.classCategories);
 
     const row = db
       .prepare('SELECT * FROM run_class_categories WHERE run_id = ? AND base_name = ?')

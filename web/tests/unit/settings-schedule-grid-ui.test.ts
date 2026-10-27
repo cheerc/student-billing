@@ -134,7 +134,7 @@ describe('R2 UI 元件與排課工作流程（RED 測試）', () => {
           calculateResult: {
             requestKey: 'mock-0',
             draftHash: 'hash',
-            ruleSetVersion: 'erp-tag-v2',
+            ruleSetVersion: 'erp-tag-v4',
             windows: CARE_WINDOWS_VIEW,
             rows: [
               {
@@ -183,7 +183,7 @@ describe('R2 UI 元件與排課工作流程（RED 測試）', () => {
           calculateResult: {
             requestKey: 'mock-1',
             draftHash: 'hash',
-            ruleSetVersion: 'erp-tag-v2',
+            ruleSetVersion: 'erp-tag-v4',
             windows: CARE_WINDOWS_VIEW,
             rows: [
               {

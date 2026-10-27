@@ -139,26 +139,23 @@ export function saveSettingsPreview(
   db: Database.Database,
   record: SettingsPreviewRecord
 ): void {
-  const existing = new Set((db.prepare("PRAGMA table_info(settings_previews)").all() as Array<{ name: string }>).map((c) => c.name));
-
-  const columns: Array<[string, unknown]> = [
-    ['preview_id', record.previewId],
-    ['input_hash', record.inputHash],
-    ['draft_json', record.draftJson],
-    ['expected_revision', record.expectedRevision],
-    ['settings_version_id', record.settingsVersionId],
-    ['import_id', record.importId],
-    ['result_json', record.resultJson],
-    ['created_at', record.createdAt],
-  ];
-  // 較舊 schema（0005／0007 之前）沒有的欄位不寫，維持既有的相容行為
-  if (existing.has('expires_at')) columns.push(['expires_at', record.expiresAt ?? null]);
-  if (existing.has('target_rule_set_version')) columns.push(['target_rule_set_version', record.targetRuleSetVersion ?? null]);
-
   db.prepare(
-    `INSERT INTO settings_previews (${columns.map(([name]) => name).join(', ')})
-     VALUES (${columns.map(() => '?').join(', ')})`
-  ).run(...columns.map(([, value]) => value));
+    `INSERT INTO settings_previews (
+      preview_id, input_hash, draft_json, expected_revision, settings_version_id,
+      import_id, result_json, created_at, expires_at, target_rule_set_version
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).run(
+    record.previewId,
+    record.inputHash,
+    record.draftJson,
+    record.expectedRevision,
+    record.settingsVersionId,
+    record.importId,
+    record.resultJson,
+    record.createdAt,
+    record.expiresAt ?? null,
+    record.targetRuleSetVersion ?? null
+  );
 }
 
 export function saveSettingsVersion(

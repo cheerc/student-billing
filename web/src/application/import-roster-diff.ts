@@ -2,7 +2,7 @@ import Database from 'better-sqlite3';
 import { loadStudentsForImport } from '@/adapters/sqlite/import-repository';
 import { computeRosterChanges, RosterChange } from './roster-changes';
 import { resolveLatestSavedSettings } from './calculate-run';
-import { resolveTargetRuleSetVersion } from './rule-set-resolver';
+import { TARGET_FORMAL_RULE_SET_VERSION } from '@/domain/billing/rule-set';
 
 /**
  * 匯入預覽的名單差異（specs/09 §4）：本次上傳的名單相對於「現行名單」的新增／異動／本次未出現。
@@ -58,7 +58,7 @@ export function computeImportRosterChanges(
     // （specs/11 §3 B1-D「共用同一套類別解析」；D17 照實呈現）。未帶時該班視為未設定，
     // 使用者看到的「前」狀態就會與按下之後系統實際會用的狀態不同。
     classSettings: settings.classSettings,
-    ruleSetVersion: resolveTargetRuleSetVersion(db),
+    ruleSetVersion: TARGET_FORMAL_RULE_SET_VERSION,
   };
 
   const result = computeRosterChanges(before, after, ctx, ctx);

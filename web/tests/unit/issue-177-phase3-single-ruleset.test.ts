@@ -9,7 +9,6 @@ import { runMigrations } from '@/adapters/sqlite/migrator';
 import { buildSeedDraft } from '@/adapters/sqlite/settings-repository';
 import SettingsEditor from '@/components/settings-editor';
 import { applicableRateForClass } from '@/application/applicable-rate';
-import { resolveTargetRuleSetVersion } from '@/application/rule-set-resolver';
 import * as ruleSet from '@/domain/billing/rule-set';
 import * as tokenParser from '@/domain/students/token-parser';
 import * as classNameReport from '@/application/class-name-match-report';
@@ -68,20 +67,16 @@ describe('Issue #177 Phase 3: single current rule set (erp-tag-v4)', () => {
     expect(ruleSet.FORMAL_RULE_SET_VERSION_LIST).toEqual(['erp-tag-v4']);
   });
 
-  it('a stale non-v4 active run never blocks a new calculation or demands an upgrade', () => {
-    const fakeDb = {
-      prepare: (sql: string) => ({
-        get: () => (sql.includes('active_state') ? { active_run_id: 'run_old' } : { rule_set_version: 'erp-tag-v3' }),
-      }),
-    } as never;
-    expect(resolveTargetRuleSetVersion(fakeDb)).toBe('erp-tag-v4');
+  it('rule-set-resolver is deleted and calculation runs use the v4 target directly', () => {
+    expect(fs.existsSync(path.join(webRoot, 'src/application/rule-set-resolver.ts'))).toBe(false);
+    expect(ruleSet.TARGET_FORMAL_RULE_SET_VERSION).toBe('erp-tag-v4');
   });
 
   it('applicable rate never guesses a category from the class name for a legacy version label', () => {
     const rate = applicableRateForClass(
       '國小數學-一A',
       { grade: 1, applicableAnqinBps: 9500, applicableTutoringBps: null, applicableMathBps: 9000, applicableEnglishBps: null },
-      { ruleSetVersion: 'erp-tag-v1' }
+      { findSnapshot: () => undefined }
     );
     expect(rate).toEqual({ status: 'not_configured' });
   });

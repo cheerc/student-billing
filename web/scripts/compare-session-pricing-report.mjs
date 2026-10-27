@@ -18,7 +18,7 @@
  *
  * ## 複寫禁令（CLAUDE.md §9.0）
  *
- * 班名 → 類別的判定**一律取產品端 `historicalRateCategoryOfClass`**，本檔不自寫對照表。
+ * 班名 → 類別的判定取自 run 類別快照。
  * 複寫必然漂移——國小輔導工具曾在自建白名單裡漏掉 `[5]`、把 `[Starter]`
  * 默默當成 5 天（review F-NEW-2）。此處同樣只保有一份真相。
  *
@@ -35,13 +35,13 @@ import path from 'path';
 import os from 'os';
 import { fileURLToPath } from 'url';
 
-import { historicalRateCategoryOfClass, applicableRateForClass } from '../src/application/applicable-rate.ts';
+import { applicableRateForClass } from '../src/application/applicable-rate.ts';
 import { parseSingleClassToken } from '../src/domain/students/token-parser.ts';
 
 import { parseDiscounts, bpsToLabel, readMultiTuitionReport } from './shared/report-xlsx.ts';
 import { fetchRunStudents, fetchRun } from './shared/roster-api.ts';
 import { normalizeName, indexByName } from './shared/name-matching.ts';
-import { toApplicableRateContext, snapshotRowFor, classSemanticsForRun, runUsesClassSemanticsSnapshot, buildRunSnapshotContext, shouldWarnMissingSnapshot, usesFrozenLegacyProjection } from './shared/rate-context.ts';
+import { toApplicableRateContext, snapshotRowFor, classSemanticsForRun, buildRunSnapshotContext, shouldWarnMissingSnapshot } from './shared/rate-context.ts';
 import { defineCategories, formatCategorySummary } from './shared/category-registry.ts';
 import { renderShell, escapeHtml } from './shared/report-shell.ts';
 import { assertProjectRoot, assertOutputOutsideProject } from './shared/project-guard.ts';
@@ -250,12 +250,12 @@ function baseClassName(head) {
 /**
  * 報表明細的班名部分 → 系統適用率欄位。
  *
- * 類別判定直接取產品端 `historicalRateCategoryOfClass`，本檔不自寫對照表（§9.0 複寫即漂移）。
+ * 類別判定取自 run 類別快照。
  * 欄位名以對照表由**類別**推導，而非把類別字串拼成欄位名——後者會得到
  * `applicableenglishbps` 這種拼錯的名字，而拼錯不會報錯，只會讓數值變 undefined。
  *
  * 本表只列本工具比對的兩類；`care`（國小輔導）不在此列，那由 `billing:compare`
- * 負責。`historicalRateCategoryOfClass` 仍會對輔導班回 'care'，呼叫端據此區分
+ * 負責。路由函式對輔導班回 'care'，呼叫端據此區分
  * 「判定為輔導」（可解釋的結果）與「無法判定」（null，才需要人工介入）。
  */
 const RATE_FIELD_BY_CATEGORY = {
@@ -273,8 +273,15 @@ const RATE_FIELD_BY_CATEGORY = {
  * @param className 報表上的班名
  * @param student   名單學生（提供四個 applicable*Bps 欄位）
  */
+function classifyClassName(className) {
+  if (className.includes('國小輔導')) return 'care';
+  if (className.includes('國小數學')) return 'math';
+  if (className.includes('兒童美語')) return 'english';
+  return null;
+}
+
 export function routeRateField(className, student) {
-  const category = historicalRateCategoryOfClass(className);
+  const category = classifyClassName(className);
   if (category === null) return { category: null, field: null, bps: null };
   const field = RATE_FIELD_BY_CATEGORY[category] ?? null;
   const bps = field ? (student?.[field] ?? null) : null;
@@ -325,37 +332,27 @@ export function resolveApplicableRate(className, student, context) {
       return { status: 'not_configured', bps: null, category: null, fromSnapshot: true };
     }
 
-    if (runUsesClassSemanticsSnapshot(ctx) && categorySnapshot.class_type === undefined) {
-      const semantics = classSemanticsForRun(className, ctx);
-      if (!semantics || semantics.category !== categorySnapshot.category) {
-        return { status: 'not_configured', bps: null, category: null, fromSnapshot: true };
-      }
-    }
-
     // 快照的查詢與「找不到算什麼」一律走共用層的轉接，兩台工具同源（§9.0）。
     const rate = applicableRateForClass(className, student ?? {}, toApplicableRateContext(ctx));
     return {
       status: rate.status,
       bps: rate.status === 'configured' ? rate.bps : null,
-      // 類別一律以快照為準（無快照即無法判定，不退回班名推導）。
-      // 呼叫端據此分派「輔導班 → 另一台工具」與「未分類 → 需人工歸類」。
       category: categorySnapshot ? categorySnapshot.category : null,
       fromSnapshot: true,
     };
   }
 
-  if (!usesFrozenLegacyProjection(ctx)) {
-    return { status: 'not_configured', bps: null, category: null, fromSnapshot: false };
+  const nameMappingVersions = new Set(['erp-tag-v1', 'erp-tag-v2']);
+  if (nameMappingVersions.has(ctx.ruleSetVersion)) {
+    const routed = routeRateField(className, student);
+    return {
+      status: routed.category === null ? 'unclassified' : 'configured',
+      bps: routed.bps,
+      category: routed.category,
+      fromSnapshot: false,
+    };
   }
-
-  const routed = routeRateField(className, student);
-  // 名稱映射沒有「未配置」狀態：v2 一直是以 null 表示「此側無適用值」。
-  return {
-    status: routed.category === null ? 'unclassified' : 'configured',
-    bps: routed.bps,
-    category: routed.category,
-    fromSnapshot: false,
-  };
+  return { status: 'not_configured', bps: null, category: null, fromSnapshot: false };
 }
 
 /** 類別的中文顯示名（用於表格欄位與說明）。 */

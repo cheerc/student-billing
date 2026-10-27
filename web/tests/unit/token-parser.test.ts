@@ -2,8 +2,6 @@ import { describe, it, expect } from 'vitest';
 import {
   parseClassTokens,
   projectTierForApplicability,
-  extractLegacyMathKey,
-  extractLegacyEnglishKey,
 } from '@/domain/students/token-parser';
 
 describe('班名 token 詞法解析與 run 級距投影 (U32, U43, U44, U45, U46)', () => {
@@ -16,13 +14,7 @@ describe('班名 token 詞法解析與 run 級距投影 (U32, U43, U44, U45, U46
     expect(tokens[1].rawToken).toBe('兒童美語-EA[團][Starter]');
     expect(tokens[2].rawToken).toBe('國小數學-二[團]');
 
-    // Legacy 抽取鍵：數學抽第一個前綴至 [團]（不含年度前綴）
-    const mathKey = extractLegacyMathKey(tokens);
-    expect(mathKey).toBe('國小數學-三A[團]');
 
-    // Legacy 抽取鍵：美語抽第一個前綴至 [團]（不含後續級別修飾）
-    const englishKey = extractLegacyEnglishKey(tokens);
-    expect(englishKey).toBe('兒童美語-EA[團]');
   });
 
   it('U43: 一般安親/課輔登記級距解析與預設值', () => {

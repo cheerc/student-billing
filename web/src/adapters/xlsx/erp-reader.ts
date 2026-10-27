@@ -4,7 +4,6 @@ import {
   StudentSnapshot,
   parseGrade,
   parseClassTokens,
-  projectLegacyImportTierEvidence,
   matchHeaders,
   HeaderMatchResult,
 } from '@/domain/students';
@@ -289,8 +288,8 @@ export async function readErpWorkbook(
     }
     seenPersonCodes.add(personCode);
 
-    // 解析班名 Token
-    const enrollments = parseClassTokens(classText).map(projectLegacyImportTierEvidence);
+    // 解析班名 Token（純語法；級距意義於計算時依該班設定投影，匯入不猜班名）
+    const enrollments = parseClassTokens(classText);
     if (enrollments.length > 0) {
       studentsWithClass++;
     } else {

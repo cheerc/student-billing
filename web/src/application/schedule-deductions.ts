@@ -11,8 +11,7 @@ import {
 import { getCalculationRun, getCurrentActiveRun } from '@/adapters/sqlite/runs-repository';
 import { SEED_SCHEDULE_VERSION_ID } from './calculate-run';
 import { buildSchedulePreview, SchedulePreviewCore, SchedulePreviewError } from './schedule-preview';
-import { isFormalRuleSetVersion } from '@/domain/billing/rule-set';
-import { resolveFormalRuleSetVersion } from './rule-set-resolver';
+import { TARGET_FORMAL_RULE_SET_VERSION } from '@/domain/billing/rule-set';
 import { loadRunSnapshot } from './run-snapshot';
 
 /**
@@ -38,8 +37,7 @@ function respondForRun(db: Database.Database, runId: string, scope: 'run' | 'act
   if (!run) {
     throw new SchedulePreviewError(404, `找不到計算 run: ${runId}`, 'RUN_NOT_FOUND');
   }
-  // 只為可辨識的歷史版本重建；unknown/corrupt 版本不能套用任一版本的規則猜測。
-  if (!isFormalRuleSetVersion(run.ruleSetVersion)) {
+  if (run.ruleSetVersion !== TARGET_FORMAL_RULE_SET_VERSION) {
     throw new SchedulePreviewError(
       422,
       'run 使用無法辨識或不支援的規則版本，無法安全重建班級扣天。',
@@ -60,7 +58,7 @@ function respondForRun(db: Database.Database, runId: string, scope: 'run' | 'act
     scheduleVersionId: snapshot.scheduleVersionId,
     settingsRevision: snapshot.settingsRevision,
     draftHash: hashSettingsDraft(snapshot.draft),
-    ...buildSchedulePreview(snapshot.draft, run.ruleSetVersion),
+    ...buildSchedulePreview(snapshot.draft, TARGET_FORMAL_RULE_SET_VERSION),
   };
 }
 
@@ -75,7 +73,6 @@ export function getScheduleDeductions(db: Database.Database, options: { runId?: 
   }
 
   const latest = getLatestSettingsVersion(db);
-  const ruleSetVersion = resolveFormalRuleSetVersion(db);
   if (latest) {
     const draft = readStoredDraft(latest.contentJson);
     return {
@@ -84,7 +81,7 @@ export function getScheduleDeductions(db: Database.Database, options: { runId?: 
       scheduleVersionId: latest.id,
       settingsRevision: latest.revision,
       draftHash: hashSettingsDraft(draft),
-      ...buildSchedulePreview(draft, ruleSetVersion),
+      ...buildSchedulePreview(draft, TARGET_FORMAL_RULE_SET_VERSION),
     };
   }
 
@@ -95,7 +92,7 @@ export function getScheduleDeductions(db: Database.Database, options: { runId?: 
     scheduleVersionId: SEED_SCHEDULE_VERSION_ID,
     settingsRevision: null,
     draftHash: hashSettingsDraft(seed),
-    ...buildSchedulePreview(seed, ruleSetVersion),
+    ...buildSchedulePreview(seed, TARGET_FORMAL_RULE_SET_VERSION),
   };
 }
 

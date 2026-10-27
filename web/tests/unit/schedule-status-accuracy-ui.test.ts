@@ -32,7 +32,7 @@ function row(over: Partial<ScheduleGridRow> & { rowId: string; className: string
 }
 
 function calc(rows: ScheduleGridRow[]): CalculatePreviewResponse {
-  const core = buildSchedulePreview(toCalculateDraft(rows), 'erp-tag-v2');
+  const core = buildSchedulePreview(toCalculateDraft(rows), 'erp-tag-v4');
   return { requestKey: 'k', draftHash: 'h', ...core };
 }
 
@@ -191,7 +191,7 @@ describe('UX07（修訂）：ScheduleGrid 對未知／空白星期的呈現', ()
 
 describe('UX26：班級扣天的狀態同時考慮安親與課輔兩側', () => {
   function panelFor(rows: ScheduleGridRow[]) {
-    const core = buildSchedulePreview(toCalculateDraft(rows), 'erp-tag-v2');
+    const core = buildSchedulePreview(toCalculateDraft(rows), 'erp-tag-v4');
     const data: DeductionsResponse = {
       ...core,
       scope: 'seed',
@@ -241,7 +241,7 @@ describe('UX26：班級扣天的狀態同時考慮安親與課輔兩側', () => 
 
   it('展開逐堂列：未知星期的列在重疊／扣除欄顯示「需確認」，不是 0', () => {
     const rows = [row({ rowId: 'r1', className: '未知班', weekday: '八' })];
-    const core = buildSchedulePreview(toCalculateDraft(rows), 'erp-tag-v2');
+    const core = buildSchedulePreview(toCalculateDraft(rows), 'erp-tag-v4');
     const data: DeductionsResponse = { ...core, scope: 'seed', runId: null, scheduleVersionId: 's', settingsRevision: null, draftHash: 'h' };
     const html = renderToStaticMarkup(
       React.createElement(ClassDeductionsPanel, { data, onEditClass: () => {}, expandedClassKey: '未知班' })
@@ -279,7 +279,7 @@ describe('ClassDeductionsPanel：整班優先序（未知／不完整＞已計�
   ];
   it.each(cases)('(%s, %s) → %s', (anqin, tutoring, expected) => {
     // 以真實 preview 為底，只覆寫兩側狀態以驗證 UI consumer 的獨立組合；不引用未存在的新 helper。
-    const core = buildSchedulePreview(toCalculateDraft([row({ rowId: 'r1', className: '狀態組合班' })]), 'erp-tag-v2');
+    const core = buildSchedulePreview(toCalculateDraft([row({ rowId: 'r1', className: '狀態組合班' })]), 'erp-tag-v4');
     const data: DeductionsResponse = {
       ...core,
       classes: core.classes.map((c) => ({

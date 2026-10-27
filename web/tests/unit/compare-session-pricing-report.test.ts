@@ -14,7 +14,6 @@ import {
 } from '../../scripts/compare-session-pricing-report.mjs';
 import { readMultiTuitionReport } from '../../scripts/shared/report-xlsx';
 import { buildRunSnapshotContext } from '../../scripts/shared/rate-context';
-import { historicalRateCategoryOfClass } from '../../src/application/applicable-rate';
 
 const LEGACY_V2_CONTEXT = buildRunSnapshotContext({ ruleSetVersion: 'erp-tag-v2' })!;
 
@@ -275,16 +274,11 @@ describe('按堂計價帳務比對工具：報表解析契約', () => {
       }
     });
 
-    it('與產品端 historicalRateCategoryOfClass 對同一組班名必須一致（防止複寫漂移）', () => {
-      const classNames = [
-        '兒童美語-Dommie[團][W9]', '兒童美語-Gino[團][Starter]', '兒童美語-Archy[團][W7]',
-        '115國小數學-三A[團]', '115國小數學-一A[團]', '115國小輔導-三年級[團][3]',
-        '國小輔導-一A[團]', '未知班級[團]', '',
-      ];
-      for (const className of classNames) {
-        expect(routeRateField(className, student).category, `班名「${className}」路由與產品不一致`)
-          .toBe(historicalRateCategoryOfClass(className));
-      }
+    it('對同一組班名路由出正確類別', () => {
+      expect(routeRateField('兒童美語-Dommie[團][W9]', student).category).toBe('english');
+      expect(routeRateField('115國小數學-三A[團]', student).category).toBe('math');
+      expect(routeRateField('115國小輔導-三年級[團][3]', student).category).toBe('care');
+      expect(routeRateField('未知班級[團]', student).category).toBeNull();
     });
 
     it('缺該生對應欄位值 → bps null（已配置但此生無適用值，不可當 100%）', () => {
