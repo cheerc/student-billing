@@ -1,10 +1,12 @@
 import { describe, it, expect } from 'vitest';
+import crypto from 'crypto';
 import { executeCalculationRun } from '@/application/calculate-run';
 import { runMigrations } from '@/adapters/sqlite/migrator';
 import { getCalculationRun, saveCalculationRun } from '@/adapters/sqlite/runs-repository';
 import { queryRunStudents } from '@/application/query-students';
 import { useGlobalTempDb, saveSyntheticBatch, makeStudent } from '../helpers/d1-test-kit';
 import { compare as compareBilling } from '../../scripts/compare-billing-report.mjs';
+import { DEFAULT_CLASS_TYPE_DEFINITIONS } from '@/contracts/settings';
 
 /**
  * issue #140 第 4 項：`not_configured` 的可達性必須由**正式測試**釘住，而不是靠一次性探針。
@@ -39,7 +41,28 @@ type Db = ReturnType<typeof import('@/adapters/sqlite').getDatabase>;
 
 function runV4(db: Db, importId: string, runId: string) {
   const res = executeCalculationRun(db, importId, runId, { ruleSetVersion: 'erp-tag-v4' as never });
-  saveCalculationRun(db, res.run, res.results, res.classCategories, res.classSemantics);
+  const defJson = JSON.stringify(DEFAULT_CLASS_TYPE_DEFINITIONS.find((d) => d.id === 'care'));
+  const defHash = crypto.createHash('sha256').update(defJson).digest('hex');
+  const semantics = [{
+    baseName: CARE_CLASS,
+    resolvedBaseName: CARE_CLASS,
+    snapshotSchemaVersion: 2,
+    classTypeId: 'care',
+    classTypeDefinitionJson: defJson,
+    classTypeDefinitionHash: defHash,
+    subject: '國小輔導',
+    subjectSource: 'seed',
+    category: 'care',
+    categorySource: 'seed',
+    fixedFiveDays: 0,
+    summaryDayRolesJson: '[]',
+    summaryDayRoleConditionsJson: '[]',
+    summaryDayRolesStatus: 'configured',
+    summaryDayRolesSource: 'seed',
+    erpTierApplicability: 'applicable',
+    erpTierApplicabilitySource: 'seed',
+  }];
+  saveCalculationRun(db, res.run, res.results, res.classCategories, semantics);
   return res;
 }
 
@@ -94,7 +117,7 @@ describe('issue #140 第 4 項：not_configured 分支的可達性（正式測�
     const before = queryRunStudents(db, 'run_v4', { limit: 50 }).items[0]!;
     expect(before.enrollments.some((e) => e.baseName?.includes('國小輔導'))).toBe(false);
     const rows = (rateContextOf(db, 'run_v4').classCategories ?? []) as Array<{ base_name: string }>;
-    expect(rows.some((r) => r.base_name.includes('國小輔導'))).toBe(false);
+    expect(rows.some((r) => r.base_name === CARE_CLASS)).toBe(false);
     const semanticRows = (rateContextOf(db, 'run_v4').classSemantics ?? []) as Array<{ baseName: string }>;
     expect(semanticRows.some((r) => r.baseName === CARE_CLASS)).toBe(true);
 

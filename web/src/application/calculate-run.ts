@@ -6,11 +6,9 @@ import { CalculationRunRecord, StudentCalculationRecord, RunClassCategoryRecord,
 import seedData from '@/domain/schedules/schedule-seed.json';
 import { SettingsDraft, DEFAULT_CLASS_TYPE_DEFINITIONS, legacyClassTypeForDefinition } from '@/contracts/settings';
 import { todayInTaipei } from '@/lib/datetime';
-import { resolveClassEnrollment, ClassSettingLookup } from '@/domain/classification/class-category';
+import { resolveClassEnrollment, effectiveCategoryOf, ClassSettingLookup } from '@/domain/classification/class-category';
 import { TARGET_FORMAL_RULE_SET_VERSION } from '@/domain/billing/rule-set';
 import { normalizeSettingsDraftSemantics } from '@/domain/classification/class-semantics';
-import { SEED_CLASS_SEMANTICS } from '@/domain/classification/class-semantics';
-import { projectSummaryDayValues } from './summary-day-values';
 import {
   getLatestSettingsVersion,
   getSettingsPreview,
@@ -225,21 +223,6 @@ export function executeCalculationRun(
       classSettings,
     });
 
-    // Summary values follow the resolved semantic settings and selected class from this run.
-    const summaryDayValues = projectSummaryDayValues(
-      enrollments,
-      classSettings,
-      options.aliasMap,
-      (resolvedBaseName) => {
-        const seedClass = seedMap.get(resolvedBaseName);
-        return seedClass?.sessions.length;
-      },
-      {
-        english: formal.selection?.english?.selectedBaseName,
-        math: formal.selection?.math?.selectedBaseName,
-      }
-    );
-
     const tierMismatch = formal.tierComparisons.some((c) => c.status === 'mismatch');
     const hasIssues = formal.issues.length > 0 || formal.tierComparisons.some((c) => c.needsReview);
 
@@ -269,7 +252,12 @@ export function executeCalculationRun(
       anqinDisplay: formal.careDays.anqin.displayDays,
       tutoringDays: formal.careDays.tutoring.days,
       tutoringDisplay: formal.careDays.tutoring.displayDays,
-      ...summaryDayValues,
+      chineseDays: null,
+      mathDays: null,
+      englishDays: null,
+      homeworkDays: null,
+      intensiveEnglishDays: null,
+      saturdayTutoringDays: null,
       applicableAnqinBps: formal.applicableRates.anqin,
       applicableTutoringBps: formal.applicableRates.tutoring,
       applicableEnglishBps: formal.applicableRates.english,
@@ -305,10 +293,8 @@ export function executeCalculationRun(
 
   // R2-1 & R2-2: 產生 run_class_categories 快照物件，供 saveCalculationRun 持久化
   let classCategories: RunClassCategoryRecord[] | undefined;
-  let classSemantics: RunClassSemanticRecord[] | undefined;
   {
     const classCategoryMap = new Map<string, RunClassCategoryRecord>();
-    const classSemanticMap = new Map<string, RunClassSemanticRecord>();
 
     for (const r of enrollmentRows) {
       if (!classCategoryMap.has(r.base_name)) {
@@ -319,54 +305,39 @@ export function executeCalculationRun(
         );
         classCategoryMap.set(r.base_name, {
           baseName: r.base_name,
+          resolvedBaseName: resolved.resolvedBaseName,
+          classType: resolved.classType,
           category: resolved.category,
           fixedFiveDays: resolved.fixedFiveDays ? 1 : 0,
           mapped: resolved.mapped ? 1 : 0,
           // #157 Ruling 4：來源值域為 'manual' | 'unset'（舊 'auto' 不再寫入）。
           source: resolved.categorySource,
         });
+      }
+    }
 
-        const semanticSetting = classSettings.get(resolved.resolvedBaseName) ?? classSettings.get(r.base_name);
-        const seedSemantics = SEED_CLASS_SEMANTICS.get(resolved.resolvedBaseName);
-        const classTypeId = semanticSetting?.classTypeId ?? seedSemantics?.classTypeId ?? null;
-        const definition = semanticSetting?.classTypeDefinition ??
-          (classTypeId ? DEFAULT_CLASS_TYPE_DEFINITIONS.find((item) => item.id === classTypeId) : undefined);
-        const definitionJson = definition ? JSON.stringify(definition) : null;
-        const roles = semanticSetting?.summaryDayRoles ?? seedSemantics?.summaryDayRoles ?? [];
-        classSemanticMap.set(r.base_name, {
-          baseName: r.base_name,
-          resolvedBaseName: resolved.resolvedBaseName,
-          snapshotSchemaVersion: 2,
-          classTypeId,
-          classTypeDefinitionJson: definitionJson,
-          classTypeDefinitionHash: definitionJson
-            ? crypto.createHash('sha256').update(definitionJson).digest('hex')
-            : null,
-          subject: semanticSetting?.subject ?? SEED_CLASS_SEMANTICS.get(resolved.resolvedBaseName)?.subject ?? '',
-          subjectSource: semanticSetting?.subjectSource ?? (seedSemantics ? 'seed' : 'unset'),
-          category: resolved.category,
-          categorySource: resolved.categorySource,
-          fixedFiveDays: resolved.fixedFiveDays ? 1 : 0,
-          summaryDayRolesJson: JSON.stringify(roles),
-          summaryDayRoleConditionsJson: JSON.stringify(semanticSetting?.summaryDayRoleConditions ?? []),
-          summaryDayRolesStatus: semanticSetting?.summaryDayRolesStatus ?? (seedSemantics ? 'configured' : 'unavailable'),
-          summaryDayRolesSource: semanticSetting?.summaryDayRolesSource ?? (seedSemantics ? 'seed' : 'unset'),
-          erpTierApplicability: semanticSetting?.erpTierApplicability ?? seedSemantics?.erpTierApplicability ?? 'unset',
-          erpTierApplicabilitySource: semanticSetting?.erpTierApplicabilitySource ?? (seedSemantics ? 'seed' : 'unset'),
-        });
+    // 也同步寫入課表設定中的啟用班級與別名目標（若尚未在名冊中出現）
+    if (classSettings) {
+      for (const [className, cls] of classSettings) {
+        if (cls.semanticOnly) continue;
+        if (!classCategoryMap.has(className)) {
+          const { category, categorySource } = effectiveCategoryOf(className, cls);
+          const classType = (cls.classType ?? cls.classTypeId) as ('care' | 'non_care' | null) ?? null;
+          classCategoryMap.set(className, {
+            baseName: className,
+            resolvedBaseName: className,
+            classType,
+            category,
+            fixedFiveDays: cls.fixedFiveDays ? 1 : 0,
+            mapped: 1,
+            source: categorySource,
+          });
+        }
       }
     }
 
     classCategories = Array.from(classCategoryMap.values());
-    classSemantics = Array.from(classSemanticMap.values());
-
-    // D2c N-1：快照寫入點唯一。
-    // 原本此處另有「若 calculation_runs 在呼叫前已存在（例如測試中先建好 run）就補寫快照」
-    // 的分支，該分支只為測試而存在、且讓寫入點不唯一（與 saveCalculationRun 的正式寫入並行）。
-    // 已移除：快照一律由 saveCalculationRun 在 calculation_runs 確定存在之後寫入，
-    // 既避免 run_class_categories 的 ON DELETE CASCADE 級聯刪除，也讓寫入點只有一處。
-    // 呼叫端契約不變：executeCalculationRun 仍在回傳物件中帶 classCategories。
   }
 
-  return { run, results, classCategories, classSemantics };
+  return { run, results, classCategories, classSemantics: undefined };
 }

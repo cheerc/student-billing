@@ -321,12 +321,13 @@ export function resolveApplicableRate(className, student, context) {
 
   if (ctx.usesClassCategorySnapshot ?? ctx.isV3Run) {
     const categorySnapshot = snapshotRowFor(ctx, className);
-    if (runUsesClassSemanticsSnapshot(ctx)) {
+    if (!categorySnapshot) {
+      return { status: 'not_configured', bps: null, category: null, fromSnapshot: true };
+    }
+
+    if (runUsesClassSemanticsSnapshot(ctx) && categorySnapshot.class_type === undefined) {
       const semantics = classSemanticsForRun(className, ctx);
-      // A v4 rate is authoritative only when both immutable snapshots contain the same
-      // roster class and agree on its category. Missing or contradictory metadata must
-      // not be hidden by the older category-only read model.
-      if (!categorySnapshot || !semantics || semantics.category !== categorySnapshot.category) {
+      if (!semantics || semantics.category !== categorySnapshot.category) {
         return { status: 'not_configured', bps: null, category: null, fromSnapshot: true };
       }
     }

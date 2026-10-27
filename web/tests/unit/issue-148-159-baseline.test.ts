@@ -217,12 +217,12 @@ describe('Issues #148 + #159 PR-0: post-#157 synthetic v4 characterization', () 
         baseDiscountBps: 9000,
         anqinDays: null,
         tutoringDays: 4.5,
-        englishDays: 2,
-        mathDays: 2,
-        chineseDays: 1,
-        homeworkDays: 5,
-        intensiveEnglishDays: 2,
-        saturdayTutoringDays: 1,
+        englishDays: null,
+        mathDays: null,
+        chineseDays: null,
+        homeworkDays: null,
+        intensiveEnglishDays: null,
+        saturdayTutoringDays: null,
         applicableTutoringBps: 9000,
       });
       expect(byCode.get('SYNTH_02')).toMatchObject({

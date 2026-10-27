@@ -58,6 +58,7 @@ export interface ResolvedClassEnrollment {
   category: ClassCategory;
   categorySource: EffectiveCategorySource;
   fixedFiveDays: boolean;
+  classType: 'care' | 'non_care' | null;
   classTypeId: string | null;
   subject: string;
   subjectSource: 'manual' | 'seed' | 'legacy_migration' | 'unset';
@@ -131,6 +132,20 @@ export function effectiveCategoryOf(
 }
 
 /**
+ * 自動推導 ERP 級距適用性 (D60-1)。
+ * 僅「已對應且課程類型為安親課輔班且非固定 5 天」之班級適用米豆奶週級距比對。
+ */
+export function deriveErpTierApplicability(params: {
+  mapped: boolean;
+  classType: 'care' | 'non_care' | null;
+  fixedFiveDays: boolean;
+}): 'applicable' | 'not_applicable' {
+  return params.mapped && params.classType === 'care' && !params.fixedFiveDays
+    ? 'applicable'
+    : 'not_applicable';
+}
+
+/**
  * 解析學生報名班級的類別與固定 5 天屬性。
  *
  * - 名冊班名（經 alias）對應到課表設定的班 → 用該班設定；未指定類別即 `unset`。
@@ -148,21 +163,35 @@ export function resolveClassEnrollment(
 
   if (cls) {
     const { category, categorySource } = effectiveCategoryOf(resolvedBaseName, cls);
+    const mapped = !cls.semanticOnly;
+    const fixedFiveDays = cls.fixedFiveDays ?? false;
+    const classType = cls.semanticOnly
+      ? (cls.erpTierApplicability === 'applicable' ? 'care' : null)
+      : (((cls.classType ?? cls.classTypeId) as ('care' | 'non_care' | null)) ?? null);
+    const erpTierApplicability = (cls.semanticOnly && cls.erpTierApplicability && cls.erpTierApplicability !== 'unset')
+      ? cls.erpTierApplicability
+      : deriveErpTierApplicability({
+          mapped,
+          classType,
+          fixedFiveDays,
+        });
+
     return {
       rawToken: token.rawToken,
       baseName: token.baseName,
       resolvedBaseName,
-      mapped: !cls.semanticOnly,
+      mapped,
       category,
       categorySource,
-      fixedFiveDays: cls.fixedFiveDays ?? false,
+      fixedFiveDays,
+      classType,
       classTypeId: cls.classTypeId ?? cls.classType ?? null,
       subject: cls.subject ?? '',
       subjectSource: cls.subjectSource ?? 'unset',
       summaryDayRoles: cls.summaryDayRoles ?? [],
       summaryDayRoleConditions: cls.summaryDayRoleConditions ?? [],
       summaryDayRolesStatus: cls.summaryDayRolesStatus ?? 'unavailable',
-      erpTierApplicability: cls.erpTierApplicability ?? 'unset',
+      erpTierApplicability,
       erpTierApplicabilitySource: cls.erpTierApplicabilitySource ?? 'unset',
     };
   }
@@ -175,13 +204,14 @@ export function resolveClassEnrollment(
     category: 'unset',
     categorySource: 'unset',
     fixedFiveDays: false,
+    classType: null,
     classTypeId: null,
     subject: '',
     subjectSource: 'unset',
     summaryDayRoles: [],
     summaryDayRoleConditions: [],
     summaryDayRolesStatus: 'unavailable',
-    erpTierApplicability: 'unset',
+    erpTierApplicability: 'not_applicable',
     erpTierApplicabilitySource: 'unset',
   };
 }

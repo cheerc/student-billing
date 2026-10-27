@@ -44,6 +44,7 @@ import {
   buildRunSnapshotContext,
   shouldWarnMissingSnapshot,
   classSemanticsForRun,
+  runUsesClassCategorySnapshot,
   runUsesClassSemanticsSnapshot,
   snapshotRowFor,
   usesFrozenLegacyProjection,
@@ -410,15 +411,20 @@ function enrollmentProjection(student, rateContext) {
   });
 }
 
-/** A valid v4 snapshot must cover every enrollment and agree across both immutable projections. */
+/** A valid v4 snapshot must cover every enrollment in the single classCategories snapshot. */
 function hasCompleteV4EnrollmentSnapshots(student, rateContext) {
-  if (!runUsesClassSemanticsSnapshot(rateContext)) return true;
+  if (!runUsesClassCategorySnapshot(rateContext?.ruleSetVersion)) return true;
   if (!Array.isArray(student.enrollments)) return false;
   return student.enrollments.every((enrollment) => {
     const baseName = enrollment.baseName ?? '';
     const categorySnapshot = snapshotRowFor(rateContext, baseName);
-    const semantics = classSemanticsForRun(baseName, rateContext);
-    return !!categorySnapshot && !!semantics && semantics.category === categorySnapshot.category;
+    if (!categorySnapshot) return false;
+    if (runUsesClassSemanticsSnapshot(rateContext) && categorySnapshot.class_type === undefined) {
+      if (!Array.isArray(rateContext?.classSemantics)) return false;
+      const semantics = classSemanticsForRun(baseName, rateContext);
+      if (!semantics || semantics.category !== categorySnapshot.category) return false;
+    }
+    return true;
   });
 }
 
@@ -529,10 +535,7 @@ export function compare(reportStudents, webStudents, asOfDate, rateContext = und
       usesSnapshot
         ? (
         !Array.isArray(rateContext.classCategories) ||
-        rateContext.classCategories.length === 0 ||
-        (runUsesClassSemanticsSnapshot(rateContext) && (
-          !Array.isArray(rateContext.classSemantics)
-        ))
+        rateContext.classCategories.length === 0
         )
         : !legacyProjection
     ) || !hasCompleteV4EnrollmentSnapshots(w, rateContext);

@@ -70,21 +70,12 @@ describe('applicableRateForClass requires snapshots for snapshot-capable Run ver
     }
   });
 
-  it('v4 requires a semantic row that agrees with the category row', () => {
+  it('v4 reads the category row directly from single snapshot', () => {
     const categoryOnly = applicableRateForClass('國小數學-四A', rateFields, {
       ruleSetVersion: 'erp-tag-v4',
       findSnapshot: (n) => snapshots.get(n),
     });
-    const contradictory = applicableRateForClass('國小數學-四A', rateFields, {
-      ruleSetVersion: 'erp-tag-v4',
-      findSnapshot: (n) => snapshots.get(n),
-      findSemanticSnapshot: (n) => n === '國小數學-四A'
-        ? { baseName: n, category: 'care' }
-        : undefined,
-    });
-
-    expect(categoryOnly).toEqual({ status: 'not_configured' });
-    expect(contradictory).toEqual({ status: 'not_configured' });
+    expect(categoryOnly).toEqual({ status: 'configured', bps: 8500 });
   });
 
   it('only explicit v1/v2 versions use the frozen historical mapper', () => {

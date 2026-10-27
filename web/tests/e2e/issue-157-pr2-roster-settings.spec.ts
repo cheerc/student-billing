@@ -55,11 +55,13 @@ test.describe('Issue #157 PR-2：從課表頁設定 roster-only 班級', () => {
     const runResponse = await page.request.get(`/api/v1/runs/${encodeURIComponent(runId)}`);
     expect(runResponse.ok()).toBe(true);
     const run = await runResponse.json();
-    expect(run.classCategories).toContainEqual({
-      base_name: ROSTER_ONLY_CLASS,
-      category: 'math',
-      fixed_five_days: 0,
-    });
+    expect(run.classCategories).toContainEqual(
+      expect.objectContaining({
+        base_name: ROSTER_ONLY_CLASS,
+        category: 'math',
+        fixed_five_days: 0,
+      })
+    );
 
     const issuesResponse = await page.request.get(
       `/api/v1/runs/${encodeURIComponent(runId)}/issues?issueCode=CLASS_NOT_MAPPED&classId=${encodeURIComponent(ROSTER_ONLY_CLASS)}`

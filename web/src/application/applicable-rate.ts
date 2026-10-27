@@ -49,11 +49,15 @@ export function applicableRateForCategory(
   return { status: 'not_configured' };
 }
 
-/** run 的類別快照單列（v3；run_class_categories 的欄位形狀）。 */
+/** run 的類別快照單列（run_class_categories 的欄位形狀）。 */
 export interface RunClassCategorySnapshot {
   base_name: string;
+  resolved_base_name?: string | null;
+  class_type?: 'care' | 'non_care' | string | null;
   category: string;
   fixed_five_days: number;
+  mapped?: number;
+  source?: string;
 }
 
 /** Minimal v4 semantic snapshot fields needed to validate the category projection. */
@@ -75,7 +79,7 @@ export interface ApplicableRateContext {
   fixedFiveDaysAffectsRate?: boolean;
   /** 以**名冊班名**查快照（快照的 base_name 存的就是名冊班名，secondary N-8 對齊） */
   findSnapshot?: (rosterClassName: string) => RunClassCategorySnapshot | undefined;
-  /** v4 additionally requires a semantic row that agrees with the category snapshot. */
+  /** v4 additionally requires a semantic row that agrees with the category snapshot (retired in Phase 1). */
   findSemanticSnapshot?: (rosterClassName: string) => RunClassSemanticsRateSnapshot | undefined;
 }
 
@@ -83,7 +87,7 @@ export interface ApplicableRateContext {
 export function loadRunClassCategories(db: any, runId: string): RunClassCategorySnapshot[] {
   try {
     return db
-      .prepare('SELECT base_name, category, fixed_five_days FROM run_class_categories WHERE run_id = ?')
+      .prepare('SELECT base_name, resolved_base_name, class_type, category, fixed_five_days, mapped, source FROM run_class_categories WHERE run_id = ?')
       .all(runId) as RunClassCategorySnapshot[];
   } catch {
     return [];
@@ -113,11 +117,9 @@ export function applicableRateForClass(
       // 缺該班快照 → 無法判定，嚴禁以當前班名猜測（03 §5.3.4）
       return { status: 'not_configured' };
     }
-    if (metadata?.hasClassSemanticsSnapshot) {
-      const semantics = context.findSemanticSnapshot?.(className);
+    if (metadata?.hasClassSemanticsSnapshot && context.findSemanticSnapshot) {
+      const semantics = context.findSemanticSnapshot(className);
       if (!semantics || semantics.baseName !== row.base_name || semantics.category !== row.category) {
-        // v4 rate interpretation must be supported by the matching semantic snapshot too;
-        // missing or contradictory projections are unavailable rather than category-only.
         return { status: 'not_configured' };
       }
     }

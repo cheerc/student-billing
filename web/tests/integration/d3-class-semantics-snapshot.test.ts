@@ -1,12 +1,14 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import Database from 'better-sqlite3';
+import crypto from 'crypto';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import { runMigrations } from '@/adapters/sqlite/migrator';
 import { saveImportBatch } from '@/adapters/sqlite/import-repository';
-import { getCalculationRun, saveCalculationRun } from '@/adapters/sqlite/runs-repository';
+import { getCalculationRun, saveCalculationRun, type RunClassSemanticRecord } from '@/adapters/sqlite/runs-repository';
 import { executeCalculationRun } from '@/application/calculate-run';
+import { DEFAULT_CLASS_TYPE_DEFINITIONS } from '@/contracts/settings';
 
 describe('PR-3 additive immutable run class semantics snapshot', () => {
   let db: Database.Database | undefined;
@@ -34,13 +36,28 @@ describe('PR-3 additive immutable run class semantics snapshot', () => {
     const calculated = executeCalculationRun(db, 'imp_semantics', 'run_semantics', {
       scheduleVersionId: 'seed-v250922', ruleSetVersion: 'erp-tag-v4', asOfDate: '2026-10-23',
     });
-    const classSemantics = calculated.classSemantics?.map((item) => ({
-      ...item,
+    const defJson = JSON.stringify(DEFAULT_CLASS_TYPE_DEFINITIONS.find((d) => d.id === 'non_care'));
+    const classSemantics: RunClassSemanticRecord[] = [{
+      baseName: '國小數學-一A',
+      resolvedBaseName: '國小數學-一A',
+      snapshotSchemaVersion: 2,
+      classTypeId: 'non_care',
+      classTypeDefinitionJson: defJson,
+      classTypeDefinitionHash: crypto.createHash('sha256').update(defJson).digest('hex'),
+      subject: '國小數學',
+      subjectSource: 'seed',
+      category: 'math',
+      categorySource: 'seed',
+      fixedFiveDays: 0,
       summaryDayRolesJson: JSON.stringify(['mathDays', 'saturdayTutoringDays']),
       summaryDayRoleConditionsJson: JSON.stringify([
         { role: 'saturdayTutoringDays', condition: 'raw_token_contains_six' },
       ]),
-    }));
+      summaryDayRolesStatus: 'configured',
+      summaryDayRolesSource: 'seed',
+      erpTierApplicability: 'not_applicable',
+      erpTierApplicabilitySource: 'seed',
+    }];
     saveCalculationRun(db, calculated.run, calculated.results, calculated.classCategories, classSemantics);
 
     const loaded = getCalculationRun(db, 'run_semantics');
@@ -67,10 +84,14 @@ describe('PR-3 additive immutable run class semantics snapshot', () => {
       .toBe('國小數學');
 
     const missingSnapshotRunId = 'run_missing_semantics';
+    // Phase 1: 移除 saveCalculationRun 的 classSemantics 必填檢查
     expect(() => saveCalculationRun(
-      db!, { ...calculated.run, id: missingSnapshotRunId }, calculated.results, calculated.classCategories
-    )).toThrow(/明確提供 classSemantics/);
-    expect(db.prepare('SELECT COUNT(*) AS n FROM calculation_runs WHERE id = ?').get(missingSnapshotRunId)).toEqual({ n: 0 });
+      db!,
+      { ...calculated.run, id: missingSnapshotRunId },
+      calculated.results.map((r) => ({ ...r, id: `${missingSnapshotRunId}_${r.personCode}`, runId: missingSnapshotRunId })),
+      calculated.classCategories
+    )).not.toThrow();
+    expect(db.prepare('SELECT COUNT(*) AS n FROM calculation_runs WHERE id = ?').get(missingSnapshotRunId)).toEqual({ n: 1 });
 
     saveCalculationRun(db, { ...calculated.run, id: 'run_empty_semantics', totalStudents: 0 }, [], [], []);
     expect(getCalculationRun(db, 'run_empty_semantics')?.classSemantics).toEqual([]);
@@ -115,7 +136,7 @@ describe('PR-3 additive immutable run class semantics snapshot', () => {
       BEFORE INSERT ON run_class_semantics
       BEGIN SELECT RAISE(ABORT, 'injected semantic row failure'); END`);
     expect(() => saveCalculationRun(
-      db!, rollbackRun, rollbackResults, calculated.classCategories, calculated.classSemantics
+      db!, rollbackRun, rollbackResults, calculated.classCategories, classSemantics
     )).toThrow(/injected semantic row failure/);
     expect(db.prepare('SELECT COUNT(*) AS n FROM calculation_runs WHERE id = ?').get(rollbackRunId)).toEqual({ n: 0 });
     expect(db.prepare('SELECT COUNT(*) AS n FROM student_calculations WHERE run_id = ?').get(rollbackRunId)).toEqual({ n: 0 });
@@ -146,7 +167,9 @@ describe('PR-3 additive immutable run class semantics snapshot', () => {
       const before = db.prepare('SELECT * FROM run_class_categories WHERE run_id = ?').all('old-run');
 
       runMigrations(db, sourceDir);
-      expect(db.prepare('SELECT * FROM run_class_categories WHERE run_id = ?').all('old-run')).toEqual(before);
+      expect(db.prepare('SELECT * FROM run_class_categories WHERE run_id = ?').all('old-run')).toEqual(
+        (before as any[]).map((row) => ({ ...row, class_type: null, resolved_base_name: row.base_name }))
+      );
       expect(db.prepare('SELECT COUNT(*) AS n FROM run_class_semantics').get()).toEqual({ n: 0 });
       expect(getCalculationRun(db, 'old-run')?.classSemantics).toBeUndefined();
       expect(db.prepare('SELECT version FROM schema_migrations WHERE version = 9').get()).toBeDefined();

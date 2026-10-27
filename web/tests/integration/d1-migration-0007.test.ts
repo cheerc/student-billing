@@ -93,7 +93,7 @@ describe('UX42：migration 0007——settings_previews.target_rule_set_version�
   it('fresh DB：跑完全部 migration 後，0007 物件符合契約（版本 1–8 依序套用）', () => {
     db = createDatabase(path.join(tempDir, 'fresh.sqlite'));
     runMigrations(db, REAL_DIR);
-    expect(getAppliedMigrations(db).map((m) => m.version)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+    expect(getAppliedMigrations(db).map((m) => m.version)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]);
 
     const target = col('settings_previews', 'target_rule_set_version');
     expect(target, 'settings_previews.target_rule_set_version').toBeDefined();
@@ -101,7 +101,7 @@ describe('UX42：migration 0007——settings_previews.target_rule_set_version�
 
     expect(tableNames()).toContain('run_class_categories');
     const c = Object.fromEntries(cols('run_class_categories').map((x) => [x.name, x]));
-    expect(Object.keys(c).sort()).toEqual(['base_name', 'category', 'fixed_five_days', 'mapped', 'run_id', 'source']);
+    expect(Object.keys(c).sort()).toEqual(['base_name', 'category', 'class_type', 'fixed_five_days', 'mapped', 'resolved_base_name', 'run_id', 'source']);
     for (const name of ['run_id', 'base_name', 'category', 'source']) expect(c[name]).toMatchObject({ type: 'TEXT', notnull: 1 });
     for (const name of ['fixed_five_days', 'mapped']) expect(c[name]).toMatchObject({ type: 'INTEGER', notnull: 1 });
     // 複合主鍵 (run_id, base_name)
@@ -127,6 +127,7 @@ describe('UX42：migration 0007——settings_previews.target_rule_set_version�
       '0008_run_diagnostics.sql',
       '0009_run_class_semantics.sql',
       '0010_run_class_semantic_role_conditions.sql',
+      '0011_single_class_categories_snapshot.sql',
     ]);
     expect(dump()).toEqual({
       ...before,

@@ -98,7 +98,15 @@ describe('issue #122：run 類別快照的 API 可見性（03 §5.3.4）', () =>
 
     // 底線命名＋數字旗標：產品讀模型以 `row.fixed_five_days === 1` 判定，
     // 回成駝峰或布林會讓「固定 5 天 → 100%」靜默失效，而只斷言「有快照」抓不到。
-    expect(Object.keys(rows[0]).sort()).toEqual(['base_name', 'category', 'fixed_five_days']);
+    expect(Object.keys(rows[0]).sort()).toEqual([
+      'base_name',
+      'category',
+      'class_type',
+      'fixed_five_days',
+      'mapped',
+      'resolved_base_name',
+      'source',
+    ]);
     expect(rows.every((r) => Number.isInteger(r.fixed_five_days))).toBe(true);
     expect(rows.find((r) => r.base_name === '國小數學-三A')!.category).toBe('math');
   });
