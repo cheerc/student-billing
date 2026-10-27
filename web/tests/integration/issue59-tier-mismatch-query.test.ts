@@ -10,7 +10,6 @@ import { activateImport } from '@/application/activate-import';
 import { queryRunStudents } from '@/application/query-students';
 import { queryStudentOptions } from '@/application/query-student-options';
 import { buildSeedDraft } from '@/adapters/sqlite/settings-repository';
-import { migrateLegacyClassSemantics } from '@/domain/classification/legacy-semantic-migration';
 import { parseClassTokens, projectLegacyImportTierEvidence, type StudentSnapshot } from '@/domain/students';
 import { saveSettings } from '../helpers/d1-test-kit';
 
@@ -88,15 +87,8 @@ describe('issue #59 / spec03 §127：tierMismatch 篩選語意對齊（R1–R6�
       students,
     );
 
-    // This synthetic historical case models the approved one-time migration: transport has an
-    // explicit not-applicable tier semantic, while the seed care class retains its seed meaning.
     const seedDraft = buildSeedDraft();
-    const migrated = migrateLegacyClassSemantics(seedDraft.classes, new Map([['交通車', {
-      baseName: '交通車',
-      migrateSummaryDayRoles: true,
-      migrateErpTierApplicability: true,
-    }]]));
-    saveSettings(db, 'approved-legacy-migration', 1, { ...seedDraft, classes: migrated.classes });
+    saveSettings(db, 'approved-legacy-migration', 1, seedDraft);
 
     const act = activateImport(db, {
       importId: 'imp_issue59',

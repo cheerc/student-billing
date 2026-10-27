@@ -18,7 +18,7 @@ import {
   ScheduleTableImportError,
   type ScheduleExportClassAttr,
 } from '@/adapters/xlsx/schedule-table-io';
-import { ClassSettingSchema, DEFAULT_CLASS_TYPE_DEFINITIONS, SettingsDraftSchema, type ClassTypeDefinition } from '@/contracts/settings';
+import { ClassSettingSchema, SettingsDraftSchema } from '@/contracts/settings';
 import {
   ScheduleGridRowSchema,
   buildSeedGridRows,
@@ -735,14 +735,7 @@ describe('#81：課表 Excel 全量匯出／匯入', () => {
     });
   });
 
-  it('roundtrips bounded semantic settings in a very-hidden workbook sheet', async () => {
-    const definition: ClassTypeDefinition = {
-      id: 'study_room',
-      label: '自習教室',
-      scheduleMode: 'timetable',
-      supportedAttributeKeys: ['subject', 'category', 'skipDeduction', 'summaryDayRoles', 'erpTierApplicability'],
-      summaryRoleOptions: ['mathDays', 'homeworkDays', 'saturdayTutoringDays'],
-    };
+  it('exports only 9-column schedule sheet without hidden sheets and ignores extra sheets on import', async () => {
     const workbookRows: ScheduleGridRow[] = [{
       rowId: 'synthetic-row-1',
       className: '合成課程甲',
@@ -757,62 +750,40 @@ describe('#81：課表 Excel 全量匯出／匯入', () => {
     }];
     const attrs: ScheduleExportClassAttr[] = [{
       className: '合成課程甲',
-      classTypeId: definition.id,
       classType: 'non_care',
       category: 'none',
       fixedFiveDays: false,
-      subject: '合成科目',
-      subjectSource: 'manual',
-      summaryDayRoles: ['homeworkDays', 'saturdayTutoringDays'],
-      summaryDayRoleConditions: [{ role: 'saturdayTutoringDays', condition: 'raw_token_contains_six' }],
-      summaryDayRolesStatus: 'configured',
-      summaryDayRolesSource: 'manual',
-      erpTierApplicability: 'not_applicable',
-      erpTierApplicabilitySource: 'manual',
-    }, {
-      className: '未對應名冊班',
-      semanticOnly: true,
-      category: 'unset',
-      fixedFiveDays: false,
-      subject: '',
-      subjectSource: 'unset',
-      summaryDayRoles: ['saturdayTutoringDays'],
-      summaryDayRoleConditions: [{ role: 'saturdayTutoringDays', condition: 'raw_token_contains_six' }],
-      summaryDayRolesStatus: 'configured',
-      summaryDayRolesSource: 'legacy_migration',
-      erpTierApplicability: 'not_applicable',
-      erpTierApplicabilitySource: 'legacy_migration',
     }];
-    const definitions = [...DEFAULT_CLASS_TYPE_DEFINITIONS, definition];
-    const buffer = await buildScheduleWorkbook(workbookRows, attrs, definitions);
+    const buffer = await buildScheduleWorkbook(workbookRows, attrs);
     const workbook = new ExcelJS.Workbook();
     await workbook.xlsx.load(buffer as unknown as ArrayBuffer);
-    expect(workbook.getWorksheet('__class_semantics')?.state).toBe('veryHidden');
+    expect(workbook.worksheets).toHaveLength(1);
+    expect(workbook.worksheets[0].name).toBe('課表');
+    expect(workbook.getWorksheet('__class_semantics')).toBeUndefined();
 
-    const imported = await parseScheduleWorkbook(buffer);
-    expect(imported.classTypeDefinitions).toEqual(definitions);
+    // 匯入時若包含額外隱藏表，應安全忽略
+    const dummyMeta = workbook.addWorksheet('__class_semantics');
+    dummyMeta.addRow(['schemaVersion', 999]);
+    const bufferWithMeta = await workbook.xlsx.writeBuffer();
+
+    const imported = await parseScheduleWorkbook(Buffer.from(bufferWithMeta));
+    expect(imported.rows).toHaveLength(1);
     expect(imported.classAttrs).toEqual([{
       ...attrs[0],
       categorySource: 'manual',
-    }, {
-      ...attrs[1],
-      categorySource: 'unset',
     }]);
     const importedSettings = imported.classAttrs.map((item) => ClassSettingSchema.parse({
       ...item,
       baseName: item.className,
-      subject: item.subject ?? '',
       teacher: null,
       active: true,
       sessions: [],
     }));
     const roundtrippedClasses = gridRowsToClasses(
-      scheduleImportRowsToGridRows(imported), importedSettings, imported.classTypeDefinitions
+      scheduleImportRowsToGridRows(imported), importedSettings
     );
-    expect(roundtrippedClasses.some((item) => item.semanticOnly && item.baseName === '未對應名冊班')).toBe(true);
     expect(SettingsDraftSchema.safeParse({
       classes: roundtrippedClasses,
-      classTypeDefinitions: imported.classTypeDefinitions,
       aliases: [],
       careWindows: CARE_WINDOWS,
     }).success).toBe(true);

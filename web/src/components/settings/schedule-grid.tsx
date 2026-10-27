@@ -54,8 +54,6 @@ interface ScheduleGridProps {
   focusClass?: string | null;
   /** 初始課程類型頁籤（預設 non_care） */
   initialClassTypeTab?: ClassType;
-  /** Per-class registry declaration; missing declared keys are not rendered as editable controls. */
-  supportedAttributeKeysByClass?: Map<string, ReadonlySet<string>>;
   /**
    * #80：班級的折扣類別與「天數固定 5 天」併入同一張表格後，編輯器把**有效值**與變更處理器交進來。
    * 未提供（單獨使用本元件的測試）時這兩欄仍渲染，只是不可操作。
@@ -134,7 +132,6 @@ export function ScheduleGrid({
   calculateError = null,
   focusClass = null,
   initialClassTypeTab = 'non_care',
-  supportedAttributeKeysByClass,
   classAttributes,
   onSelectCategory,
   onToggleFixedFiveDays,
@@ -163,8 +160,6 @@ export function ScheduleGrid({
     },
     [classAttributes]
   );
-  const supportsAttribute = (className: string, key: string) =>
-    supportedAttributeKeysByClass === undefined || supportedAttributeKeysByClass.get(className)?.has(key) === true;
 
   // specs/14 §3.6：課表設定頁以分頁籤呈現：[非安親課輔班]（預設開啟）、[安親課輔班]（第二順位）
   // 若帶有 ?class=X 且 X 為安親課輔班，自動切換至 [安親課輔班] 避免誤判 missing
@@ -454,57 +449,62 @@ export function ScheduleGrid({
       </div>
 
       {rosterOnlyClasses.length > 0 && (
-        <section
+        <details
           className="roster-only-schedule-section"
+          role="region"
           aria-label="名單中尚未加入課表設定的班級"
           data-roster-only-section=""
         >
-          <h2>名單中尚未加入課表設定的班級</h2>
-          <p className="note">
-            這些班級來自目前檢視的名單，尚未出現在課表設定中。加入後請自行選擇課程類型、折扣類別與適用設定。
-          </p>
-          {rosterOnlyStaleMessage && (
-            <p className="notice-warn" role="status" data-roster-only-stale="">
-              {rosterOnlyStaleMessage}最新報告完成前，不能依這份舊清單加入班級。請到「班名對應」頁重新載入。
+          <summary style={{ cursor: 'pointer', padding: '10px 14px', fontWeight: 600 }}>
+            名單中有 {rosterOnlyClasses.length} 個班級尚未加入課表設定
+          </summary>
+          <div style={{ marginTop: '8px' }}>
+            <p className="note">
+              這些班級來自目前檢視的名單，尚未出現在課表設定中。加入後請自行選擇課程類型、折扣類別與適用設定。
             </p>
-          )}
-          <div className="scroll table-scroll-container">
-            <table className="data-table roster-only-schedule-table">
-              <thead>
-                <tr>
-                  <th>班級名稱</th>
-                  <th>學生</th>
-                  <th>報名筆數</th>
-                  <th>狀態</th>
-                  <th>操作</th>
-                </tr>
-              </thead>
-              <tbody>
-                {rosterOnlyClasses.map((item) => {
-                  const alreadyRepresented = rows.some((row) => row.className.trim() === item.baseName);
-                  return (
-                    <tr key={item.baseName} data-roster-only-class={item.baseName}>
-                      <td>{item.baseName}</td>
-                      <td>{item.students} 位</td>
-                      <td>{item.tokens}</td>
-                      <td>尚未加入課表設定</td>
-                      <td>
-                        <button
-                          type="button"
-                          className="btn-secondary"
-                          disabled={rosterOnlyLocked || alreadyRepresented || showAddForm}
-                          onClick={() => handleAddRosterOnlyClass(item.baseName)}
-                        >
-                          加入課表設定
-                        </button>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+            {rosterOnlyStaleMessage && (
+              <p className="notice-warn" role="status" data-roster-only-stale="">
+                {rosterOnlyStaleMessage}最新報告完成前，不能依這份舊清單加入班級。請到「班名對應」頁重新載入。
+              </p>
+            )}
+            <div className="scroll table-scroll-container">
+              <table className="data-table roster-only-schedule-table">
+                <thead>
+                  <tr>
+                    <th>班級名稱</th>
+                    <th>學生</th>
+                    <th>報名筆數</th>
+                    <th>狀態</th>
+                    <th>操作</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {rosterOnlyClasses.map((item) => {
+                    const alreadyRepresented = rows.some((row) => row.className.trim() === item.baseName);
+                    return (
+                      <tr key={item.baseName} data-roster-only-class={item.baseName}>
+                        <td>{item.baseName}</td>
+                        <td>{item.students} 位</td>
+                        <td>{item.tokens}</td>
+                        <td>尚未加入課表設定</td>
+                        <td>
+                          <button
+                            type="button"
+                            className="btn-secondary"
+                            disabled={rosterOnlyLocked || alreadyRepresented || showAddForm}
+                            onClick={() => handleAddRosterOnlyClass(item.baseName)}
+                          >
+                            加入課表設定
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
           </div>
-        </section>
+        </details>
       )}
 
       {/* Excel 匯入錯誤橫幅（整批拒絕時顯示，角色為 alert） */}
@@ -681,8 +681,7 @@ export function ScheduleGrid({
                   const isUnknownWeekday = !isInactive && !isIncomplete && calcRow?.anqin.status === 'unknown_weekday';
 
                   const attr = classAttributes?.get(className);
-                  const categoryUnsupported = !supportsAttribute(className, 'category');
-                  const attrsDisabled = !classAttributes || !onSelectCategory || categoryUnsupported;
+                  const attrsDisabled = !classAttributes || !onSelectCategory;
 
                   return (
                     <tr
@@ -704,26 +703,24 @@ export function ScheduleGrid({
 
                       {/* 2. 列入多科折扣 */}
                       <td className="col-category">
-                        {categoryUnsupported ? <span aria-label={`${className} 未支援折扣類別`}>此類型未支援</span> : (
-                          <select
-                            value={attr?.category ?? 'unset'}
-                            disabled={attrsDisabled}
-                            aria-label={`${className} 的列入多科折扣`}
-                            data-category-select={className}
-                            onChange={(e) => onSelectCategory?.(className, e.target.value as ClassCategory)}
-                          >
-                            {CATEGORY_ORDER.map((c) => (
-                              <option key={c} value={c}>
-                                {CATEGORY_LABELS[c]}
-                              </option>
-                            ))}
-                          </select>
-                        )}
+                        <select
+                          value={attr?.category ?? 'unset'}
+                          disabled={attrsDisabled}
+                          aria-label={`${className} 的列入多科折扣`}
+                          data-category-select={className}
+                          onChange={(e) => onSelectCategory?.(className, e.target.value as ClassCategory)}
+                        >
+                          {CATEGORY_ORDER.map((c) => (
+                            <option key={c} value={c}>
+                              {CATEGORY_LABELS[c]}
+                            </option>
+                          ))}
+                        </select>
                       </td>
 
                       {/* 3. 不計扣天（逐列） */}
                       <td className="col-skip-deduction">
-                        {supportsAttribute(className, 'skipDeduction') ? <label className="fixed-five-toggle">
+                        <label className="fixed-five-toggle">
                           <input
                             type="checkbox"
                             checked={r.skipDeduction ?? false}
@@ -732,7 +729,7 @@ export function ScheduleGrid({
                             onChange={(e) => onUpdateRow(r.rowId, { skipDeduction: e.target.checked })}
                           />
                           <span aria-hidden="true">{r.skipDeduction ? '是' : '否'}</span>
-                        </label> : <span aria-label={`${className} 未支援不計扣天`}>此類型未支援</span>}
+                        </label>
                       </td>
 
                       {/* 4. 帶班老師 */}
@@ -897,8 +894,6 @@ export function ScheduleGrid({
                 displayedCareRows.map((r, idx) => {
                   const className = r.className.trim();
                   const attr = classAttributes?.get(className);
-                  const categoryUnsupported = !supportsAttribute(className, 'category');
-                  const fixedFiveUnsupported = !supportsAttribute(className, 'fixedFiveDays');
                   const attrsDisabled = !classAttributes || !onSelectCategory || !onToggleFixedFiveDays;
 
                   return (
@@ -916,38 +911,34 @@ export function ScheduleGrid({
 
                       {/* 2. 列入多科折扣 */}
                       <td className="col-category">
-                        {categoryUnsupported ? <span aria-label={`${className} 未支援折扣類別`}>此類型未支援</span> : (
-                          <select
-                            value={attr?.category ?? 'unset'}
-                            disabled={attrsDisabled}
-                            aria-label={`${className} 的列入多科折扣`}
-                            data-category-select={className}
-                            onChange={(e) => onSelectCategory?.(className, e.target.value as ClassCategory)}
-                          >
-                            {CATEGORY_ORDER.map((c) => (
-                              <option key={c} value={c}>
-                                {CATEGORY_LABELS[c]}
-                              </option>
-                            ))}
-                          </select>
-                        )}
+                        <select
+                          value={attr?.category ?? 'unset'}
+                          disabled={attrsDisabled}
+                          aria-label={`${className} 的列入多科折扣`}
+                          data-category-select={className}
+                          onChange={(e) => onSelectCategory?.(className, e.target.value as ClassCategory)}
+                        >
+                          {CATEGORY_ORDER.map((c) => (
+                            <option key={c} value={c}>
+                              {CATEGORY_LABELS[c]}
+                            </option>
+                          ))}
+                        </select>
                       </td>
 
                       {/* 3. 天數固定 5 天 */}
                       <td className="col-fixed-five">
-                        {fixedFiveUnsupported ? <span aria-label={`${className} 未支援固定 5 天`}>此類型未支援</span> : (
                         <label className="fixed-five-toggle">
                           <input
                             type="checkbox"
                             checked={attr?.fixedFiveDays ?? false}
-                            disabled={attrsDisabled || fixedFiveUnsupported}
+                            disabled={attrsDisabled}
                             aria-label={`${className} 的天數固定 5 天`}
                             data-fixed-five-toggle={className}
                             onChange={(e) => onToggleFixedFiveDays?.(className, e.target.checked)}
                           />
                           <span aria-hidden="true">{attr?.fixedFiveDays ? '是' : '否'}</span>
                         </label>
-                        )}
                       </td>
 
                       {/* 4. 帶班老師 */}

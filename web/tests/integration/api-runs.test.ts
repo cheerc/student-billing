@@ -103,8 +103,8 @@ describe('T04: 正式 Run 相關 API 整合測試 (03 §5)', () => {
     expect(res.status).toBe(200);
 
     const body = await res.json();
-    expect(body.totalStudents).toBe(5);
-    expect(body.items).toHaveLength(5);
+    expect(body.totalStudents).toBe(4);
+    expect(body.items).toHaveLength(4);
   });
 
   it('GET /api/v1/runs/{runId}/students/{personCode} 應回傳單一學生完整明細，無匹配回傳 404', async () => {

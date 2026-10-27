@@ -107,14 +107,14 @@ describe('T06: 停機備份與災難還原實測 (I12, specs/07 §6)', () => {
     expect(verify.revision).toBe(1);
     expect(verify.activeRunId).toBe(originalRunId);
     expect(verify.totalStudents).toBe(477);
-    expect(verify.mismatchCount).toBe(5);
+    expect(verify.mismatchCount).toBe(4);
 
     // 以新資料庫連線執行代表性查詢
     const restoredDb = createDatabase(path.join(restoreDir, 'app.sqlite'));
     const studentsRes = queryRunStudents(restoredDb, originalRunId, { tierMismatch: true });
-    expect(studentsRes.totalStudents).toBe(5);
+    expect(studentsRes.totalStudents).toBe(4);
     const sourceRows = studentsRes.items.map((s) => s.sourceRow).sort((a, b) => a - b);
-    expect(sourceRows).toEqual([30, 35, 43, 51, 52]);
+    expect(sourceRows).toEqual([30, 35, 43, 51]);
 
     restoredDb.close();
   });

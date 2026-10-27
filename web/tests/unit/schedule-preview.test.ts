@@ -31,7 +31,7 @@ const CARE = {
 };
 
 function draftOf(classes: SettingsDraft['classes']): SettingsDraft {
-  return { classes, aliases: [], careWindows: CARE, effectiveFrom: null, effectiveTo: null };
+  return { classes, aliases: [], careWindows: CARE };
 }
 
 const cls = (
@@ -40,7 +40,6 @@ const cls = (
   extra: Partial<SettingsDraft['classes'][number]> = {}
 ): SettingsDraft['classes'][number] => ({
   baseName,
-  subject: '國小數學',
   teacher: '老師甲',
   active: true,
   sessions: sessions.map(([weekday, startMinutes, endMinutes]) => ({
@@ -128,7 +127,7 @@ describe('UX07：週六／未知星期／缺起迄／共用窗口／停用', () 
     cls('週六班', [['六', 780, 960]]), // 合法週六：與週一至五窗口無交集 → 0（D30）
     cls('未知星期班', [['未知', 780, 960]]),
     cls('缺時間班', []), // 缺起迄的列被轉換掉 → 無時段
-    cls('國小輔導-一A', [], { subject: '國小輔導', teacher: '玟君' }), // seed 內的共用窗口班（care_window）
+    cls('國小輔導-一A', [], { teacher: '玟君' }), // seed 內的共用窗口班（care_window）
     cls('停用班', [['一', 780, 960]], { active: false }),
   ]);
   const result = buildSchedulePreview(draft, 'erp-tag-v2');
@@ -291,7 +290,6 @@ const calcCls = (
   extra: Partial<CalculateDraft['classes'][number]> = {}
 ): CalculateDraft['classes'][number] => ({
   baseName,
-  subject: '國小數學',
   teacher: '老師甲',
   active: true,
   sessions,
@@ -301,8 +299,6 @@ const calcDraftOf = (classes: CalculateDraft['classes']): CalculateDraft => ({
   classes,
   aliases: [],
   careWindows: CARE,
-  effectiveFrom: null,
-  effectiveTo: null,
 });
 const s = (rowId: string | undefined, weekday: string, startMinutes: number | null, endMinutes: number | null): CalcSession =>
   rowId === undefined
@@ -393,7 +389,7 @@ describe('B1：不完整列（缺起／缺迄／迄≤起）——回 null＋mis
     const r = buildSchedulePreview(
       calcDraftOf([
         calcCls('停用班', [s('i1', '一', null, null)], { active: false }),
-        calcCls('國小輔導-一A', [s('sw1', '一~五', null, null)], { subject: '國小輔導' }),
+        calcCls('國小輔導-一A', [s('sw1', '一~五', null, null)]),
       ]),
       'erp-tag-v2'
     );

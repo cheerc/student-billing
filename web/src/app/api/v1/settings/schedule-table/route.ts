@@ -7,7 +7,6 @@ import {
   ScheduleTableImportError,
 } from '@/adapters/xlsx/schedule-table-io';
 import type { ScheduleGridRow } from '@/contracts/settings';
-import type { ClassTypeDefinition } from '@/contracts/settings';
 import type { ScheduleExportClassAttr } from '@/adapters/xlsx/schedule-table-io';
 
 /** 課表匯出／匯入 payload 上限：完整課表約 90 列，遠小於此。 */
@@ -60,7 +59,6 @@ export async function POST(request: NextRequest) {
         {
           rows: scheduleImportRowsToGridRows(result),
           classAttrs: result.classAttrs,
-          ...(result.classTypeDefinitions ? { classTypeDefinitions: result.classTypeDefinitions } : {}),
         },
         { status: 200 }
       );
@@ -86,7 +84,6 @@ export async function POST(request: NextRequest) {
 
     let rows: ScheduleGridRow[];
     let classAttrs: ExportClassAttr[];
-    let classTypeDefinitions: ClassTypeDefinition[] | undefined;
     try {
       const parsed = JSON.parse(payload);
       if (!Array.isArray(parsed?.rows) || !Array.isArray(parsed?.classAttrs)) {
@@ -94,7 +91,6 @@ export async function POST(request: NextRequest) {
       }
       rows = parsed.rows;
       classAttrs = parsed.classAttrs;
-      classTypeDefinitions = parsed.classTypeDefinitions;
     } catch {
       return NextResponse.json(
         { error: '匯出內容格式不正確。', code: 'INVALID_REQUEST' },
@@ -102,7 +98,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const buffer = await buildScheduleWorkbook(rows, classAttrs, classTypeDefinitions);
+    const buffer = await buildScheduleWorkbook(rows, classAttrs);
     return new NextResponse(new Uint8Array(buffer), {
       status: 200,
       headers: {

@@ -1,4 +1,12 @@
-import type { SummaryDayRole } from '@/contracts/settings';
+export type SummaryDayRole =
+  | 'anqinDays'
+  | 'tutoringDays'
+  | 'englishDays'
+  | 'mathDays'
+  | 'chineseDays'
+  | 'homeworkDays'
+  | 'intensiveEnglishDays'
+  | 'saturdayTutoringDays';
 
 export interface LegacyClassSemanticProjection {
   summaryDayRoles: SummaryDayRole[];

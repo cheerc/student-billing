@@ -1,10 +1,9 @@
 import { test, expect } from '@playwright/test';
 import path from 'path';
 import { openFilter, applyFilter } from './helpers/header-filter';
-import { applyLegacySemanticRecommendations } from './helpers/legacy-semantics';
 
-/** conforming-erp-fixture 的值（09 §7：筆數只在測試/fixture，不進產品文案）。 */
-const FIXTURE_TIER_MISMATCH = 5;
+/** conforming-erp-fixture 的值（09 §7：筆數只在測試/fixture，不進產品文案；未對應名冊班不納入假級距比對）。 */
+const FIXTURE_TIER_MISMATCH = 4;
 
 /**
  * R4 重寫（specs/10 §4：不得悄悄刪檔，舊 spec → 新 UX 對照列於 PR body）。
@@ -87,7 +86,7 @@ test.describe('R4 重寫：核對結果頁 E2E 驗收（學生總表 12 欄 + �
     // 位移欄位在明細仍可查（不刪功能）
     await drawer.locator('summary', { hasText: '原始資料' }).click();
     await expect(drawer).toContainText('人員代碼');
-    await expect(drawer).toContainText('美語天數');
+    await expect(drawer).toContainText('安親天數');
 
     await page.keyboard.press('Escape');
     await expect(drawer).toHaveCount(0);
@@ -201,9 +200,8 @@ test.describe('R4 重寫：核對結果頁 E2E 驗收（學生總表 12 欄 + �
     expect(Number(await matched.textContent())).toBeLessThanOrEqual(scoped);
   });
 
-  test('UX12: 級距差異篩選＝fixture 的 5 筆，列內容與抽屜可查；吻合＋待確認含「班名未對應課表」（中文名稱，代碼不外露）', async ({ page }) => {
+  test('UX12: 級距差異篩選＝fixture 的 4 筆，列內容與抽屜可查；吻合＋待確認含「班名未對應課表」（中文名稱，代碼不外露）', async ({ page }) => {
     await ensureActivated(page);
-    await applyLegacySemanticRecommendations(page);
     await page.goto('/');
 
     const counts = page.locator('.counts-line');

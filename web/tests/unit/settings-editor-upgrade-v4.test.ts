@@ -82,37 +82,24 @@ describe('Ruling 1: settings-editor 升級入口解耦（支援 v3 升級至 v4�
     expect(nullHtml).not.toContain('data-upgrade-banner');
   });
 
-  it('舊語意遷移動作前先呈現不含班名的逐欄匿名建議表', () => {
+  it('舊語意遷移建議表已隨 Phase 2 徹底拆除，不呈現在畫面上', () => {
     const draft = buildSeedDraft();
     const privateName = '私人識別內容-國小數學A';
     draft.classes.push({
       baseName: privateName,
-      subject: '',
       teacher: null,
       active: true,
       sessions: [],
-      classTypeId: 'non_care',
       classType: 'non_care',
-    } as any);
+    });
     const html = renderToStaticMarkup(
       React.createElement(SettingsEditor, {
+        importId: null,
         currentRevision: 1,
         initialDraft: draft,
-        legacySemanticMigrationCandidates: [{
-          baseName: privateName,
-          migrateSummaryDayRoles: true,
-          migrateErpTierApplicability: true,
-        }],
-      } as any)
+      })
     );
-    const tableStart = html.indexOf('aria-label="舊規則語意遷移匿名建議表"');
-    const tableEnd = html.indexOf('</table>', tableStart);
-    const tableMarkup = html.slice(tableStart, tableEnd);
-
-    expect(tableStart).toBeGreaterThanOrEqual(0);
-    expect(tableMarkup).toContain('舊班 1');
-    expect(tableMarkup).toContain('數學天數');
-    expect(tableMarkup).toContain('未保存');
-    expect(tableMarkup).not.toContain(privateName);
+    expect(html).not.toContain('舊規則語意遷移匿名建議表');
+    expect(html).not.toContain('data-legacy-semantic-migration');
   });
 });

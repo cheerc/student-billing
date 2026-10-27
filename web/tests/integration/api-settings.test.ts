@@ -75,7 +75,7 @@ describe('T05: 設定 preview/apply API 契約測試', () => {
     if (fs.existsSync(tempDir)) fs.rmSync(tempDir, { recursive: true, force: true });
   });
 
-  it('POST /api/v1/settings/preview 回傳 previewId/inputHash 與 13人/-0.5/5→18', async () => {
+  it('POST /api/v1/settings/preview 回傳 previewId/inputHash 與 13人/-0.5/4→17', async () => {
     const req = new NextRequest('http://127.0.0.1:3000/api/v1/settings/preview', {
       method: 'POST',
       body: JSON.stringify({ importId: previewId, draft: seedDraft(), expectedRevision: 1 }),
@@ -86,8 +86,8 @@ describe('T05: 設定 preview/apply API 契約測試', () => {
     expect(body.previewId).toBeDefined();
     expect(body.inputHash).toMatch(/^[a-f0-9]{64}$/);
     expect(body.affectedStudents).toBe(13);
-    expect(body.mismatchBefore).toBe(5);
-    expect(body.mismatchAfter).toBe(18);
+    expect(body.mismatchBefore).toBe(4);
+    expect(body.mismatchAfter).toBe(17);
   });
 
   it('POST /api/v1/settings/preview 過期 revision 回 409（importId 不再必填：09 §8.2.2，缺／不符行為見 settings-import-server-decided.test.ts）', async () => {
@@ -117,7 +117,7 @@ describe('T05: 設定 preview/apply API 契約測試', () => {
     expect(applyRes.status).toBe(200);
     const applied = await applyRes.json();
     expect(applied.revision).toBe(2);
-    expect(applied.mismatchCount).toBe(18);
+    expect(applied.mismatchCount).toBe(17);
 
     // 版本已前進，舊 previewId＋新 revision 不一致 → 409
     const conflictReq = new NextRequest('http://127.0.0.1:3000/api/v1/settings/apply', {

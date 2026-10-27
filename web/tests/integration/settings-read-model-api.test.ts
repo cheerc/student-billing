@@ -297,14 +297,14 @@ describe('POST /api/v1/settings/calculate（唯讀計算 read model）', () => {
     const rows = editedGridRows();
     const seed = buildSeedDraft();
     const configuredNewClass = {
-      baseName: '新班', subject: '', teacher: null, active: true, sessions: [],
-      classTypeId: 'non_care', classType: 'non_care' as const,
+      baseName: '新班', teacher: null, active: true, sessions: [],
+      classType: 'non_care' as const,
     };
     const existingClasses = [...seed.classes, configuredNewClass];
     const res = await calculatePOST(calcReq({
       draft: {
         ...seed,
-        classes: gridRowsToCalculateClasses(rows, existingClasses, seed.classTypeDefinitions),
+        classes: gridRowsToCalculateClasses(rows, existingClasses),
       },
       requestKey: 'grid-1',
     }));
@@ -333,20 +333,20 @@ describe('POST /api/v1/settings/calculate（唯讀計算 read model）', () => {
     const rows = editedGridRows();
     const seed = buildSeedDraft();
     const configuredNewClass = {
-      baseName: '新班', subject: '', teacher: null, active: true, sessions: [],
-      classTypeId: 'non_care', classType: 'non_care' as const,
+      baseName: '新班', teacher: null, active: true, sessions: [],
+      classType: 'non_care' as const,
     };
     const existingClasses = [...seed.classes, configuredNewClass];
     const calc = await (await calculatePOST(calcReq({
       draft: {
         ...seed,
-        classes: gridRowsToCalculateClasses(rows, existingClasses, seed.classTypeDefinitions),
+        classes: gridRowsToCalculateClasses(rows, existingClasses),
       },
       requestKey: 'h-1',
     }))).json();
     const saveDraft: SettingsDraft = {
       ...seed,
-      classes: gridRowsToClasses(rows, existingClasses, seed.classTypeDefinitions),
+      classes: gridRowsToClasses(rows, existingClasses),
     };
     const prev = previewSettingsChange(db, undefined, { draft: saveDraft, expectedRevision: 0 });
     expect(prev.inputHash).toBe(calc.draftHash);
@@ -357,7 +357,7 @@ describe('POST /api/v1/settings/calculate（唯讀計算 read model）', () => {
     const again = await (await calculatePOST(calcReq({
       draft: {
         ...seed,
-        classes: gridRowsToCalculateClasses(renamedIds, existingClasses, seed.classTypeDefinitions),
+        classes: gridRowsToCalculateClasses(renamedIds, existingClasses),
       },
       requestKey: 'h-2',
     }))).json();
@@ -366,7 +366,7 @@ describe('POST /api/v1/settings/calculate（唯讀計算 read model）', () => {
     const diff = await (await calculatePOST(calcReq({
       draft: {
         ...seed,
-        classes: gridRowsToCalculateClasses(changed, existingClasses, seed.classTypeDefinitions),
+        classes: gridRowsToCalculateClasses(changed, existingClasses),
       },
       requestKey: 'h-3',
     }))).json();

@@ -112,7 +112,7 @@ describe('T04: 計算生命週期、CAS 409 啟用與總表查詢整合測試 (I
     expect(res2.revision).toBe(res1.revision);
   });
 
-  it('I16 & I17: 5 筆級距 mismatch 驗收與 13 人缺排課 match + hasIssues 同時成立驗證', () => {
+  it('I16 & I17: 4 筆已對應級距 mismatch 驗收與 13 人未對應班級 match + hasIssues 同時成立驗證', () => {
     const actRes = activateImport(db, {
       importId: previewId,
       expectedRevision: 0,
@@ -122,11 +122,11 @@ describe('T04: 計算生命週期、CAS 409 啟用與總表查詢整合測試 (I
 
     // 1. 篩選級距 mismatch (tierMismatch=true)
     const mismatchRes = queryRunStudents(db, runId, { tierMismatch: true, limit: 100 });
-    expect(mismatchRes.totalStudents).toBe(5);
+    expect(mismatchRes.totalStudents).toBe(4);
 
-    // 驗證這 5 筆學生的來源列座標恰為 30, 35, 43, 51, 52
+    // 驗證這 4 筆學生的來源列座標恰為 30, 35, 43, 51（未對應名冊班「國小輔導-四年級B」列 52 不產生假級距比較）
     const sourceRows = mismatchRes.items.map((s) => s.sourceRow).sort((a, b) => a - b);
-    expect(sourceRows).toEqual([30, 35, 43, 51, 52]);
+    expect(sourceRows).toEqual([30, 35, 43, 51]);
 
     // 2. 驗證 13 名報名「國小數學-一」的學生（全部 tierComparison 為 match）
     // 依 I17 規範：以 tierMismatch=false 篩選時，這 13 人仍須全部出現在 hasIssues 清單中！

@@ -13,7 +13,7 @@ import { SEED_CLASSES } from '@/domain/schedules/seed-manifest';
 import { buildSeedDraft, hashSettingsDraft, saveSettingsVersion } from '@/adapters/sqlite/settings-repository';
 import { queryRunStudents } from '@/application/query-students';
 import { getCalculationRun } from '@/adapters/sqlite/runs-repository';
-import { migrateLegacyClassSemantics } from '@/domain/classification/legacy-semantic-migration';
+import { buildApprovedLegacyMigrationFixtureDraft } from '../helpers/d1-test-kit';
 
 /**
  * 全量 seed draft＋別名（D25：draft 攜全量；09 §8.2.4 方案 A 後 sessions 為空＝無時段，
@@ -62,25 +62,12 @@ describe('T05: preview→apply 雙階段流程整合測試 (I10/I11/I15/I18/I20)
     );
 
     // The v4 characterization assumes the operator has accepted the one-time semantic migration.
-    // Preserve only historical summary/tier interpretation for roster-only names; keep category
-    // unset and the names unmapped so #157 behavior is unchanged.
-    const seedDraft = buildSeedDraft();
-    const configuredNames = new Set(seedDraft.classes.map((item) => item.baseName));
-    const legacyNames = new Set(preview.students.flatMap((student) => student.enrollments.map((item) => item.baseName)));
-    const candidates = new Map([...legacyNames]
-      .filter((baseName) => !configuredNames.has(baseName) && !SEED_CLASSES.some((item) => item.baseName === baseName))
-      .map((baseName) => [baseName, {
-        baseName,
-        migrateSummaryDayRoles: true,
-        migrateErpTierApplicability: true,
-      }]));
-    const migrated = migrateLegacyClassSemantics(seedDraft.classes, candidates);
-    const migratedDraft = { ...seedDraft, classes: migrated.classes };
-    legacyMigratedDraft = migratedDraft;
+    const seedDraft = await buildApprovedLegacyMigrationFixtureDraft();
+    legacyMigratedDraft = seedDraft;
     saveSettingsVersion(db, {
       id: 'legacy-migration-test',
-      contentHash: hashSettingsDraft(migratedDraft),
-      contentJson: JSON.stringify(migratedDraft),
+      contentHash: hashSettingsDraft(seedDraft),
+      contentJson: JSON.stringify(seedDraft),
       effectiveFrom: null,
       effectiveTo: null,
       createdAt: new Date().toISOString(),
@@ -118,9 +105,9 @@ describe('T05: preview→apply 雙階段流程整合測試 (I10/I11/I15/I18/I20)
     for (const d of res.dayDeltas!) {
       expect(d.after).toBe(d.before! - 0.5);
     }
-    // mismatch 5→18
-    expect(res.mismatchBefore).toBe(5);
-    expect(res.mismatchAfter).toBe(18);
+    // mismatch 4→17
+    expect(res.mismatchBefore).toBe(4);
+    expect(res.mismatchAfter).toBe(17);
   });
 
   it('requires clearing an unsupported legacy fixedFiveDays value before saving a new settings version', () => {
@@ -216,18 +203,18 @@ describe('T05: preview→apply 雙階段流程整合測試 (I10/I11/I15/I18/I20)
     });
 
     expect(applied.revision).toBe(2);
-    expect(applied.mismatchCount).toBe(18);
+    expect(applied.mismatchCount).toBe(17);
     expect(applied.totalStudents).toBe(477);
 
-    // 舊 run 仍可查且維持 5 mismatch
+    // 舊 run 仍可查且維持 4 mismatch
     const oldRun = getCalculationRun(db, activeRunId);
     expect(oldRun).toBeDefined();
     const oldStudents = queryRunStudents(db, activeRunId, { tierMismatch: true, limit: 100 });
-    expect(oldStudents.totalStudents).toBe(5);
+    expect(oldStudents.totalStudents).toBe(4);
 
-    // 新 run 為 18 mismatch
+    // 新 run 為 17 mismatch
     const newStudents = queryRunStudents(db, applied.runId!, { tierMismatch: true, limit: 100 });
-    expect(newStudents.totalStudents).toBe(18);
+    expect(newStudents.totalStudents).toBe(17);
 
     // 離班學生仍保留（37 tokens 對應學生數不變）
     const newAll = queryRunStudents(db, applied.runId!, { limit: 200 });
@@ -236,24 +223,16 @@ describe('T05: preview→apply 雙階段流程整合測試 (I10/I11/I15/I18/I20)
 
   it('I15: 新增班級／停用班級／變更老師草稿可預覽且不污染既有 run', () => {
     const draft = buildDraftWithAlias([]);
-    (draft.classes as any[]).push({
+    draft.classes.push({
       baseName: '測試新班-體驗課',
-      subject: '其他',
-      classTypeId: 'non_care',
       classType: 'non_care',
-      subjectSource: 'unset',
-      summaryDayRoles: [],
-      summaryDayRolesStatus: 'unset',
-      summaryDayRolesSource: 'unset',
-      erpTierApplicability: 'unset',
-      erpTierApplicabilitySource: 'unset',
       teacher: '測試老師',
       active: true,
-      sessions: [{ weekday: '一', startMinutes: 780, endMinutes: 840 }],
+      sessions: [{ weekday: '一', startMinutes: 780, endMinutes: 840, skipDeduction: false }],
     });
-    const target = (draft.classes as any[]).find((c) => c.baseName === '國小數學-一A');
+    const target = draft.classes.find((c) => c.baseName === '國小數學-一A')!;
     target.teacher = '新老師';
-    const targetB = (draft.classes as any[]).find((c) => c.baseName === '國小數學-一B');
+    const targetB = draft.classes.find((c) => c.baseName === '國小數學-一B')!;
     targetB.active = false;
 
     const res = previewSettingsChange(db, previewId, { draft, expectedRevision: 1 });
@@ -261,7 +240,7 @@ describe('T05: preview→apply 雙階段流程整合測試 (I10/I11/I15/I18/I20)
     expect(res.inputHash).toMatch(/^[a-f0-9]{64}$/);
     // 既有 run 不受影響
     const oldStudents = queryRunStudents(db, activeRunId, { tierMismatch: true, limit: 100 });
-    expect(oldStudents.totalStudents).toBe(5);
+    expect(oldStudents.totalStudents).toBe(4);
   });
 
   it('F1/K4: 穩態 preview 使用已保存 active Run；沒有可比較的 Run 時 fail-closed', () => {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { gridRowsToClasses, type ClassSetting, type ScheduleGridRow } from '@/contracts/settings';
+import { ClassSettingSchema, gridRowsToClasses, type ClassSetting, type ScheduleGridRow } from '@/contracts/settings';
 import { persistClassAttributes } from '@/domain/classification/persist-class-attributes';
 
 function row(className: string): ScheduleGridRow {
@@ -20,18 +20,17 @@ function row(className: string): ScheduleGridRow {
 function existingClass(
   baseName: string,
   category: ClassSetting['category'],
-  categorySource: ClassSetting['categorySource'],
+  categorySource: 'auto' | 'manual' | 'unset' | 'seed' | undefined,
   fixedFiveDays = false
 ): ClassSetting {
   return {
     baseName,
-    subject: '其他',
     teacher: null,
     active: true,
     sessions: [],
     classType: 'non_care',
     category,
-    categorySource,
+    categorySource: categorySource as ClassSetting['categorySource'],
     fixedFiveDays,
   };
 }

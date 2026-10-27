@@ -154,11 +154,10 @@ describe('#113 follow-up 契約：SessionSchema 的逐時段 skipDeduction', () 
     // 舊快照仍能解析（不被舊資料卡死），但旗標本身不再是班級層的有效來源。
     const parsed = ClassSettingSchema.parse({
       baseName: '國小數學-一A',
-      subject: '國小數學',
       sessions: [{ ...MON_SESSION, skipDeduction: true }],
     });
     expect(parsed.sessions[0].skipDeduction).toBe(true);
-    expect(parsed.skipDeduction).toBeUndefined();
+    expect((parsed as Record<string, unknown>).skipDeduction).toBeUndefined();
   });
 });
 
@@ -204,7 +203,7 @@ describe('#113 follow-up 契約：gridRows ↔ classes 逐列往返', () => {
       } as ClassSetting,
     ];
     const out = gridRowsToClasses([gridRow({ rowId: 'r1' })], legacy)[0];
-    expect(out.skipDeduction).toBeUndefined();
+    expect((out as Record<string, unknown>).skipDeduction).toBeUndefined();
     expect(out.sessions[0].skipDeduction).toBe(false);
   });
 });
@@ -234,7 +233,6 @@ describe('#113 follow-up 契約：draftToScheduleOverride 逐時段帶旗標', (
       classes: [
         {
           baseName: '國小數學-一A',
-          subject: '國小數學',
           teacher: null,
           active: true,
           sessions: [
@@ -245,8 +243,6 @@ describe('#113 follow-up 契約：draftToScheduleOverride 逐時段帶旗標', (
       ],
       aliases: [],
       careWindows: CARE,
-      effectiveFrom: null,
-      effectiveTo: null,
     });
     expect(override.get('國小數學-一A')).toEqual([
       { start: 1080, end: 1170, weekday: '一', skipDeduction: true },

@@ -159,9 +159,9 @@ describe('D2 Task 3 → D32-C: 動態候選引擎與雙軌對照整合測試 (ca
     expect(res.status).toBe(200);
     const body = await res.json();
 
-    // D18 衝擊：13 人各 -0.5 天，mismatch 5 -> 18
+    // D18 衝擊：13 人各 -0.5 天，mismatch 4 -> 17
     expect(body.affectedStudents).toBe(13);
-    expect(body.mismatchBefore).toBe(5);
-    expect(body.mismatchAfter).toBe(18);
+    expect(body.mismatchBefore).toBe(4);
+    expect(body.mismatchAfter).toBe(17);
   });
 });

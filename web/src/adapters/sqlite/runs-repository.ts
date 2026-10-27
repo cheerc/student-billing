@@ -1,16 +1,37 @@
 import Database from 'better-sqlite3';
 import crypto from 'crypto';
+import { z } from 'zod';
 import { loadRunClassCategories, type RunClassCategorySnapshot } from '@/application/applicable-rate';
 import { historicalRuleSetMetadata } from '@/domain/billing/rule-set';
 import type { RunDiagnosticsSnapshot } from '@/contracts/run-diagnostics';
-import {
-  ClassTypeDefinitionSchema,
-  ErpTierApplicabilitySchema,
-  SemanticSettingSourceSchema,
-  SummaryDayRoleSchema,
-  SummaryDayRoleConditionSchema,
-  type SummaryDayRoleCondition,
-} from '@/contracts/settings';
+
+const HistoricSummaryDayRoleSchema = z.enum([
+  'anqinDays',
+  'tutoringDays',
+  'englishDays',
+  'mathDays',
+  'chineseDays',
+  'homeworkDays',
+  'intensiveEnglishDays',
+  'saturdayTutoringDays',
+]);
+
+const HistoricSummaryDayRoleConditionSchema = z.object({
+  role: z.literal('saturdayTutoringDays'),
+  condition: z.literal('raw_token_contains_six'),
+}).strict();
+export type HistoricSummaryDayRoleCondition = z.infer<typeof HistoricSummaryDayRoleConditionSchema>;
+
+const HistoricErpTierApplicabilitySchema = z.enum(['applicable', 'not_applicable', 'unset']);
+const HistoricSemanticSettingSourceSchema = z.enum(['manual', 'seed', 'legacy_migration', 'unset']);
+
+const HistoricClassTypeDefinitionSchema = z.object({
+  id: z.string(),
+  label: z.string().optional(),
+  scheduleMode: z.enum(['care_window', 'timetable']).optional(),
+  supportedAttributeKeys: z.array(z.string()).optional(),
+  summaryRoleOptions: z.array(HistoricSummaryDayRoleSchema).optional(),
+}).passthrough();
 
 export interface CalculationRunRecord {
   id: string;
@@ -106,7 +127,7 @@ export interface RunClassSemanticRecord {
 
 export interface RunClassSemanticSnapshot extends Omit<RunClassSemanticRecord, 'summaryDayRolesJson' | 'summaryDayRoleConditionsJson' | 'classTypeDefinitionJson'> {
   summaryDayRoles: string[];
-  summaryDayRoleConditions: SummaryDayRoleCondition[];
+  summaryDayRoleConditions: HistoricSummaryDayRoleCondition[];
   classTypeDefinition: Record<string, unknown> | null;
 }
 
@@ -302,7 +323,7 @@ export function getCalculationRun(
           throw new Error(`Run semantic row schema does not match snapshot header for ${runId}`);
         }
         const classTypeDefinition = item.class_type_definition_json
-          ? ClassTypeDefinitionSchema.parse(JSON.parse(item.class_type_definition_json))
+          ? HistoricClassTypeDefinitionSchema.parse(JSON.parse(item.class_type_definition_json))
           : null;
         if ((item.class_type_id === null && classTypeDefinition !== null) ||
             (item.class_type_id !== null && (!classTypeDefinition || classTypeDefinition.id !== item.class_type_id))) {
@@ -322,7 +343,7 @@ export function getCalculationRun(
         } catch {
           throw new Error(`Run semantic roles JSON is invalid for ${runId}/${item.base_name}`);
         }
-        if (!Array.isArray(summaryDayRoles) || summaryDayRoles.some((role) => !SummaryDayRoleSchema.safeParse(role).success)) {
+        if (!Array.isArray(summaryDayRoles) || summaryDayRoles.some((role) => !HistoricSummaryDayRoleSchema.safeParse(role).success)) {
           throw new Error(`Run semantic roles are invalid for ${runId}/${item.base_name}`);
         }
         let summaryDayRoleConditions: unknown;
@@ -334,18 +355,18 @@ export function getCalculationRun(
           throw new Error(`Run semantic role conditions JSON is invalid for ${runId}/${item.base_name}`);
         }
         if (!Array.isArray(summaryDayRoleConditions) ||
-            summaryDayRoleConditions.some((condition) => !SummaryDayRoleConditionSchema.safeParse(condition).success || !summaryDayRoles.includes((condition as { role: string }).role))) {
+            summaryDayRoleConditions.some((condition) => !HistoricSummaryDayRoleConditionSchema.safeParse(condition).success || !summaryDayRoles.includes((condition as { role: string }).role))) {
           throw new Error(`Run semantic role conditions are invalid for ${runId}/${item.base_name}`);
         }
-        if (!SemanticSettingSourceSchema.safeParse(item.subject_source).success ||
-            !SemanticSettingSourceSchema.safeParse(item.summary_day_roles_source).success ||
-            !SemanticSettingSourceSchema.safeParse(item.erp_tier_applicability_source).success) {
+        if (!HistoricSemanticSettingSourceSchema.safeParse(item.subject_source).success ||
+            !HistoricSemanticSettingSourceSchema.safeParse(item.summary_day_roles_source).success ||
+            !HistoricSemanticSettingSourceSchema.safeParse(item.erp_tier_applicability_source).success) {
           throw new Error(`Run semantic source is invalid for ${runId}/${item.base_name}`);
         }
         if (!['configured', 'unset', 'unavailable'].includes(item.summary_day_roles_status)) {
           throw new Error(`Run semantic role status is invalid for ${runId}/${item.base_name}`);
         }
-        if (!ErpTierApplicabilitySchema.safeParse(item.erp_tier_applicability).success) {
+        if (!HistoricErpTierApplicabilitySchema.safeParse(item.erp_tier_applicability).success) {
           throw new Error(`Run semantic tier applicability is invalid for ${runId}/${item.base_name}`);
         }
         if (!['care', 'math', 'english', 'none', 'unset'].includes(item.category) ||

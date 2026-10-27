@@ -137,7 +137,7 @@ describe('T06: 故障恢復、邊界防護與安全性整合測試 (I09-I14)', (
     // 驗證查詢計算結果
     const queryRes = queryRunStudents(reopenedDb, runIdBefore, { limit: 10 });
     expect(queryRes.totalStudents).toBe(477);
-    expect(queryRes.stats.mismatchCount).toBe(5);
+    expect(queryRes.stats.mismatchCount).toBe(4);
 
     reopenedDb.close();
   });

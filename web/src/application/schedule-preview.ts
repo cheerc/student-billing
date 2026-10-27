@@ -233,7 +233,6 @@ export function buildSchedulePreview(draft: CalculateDraft, ruleSetVersion: Form
   const issues: PreviewIssue[] = [];
 
   for (const c of draft.classes) {
-    if (c.semanticOnly) continue;
     // specs/14 §3.7 & A5：專門狀態改依班級設定之課程類型 classType === 'care' 判定（取代靜態班名 SHARED_WINDOW_CLASSES）
     // 經 resolveClassAttributes 正規化後嚴格比對 === 'care'，相容舊草稿未帶 classType 屬性
     const shared = resolveClassAttributes(c.baseName, c).classType === 'care';
