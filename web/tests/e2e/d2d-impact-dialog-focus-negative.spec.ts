@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { holdCalculate } from './helpers/hold-calculate';
 
 /**
  * D2d r3／F4 負向防護：補還原**不得**搶走使用者已主動安排的焦點。
@@ -35,34 +36,23 @@ test.describe('D2d r3／F4 負向：不得搶走使用者已主動安排的焦�
   test('使用者 Tab 到別的控制項 → 焦點留在使用者選的位置', async ({ page }) => {
     await page.clock.install({ time: T0 });
     await page.clock.pauseAt(T0 + 1);
+    const calculation = await holdCalculate(page);
     const opener = await openAndEsc(page);
     await expect(opener, '還原當下焦點在觸發點').toBeFocused();
 
-    // 跨過寬限期，讓 late-disable 有機會發生
-    await page.clock.runFor(250);
-    await page.clock.runFor(500);
-
-    // ★ 使用者主動 Tab 離開觸發點
-    await page.keyboard.press('Tab');
-    const afterTab = await page.evaluate(() => {
-      const a = document.activeElement;
-      return { tag: a?.tagName ?? null, text: (a?.textContent || '').trim().slice(0, 20) };
-    });
-    expect(afterTab.tag, 'Tab 後焦點應在具體元素上').not.toBe('BODY');
-
-    // 觸發 late-disable：此時觀察窗仍在跑，但使用者已主動選好位置
-    await page.clock.runFor(500);
-    await page.clock.runFor(600);
-
-    const final = await page.evaluate(() => {
-      const a = document.activeElement;
-      return { tag: a?.tagName ?? null, text: (a?.textContent || '').trim().slice(0, 20) };
-    });
-    expect(final.tag, 'late-disable 後焦點不得被拉回觸發點').not.toBe('BUTTON');
-    expect(
-      await opener.evaluate((el: any) => document.activeElement === el),
-      '使用者已主動移動焦點後，補還原不得把焦點拉回觸發點'
-    ).toBe(false);
+    // 觸發點是最後一個控制項，正向 Tab 可能離開文件而落在 BODY。
+    // 以 Shift+Tab 移到前一個控制項，並在計算回應前確認焦點不被搶回。
+    const discard = page.getByRole('button', { name: '取消修改' });
+    await page.keyboard.press('Shift+Tab');
+    await expect(discard).toBeFocused();
+    await page.clock.runFor(750);
+    await expect.poll(() => calculation.held()).toBe(1);
+    await expect(opener).toBeDisabled();
+    await expect(discard).toBeFocused();
+    calculation.release();
+    await expect(opener).toBeEnabled();
+    await page.clock.runFor(1100);
+    await expect(discard, '使用者移動焦點後，補還原不得搶回焦點').toBeFocused();
   });
 
   test('使用者點擊另一個控制項 → 焦點留在被點的元素', async ({ page }) => {
