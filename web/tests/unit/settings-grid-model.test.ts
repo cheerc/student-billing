@@ -140,7 +140,6 @@ describe('D1: 平鋪排課時段列模型與驗證測試 (settings-grid-model)',
   it('9. [F2] classesToGridRows 不丟棄空時段班級，往返雙向保真 (RED)', () => {
     const emptyClass: ClassSetting = {
       baseName: '國小數學-一B',
-      subject: '國小數學',
       teacher: null,
       active: true,
       sessions: [], // 空 sessions 班

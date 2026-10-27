@@ -7,7 +7,6 @@ import {
   openSchedule,
   xlsxUpload,
 } from './helpers/c-batch';
-import { applyLegacySemanticRecommendations } from './helpers/legacy-semantics';
 
 /**
  * specs/04 UX32／09 §7（11 C；D39）：使用者實際會走到的四處定稿文案，加上 A 批遺留的預覽 400。
@@ -130,7 +129,6 @@ async function openMapping(page: Page): Promise<void> {
 test.describe('UX32 D39 (1) 課表影響預覽：單位是「人」', () => {
   test('有現行資料時：「系統計算天數與米豆奶入班天數不符：N 人 → M 人」，數字取自實際預覽；沒有 mismatch／筆', async ({ page }) => {
     await activateFixture(page);
-    await applyLegacySemanticRecommendations(page);
     await openMapping(page);
     const row = page.locator('tr', { hasText: '國小數學-一' });
     await row.locator('input.input-target-classname').fill('國小數學-一A');
@@ -142,8 +140,8 @@ test.describe('UX32 D39 (1) 課表影響預覽：單位是「人」', () => {
     const before = preview.mismatchBefore as number;
     const after = preview.mismatchAfter as number;
     expect(Number.isInteger(before) && Number.isInteger(after)).toBe(true);
-    // D18 既有基準：fixture 原有 5 位、設定後 18 位（每位學生任一級距比較不符計 1 人）
-    expect([before, after]).toEqual([5, 18]);
+    // D18 既有基準：fixture 原有 4 位、設定後 17 位（每位學生任一級距比較不符計 1 人）
+    expect([before, after]).toEqual([4, 17]);
 
     const dialog = page.locator('dialog.impact-dialog');
     await expect(dialog).toBeVisible({ timeout: 15000 });

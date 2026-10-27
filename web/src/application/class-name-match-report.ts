@@ -438,7 +438,7 @@ export function getClassNameMatchReport(
   const rosterStats = new Map(rosterRows.map((r) => [r.base_name, { students: Number(r.student_count), tokens: Number(r.token_count) }]));
   const rosterNames = rosterRows.map((r) => r.base_name);
 
-  const scheduleClasses = draft.classes.filter((c) => !c.semanticOnly);
+  const scheduleClasses = draft.classes;
   const classNames = scheduleClasses.map((c) => c.baseName);
   const { activeView } = classifyErpDualTrack(rosterNames, classNames, draft.aliases);
 

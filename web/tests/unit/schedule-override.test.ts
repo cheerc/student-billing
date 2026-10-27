@@ -12,7 +12,6 @@ function baseDraft(): SettingsDraft {
     classes: [
       {
         baseName: '國小數學-一A',
-        subject: '國小數學',
         teacher: null,
         active: true,
         sessions: [],
@@ -20,8 +19,6 @@ function baseDraft(): SettingsDraft {
     ],
     aliases: [],
     careWindows: CARE,
-    effectiveFrom: null,
-    effectiveTo: null,
   };
 }
 

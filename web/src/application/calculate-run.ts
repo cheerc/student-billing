@@ -4,11 +4,10 @@ import { StudentSnapshot, ParsedToken } from '@/domain/students';
 import { calculateStudentBilling, RuleSetVersion, ResolvedClassSession } from '@/domain/billing/billing-calculator';
 import { CalculationRunRecord, StudentCalculationRecord, RunClassCategoryRecord, RunClassSemanticRecord } from '@/adapters/sqlite/runs-repository';
 import seedData from '@/domain/schedules/schedule-seed.json';
-import { SettingsDraft, DEFAULT_CLASS_TYPE_DEFINITIONS, legacyClassTypeForDefinition } from '@/contracts/settings';
+import { SettingsDraft } from '@/contracts/settings';
 import { todayInTaipei } from '@/lib/datetime';
 import { resolveClassEnrollment, effectiveCategoryOf, ClassSettingLookup } from '@/domain/classification/class-category';
 import { TARGET_FORMAL_RULE_SET_VERSION } from '@/domain/billing/rule-set';
-import { normalizeSettingsDraftSemantics } from '@/domain/classification/class-semantics';
 import {
   getLatestSettingsVersion,
   getSettingsPreview,
@@ -32,25 +31,13 @@ for (const cls of seedData.classes) {
  *  因此這裡不再帶 skipDeduction。 */
 export function buildClassSettingMap(draft: SettingsDraft): Map<string, ClassSettingLookup> {
   const map = new Map<string, ClassSettingLookup>();
-  const normalizedDraft = normalizeSettingsDraftSemantics(draft);
-  for (const c of normalizedDraft.classes) {
-    const definition = normalizedDraft.classTypeDefinitions.find((item) => item.id === c.classTypeId);
+  for (const c of draft.classes) {
     map.set(c.baseName, {
       semanticOnly: c.semanticOnly,
-      classType: c.classType ?? (definition ? legacyClassTypeForDefinition(definition) : undefined),
-      classTypeId: c.classTypeId,
-      classTypeDefinition: definition,
-      subject: c.subject,
-      subjectSource: c.subjectSource,
+      classType: c.classType ?? (c.classTypeId === 'care' ? 'care' : c.classTypeId === 'non_care' ? 'non_care' : undefined),
       category: c.category,
       categorySource: c.categorySource,
       fixedFiveDays: c.fixedFiveDays,
-      summaryDayRoles: c.summaryDayRoles,
-      summaryDayRoleConditions: c.summaryDayRoleConditions,
-      summaryDayRolesStatus: c.summaryDayRolesStatus,
-      summaryDayRolesSource: c.summaryDayRolesSource,
-      erpTierApplicability: c.erpTierApplicability,
-      erpTierApplicabilitySource: c.erpTierApplicabilitySource,
     });
   }
   return map;

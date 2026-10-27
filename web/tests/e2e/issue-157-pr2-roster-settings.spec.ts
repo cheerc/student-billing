@@ -19,6 +19,7 @@ test.describe('Issue #157 PR-2：從課表頁設定 roster-only 班級', () => {
 
     const rosterOnly = page.getByRole('region', { name: '名單中尚未加入課表設定的班級' });
     await expect(rosterOnly).toBeVisible();
+    await rosterOnly.locator('summary').click();
     const rosterRow = rosterOnly.locator(`[data-roster-only-class="${ROSTER_ONLY_CLASS}"]`);
     await expect(rosterRow).toContainText('尚未加入課表設定');
 
@@ -78,6 +79,7 @@ test.describe('Issue #157 PR-2：從課表頁設定 roster-only 班級', () => {
   test('報告在待新增表單開啟後過期時，不能提交舊清單中的班級', async ({ page }) => {
     await editStart(page);
     const rosterOnly = page.getByRole('region', { name: '名單中尚未加入課表設定的班級' });
+    await rosterOnly.locator('summary').click();
     const rosterRow = rosterOnly.locator(`[data-roster-only-class="${ROSTER_ONLY_CLASS}"]`);
     await rosterRow.getByRole('button', { name: '加入課表設定' }).click();
 

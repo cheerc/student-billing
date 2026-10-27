@@ -181,7 +181,7 @@ function DrawerPanel({
             </div>
           )}
 
-          {/* 八項總表天數卡片 */}
+          {/* 收費結果：每週收費天數卡片 */}
           <div
             style={{
               backgroundColor: '#f8fafc',
@@ -196,7 +196,7 @@ function DrawerPanel({
             <div
               style={{
                 display: 'grid',
-                gridTemplateColumns: 'repeat(4, 1fr)',
+                gridTemplateColumns: 'repeat(2, 1fr)',
                 gap: '8px',
                 textAlign: 'center',
               }}
@@ -211,42 +211,6 @@ function DrawerPanel({
                 <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>課輔天數</div>
                 <div style={{ fontSize: '1.125rem', fontWeight: 700, color: '#1d4ed8' }}>
                   {student.tutoringDisplay || '-'}
-                </div>
-              </div>
-              <div style={{ background: '#fff', padding: '8px', borderRadius: '4px', border: '1px solid #e2e8f0' }}>
-                <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>美語天數</div>
-                <div style={{ fontSize: '1.125rem', fontWeight: 700 }}>
-                  {student.englishDays !== null ? `${student.englishDays}` : '-'}
-                </div>
-              </div>
-              <div style={{ background: '#fff', padding: '8px', borderRadius: '4px', border: '1px solid #e2e8f0' }}>
-                <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>數學天數</div>
-                <div style={{ fontSize: '1.125rem', fontWeight: 700 }}>
-                  {student.mathDays !== null ? `${student.mathDays}` : '-'}
-                </div>
-              </div>
-              <div style={{ background: '#fff', padding: '8px', borderRadius: '4px', border: '1px solid #e2e8f0' }}>
-                <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>中文天數</div>
-                <div style={{ fontSize: '1.125rem', fontWeight: 700 }}>
-                  {student.chineseDays !== null ? `${student.chineseDays}` : '-'}
-                </div>
-              </div>
-              <div style={{ background: '#fff', padding: '8px', borderRadius: '4px', border: '1px solid #e2e8f0' }}>
-                <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>寫功課</div>
-                <div style={{ fontSize: '1.125rem', fontWeight: 700 }}>
-                  {student.homeworkDays !== null ? `${student.homeworkDays}` : '-'}
-                </div>
-              </div>
-              <div style={{ background: '#fff', padding: '8px', borderRadius: '4px', border: '1px solid #e2e8f0' }}>
-                <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>加重美語</div>
-                <div style={{ fontSize: '1.125rem', fontWeight: 700 }}>
-                  {student.intensiveEnglishDays !== null ? `${student.intensiveEnglishDays}` : '-'}
-                </div>
-              </div>
-              <div style={{ background: '#fff', padding: '8px', borderRadius: '4px', border: '1px solid #e2e8f0' }}>
-                <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>週六課輔</div>
-                <div style={{ fontSize: '1.125rem', fontWeight: 700 }}>
-                  {student.saturdayTutoringDays !== null ? `${student.saturdayTutoringDays}` : '-'}
                 </div>
               </div>
             </div>

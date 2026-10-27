@@ -6,7 +6,6 @@ import { getCalculationRun, saveCalculationRun } from '@/adapters/sqlite/runs-re
 import { queryRunStudents } from '@/application/query-students';
 import { useGlobalTempDb, saveSyntheticBatch, makeStudent } from '../helpers/d1-test-kit';
 import { compare as compareBilling } from '../../scripts/compare-billing-report.mjs';
-import { DEFAULT_CLASS_TYPE_DEFINITIONS } from '@/contracts/settings';
 
 /**
  * issue #140 第 4 項：`not_configured` 的可達性必須由**正式測試**釘住，而不是靠一次性探針。
@@ -41,7 +40,7 @@ type Db = ReturnType<typeof import('@/adapters/sqlite').getDatabase>;
 
 function runV4(db: Db, importId: string, runId: string) {
   const res = executeCalculationRun(db, importId, runId, { ruleSetVersion: 'erp-tag-v4' as never });
-  const defJson = JSON.stringify(DEFAULT_CLASS_TYPE_DEFINITIONS.find((d) => d.id === 'care'));
+  const defJson = JSON.stringify({ id: 'care', label: '安親課輔班', scheduleMode: 'care_window' });
   const defHash = crypto.createHash('sha256').update(defJson).digest('hex');
   const semantics = [{
     baseName: CARE_CLASS,

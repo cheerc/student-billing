@@ -1,13 +1,11 @@
 import Database from 'better-sqlite3';
 import crypto from 'crypto';
 import {
-  DEFAULT_CLASS_TYPE_DEFINITIONS,
+  DEFAULT_CARE_CLASS_NAMES,
   SettingsDraft,
   buildSeedGridRows,
   gridRowsToClasses,
-  legacyClassTypeForDefinition,
 } from '@/contracts/settings';
-import { SEED_CLASS_SEMANTICS } from '@/domain/classification/class-semantics';
 import { SEED_CLASSES } from '@/domain/schedules/seed-manifest';
 
 export interface SettingsVersionRecord {
@@ -56,7 +54,15 @@ export interface SettingsPreviewRecord {
  * 無效 JSON 與原本一致，拋出 SyntaxError（不吞錯、不回預設）。
  */
 export function readStoredDraft(contentJson: string): SettingsDraft {
-  return JSON.parse(contentJson) as SettingsDraft;
+  const draft = JSON.parse(contentJson) as SettingsDraft;
+  if (Array.isArray(draft?.classes)) {
+    for (const cls of draft.classes) {
+      if ((cls.categorySource as string) === 'auto') {
+        cls.categorySource = 'unset';
+      }
+    }
+  }
+  return draft;
 }
 
 export function hashSettingsDraft(draft: SettingsDraft): string {
@@ -241,38 +247,24 @@ export function draftToScheduleOverride(
  * 使用者一旦自行指定（`manual`）或撤回（`unset`），該值會被寫進設定版本並優先於 seed 基準。
  */
 export function buildSeedDraft(
-  seedClasses?: Array<{ baseName: string; subject: string; teacher?: string | null }>,
+  seedClasses?: Array<{ baseName: string; teacher?: string | null }>,
   careWindows?: { anqin: { start: number; end: number }; tutoring: { start: number; end: number } }
 ): SettingsDraft {
   const seedRows = buildSeedGridRows();
-  // #157：seed 草稿**不寫** category／categorySource。seed 基準由 `SEED_CLASS_CATEGORIES`
-  // 在「讀取已儲存設定」路徑同樣套用（`effectiveCategoryOf`），故全新 DB 與既有 DB
-  // 對同一份設定算出**相同**結果——寫進草稿只會讓 seed 基準看起來像使用者的決定。
   const explicitSeedClasses = (seedClasses ?? SEED_CLASSES).map((seed) => {
-    const semantics = SEED_CLASS_SEMANTICS.get(seed.baseName);
-    if (!semantics) throw new Error(`Seed semantics are missing for ${seed.baseName}`);
-    const definition = DEFAULT_CLASS_TYPE_DEFINITIONS.find((item) => item.id === semantics?.classTypeId);
+    const isCare = DEFAULT_CARE_CLASS_NAMES.has(seed.baseName);
     return {
       baseName: seed.baseName,
-      subject: seed.subject,
-      subjectSource: 'seed' as const,
       teacher: null,
       active: true,
       sessions: [],
-      classTypeId: semantics.classTypeId,
-      classType: definition ? legacyClassTypeForDefinition(definition) : 'non_care' as const,
-      summaryDayRoles: semantics.summaryDayRoles,
-      summaryDayRolesStatus: 'configured' as const,
-      summaryDayRolesSource: 'seed' as const,
-      erpTierApplicability: semantics.erpTierApplicability,
-      erpTierApplicabilitySource: 'seed' as const,
+      classType: isCare ? ('care' as const) : ('non_care' as const),
     };
   });
-  const fullSeedClasses = gridRowsToClasses(seedRows, explicitSeedClasses, DEFAULT_CLASS_TYPE_DEFINITIONS);
+  const fullSeedClasses = gridRowsToClasses(seedRows, explicitSeedClasses);
 
   return {
     classes: fullSeedClasses,
-    classTypeDefinitions: [...DEFAULT_CLASS_TYPE_DEFINITIONS],
     aliases: [],
     careWindows: {
       anqin: {
@@ -284,7 +276,5 @@ export function buildSeedDraft(
         endMinutes: careWindows?.tutoring?.end ?? 1170,
       },
     },
-    effectiveFrom: null,
-    effectiveTo: null,
   };
 }

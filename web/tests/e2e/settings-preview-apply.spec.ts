@@ -1,6 +1,5 @@
 import { test, expect } from '@playwright/test';
 import path from 'path';
-import { applyLegacySemanticRecommendations } from './helpers/legacy-semantics';
 
 /**
  * specs/10 §4（T05 重寫對照 R2 UX03／UX09／UX10）：
@@ -27,7 +26,6 @@ test.describe('T05 設定 preview→apply E2E（R2 課表與班名對應工作�
     await expect(activateBtn).toBeVisible();
     await activateBtn.click();
     await expect(page.locator('.data-banner-current', { hasText: '目前使用的資料' })).toBeVisible({ timeout: 15000 });
-    await applyLegacySemanticRecommendations(page);
 
     // 3. 進入課表設定頁（R2 新標題：課表設定）
     await page.goto('/settings');
@@ -49,9 +47,9 @@ test.describe('T05 設定 preview→apply E2E（R2 課表與班名對應工作�
     const dialog = page.locator('dialog.impact-dialog');
     await expect(dialog).toBeVisible({ timeout: 15000 });
 
-    // 斷言 D18 預期結果：13 人天數變化、天數不符 5 人 → 18 人（D39 定稿文案；單位是人，不是筆）
+    // 斷言 D18 預期結果：13 人天數變化、天數不符 4 人 → 17 人（D39 定稿文案；單位是人，不是筆）
     await expect(dialog).toContainText('13 人');
-    await expect(dialog).toContainText('系統計算天數與米豆奶入班天數不符：5 人 → 18 人', { useInnerText: true });
+    await expect(dialog).toContainText('系統計算天數與米豆奶入班天數不符：4 人 → 17 人', { useInnerText: true });
     await expect(dialog).not.toContainText('mismatch', { useInnerText: true });
 
     // 7. 點擊確認視窗內主按鈕「儲存並更新結果」完成套用與重算

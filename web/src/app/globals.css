@@ -25,12 +25,17 @@
   padding: 0;
 }
 
+html {
+  scroll-padding-bottom: 96px;
+}
+
 body {
   background-color: var(--bg-primary);
   color: var(--text-primary);
   font-family: var(--font-family);
   line-height: 1.5;
   min-height: 100vh;
+  scroll-padding-bottom: 96px;
 }
 
 .container {
@@ -972,12 +977,15 @@ body {
   justify-content: space-between;
 }
 
+.settings-workflow-root {
+  scroll-padding-bottom: 96px;
+}
+
 /* Savebar */
 .savebar {
   position: sticky;
   bottom: 16px;
-  /* Keep the last controls in the nested schedule scroller above this sticky bar. */
-  margin-top: 144px;
+  margin-top: 24px;
   padding: 14px 20px;
   background: #ffffff;
   border: 1px solid var(--border-color);

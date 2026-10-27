@@ -102,7 +102,7 @@ describe('Issue #177 Phase 2: UI 與課表契約收斂 (TDD RED -> GREEN)', () =
 
       const buffer = await buildScheduleWorkbook(rows, classAttrs);
       const workbook = new ExcelJS.Workbook();
-      await workbook.xlsx.load(buffer);
+      await workbook.xlsx.load(buffer as unknown as ArrayBuffer);
 
       // 僅包含 1 個工作表，且名稱為「課表」
       expect(workbook.worksheets).toHaveLength(1);

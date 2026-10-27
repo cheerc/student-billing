@@ -4,7 +4,6 @@ import { getCalculationRun, getCurrentActiveRun } from '@/adapters/sqlite/runs-r
 import { getLatestSettingsVersion, readStoredDraft } from '@/adapters/sqlite/settings-repository';
 import { SettingsDraft } from '@/contracts/settings';
 import { loadRunSnapshot } from '@/application/run-snapshot';
-import { normalizeSettingsDraftSemantics } from '@/domain/classification/class-semantics';
 import { SEED_CLASSES } from '@/domain/schedules/seed-manifest';
 import { historicalRuleSetMetadata } from '@/domain/billing/rule-set';
 import { sanitizePathParam, maskSensitiveInfo, SecurityError } from '@/contracts/security';
@@ -56,11 +55,9 @@ export async function GET(request: NextRequest) {
       const latestSettings = getLatestSettingsVersion(db);
       draft = latestSettings ? readStoredDraft(latestSettings.contentJson) : null;
     }
-    const scheduleClasses = draft?.classes.filter((c) => !c.semanticOnly);
+    const scheduleClasses = draft?.classes;
     const configuredClasses = new Set(scheduleClasses ? scheduleClasses.map((c) => c.baseName) : SEED_CLASSES.map((c) => c.baseName));
     const activeClasses = new Set(scheduleClasses ? scheduleClasses.filter((c) => c.active).map((c) => c.baseName) : SEED_CLASSES.map((c) => c.baseName));
-    const normalizedDraft = draft ? normalizeSettingsDraftSemantics(draft) : null;
-    const configuredSubjectMap = new Map((normalizedDraft?.classes ?? []).map((cls) => [cls.baseName, cls.subject]));
     const runMetadata = historicalRuleSetMetadata(run.ruleSetVersion);
     const requireRunSemanticSnapshot = !runMetadata.known || runMetadata.hasClassSemanticsSnapshot;
     const runSubjectMap = run.classSemantics === undefined
@@ -102,7 +99,7 @@ export async function GET(request: NextRequest) {
       if (requireRunSemanticSnapshot || runSubjectMap !== undefined) {
         subject = runSubjectMap?.get(r.base_name)?.trim() || '未設定';
       } else {
-        subject = configuredSubjectMap.get(targetName)?.trim() || seedSubjectMap.get(targetName) || seedSubjectMap.get(r.base_name) || '未設定';
+        subject = seedSubjectMap.get(targetName) || seedSubjectMap.get(r.base_name) || '未設定';
       }
       const isConfigured = configuredClasses.has(targetName);
       const isActive = activeClasses.has(targetName);

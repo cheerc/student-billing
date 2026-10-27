@@ -165,11 +165,9 @@ export function resolveClassEnrollment(
     const { category, categorySource } = effectiveCategoryOf(resolvedBaseName, cls);
     const mapped = !cls.semanticOnly;
     const fixedFiveDays = cls.fixedFiveDays ?? false;
-    const classType = cls.semanticOnly
-      ? (cls.erpTierApplicability === 'applicable' ? 'care' : null)
-      : (((cls.classType ?? cls.classTypeId) as ('care' | 'non_care' | null)) ?? null);
-    const erpTierApplicability = (cls.semanticOnly && cls.erpTierApplicability && cls.erpTierApplicability !== 'unset')
-      ? cls.erpTierApplicability
+    const classType = ((cls.classType ?? cls.classTypeId) as ('care' | 'non_care' | null)) ?? null;
+    const erpTierApplicability = cls.semanticOnly && classType === 'care' && !fixedFiveDays
+      ? 'applicable'
       : deriveErpTierApplicability({
           mapped,
           classType,
