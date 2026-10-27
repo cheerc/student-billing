@@ -22,8 +22,8 @@ describe('issue #148 ready import tier preview', () => {
         teacher: null,
         active: true,
         sessions: [],
-        classTypeId: 'non_care',
-        classType: 'non_care',
+        classTypeId: 'care',
+        classType: 'care',
         category: 'unset',
         categorySource: 'unset',
         summaryDayRoles: [],
@@ -74,7 +74,7 @@ describe('issue #148 ready import tier preview', () => {
       expect(page.items[1].enrollments[0]).toMatchObject({
         erpBillingTier: null,
         previewErpBillingTier: null,
-        previewTierParseStatus: 'unavailable',
+        previewTierParseStatus: 'not_applicable',
       });
 
       const filtered = queryImportStudents(db, 'imp_issue148', { previewErpBillingTier: 4.5 });

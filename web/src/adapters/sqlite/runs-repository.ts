@@ -76,6 +76,8 @@ export interface StudentCalculationRecord {
 
 export interface RunClassCategoryRecord {
   baseName: string;
+  resolvedBaseName?: string | null;
+  classType?: 'care' | 'non_care' | string | null;
   category: string;
   fixedFiveDays: number;
   mapped: number;
@@ -117,9 +119,6 @@ export function saveCalculationRun(
 ): void {
   if (run.diagnosticAlgorithmVersion != null || run.diagnostics) {
     throw new Error('新 run 不可寫入已退役的診斷快照');
-  }
-  if (run.ruleSetVersion === 'erp-tag-v4' && classSemantics === undefined) {
-    throw new Error('v4 新 run 必須明確提供 classSemantics（空快照請傳入 []）');
   }
 
   const persist = db.transaction(() => {
@@ -193,14 +192,16 @@ export function saveCalculationRun(
   if (historicalRuleSetMetadata(run.ruleSetVersion).hasClassCategorySnapshot && classCategories && classCategories.length > 0) {
     const insertCategory = db.prepare(`
       INSERT OR REPLACE INTO run_class_categories (
-        run_id, base_name, category, fixed_five_days, mapped, source
-      ) VALUES (?, ?, ?, ?, ?, ?)
+        run_id, base_name, resolved_base_name, class_type, category, fixed_five_days, mapped, source
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
     for (const item of classCategories) {
       insertCategory.run(
         run.id,
         item.baseName,
+        item.resolvedBaseName ?? item.baseName,
+        item.classType ?? null,
         item.category,
         item.fixedFiveDays,
         item.mapped,
@@ -209,7 +210,9 @@ export function saveCalculationRun(
     }
   }
 
-  if (run.ruleSetVersion === 'erp-tag-v4' && classSemantics !== undefined) {
+  // Phase 1: 新 Run 停止寫入 run_semantics_snapshots 與 run_class_semantics。
+  // 若顯式傳入 classSemantics（測試或歷史相容寫入），仍寫入語意快照表。
+  if (run.ruleSetVersion === 'erp-tag-v4' && classSemantics !== undefined && classSemantics.length > 0) {
     db.prepare('INSERT INTO run_semantics_snapshots (run_id, snapshot_schema_version) VALUES (?, 2)').run(run.id);
     const insertSemantics = db.prepare(`
       INSERT INTO run_class_semantics (
@@ -243,6 +246,8 @@ export function saveCalculationRun(
         item.erpTierApplicabilitySource
       );
     }
+  } else if (run.ruleSetVersion === 'erp-tag-v4' && Array.isArray(classSemantics) && classSemantics.length === 0) {
+    db.prepare('INSERT INTO run_semantics_snapshots (run_id, snapshot_schema_version) VALUES (?, 2)').run(run.id);
   }
 
   });

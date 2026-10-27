@@ -179,7 +179,6 @@ describe('class-category 純函式架構約束', () => {
       'application/calculate-run.ts',
       'application/roster-changes.ts',
       'application/roster-query.ts',
-      'application/summary-day-values.ts',
       'components/settings-editor.tsx',
       'components/settings/schedule-grid.tsx',
       'contracts/settings.ts',

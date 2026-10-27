@@ -142,8 +142,7 @@ export function shouldWarnMissingSnapshot(run: RunSnapshotSource | null | undefi
   if (!run) return false;
   const metadata = historicalRuleSetMetadata(run.ruleSetVersion ?? '');
   if (!metadata.known) return true;
-  if (metadata.hasClassCategorySnapshot && !Array.isArray(run.classCategories)) return true;
-  return metadata.hasClassSemanticsSnapshot && !Array.isArray(run.classSemantics);
+  return metadata.hasClassCategorySnapshot && !Array.isArray(run.classCategories);
 }
 
 /**
@@ -185,6 +184,27 @@ export function classSemanticsForRun(
   rateContext: RunSnapshotPayload | undefined
 ): RunClassSemanticsLike | undefined {
   if (!rateContext || rateContext.known === false) return undefined;
+  if (Array.isArray(rateContext.classSemantics) && rateContext.classSemantics.length > 0) {
+    const found = rateContext.classSemantics.find((item) => item.baseName === baseName);
+    if (found) return found;
+  }
+  const rows = snapshotRowsOf(rateContext);
+  if (rows) {
+    const row = rows.find((r) => r.base_name === baseName);
+    if (row && typeof row.class_type === 'string') {
+      const isCare = row.class_type === 'care';
+      const isFixedFive = row.fixed_five_days === 1;
+      const erpTierApplicability = (isCare && !isFixedFive) ? 'applicable' : 'not_applicable';
+      const summaryDayRoles = isFixedFive ? ['homeworkDays'] : [];
+      return {
+        baseName: row.base_name,
+        resolvedBaseName: row.resolved_base_name ?? row.base_name,
+        category: row.category,
+        summaryDayRoles,
+        erpTierApplicability,
+      };
+    }
+  }
   if (runUsesClassSemanticsSnapshot(rateContext)) {
     return Array.isArray(rateContext.classSemantics)
       ? rateContext.classSemantics.find((item) => item.baseName === baseName)

@@ -4,7 +4,6 @@ import {
   migrateLegacyClassSemantics,
   previewLegacyClassSemanticsMigration,
 } from '@/domain/classification/legacy-semantic-migration';
-import { projectSummaryDayValues } from '@/application/summary-day-values';
 import { buildClassSettingMap } from '@/application/calculate-run';
 import { buildSeedDraft } from '@/adapters/sqlite/settings-repository';
 import { resolveClassEnrollment } from '@/domain/classification/class-category';
@@ -61,18 +60,6 @@ describe('issue #148 approved one-time legacy semantic migration', () => {
       summaryDayRoles: ['saturdayTutoringDays'],
       summaryDayRoleConditions: [{ role: 'saturdayTutoringDays', condition: 'raw_token_contains_six' }],
     });
-
-    const rows = [
-      { rawToken: '加強班-數學[六]', baseName: '加強班' },
-      { rawToken: '加強班-數學[二]', baseName: '加強班' },
-    ];
-    const classSettings = new Map([['加強班', {
-      summaryDayRoles: result.classes[0].summaryDayRoles,
-      summaryDayRolesStatus: result.classes[0].summaryDayRolesStatus,
-      summaryDayRoleConditions: result.classes[0].summaryDayRoleConditions,
-    }]]);
-    expect(projectSummaryDayValues(rows, classSettings, undefined, () => undefined).saturdayTutoringDays).toBe(1);
-    expect(projectSummaryDayValues([rows[1]], classSettings, undefined, () => undefined).saturdayTutoringDays).toBeNull();
   });
 
   it('builds an anonymous, read-only recommendation row before the operator creates the migration draft', () => {

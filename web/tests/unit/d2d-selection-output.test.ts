@@ -142,8 +142,8 @@ describe('D2d B: 八項總表重複同類取選中班（Q10-A）', () => {
       saveCalculationRun(db, res.run, res.results, res.classCategories, res.classSemantics);
 
       const rec = res.results.find((r) => r.personCode === 'S-EN-DUP')!;
-      // englishDays = Chevady 的 2（選中班）。
-      expect(rec.englishDays).toBe(2);
+      // D60-2: 新 Run 的 englishDays 等 6 個點名表欄位已退役為 null；選中班由 calculator selection 承載。
+      expect(rec.englishDays).toBeNull();
     } finally {
       db.close();
     }

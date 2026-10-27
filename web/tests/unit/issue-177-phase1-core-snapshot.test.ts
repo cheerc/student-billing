@@ -144,7 +144,7 @@ describe('Issue #177 Phase 1: New run calculations retire 6 attendance columns t
       VALUES ('enr_1', 'P001', ?, 0, '國小輔導-三年級[團][3]', '國小輔導-三年級', '團', NULL, NULL, '3', 3, 'parsed', 'ok', '2026-10-27T00:00:00Z')
     `).run(importId);
 
-    const outcome = executeCalculationRun(db, importId, {
+    const outcome = executeCalculationRun(db, importId, 'run_test_1', {
       ruleSetVersion: 'erp-tag-v4',
     });
 

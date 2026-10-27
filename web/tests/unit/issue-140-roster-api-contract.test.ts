@@ -98,12 +98,12 @@ describe('issue #140 第 2 項：工具端判定與載入層同一套能力旗�
     expect(shouldWarnMissingSnapshot({ ruleSetVersion: 'erp-tag-v3' })).toBe(true);
   });
 
-  it('v4 缺類別或語意快照、以及 unknown version → 應警告並 fail closed', () => {
-    expect(shouldWarnMissingSnapshot({ ruleSetVersion: 'erp-tag-v4', classSemantics: [] })).toBe(true);
+  it('v4 缺類別快照、以及 unknown version → 應警告並 fail closed', () => {
+    expect(shouldWarnMissingSnapshot({ ruleSetVersion: 'erp-tag-v4' })).toBe(true);
     expect(shouldWarnMissingSnapshot({
       ruleSetVersion: 'erp-tag-v4',
       classCategories: [],
-    })).toBe(true);
+    })).toBe(false);
     expect(shouldWarnMissingSnapshot({ ruleSetVersion: 'erp-tag-v77' })).toBe(true);
   });
 
