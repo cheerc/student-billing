@@ -83,7 +83,7 @@ describe('首頁三種狀態（初始／只有課表／已匯入未使用）', (
     expect(text(html)).not.toMatch(FORBIDDEN);
   });
 
-  it('已匯入、尚未使用：一個 h1 說明還沒開始核對；主按鈕「使用這份名單」（與匯入頁一致），沒有 Run 字樣', async () => {
+  it('尚無已啟用 run 時統一顯示乾淨空狀態卡（確認課表／前往 /imports 匯入學生）', async () => {
     const db = createDatabase(process.env.DATABASE_PATH!);
     saveImportBatch(db, {
       id: 'imp_1', fileName: '九月上旬.xlsx', fileHash: 'h', contentHash: 'c', sheetName: 'Sheet1', headerMap: {},
@@ -95,10 +95,8 @@ describe('首頁三種狀態（初始／只有課表／已匯入未使用）', (
     const html = await render();
 
     expect(html.match(/<h1/g)).toHaveLength(1);
-    expect(html).toMatch(/<h1[^>]*>尚未使用這份名單<\/h1>/);
-    expect(text(html)).toContain('九月上旬.xlsx');
-    expect(html).toMatch(/<button[^>]*class="btn-primary"[^>]*>使用這份名單<\/button>/);
-    expect(html).toMatch(/<a[^>]*href="\/imports"[^>]*>匯入其他名單<\/a>/);
+    expect(text(html)).toContain('還沒有可核對的學生資料');
+    expect(html).toMatch(/<a[^>]*href="\/imports"[^>]*>匯入學生<\/a>/);
     expect(text(html)).not.toMatch(FORBIDDEN);
   });
 });

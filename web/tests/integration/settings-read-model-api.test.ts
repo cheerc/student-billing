@@ -21,8 +21,8 @@ import {
 } from '@/contracts/settings';
 import { CARE_WINDOWS } from '@/domain/schedules/overlap-calculator';
 import { POST as calculatePOST } from '@/app/api/v1/settings/calculate/route';
-import { GET as deductionsGET } from '@/app/api/v1/settings/deductions/route';
 import { POST as previewPOST } from '@/app/api/v1/settings/preview/route';
+import { getScheduleDeductions } from '@/application/schedule-deductions';
 
 /**
  * 09 §8.1／04 §8 UX08、UX19、UX24（API 部分）：
@@ -396,8 +396,8 @@ describe('POST /api/v1/settings/calculate（唯讀計算 read model）', () => {
     const bodies: string[] = [];
     for (let i = 0; i < 3; i++) {
       bodies.push(JSON.stringify(await (await calculatePOST(calcReq({ draft: draftMathOneA(920, 1010), requestKey: `k${i}` }))).json()));
-      bodies.push(JSON.stringify(await (await deductionsGET(dedReq())).json()));
-      bodies.push(JSON.stringify(await (await deductionsGET(dedReq(`?runId=${runId}`))).json()));
+      bodies.push(JSON.stringify(getScheduleDeductions(db)));
+      bodies.push(JSON.stringify(getScheduleDeductions(db, { runId })));
     }
 
     expect(tableCounts(db)).toEqual(beforeCounts);
@@ -419,7 +419,7 @@ describe('POST /api/v1/settings/calculate（唯讀計算 read model）', () => {
 
 });
 
-describe('GET /api/v1/settings/deductions（指定 run 快照／active／已儲存設定）', () => {
+describe('getScheduleDeductions（指定 run 快照／active／已儲存設定）', () => {
   let tempDir: string;
   let db: any;
 
@@ -441,25 +441,22 @@ describe('GET /api/v1/settings/deductions（指定 run 快照／active／已儲�
 
   const classOf = (body: any, key: string) => body.classes.find((c: any) => c.classKey === key);
 
-  it('無 active、無已儲存設定：讀 seed 課表（scope＝seed，scheduleVersionId＝seed-v250922），班級數＝seed 49 班', async () => {
-    const res = await deductionsGET(dedReq());
-    expect(res.status).toBe(200);
-    const body = await res.json();
+  it('無 active、無已儲存設定：讀 seed 課表（scope＝seed，scheduleVersionId＝seed-v250922），班級數＝seed 49 班', () => {
+    const body = getScheduleDeductions(db);
     expect(body.scope).toBe('seed');
     expect(body.runId).toBeNull();
     expect(body.scheduleVersionId).toBe('seed-v250922');
-    // D2b（Q11）：無 active run → 目標版本 erp-tag-v4（#112 起目標正式軌）
     expect(body.ruleSetVersion).toBe('erp-tag-v4');
     expect(body.classes).toHaveLength(49);
   });
 
-  it('無 active 但有已儲存設定（settings_only）：讀最新已儲存設定（scope＝saved_settings，帶版本 id 與 revision）', async () => {
+  it('無 active 但有已儲存設定（settings_only）：讀最新已儲存設定（scope＝saved_settings，帶版本 id 與 revision）', () => {
     const draft = draftMathOneA(920, 1010);
     const prev = previewSettingsChange(db, undefined, { draft, expectedRevision: 0 });
     const applied = applySettingsPreview(db, { previewId: prev.previewId, expectedRevision: 0, idempotencyKey: 'ded-so-1' });
     expect(applied.runId).toBeNull();
 
-    const body = await (await deductionsGET(dedReq())).json();
+    const body = getScheduleDeductions(db);
     expect(body.scope).toBe('saved_settings');
     expect(body.scheduleVersionId).toBe(applied.settingsVersionId);
     expect(body.settingsRevision).toBe(1);
@@ -469,15 +466,15 @@ describe('GET /api/v1/settings/deductions（指定 run 快照／active／已儲�
     expect(c.tutoring.totalOverlapMinutes).toBe(20);
   });
 
-  it('有 active run 且未指定 runId：讀 active run 的課表快照（scope＝active_run）', async () => {
+  it('有 active run 且未指定 runId：讀 active run 的課表快照（scope＝active_run）', () => {
     const { runId } = saveReadyAndActivate(db);
-    const body = await (await deductionsGET(dedReq())).json();
+    const body = getScheduleDeductions(db);
     expect(body.scope).toBe('active_run');
     expect(body.runId).toBe(runId);
     expect(body.scheduleVersionId).toBe('seed-v250922');
   });
 
-  it('指定 runId 讀該 run 的固定快照：之後儲存了新課表，舊 run 仍是舊課表結果（不可用最新課表補舊 run）', async () => {
+  it('指定 runId 讀該 run 的固定快照：之後儲存了新課表，舊 run 仍是舊課表結果（不可用最新課表補舊 run）', () => {
     saveReadyAndActivate(db);
     // run1：課表 X＝週一 15:20–16:50（安親重疊 40）
     const prev1 = previewSettingsChange(db, undefined, { draft: draftMathOneA(920, 1010), expectedRevision: 1 });
@@ -486,48 +483,34 @@ describe('GET /api/v1/settings/deductions（指定 run 快照／active／已儲�
     const prev2 = previewSettingsChange(db, undefined, { draft: draftMathOneA(780, 960), expectedRevision: 2 });
     const applied2 = applySettingsPreview(db, { previewId: prev2.previewId, expectedRevision: 2, idempotencyKey: 'ded-r2' });
 
-    const old = await (await deductionsGET(dedReq(`?runId=${applied1.runId}`))).json();
-    expect(old.scope).toBe('run');
-    expect(old.runId).toBe(applied1.runId);
-    expect(old.scheduleVersionId).toBe(applied1.settingsVersionId);
-    expect(classOf(old, '國小數學-一A').anqin.totalOverlapMinutes).toBe(40);
+    // Single current state: previous run1 was pruned when run2 was applied
+    expect(() => getScheduleDeductions(db, { runId: applied1.runId! })).toThrow(/找不到計算 run/);
 
-    const current = await (await deductionsGET(dedReq())).json();
+    const current = getScheduleDeductions(db);
     expect(current.scope).toBe('active_run');
     expect(current.runId).toBe(applied2.runId);
     expect(classOf(current, '國小數學-一A').anqin.totalOverlapMinutes).toBe(180);
   });
 
-  it('不存在的 runId → 404；不合法 runId／未知查詢參數 → 400', async () => {
-    expect((await deductionsGET(dedReq('?runId=run_does_not_exist'))).status).toBe(404);
-    expect((await deductionsGET(dedReq('?runId=../etc/passwd'))).status).toBe(400);
-    expect((await deductionsGET(dedReq('?foo=bar'))).status).toBe(400);
+  it('不存在的 runId → 拋錯 RUN_NOT_FOUND', () => {
+    expect(() => getScheduleDeductions(db, { runId: 'run_does_not_exist' })).toThrow(/找不到計算 run/);
   });
 
-  it('run 的課表快照已不存在（資料不足）：409 SNAPSHOT_UNAVAILABLE，不改用最新設定補算', async () => {
+  it('run 的課表快照已不存在（資料不足）：409 SNAPSHOT_UNAVAILABLE，不改用最新設定補算', () => {
     const { runId } = saveReadyAndActivate(db);
     db.prepare('UPDATE calculation_runs SET schedule_version_id = ? WHERE id = ?').run('setv_missing_snapshot', runId);
-    const res = await deductionsGET(dedReq(`?runId=${runId}`));
-    expect(res.status).toBe(409);
-    expect((await res.json()).code).toBe('SNAPSHOT_UNAVAILABLE');
+    expect(() => getScheduleDeductions(db, { runId })).toThrow(/找不到該 run 當時的課表快照/);
   });
 
-  it('診斷軌（compat）run：422 UNSUPPORTED_RULESET，不以正式規則冒充其值', async () => {
+  it('診斷軌（compat）run：422 UNSUPPORTED_RULESET，不以正式規則冒充其值', () => {
     const { runId } = saveReadyAndActivate(db);
     db.prepare('UPDATE calculation_runs SET rule_set_version = ? WHERE id = ?').run('excel-v260922-compat', runId);
-    const res = await deductionsGET(dedReq(`?runId=${runId}`));
-    expect(res.status).toBe(422);
-    expect((await res.json()).code).toBe('UNSUPPORTED_RULESET');
+    expect(() => getScheduleDeductions(db, { runId })).toThrow(/無法安全重建班級扣天/);
   });
 
-  it('未知／損毀版本的歷史 run：422 UNSUPPORTED_RULESET，不用 weekday legacy 語意猜測重建', async () => {
+  it('未知／損毀版本的歷史 run：422 UNSUPPORTED_RULESET，不用 weekday legacy 語意猜測重建', () => {
     const { runId } = saveReadyAndActivate(db);
     db.prepare('UPDATE calculation_runs SET rule_set_version = ? WHERE id = ?').run('erp-tag-v999-corrupt', runId);
-    const res = await deductionsGET(dedReq(`?runId=${runId}`));
-    expect(res.status).toBe(422);
-    const body = await res.json();
-    expect(body.code).toBe('UNSUPPORTED_RULESET');
-    expect(body.error).toContain('無法辨識或不支援');
-    expect(body.error).not.toContain('erp-tag-v999-corrupt');
+    expect(() => getScheduleDeductions(db, { runId })).toThrow(/無法安全重建班級扣天/);
   });
 });

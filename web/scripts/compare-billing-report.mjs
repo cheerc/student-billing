@@ -136,7 +136,7 @@ function parseArgs(argv) {
  */
 /**
  * @param {string | null | undefined} detail
- * @param {{ erpTierApplicability?: 'applicable' | 'not_applicable' | 'unset', summaryDayRoles?: string[] } | undefined} [semantics]
+ * @param {{ erpTierApplicability?: 'applicable' | 'not_applicable' | 'unset', isHomework?: boolean } | undefined} [semantics]
  */
 export function parseTuition(detail, semantics = undefined) {
   if (!detail) {
@@ -150,7 +150,7 @@ export function parseTuition(detail, semantics = undefined) {
   const lexicalToken = parseSingleClassToken(className);
   const applicability = semantics?.erpTierApplicability ?? 'unset';
   const projected = projectTierForApplicability(lexicalToken, applicability);
-  const isHomework = semantics?.summaryDayRoles?.includes('homeworkDays') ?? false;
+  const isHomework = semantics?.isHomework ?? (lexicalToken.baseName.includes('寫功課'));
   // The historical report treated the explicitly identified homework role as five days,
   // independently of ERP tier syntax. Keep that report projection data driven.
   if (isHomework) {
@@ -553,10 +553,10 @@ export function compare(reportStudents, webStudents, asOfDate, rateContext = und
       tokens: w.enrollments.map(e => e.rawToken),
       careTokens: careEnrollments.map((e) => e.rawToken),
       homeworkTokens: enrollmentSemantics
-        .filter((e) => e.semantic?.summaryDayRoles.includes('homeworkDays'))
+        .filter((e) => e.semantic?.isHomework)
         .map((e) => e.rawToken),
       otherTokens: enrollmentSemantics
-        .filter((e) => e.category !== null && e.category !== 'care' && !e.semantic?.summaryDayRoles.includes('homeworkDays'))
+        .filter((e) => e.category !== null && e.category !== 'care' && !e.semantic?.isHomework)
         .map((e) => e.rawToken),
       // 離班標記直接取 API 已解析好的欄位，不在本檔用 regex 重新偵測
       // （review F-minor-2：自訂 regex 與產品錨定行尾的寫法分歧，且屬重複實作）

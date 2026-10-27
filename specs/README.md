@@ -1,6 +1,6 @@
 # 學生收費核對工具：規格與交接入口
 
-版本：2026-10-23。新 Run 與新計算預覽只使用 `erp-tag-v4`（#159 PR-2）；v1–v3 與 compat 僅供明確的歷史唯讀 projection。#148 PR-3 已保存 bounded class semantics 與 immutable per-run snapshot；PR-4 將現行 consumers 改讀 Run 語意快照，unknown/missing v3/v4 snapshot fail closed，不改 v4 numeric output。歷史規劃文件中的「尚未實作」不代表目前進度。
+版本：2026-10-27。D60 決策定案：系統全面減法，以單一現況留存模型為核心（唯一一份最新已啟用學生名單、唯一一份最新課表設定、唯一一筆當前計算 Run，移除 /history），計算一律使用單一現行規則 `erp-tag-v4`，收斂為 3 頁 UI 與 11 條 API（4 條 Agent 查帳 GET API + 7 條 Web 操作工作流路由）。
 
 UI 重設（先課表 → 匯入 → 核對）R0–R5 已交付並合併，驗收見[progress/ui-redesign-acceptance.md](progress/ui-redesign-acceptance.md)。人工驗收已歷七輪修正：第一輪（2026-09-30，受驗 `e1b1a58`）裁決 REJECTED，開啟 R2–R6 的修正循環；**第七輪（2026-10-05，受驗 `6aacb6c1`）簽核 PASS**，R6-F01、R6-F02 在指定條件下皆未重現。交付基準為 release tag **v0.0.1**（`main` `e4b4efce`；`web/package.json` 的 `version` 欄為 `0.1.0`，與 tag 名稱不一致，兩者不是同一個版本號，本文件不作合併）。歷次 FAIL → 修正的對照與第七輪簽核範圍見[progress/manual-acceptance-rounds.md](progress/manual-acceptance-rounds.md)。第一輪的修正計畫與決策如下：
 
@@ -40,6 +40,7 @@ UI 重設（先課表 → 匯入 → 核對）R0–R5 已交付並合併，驗�
 12. [第二次人工驗收修正 Plan](./12-round2-acceptance-fix-plan.md)：第二輪兩項 FAIL 的修正來源、驗收列 UX74–UX77，以及隔離驗收環境／故障注入代理／合成測試檔三項工具的指令與限制。
 13. [P1 最終複核與修正](./reviews/p1-final-verification-20260923.md)：最新契約修正、驗證範圍與啟動條件；較早review保留歷史原文。
 14. [課程類型分類與課表設定重構 Plan](./14-class-type-settings-plan.md)：課表設定改為依課程類型的分頁籤（安親課輔班／非安親課輔班）；固定 5 天旗標與課程學費折扣解耦。
+15. [系統全面減法、單一現況收斂與 Agent 查帳 API 整理 Plan](./15-class-semantics-simplification-plan.md)：D60 決策落實，拆除 #148 語意面板、退役 6 欄點名表天數、單一現行規則 erp-tag-v4、單一現況留存模型（移除 /history）、收斂為 3 頁 UI + 11 條 API。
 
 ## 已確認的方向
 

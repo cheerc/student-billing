@@ -59,7 +59,7 @@ describe('issue #140 第 3 項：RunInfoLike 宣告 classCategories', () => {
       baseName: '1234班',
       resolvedBaseName: '1234班',
       category: 'care',
-      summaryDayRoles: [],
+      isHomework: false,
       erpTierApplicability: 'applicable' as const,
     };
     const run: RunInfoLike = {

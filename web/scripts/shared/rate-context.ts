@@ -28,7 +28,7 @@ export interface RunClassSemanticsLike {
   baseName: string;
   resolvedBaseName: string;
   category: string;
-  summaryDayRoles: string[];
+  isHomework?: boolean;
   erpTierApplicability: 'applicable' | 'not_applicable' | 'unset';
 }
 
@@ -154,12 +154,12 @@ export function classSemanticsForRun(
       const isCare = row.class_type ? row.class_type === 'care' : (row.category === 'care' || baseName.includes('國小輔導'));
       const isFixedFive = row.fixed_five_days === 1;
       const erpTierApplicability = (isCare && !isFixedFive) ? 'applicable' : 'not_applicable';
-      const summaryDayRoles = isFixedFive ? ['homeworkDays'] : [];
+      const isHomework = isFixedFive;
       return {
         baseName: row.base_name,
         resolvedBaseName: row.resolved_base_name ?? row.base_name,
         category: row.category,
-        summaryDayRoles,
+        isHomework,
         erpTierApplicability,
       };
     }
@@ -167,12 +167,12 @@ export function classSemanticsForRun(
   if (baseName.includes('國小輔導')) {
     const isFixedFive = baseName.includes('寫功課');
     const erpTierApplicability = isFixedFive ? 'not_applicable' : 'applicable';
-    const summaryDayRoles = isFixedFive ? ['homeworkDays'] : [];
+    const isHomework = isFixedFive;
     return {
       baseName,
       resolvedBaseName: baseName,
       category: 'care',
-      summaryDayRoles,
+      isHomework,
       erpTierApplicability,
     };
   }

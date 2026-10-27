@@ -64,8 +64,8 @@ describe('D2c 使用者指定／撤回指定的設定快照持久化', () => {
       expect(persisted).not.toHaveProperty('category');
       expect(persisted).not.toHaveProperty('categorySource');
       expect(persisted).not.toHaveProperty('fixedFiveDays');
-      const unchanged = db.prepare('SELECT content_json FROM settings_versions WHERE id = ?').get(old.id) as { content_json: string };
-      expect(unchanged.content_json).toBe(old.contentJson);
+      // Single current state: older settings version is pruned upon apply
+      expect(db.prepare('SELECT content_json FROM settings_versions WHERE id = ?').get(old.id)).toBeUndefined();
     } finally {
       db.close();
     }

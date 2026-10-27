@@ -454,3 +454,14 @@ v1–v3 歷史 read-only 投影使用明確凍結的舊 semantic projection；un
 6. C表B:E只填4–57，共54個彙整槽；目前spill為49班加1空白，共50槽，僅餘4槽。超過有公式的槽可能得到空白／0扣天（不必然是#N/A）。另D填至1000、SUMIF至S!96、TEXTJOIN至S!115。新工具不照抄固定容量、查找範圍漂移與跨年限制，須有對照證據。
 
 原則：可延續相容結果並加具體提示，讓 prototype 可操作；涉及收費意義改變的選擇記入新 ruleSetVersion 並確認，不覆蓋舊 run。
+
+### 9A.8 D60 全面減法：退役非收費 6 欄天數與單一現行規則 erp-tag-v4（Issue #177 Phase 1-4）
+
+依 2026-10-27 Operator 拍板之 D60 決策（Issue #177）：
+1. **退役 6 欄非收費天數**：收費計算核心只產出並呈現 `anqinDays`（安親天數）與 `tutoringDays`（課輔天數）；其餘 6 個非收費之舊 Excel D 表欄位（美語天數、數學天數、中文天數、寫功課天數、加重美語天數、週六課輔天數）固定產出 `null`。
+2. **級距推導回歸直覺自動推導**：
+   - `已對應 && classType === 'care' && !fixedFiveDays`：自動比對米豆奶週收費級距；
+   - `classType === 'care' && fixedFiveDays`（如寫功課班）：保底 5 天且不解析級距後綴；
+   - `classType === 'non_care'`（如兒童美語、國小數學）：不適用級距，不報級距錯誤；
+   - 未對應課表的班級：單獨發出 `CLASS_NOT_MAPPED` 需確認警告。
+3. **單一現行規則**：系統所有新計算、預覽與比對固定使用 `erp-tag-v4`；舊規則集（`erp-tag-v1`、`erp-tag-v2`、`erp-tag-v3`、`excel-v260922-compat`）之相容層與升級橫幅完全拆除。

@@ -7,8 +7,9 @@ import { getDatabase } from '@/adapters/sqlite';
 import { saveImportBatch } from '@/adapters/sqlite/import-repository';
 import { activateImport } from '@/application/activate-import';
 import { parseClassTokens, type StudentSnapshot } from '@/domain/students';
+import { queryImportStudents } from '@/application/roster-query';
+import { readStudentQuery } from '@/contracts/student-query';
 import { GET as runGET } from '@/app/api/v1/runs/[runId]/students/route';
-import { GET as previewGET } from '@/app/api/v1/imports/[previewId]/students/route';
 
 /** B1／UX25、UX29：合成名冊 → 持久化 → 真實 activate → 真實 GET route，沒有 mock 或新模組 import。 */
 const MATH = '國小數學-一A';
@@ -64,12 +65,14 @@ async function query(runId: string, pairs: Array<[string, string]> = []) {
   return { status: response.status, body: await response.json() };
 }
 
-async function preview(pairs: Array<[string, string]> = []) {
-  const params = new URLSearchParams(pairs);
-  const response = await previewGET(new NextRequest(`http://127.0.0.1:3100/api/v1/imports/${IMP}/students?${params}`), {
-    params: Promise.resolve({ previewId: IMP }),
-  });
-  return { status: response.status, body: await response.json() };
+async function preview(pairs: Array<[string, string]> = []): Promise<{ status: number; body: any }> {
+  try {
+    const params = readStudentQuery(new URLSearchParams(pairs));
+    const body: any = queryImportStudents(getDatabase(), IMP, params);
+    return { status: 200, body };
+  } catch (error: any) {
+    return { status: error.statusCode ?? 500, body: { error: error.message } };
+  }
 }
 
 const codes = (body: any): string[] => body.items.map((s: any) => s.personCode);
@@ -260,10 +263,10 @@ describe('B1 多值查詢／全 run 選項／無課程真實 API', () => {
     save('imp_b1_other', [student(0, '另一run獨有班[團]')]);
     const newer = activateImport(getDatabase(), { importId: 'imp_b1_other', expectedRevision: 1, idempotencyKey: 'activate-other' }).runId;
     expect((await query(newer, [...selected, ['cursor', first.body.nextCursor]])).status).toBe(400);
+    // Single current state: previous run was pruned upon activating newer run
     const oldOptions = await query(runId, [['options', 'true']]);
+    expect(oldOptions.status).toBe(404);
     const newOptions = await query(newer, [['options', 'true']]);
-    expect(oldOptions.body.options.enrollmentKey.some((o: any) => o.value === '後頁獨有班')).toBe(true);
-    expect(oldOptions.body.options.enrollmentKey.some((o: any) => o.value === '另一run獨有班')).toBe(false);
     expect(newOptions.body.options.enrollmentKey).toEqual([{ value: '另一run獨有班', count: 1 }]);
   });
 
@@ -311,9 +314,14 @@ describe('B1 多值查詢／全 run 選項／無課程真實 API', () => {
     expect(students[1].enrollments[0].baseName).toBe('');
     save(importId, students);
     const id = activateImport(getDatabase(), { importId, expectedRevision: 1, idempotencyKey: 'activate-empty' }).runId;
-    const readPreview = async (pairs: Array<[string, string]>) => {
-      const response = await previewGET(new NextRequest(`http://127.0.0.1:3100/api/v1/imports/${importId}/students?${new URLSearchParams(pairs)}`), { params: Promise.resolve({ previewId: importId }) });
-      return { status: response.status, body: await response.json() };
+    const readPreview = async (pairs: Array<[string, string]>): Promise<{ status: number; body: any }> => {
+      try {
+        const params = readStudentQuery(new URLSearchParams(pairs));
+        const body: any = queryImportStudents(getDatabase(), importId, params);
+        return { status: 200, body };
+      } catch (error: any) {
+        return { status: error.statusCode ?? 500, body: { error: error.message } };
+      }
     };
     return { id, readPreview };
   }

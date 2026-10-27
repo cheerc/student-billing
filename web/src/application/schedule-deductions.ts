@@ -2,6 +2,7 @@ import Database from 'better-sqlite3';
 import { SettingsDraft } from '@/contracts/settings';
 import {
   buildSeedDraft,
+  getSettingsVersionById,
   draftToAliasMap,
   draftToScheduleOverride,
   getLatestSettingsVersion,
@@ -12,7 +13,6 @@ import { getCalculationRun, getCurrentActiveRun } from '@/adapters/sqlite/runs-r
 import { SEED_SCHEDULE_VERSION_ID } from './calculate-run';
 import { buildSchedulePreview, SchedulePreviewCore, SchedulePreviewError } from './schedule-preview';
 import { TARGET_FORMAL_RULE_SET_VERSION } from '@/domain/billing/rule-set';
-import { loadRunSnapshot } from './run-snapshot';
 
 /**
  * GET /api/v1/settings/deductions（09 §8.1、§5.2）：班級扣天的固定快照，只讀不寫。
@@ -32,6 +32,19 @@ export interface DeductionsResponse extends SchedulePreviewCore {
   draftHash: string;
 }
 
+function loadSettingsSnapshot(db: Database.Database, scheduleVersionId: string): { draft: SettingsDraft; scheduleVersionId: string; settingsRevision: number | null } | null {
+  if (scheduleVersionId === SEED_SCHEDULE_VERSION_ID) {
+    return { draft: buildSeedDraft(), scheduleVersionId, settingsRevision: null };
+  }
+  const version = getSettingsVersionById(db, scheduleVersionId);
+  if (!version) return null;
+  return {
+    draft: readStoredDraft(version.contentJson),
+    scheduleVersionId: version.id,
+    settingsRevision: version.revision,
+  };
+}
+
 function respondForRun(db: Database.Database, runId: string, scope: 'run' | 'active_run'): DeductionsResponse {
   const run = getCalculationRun(db, runId);
   if (!run) {
@@ -44,7 +57,7 @@ function respondForRun(db: Database.Database, runId: string, scope: 'run' | 'act
       'UNSUPPORTED_RULESET'
     );
   }
-  const snapshot = loadRunSnapshot(db, run.scheduleVersionId);
+  const snapshot = loadSettingsSnapshot(db, run.scheduleVersionId);
   if (!snapshot) {
     throw new SchedulePreviewError(
       409,
@@ -107,7 +120,7 @@ export function getScheduleDeductions(db: Database.Database, options: { runId?: 
 export function findUnmappedClasses(db: Database.Database, runId: string, classNames: string[]): string[] | null {
   const run = getCalculationRun(db, runId);
   if (!run) return null;
-  const snapshot = loadRunSnapshot(db, run.scheduleVersionId);
+  const snapshot = loadSettingsSnapshot(db, run.scheduleVersionId);
   if (!snapshot) return null;
 
   const alias = draftToAliasMap(snapshot.draft);

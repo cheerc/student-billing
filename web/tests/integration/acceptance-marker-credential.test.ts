@@ -6,6 +6,7 @@ import path from 'path';
 import http from 'http';
 import { randomUUID } from 'crypto';
 import { once } from 'events';
+import Database from 'better-sqlite3';
 import { buildSeedDraft } from '@/adapters/sqlite/settings-repository';
 
 /**
@@ -200,15 +201,22 @@ describe('#131：marker 檔不得持有可直接控制端點的憑證', () => {
     };
     const preview = await post('/api/v1/settings/preview', { draft, expectedRevision: 0 });
     await post('/api/v1/settings/apply', { previewId: preview.previewId, expectedRevision: 0, idempotencyKey: 'marker-reset' });
-    const before = await (await fetch(session.url + '/api/v1/settings/deductions', { headers: { connection: 'close' } })).json();
-    expect(before.classes.some((item: { teacher: string }) => item.teacher === '合成 marker 測試老師'), '寫入必須生效，reset 才有東西可清').toBe(true);
+    const dbPath = path.join(session.state, 'app.sqlite');
+    const checkTeacher = () => {
+      if (!fs.existsSync(dbPath)) return false;
+      const db = new Database(dbPath, { readonly: true });
+      const row = db.prepare('SELECT content_json FROM settings_versions ORDER BY revision DESC LIMIT 1').get() as { content_json: string } | undefined;
+      db.close();
+      const saved = row ? JSON.parse(row.content_json) : null;
+      return saved?.classes?.some((item: { teacher: string }) => item.teacher === '合成 marker 測試老師') ?? false;
+    };
+    expect(checkTeacher(), '寫入必須生效，reset 才有東西可清').toBe(true);
 
     const reset = cli(['--reset', '--state', session.state], web, session.token);
     expect(reset.status, `--reset 必須成功：${reset.stderr}`).toBe(0);
     expect(reset.stdout, '--reset 必須回報 ok').toContain('ok');
 
-    const after = await (await fetch(session.url + '/api/v1/settings/deductions', { headers: { connection: 'close' } })).json();
-    expect(after.classes.some((item: { teacher: string }) => item.teacher === '合成 marker 測試老師'), '--reset 必須清空該 session 的 DB').toBe(false);
+    expect(checkTeacher(), '--reset 必須清空該 session 的 DB').toBe(false);
 
     expect(cli(['--stop', '--state', session.state], web, session.token).status, '--stop 收尾').toBe(0);
     await once(session.child, 'exit');

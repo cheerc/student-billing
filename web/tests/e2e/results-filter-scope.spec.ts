@@ -251,8 +251,8 @@ test.describe('UX13（改寫）條件保留、兩頁籤獨立、姓名不入網�
     const before = await scroller.evaluate((el) => el.scrollTop);
     await page.waitForTimeout(400); // 讓捲動位置寫入頁內保存
 
-    await page.goto('/history');
-    await expect(page.locator('h1')).toHaveText('匯入紀錄');
+    await page.goto('/imports');
+    await expect(page.locator('h1')).toContainText('匯入學生');
     await page.goBack();
 
     await expect(page.locator('.results-table')).toBeVisible({ timeout: 15000 });
@@ -265,19 +265,7 @@ test.describe('UX13（改寫）條件保留、兩頁籤獨立、姓名不入網�
     expect(page.url()).not.toContain('B2E_00');
   });
 
-  test('歷史資料頁同樣支援表頭篩選，條件寫在該頁網址（不改路徑）並可重新整理還原', async ({ page }) => {
-    const runId = await currentRunId(page);
-    await page.goto(`/history/${runId}`);
-    // 等內容真的出現（Next dev 首次編譯時 loading.tsx 的外殼會暫時與內容並存）
-    await expect(page.locator('.data-banner-history h1')).toHaveText('歷史資料（唯讀）', { timeout: 15000 });
-    await applyFilter(page, '所屬班級', { pick: [B2.LATE] });
-    await expect(matched(page)).toHaveText('1');
-    expect(new URL(page.url()).pathname).toBe(`/history/${runId}`);
-    expect(urlParams(page).getAll('enrollmentKey')).toEqual([B2.LATE]);
-    await page.reload();
-    await expect(matched(page)).toHaveText('1');
-    await expect(chip(page, '所屬班級', B2.LATE)).toBeVisible();
-  });
+
 });
 
 test.describe('run 變更、無效網址與晚到回應', () => {

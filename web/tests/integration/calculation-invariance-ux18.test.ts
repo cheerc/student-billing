@@ -3,12 +3,13 @@ import path from 'path';
 import fs from 'fs';
 import os from 'os';
 import { NextRequest } from 'next/server';
+import { getDatabase } from '@/adapters/sqlite';
 import { buildSchedulePreview } from '@/application/schedule-preview';
+import { getScheduleDeductions } from '@/application/schedule-deductions';
 import { buildSeedDraft, draftToScheduleOverride } from '@/adapters/sqlite/settings-repository';
 import { calculateStudentBilling } from '@/domain/billing/billing-calculator';
 import { StudentSnapshot } from '@/domain/students';
 import { POST as calculatePOST } from '@/app/api/v1/settings/calculate/route';
-import { GET as deductionsGET } from '@/app/api/v1/settings/deductions/route';
 import golden from '../fixtures/ux18-seed-deductions-golden.json';
 
 /**
@@ -178,12 +179,8 @@ describe('UX18：API 路徑（calculate／deductions）對全量 seed 草稿的�
     expectMatchesGolden(body.classes, 'calculate');
   });
 
-  it('GET /settings/deductions（無 active、無已儲存設定＝seed scope，v2）＝ golden', async () => {
-    const res = await deductionsGET(
-      new NextRequest('http://127.0.0.1:3000/api/v1/settings/deductions', { method: 'GET', headers: ORIGIN })
-    );
-    expect(res.status).toBe(200);
-    const body = await res.json();
+  it('getScheduleDeductions（無 active、無已儲存設定＝seed scope，v4）＝ golden', () => {
+    const body = getScheduleDeductions(getDatabase());
     expect(body.scope).toBe('seed');
     expectMatchesGolden(body.classes, 'deductions');
   });

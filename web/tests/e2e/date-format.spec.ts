@@ -70,10 +70,13 @@ test.describe('UX33 日期時間格式', () => {
     await expect(asOf).toHaveValue('2026-10-01');
   });
 
-  test('在首頁「使用這份名單」啟用：核對基準日也是台北的今天；核對橫幅與匯入紀錄的時間同格式', async ({ page }) => {
+  test('啟用名單：核對基準日也是台北的今天；核對橫幅時間格式正確', async ({ page }) => {
     await page.clock.setFixedTime(new Date('2026-09-30T17:30:00Z'));
-    await page.goto('/');
+    await page.goto('/imports');
+    await page.locator('input[type="file"]').setInputFiles(FIXTURE);
+    await expect(page.locator('button', { hasText: '使用這份名單' })).toBeVisible({ timeout: 15000 });
     await page.locator('button', { hasText: '使用這份名單' }).click();
+    await page.locator('a', { hasText: '前往核對結果' }).click();
     const banner = page.locator('.data-banner-current');
     await expect(banner).toBeVisible({ timeout: 30000 });
     const bannerText = (await banner.innerText()).replace(/\s+/g, ' ');
@@ -85,20 +88,6 @@ test.describe('UX33 日期時間格式', () => {
     expect(bannerText).toContain('核對基準日 2026-10-01');
     expect(bannerText).not.toMatch(NOT_LOCALE);
 
-    await page.goto('/history');
-    await expect(page.locator('tbody tr[data-status="current"]')).toHaveCount(1);
-    const row = (await page.locator('tbody tr[data-status="current"]').innerText()).replace(/\s+/g, ' ');
-    expect(row).toMatch(new RegExp(`名單匯入於 ${DATETIME_RE.source}`));
-    expect(row).toContain('2026-10-01');
-    expect(row).not.toMatch(NOT_LOCALE);
-    const current = (await page.locator('.history-current').innerText()).replace(/\s+/g, ' ');
-    expect(current).toMatch(new RegExp(`資料更新於 ${DATETIME_RE.source}`));
 
-    // 歷史檢視頁的橫幅同格式
-    await page.locator('a', { hasText: '查看當時結果' }).first().click();
-    await expect(page.locator('.data-banner-history')).toBeVisible({ timeout: 15000 });
-    const history = (await page.locator('.data-banner-history').innerText()).replace(/\s+/g, ' ');
-    expect(history).toMatch(new RegExp(DATETIME_RE.source));
-    expect(history).not.toMatch(NOT_LOCALE);
   });
 });

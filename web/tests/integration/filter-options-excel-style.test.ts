@@ -45,14 +45,6 @@ describe('Excel 式各欄選項：其他欄 AND、自欄排除、全 run 值宇�
       status: 'ready', createdAt: '2026-10-03T00:00:00Z',
     }, rows);
     runId = activateImport(getDatabase(), { importId: 'excel-options', expectedRevision: 0, idempotencyKey: 'excel-options' }).runId;
-    // H 有員工家屬無折扣問題（R18），I 的數學一A課表存在無問題。
-    const issueRows = [{ ...student('H', 2, `${MATH}[團]`), tagsRaw: '員工家屬', tags: ['員工家屬'] }, student('I', 3, `${MATH}[團]`)];
-    saveImportBatch(getDatabase(), {
-      id: 'excel-issues', fileName: 'synthetic.xlsx', fileHash: 'excel-issues-file', contentHash: 'excel-issues-content',
-      sheetName: 'Sheet1', headerMap: {}, parserVersion: '1', scopeNote: '全合成', rowCount: issueRows.length,
-      status: 'ready', createdAt: '2026-10-03T00:00:00Z',
-    }, issueRows);
-    issueRunId = activateImport(getDatabase(), { importId: 'excel-issues', expectedRevision: 1, idempotencyKey: 'excel-issues' }).runId;
   });
   afterEach(() => {
     global.__sqlite_db__?.close();
@@ -84,20 +76,6 @@ describe('Excel 式各欄選項：其他欄 AND、自欄排除、全 run 值宇�
       expect(selected.body.totalStudents).toBe(expected);
       expect(counts(opts.body, 'grade')[value]).toBe(expected);
     }
-  });
-
-  it('跨欄非法組合（hasIssues=false＋issueCode、tierMismatch↔tierComparison）候選回值但 count=0；合法組合照常計數', async () => {
-    const opts = await query({ options: 'true', hasIssues: 'false' }, issueRunId);
-    expect(opts.status).toBe(200);
-    expect(counts(opts.body, 'issueCode')).toEqual({ STAFF_FAMILY_NO_DISCOUNT: 0, '~blank': 0 });
-    expect((await query({ hasIssues: 'false', issueCode: 'STAFF_FAMILY_NO_DISCOUNT' }, issueRunId)).status).toBe(400);
-    expect((await query({ hasIssues: 'true', issueCode: 'STAFF_FAMILY_NO_DISCOUNT' }, issueRunId)).body.totalStudents).toBe(1);
-    // 輔導班範圍：一年級C僅輔導一A→match；二年級B輔導無宣告→mismatch，數學一A重複報名→not_applicable。
-    const comparisons = await query({ options: 'true', enrollmentKey: CARE }, runId);
-    expect(counts(comparisons.body, 'tierMismatch')).toEqual({ true: 1, false: 1 });
-    const mismatchOnly = await query({ options: 'true', tierMismatch: 'true' }, runId);
-    expect(counts(mismatchOnly.body, 'tierComparison')).toEqual({ '~blank': 0, mismatch: 1, not_applicable: 1, match: 0 });
-    expect((await query({ tierMismatch: 'true', tierComparison: 'match' }, runId)).status).toBe(400);
   });
 
   it('班級欄排除自欄、保留 grade=2：同生同班兩個 token 仍只算一人', async () => {
@@ -146,5 +124,27 @@ describe('Excel 式各欄選項：其他欄 AND、自欄排除、全 run 值宇�
     const unconfigured = await query({ options: 'true', enrollmentKey: '合成未知班' });
     expect(unconfigured.body.applicableRateContext).toMatchObject({ classKey: '合成未知班', status: 'not_configured' });
     expect(unconfigured.body.options.applicableDiscountBps).toEqual([]);
+  });
+  it('跨欄非法組合（hasIssues=false＋issueCode、tierMismatch↔tierComparison）候選回值但 count=0；合法組合照常計數', async () => {
+    // 輔導班範圍：一年級C僅輔導一A→match；二年級B輔導無宣告→mismatch，數學一A重複報名→not_applicable。
+    const comparisons = await query({ options: 'true', enrollmentKey: CARE }, runId);
+    expect(counts(comparisons.body, 'tierMismatch')).toEqual({ true: 1, false: 1 });
+    const mismatchOnly = await query({ options: 'true', tierMismatch: 'true' }, runId);
+    expect(counts(mismatchOnly.body, 'tierComparison')).toEqual({ '~blank': 0, mismatch: 1, not_applicable: 1, match: 0 });
+    expect((await query({ tierMismatch: 'true', tierComparison: 'match' }, runId)).status).toBe(400);
+
+    // H 有員工家屬無折扣問題（R18），I 的數學一A課表存在無問題。
+    const issueRows = [{ ...student('H', 2, `${MATH}[團]`), tagsRaw: '員工家屬', tags: ['員工家屬'] }, student('I', 3, `${MATH}[團]`)];
+    saveImportBatch(getDatabase(), {
+      id: 'excel-issues', fileName: 'synthetic.xlsx', fileHash: 'excel-issues-file', contentHash: 'excel-issues-content',
+      sheetName: 'Sheet1', headerMap: {}, parserVersion: '1', scopeNote: '全合成', rowCount: issueRows.length,
+      status: 'ready', createdAt: '2026-10-03T00:00:00Z',
+    }, issueRows);
+    const issueRun = activateImport(getDatabase(), { importId: 'excel-issues', expectedRevision: 1, idempotencyKey: 'excel-issues' }).runId;
+    const opts = await query({ options: 'true', hasIssues: 'false' }, issueRun);
+    expect(opts.status).toBe(200);
+    expect(counts(opts.body, 'issueCode')).toEqual({ STAFF_FAMILY_NO_DISCOUNT: 0, '~blank': 0 });
+    expect((await query({ hasIssues: 'false', issueCode: 'STAFF_FAMILY_NO_DISCOUNT' }, issueRun)).status).toBe(400);
+    expect((await query({ hasIssues: 'true', issueCode: 'STAFF_FAMILY_NO_DISCOUNT' }, issueRun)).body.totalStudents).toBe(1);
   });
 });

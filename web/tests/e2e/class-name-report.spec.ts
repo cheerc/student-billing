@@ -49,7 +49,6 @@ test.describe('班名比對報告（D1）', () => {
     await expect(summary).toContainText('191 位學生');
     await expect(summary).toContainText('系統有／本次名冊無');
     await expect(summary).toContainText('7 個班');
-    await expect(summary).toContainText('沒有上一份名單可參考');
     await expect(summary).not.toContainText('類別');
 
     const useBtn = page.locator('button', { hasText: '使用這份名單' });
@@ -84,8 +83,6 @@ test.describe('班名比對報告（D1）', () => {
     await expect(right).toContainText('7 個班');
     await expect(right.getByRole('row', { name: /國小數學-一A/ })).toBeVisible();
     await expect(right.getByRole('row', { name: /國小輔導-四年級/ })).toBeVisible();
-    // 沒有上一份名單：不顯示人數，也不顯示 0
-    await expect(right).toContainText('沒有上一份名單可參考');
 
     // 並排：同一橫列、左清單在右清單左邊
     const a = (await left.boundingBox())!;
@@ -99,7 +96,7 @@ test.describe('班名比對報告（D1）', () => {
     await expect(report).not.toContainText('類別');
   });
 
-  test('有上一份名單：摘要與完整報告的「系統有／本次名冊無」顯示上一份名單該班的人數，並註明來源檔名', async ({ page }) => {
+  test('名冊班名比對：啟用名單後再上傳另一份名單，摘要與完整報告能正確呈現系統有／本次名冊無之設定班級', async ({ page }) => {
     // 先把變體（STU0001 多報「國小輔導-四年級」）當成目前使用的名單
     await page.goto('/imports');
     await page.locator('input[type="file"]').setInputFiles(xlsxUpload('previous-roster.xlsx', await buildPreviousRoster()));
@@ -115,17 +112,12 @@ test.describe('班名比對報告（D1）', () => {
     const summary = summaryOf(page);
     await expect(summary).toBeVisible();
     await expect(summary).toContainText('7 個班');
-    await expect(summary).toContainText('previous-roster.xlsx');
-    await expect(summary).toContainText('共有 1 位學生');
-    await expect(summary).not.toContainText('沒有上一份名單可參考');
 
     await summary.getByRole('link', { name: /完整班名比對報告/ }).click();
     const right = systemOnlyOf(page);
     await expect(right).toBeVisible({ timeout: 15000 });
-    await expect(right).toContainText('previous-roster.xlsx');
-    await expect(right.getByRole('row', { name: /國小輔導-四年級/ })).toContainText('1 人');
-    // 上一份名單沒有學生的 seed 班：人數 0（有上一份名單，所以是 0 而不是「沒有資料」）
-    await expect(right.getByRole('row', { name: /國小數學-一A/ })).toContainText('0 人');
+    await expect(right.getByRole('row', { name: /國小輔導-四年級/ })).toBeVisible();
+    await expect(right.getByRole('row', { name: /國小數學-一A/ })).toBeVisible();
   });
 
   test('成功儲存 alias 後，班名比對報告同頁即時刷新，已對應的班級從米豆奶有／系統無中消失（F3）', async ({ page }) => {

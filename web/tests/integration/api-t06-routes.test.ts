@@ -7,10 +7,7 @@ import { getDatabase } from '@/adapters/sqlite';
 import { saveImportBatch } from '@/adapters/sqlite/import-repository';
 import { generateImportPreview } from '@/application/import-preview';
 import { POST as activatePOST } from '@/app/api/v1/imports/[previewId]/activate/route';
-import { GET as importsGET } from '@/app/api/v1/imports/route';
-import { GET as runsGET } from '@/app/api/v1/runs/route';
 import { GET as singleRunGET } from '@/app/api/v1/runs/[runId]/route';
-import { GET as issuesGET } from '@/app/api/v1/runs/[runId]/issues/route';
 import { GET as classesGET } from '@/app/api/v1/classes/route';
 
 describe('T06: 剩餘 P1 讀取端點整合測試 (03 §5)', () => {
@@ -82,33 +79,7 @@ describe('T06: 剩餘 P1 讀取端點整合測試 (03 §5)', () => {
     }
   });
 
-  it('GET /api/v1/imports 應回傳批次清單且不包含敏感 raw notes', async () => {
-    const res = await importsGET();
-    expect(res.status).toBe(200);
-    const body = await res.json();
-    expect(body.total).toBeGreaterThanOrEqual(1);
-    expect(body.items[0].id).toBe(previewId);
-    expect(body.items[0].fileName).toBe('fixture.xlsx');
-    expect(body.items[0].rowCount).toBe(477);
-    // 確認不暴露 raw notes
-    expect(body.items[0].notesRaw).toBeUndefined();
-    expect(body.items[0].notes).toBeUndefined();
-  });
 
-  it('GET /api/v1/runs 應回傳所有計算 run 並標示 active 狀態', async () => {
-    const res = await runsGET();
-    expect(res.status).toBe(200);
-    const body = await res.json();
-    expect(body.totalRuns).toBeGreaterThanOrEqual(1);
-    expect(body.activeRunId).toBe(runId);
-    expect(body.activeRevision).toBe(1);
-
-    const target = body.runs.find((r: any) => r.id === runId);
-    expect(target).toBeDefined();
-    expect(target.isActive).toBe(true);
-    expect(target.totalStudents).toBe(477);
-    expect(target.issueCounts['DUPLICATE_SUBJECT_ENROLLMENT']).toBe(2);
-  });
 
   it('GET /api/v1/runs/[runId] 應回傳單一 run 完整 metadata', async () => {
     const req = new NextRequest(`http://127.0.0.1:3000/api/v1/runs/${runId}`);
@@ -122,30 +93,10 @@ describe('T06: 剩餘 P1 讀取端點整合測試 (03 §5)', () => {
     expect(body.numericPolicy).toBe('integer-minute-rational-v1');
   });
 
-  it('GET /api/v1/runs/[runId]/issues 支援按 issueCode 篩選', async () => {
-    // 篩選 DUPLICATE_SUBJECT_ENROLLMENT (預期 2 筆)
-    const req = new NextRequest(
-      `http://127.0.0.1:3000/api/v1/runs/${runId}/issues?issueCode=DUPLICATE_SUBJECT_ENROLLMENT`
-    );
-    const res = await issuesGET(req, { params: Promise.resolve({ runId }) });
-    expect(res.status).toBe(200);
-    const body = await res.json();
-    expect(body.totalIssues).toBe(2);
-    expect(body.items.every((it: any) => it.issueCode === 'DUPLICATE_SUBJECT_ENROLLMENT')).toBe(true);
 
-    // 篩選 STAFF_FAMILY_NO_DISCOUNT (預期 5 筆)
-    const staffReq = new NextRequest(
-      `http://127.0.0.1:3000/api/v1/runs/${runId}/issues?issueCode=STAFF_FAMILY_NO_DISCOUNT`
-    );
-    const staffRes = await issuesGET(staffReq, { params: Promise.resolve({ runId }) });
-    expect(staffRes.status).toBe(200);
-    const staffBody = await staffRes.json();
-    expect(staffBody.totalIssues).toBe(5);
-  });
 
-  it('GET /api/v1/classes 應回傳本批可見班級、科別、去重學生數與設定狀態', async () => {
-    const req = new NextRequest(`http://127.0.0.1:3000/api/v1/classes?runId=${runId}`);
-    const res = await classesGET(req);
+  it('GET /api/v1/classes 應回傳本批可見班級、去重學生數與設定狀態', async () => {
+    const res = await classesGET();
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.totalClasses).toBeGreaterThanOrEqual(40);
@@ -153,6 +104,9 @@ describe('T06: 剩餘 P1 讀取端點整合測試 (03 §5)', () => {
     expect(body.items[0]).toHaveProperty('studentCount');
     expect(body.items[0]).toHaveProperty('mappingStatus');
     expect(body.items[0]).toHaveProperty('isConfigured');
+    expect(body.items[0]).toHaveProperty('classType');
+    expect(body.items[0]).toHaveProperty('category');
+    expect(body.items[0]).toHaveProperty('fixedFiveDays');
   });
 
   // D1 契約改寫（F-1／F-2；specs/11 §3 D1、04 §8 UX35、UX36）：

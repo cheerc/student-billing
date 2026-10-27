@@ -151,6 +151,16 @@ async function productRun(out: string): Promise<ProductRun> {
     classDiscountText: listOf(change.personCode, 'class-discount'),
   }]));
 
+  const db = getDatabase();
+  const readRows = (id: string) => {
+    const map = new Map<string, Record<string, unknown>>();
+    for (const row of db.prepare('SELECT * FROM student_calculations WHERE run_id = ?').all(id) as Array<Record<string, unknown>>) {
+      map.set(row.person_code as string, row);
+    }
+    return map;
+  };
+  const baselineRows = readRows(runId);
+
   // after 手算要對「本次（variant）名冊」的 run；另啟用 variant 以取得 after 側計算結果。
   const variantActivated = await activatePOST(
     new NextRequest(`http://127.0.0.1:3000/api/v1/imports/${variant.body.previewId}/activate`, {
@@ -162,15 +172,6 @@ async function productRun(out: string): Promise<ProductRun> {
   expect(variantActivated.status, await variantActivated.clone().text()).toBe(200);
   const variantRunId = ((await variantActivated.json()) as { runId: string }).runId;
 
-  const db = getDatabase();
-  const readRows = (id: string) => {
-    const map = new Map<string, Record<string, unknown>>();
-    for (const row of db.prepare('SELECT * FROM student_calculations WHERE run_id = ?').all(id) as Array<Record<string, unknown>>) {
-      map.set(row.person_code as string, row);
-    }
-    return map;
-  };
-  const baselineRows = readRows(runId);
   const rows = readRows(variantRunId);
   return { runId, baselineRunId: runId, variantRunId, baselineCount: baseline.body.stats.totalStudents, variantCount: variant.body.stats.totalStudents, changes, rows, baselineRows };
 }

@@ -41,7 +41,6 @@ test.describe('UX31 站內離開入口：dirty 時先確認', () => {
   const targets: Array<{ name: RegExp; label: string; path: string }> = [
     { name: /匯入學生/, label: '匯入學生', path: '/imports' },
     { name: /核對結果/, label: '核對結果', path: '/' },
-    { name: /匯入紀錄/, label: '匯入紀錄', path: '/history' },
   ];
 
   for (const t of targets) {
@@ -179,13 +178,10 @@ test.describe('UX31 班級編輯入口：「編輯此班課表」進出課表頁
     page,
   }) => {
     await ensureB2Activated(page);
-    const runId = await currentRunId(page);
-    const res = await page.request.get(`/api/v1/settings/deductions?runId=${runId}`);
-    expect(res.ok()).toBe(true);
-    const data = await res.json();
-    const target = (data.classes as Array<{ classKey: string; rowIds: string[] }>).find((c) => c.rowIds.length >= 2);
-    expect(target, '需要至少一個有多個時段的班').toBeTruthy();
-    const classKey = target!.classKey;
+    await page.goto('/?view=deductions');
+    await expect(page.locator('.deductions-table')).toBeVisible({ timeout: 15000 });
+    const firstClassBtn = page.locator('.deductions-table tbody > tr:not(.ded-expanded) button').first();
+    const classKey = (await firstClassBtn.textContent())?.trim().split(/\s+/)[0] ?? '';
     const esc = classKey.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
     const enterFromDeductions = async () => {

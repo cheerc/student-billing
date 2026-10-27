@@ -28,7 +28,7 @@ import { brokenXlsx, missingHeadersXlsx, sideLink, xlsxUpload } from './helpers/
 const FIXTURE = path.resolve(__dirname, '../fixtures/conforming-erp-fixture.xlsx');
 
 /** scan() 呼叫次數（每個頁面狀態一次，標籤不得重複）。 */
-const EXPECTED_STATES = 47; // #112 PR-1C/PR-2 原為 49；#155 移除 2 處課程類型切換確認對話框掃描（非安親轉安親、安親轉非安親）→ 47
+const EXPECTED_STATES = 39; // #112 PR-1C/PR-2 原為 49；#155 移除 2 處課程類型切換確認對話框掃描（非安親轉安親、安親轉非安親）→ 47
 
 /** 09 §7 文案表 ＋ 任務清單：日常介面不得出現。 */
 const FORBIDDEN: Array<{ term: string; re: RegExp }> = [
@@ -211,14 +211,9 @@ test.describe('R5 文案全頁掃描（09 §7）', () => {
     await expect(page.locator('.alert-danger')).toBeVisible({ timeout: 15000 });
     await scan(page, '匯入學生｜缺少必要欄位錯誤', violations);
 
-    await page.goto('/history');
-    await scan(page, '匯入紀錄｜空狀態', violations);
-
-    // 打錯網址與找不到的歷史紀錄：不得是英文預設頁
+    // 打錯網址：不得是英文預設頁
     await page.goto('/no-such-page');
     await scan(page, '找不到頁面（404）', violations);
-    await page.goto('/history/not-a-real-run');
-    await scan(page, '歷史檢視｜找不到這筆紀錄', violations);
 
     // ── B. 已上傳、未使用 ────────────────────────────────────────
     await page.goto('/imports');
@@ -226,14 +221,9 @@ test.describe('R5 文案全頁掃描（09 §7）', () => {
     await expect(page.locator('.stats-grid')).toBeVisible({ timeout: 15000 });
     await scan(page, '匯入學生｜確認名單（預覽）', violations);
 
-    await page.goto('/');
-    await expect(page.locator('main')).toBeVisible();
-    await scan(page, '首頁｜已匯入、尚未使用', violations);
 
-    // #83：未使用的名單不是匯入 → 匯入紀錄仍是空狀態（這是使用者看得到的實際狀態）
-    await page.goto('/history');
-    await expect(page.getByText('還沒有匯入紀錄')).toBeVisible();
-    await scan(page, '匯入紀錄｜空狀態（未使用的名單不是匯入）', violations);
+
+
 
     // ── C. 重傳同檔（判重）→ 使用這份名單 → 完成 ─────────────────
     await page.goto('/imports');
@@ -312,20 +302,7 @@ test.describe('R5 文案全頁掃描（09 §7）', () => {
     await page.locator('.deductions-table tbody tr').first().locator('button').first().click();
     await scan(page, '核對結果｜班級扣天（展開逐堂）', violations);
 
-    // ── E. 匯入紀錄與歷史檢視 ────────────────────────────────────
-    await page.goto('/history');
-    await expect(page.locator('tbody tr[data-status="current"]')).toHaveCount(1);
-    await scan(page, '匯入紀錄｜有資料', violations);
-    await page.getByLabel('檔名').fill('不存在的檔名');
-    await scan(page, '匯入紀錄｜空篩選', violations);
-    await page.locator('button', { hasText: '清除篩選' }).click();
 
-    await page.locator('a', { hasText: '查看當時結果' }).first().click();
-    await expect(page.locator('h1')).toHaveText('歷史資料（唯讀）');
-    await scan(page, '歷史檢視｜學生總表', violations);
-    await page.locator('button[role="tab"]', { hasText: '班級扣天' }).click();
-    await expect(page.locator('.deductions-table')).toBeVisible();
-    await scan(page, '歷史檢視｜班級扣天', violations);
 
     // ── F. 有名單後的課表設定與確認變更 ──────────────────────────
     await page.goto('/settings');

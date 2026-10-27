@@ -48,6 +48,4 @@ test('UX75：課表儲存沿用 UI 明選的基準日，歷史 run 保持不變'
   const actual = await page.locator('.data-banner .pill').textContent();
   console.log('UX75 date', JSON.stringify({ expected: date, actual, oldRunId, newRunId }));
   expect.soft(actual, '新 run 不得擅自把明選日期換成今天').toBe(`核對基準日 ${date}`);
-  await page.goto(`/history/${oldRunId}`);
-  await expect(page.locator('.data-banner-history .pill')).toHaveText(`核對基準日 ${date}`);
 });

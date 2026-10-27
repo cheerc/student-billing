@@ -66,8 +66,6 @@ interface ActiveRunViewProps {
    * 學生總表的「本班適用折扣」依它判斷；缺該班快照時顯示「未設定」。
    */
   classCategorySnapshots?: RunClassCategorySnapshot[] | null;
-  /** current＝目前使用的資料；history＝歷史資料（唯讀，來自匯入紀錄）。預設 current。 */
-  mode?: 'current' | 'history';
   /** 資料來源（檔名與日期）；橫幅據此標示來源日期（09 §2）。 */
   source?: { fileName: string; importedAt: string; updatedAt: string };
 }
@@ -127,10 +125,8 @@ export default function ActiveRunView({
   deductionsUnavailable,
   unmappedClasses = null,
   classCategorySnapshots = null,
-  mode = 'current',
   source,
 }: ActiveRunViewProps) {
-  const isHistory = mode === 'history';
   const router = useRouter();
   const searchParams = useSearchParams();
   // Back 的 RSC props 可能來自無條件入口；在首次 render 用目前網址還原，不在 effect 後跳頁籤。
@@ -555,33 +551,26 @@ export default function ActiveRunView({
 
   return (
     <div className="results-page">
-      {/* 資料來源橫幅（09 §2：來源時間／檔名一行，核對基準日另外標明）。
-          現行資料與歷史資料用文字＋顏色區分；歷史資料為唯讀，不提供任何寫入動作（09 §8.3）。 */}
+      {/* 資料來源橫幅（09 §2：來源時間／檔名一行，核對基準日另外標明）。 */}
       <section
-        className={`data-banner ${isHistory ? 'data-banner-history' : 'data-banner-current'}`}
-        aria-label={isHistory ? '歷史資料' : '目前使用的資料'}
+        className="data-banner data-banner-current"
+        aria-label="目前使用的資料"
       >
         <div className="data-banner-main">
-          <h1 className="data-banner-title">{isHistory ? '歷史資料（唯讀）' : '核對結果'}</h1>
+          <h1 className="data-banner-title">核對結果</h1>
           <p className="data-banner-line">
-            {!isHistory && <span className="data-banner-label">目前使用的資料</span>}
+            <span className="data-banner-label">目前使用的資料</span>
             {source && <span className="data-banner-file">{source.fileName}</span>}
             {source && (
               <span className="data-banner-meta">
-                {isHistory
-                  ? `名單匯入於 ${formatDateTime(source.importedAt)} · 資料更新於 ${formatDateTime(source.updatedAt)}`
-                  : `資料更新於 ${formatDateTime(source.updatedAt)}`}
+                {`資料更新於 ${formatDateTime(source.updatedAt)}`}
               </span>
             )}
             <span className="pill">{`核對基準日 ${asOfDate}`}</span>
           </p>
         </div>
         <div className="data-banner-actions">
-          {isHistory ? (
-            <Link href="/history" className="btn-secondary">回到匯入紀錄</Link>
-          ) : (
-            <Link href="/imports" className="btn-secondary">匯入新名單</Link>
-          )}
+          <Link href="/imports" className="btn-secondary">匯入新名單</Link>
         </div>
       </section>
 
@@ -589,7 +578,7 @@ export default function ActiveRunView({
       <details className="tech-info tech-info-block">
         <summary>技術資訊</summary>
         <div className="tech-pre">
-          {isHistory ? `Run ID：${runId}｜基準日 ${asOfDate}` : `Run ID：${runId}｜版本 rev ${revision}｜基準日 ${asOfDate}`}
+          `Run ID：${runId}｜版本 rev ${revision}｜基準日 ${asOfDate}`
         </div>
       </details>
 
@@ -690,9 +679,7 @@ export default function ActiveRunView({
                 <span>
                   <strong>待設定班級提示：</strong>班級{unmappedSelected.map((c) => `「${c}」`).join('、')}還沒有對應的課表班級，扣天無法計算。
                 </span>
-                {!isHistory && (
-                  <a href="/settings" className="btn-secondary">前往課表設定，確認班名對應</a>
-                )}
+                <a href="/settings" className="btn-secondary">前往課表設定，確認班名對應</a>
               </div>
             )}
 

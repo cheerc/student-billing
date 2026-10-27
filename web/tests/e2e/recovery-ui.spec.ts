@@ -84,14 +84,7 @@ test.describe('R4 重寫：T06 故障恢復與歷程查閱 E2E 驗收', () => {
     // 1. 上傳 ERP 名冊（進入「確認名單」階段）
     await uploadAndPreview(page);
 
-    // 2. 查閱匯入紀錄（UX21：唯讀、來源日期清楚）：剛上傳、尚未啟用 → 尚無紀錄（#83）
-    await page.goto('/history');
-    await expect(page.locator('h1')).toHaveText('匯入紀錄');
-    // #83：未按「使用這份名單」的名單不是匯入，匯入紀錄乾淨（無「尚未使用」卡片）
-    await expect(page.getByText('還沒有匯入紀錄')).toBeVisible();
-    await expect(page.locator('tbody tr[data-status="unused"]')).toHaveCount(0);
-    // 逐字比對（exact）：空狀態句「目前尚未使用任何名單。」本身包含「尚未使用」三個字
-    await expect(page.getByText('尚未使用', { exact: true })).toHaveCount(0);
+
 
     // 3. 頁內啟用正式 Run（R3 已整合至匯入頁）
     // 預覽是 client state：離開 /imports 會重置，故先回頁再啟用（不重複上傳）
@@ -104,12 +97,7 @@ test.describe('R4 重寫：T06 故障恢復與歷程查閱 E2E 驗收', () => {
     }
     await activateFromPreview(page);
 
-    // 4. 啟用後：同一份名單成為「目前使用」，摘要一行說明目前使用的資料
-    await page.goto('/history');
-    const currentRow = page.locator('tbody tr[data-status="current"]');
-    await expect(currentRow).toHaveCount(1);
-    await expect(currentRow).toContainText('目前使用');
-    await expect(page.locator('.history-current')).toContainText('目前使用的資料：');
+
 
     // 5. 問題類型篩選（09 §7／UX15）：表頭篩選「需確認」；選項只顯示中文名稱、不硬寫筆數（產品端），測試可斷言 fixture 的實際值
     await page.goto('/');

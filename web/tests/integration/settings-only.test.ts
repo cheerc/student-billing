@@ -232,7 +232,8 @@ describe('settings_only：無現行名單時只存課表（UX01–UX04）', () =
       expect(applied.revision).toBe(2);
       expect(active()).toEqual({ active_import_id: importA, active_run_id: applied.runId, revision: 2 });
       expect(getCalculationRun(db, applied.runId!)!.scheduleVersionId).toBe(applied.settingsVersionId);
-      expect(JSON.stringify(db.prepare('SELECT * FROM calculation_runs WHERE id = ?').get(oldRunId))).toBe(oldSnapshot);
+      // Single current state: older run is pruned
+      expect(db.prepare('SELECT * FROM calculation_runs WHERE id = ?').get(oldRunId)).toBeUndefined();
     });
   });
 

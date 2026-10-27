@@ -134,6 +134,10 @@ export function activateImport(
       WHERE id = 1
     `).run(importId, runId, nextRevision, now);
 
+    // Maintain single current state (specs/15 Phase 4): cascade-clean older runs, batches, and previews
+    db.prepare('DELETE FROM calculation_runs WHERE id != ?').run(runId);
+    db.prepare('DELETE FROM import_batches WHERE id != ?').run(importId);
+
     activateResult = {
       runId,
       revision: nextRevision,

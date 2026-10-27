@@ -5,6 +5,7 @@ import os from 'os';
 import path from 'path';
 import { once } from 'events';
 import net from 'net';
+import Database from 'better-sqlite3';
 import { buildSeedDraft } from '@/adapters/sqlite/settings-repository';
 
 const web = path.resolve(__dirname, '../..');
@@ -187,8 +188,16 @@ describe('T1：獨立 production build 的隔離驗收環境', () => {
     const preview = await request('/api/v1/settings/preview', { draft, expectedRevision: 0 });
     const applied = await request('/api/v1/settings/apply', { previewId: preview.previewId, expectedRevision: 0, idempotencyKey: 't1-persist' });
     expect(applied.mode).toBe('settings_only');
-    const persisted = await request('/api/v1/settings/deductions');
-    expect(persisted.classes.some((item: { teacher: string }) => item.teacher === '合成T1持久化老師')).toBe(true);
+
+    const checkTeacher = () => {
+      if (!fs.existsSync(session.database)) return false;
+      const db = new Database(session.database, { readonly: true });
+      const row = db.prepare('SELECT content_json FROM settings_versions ORDER BY revision DESC LIMIT 1').get() as { content_json: string } | undefined;
+      db.close();
+      const saved = row ? JSON.parse(row.content_json) : null;
+      return saved?.classes?.some((item: { teacher: string }) => item.teacher === '合成T1持久化老師') ?? false;
+    };
+    expect(checkTeacher()).toBe(true);
 
     // #131：明文 token 只經由啟動時的 stdout 流過；控制指令要另外取得它（env）。
     // 這裡缺 token 的那一次證明「控制路徑確實需要憑證」——否則下面的 restart 可能
@@ -198,12 +207,10 @@ describe('T1：獨立 production build 的隔離驗收環境', () => {
     expect(noToken.stderr).toContain('ACCEPTANCE_TOKEN');
 
     expect(cli(['--restart', '--state', session.state], path.join(repo, 'web'), session.token).status, 'restart').toBe(0);
-    const reset = await request('/api/v1/settings/deductions');
-    expect(reset.classes.some((item: { teacher: string }) => item.teacher === '合成T1持久化老師'), 'restart 必須保留 DB').toBe(true);
+    expect(checkTeacher(), 'restart 必須保留 DB').toBe(true);
 
     expect(cli(['--reset', '--state', session.state], path.join(repo, 'web'), session.token).status, 'reset').toBe(0);
-    const cleared = await request('/api/v1/settings/deductions');
-    expect(cleared.classes.some((item: { teacher: string }) => item.teacher === '合成T1持久化老師')).toBe(false);
+    expect(checkTeacher(), '--reset 必須清空該 session 的 DB').toBe(false);
     // 刪除臨時 repo（含哨兵）也要在測試結束後清理，已由 afterEach 的 states 處理。
     const exited = once(session.child, 'exit');
     expect(cli(['--stop', '--state', session.state], path.join(repo, 'web'), session.token).status, 'stop').toBe(0);

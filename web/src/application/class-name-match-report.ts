@@ -10,9 +10,8 @@
 
 import Database from 'better-sqlite3';
 import { SettingsDraft } from '@/contracts/settings';
-import { getLatestSettingsVersion, readStoredDraft, buildSeedDraft } from '@/adapters/sqlite/settings-repository';
+import { getLatestSettingsVersion, getSettingsVersionById, readStoredDraft, buildSeedDraft } from '@/adapters/sqlite/settings-repository';
 import { getCalculationRun } from '@/adapters/sqlite/runs-repository';
-import { loadRunSnapshot } from '@/application/run-snapshot';
 import { classifyErpDualTrack } from '@/domain/schedules/seed-manifest';
 
 export interface RosterOnlyClass {
@@ -92,7 +91,8 @@ export function getClassNameMatchReport(
   if (scope.kind === 'run') {
     const run = getCalculationRun(db, scope.runId);
     if (!run) throw new ClassNameReportError(404, `找不到計算 run: ${scope.runId}`, 'RUN_NOT_FOUND');
-    draft = loadRunSnapshot(db, run.scheduleVersionId)?.draft ?? null;
+    const ver = getSettingsVersionById(db, run.scheduleVersionId);
+    draft = run.scheduleVersionId === 'seed-v250922' ? buildSeedDraft() : (ver ? readStoredDraft(ver.contentJson) : null);
   } else {
     const latest = getLatestSettingsVersion(db);
     draft = latest ? readStoredDraft(latest.contentJson) : buildSeedDraft();

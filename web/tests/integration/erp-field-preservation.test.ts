@@ -11,7 +11,6 @@ import { activateImport } from '@/application/activate-import';
 import { queryRunStudents, getStudentCalculationDetail } from '@/application/query-students';
 import { queryImportStudents } from '@/application/roster-query';
 import { GET as studentsGET } from '@/app/api/v1/runs/[runId]/students/route';
-import { GET as studentDetailGET } from '@/app/api/v1/runs/[runId]/students/[personCode]/route';
 
 describe('D3 Task 4+5: 班級全文重組＋分校集合篩選＋列表脫敏 (erp-field-preservation)', () => {
   let tempDir: string;
@@ -127,18 +126,12 @@ describe('D3 Task 4+5: 班級全文重組＋分校集合篩選＋列表脫敏 (e
       expect((item as any).contact).toBeUndefined();
     }
 
-    // 明細端點按需回完整原文
+    // 明細查完整原文
+    const db = getDatabase();
     const code = body.items[0].personCode;
-    const detailReq = new NextRequest(
-      `http://127.0.0.1:3000/api/v1/runs/${runId}/students/${code}`
-    );
-    const detailRes = await studentDetailGET(detailReq, {
-      params: Promise.resolve({ runId, personCode: code }),
-    });
-    expect(detailRes.status).toBe(200);
-    const detail = await detailRes.json();
-    // 明細仍可查到 enrollments（供全文重組）與 trace 結構
-    expect(detail.trace).toBeDefined();
+    const detail = getStudentCalculationDetail(db, runId, code);
+    expect(detail).toBeDefined();
+    expect(detail!.trace).toBeDefined();
   });
 
   it('4. [RED F1 CRLF] CRLF 換行之分校篩選與班級全文重組應精確匹配與等價', async () => {

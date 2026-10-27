@@ -22,7 +22,7 @@ import { openFilter, applyFilter } from './helpers/header-filter';
  */
 
 const FIXTURE = path.resolve(__dirname, '../fixtures/conforming-erp-fixture.xlsx');
-const EXPECTED_STATES = 15;
+const EXPECTED_STATES = 12;
 
 interface Finding {
   where: string;
@@ -72,7 +72,7 @@ async function runAudit(page: Page): Promise<Array<{ rule: string; detail: strin
       if (!n.getAttribute('aria-label') && !n.getAttribute('aria-labelledby')) out.push({ rule: 'landmark', detail: 'nav 沒有名稱' });
     });
     const path = location.pathname;
-    if (['/', '/settings', '/imports', '/history'].some((p) => (p === '/' ? path === '/' : path.startsWith(p)))) {
+    if (['/', '/settings', '/imports'].some((p) => (p === '/' ? path === '/' : path.startsWith(p)))) {
       const cur = document.querySelectorAll('aside a[aria-current="page"]');
       if (cur.length !== 1) out.push({ rule: 'aria-current', detail: `導航 aria-current="page" 有 ${cur.length} 個（應為 1）` });
     }
@@ -155,10 +155,8 @@ test.describe('R5 可及性稽核（09 §6）', () => {
     await expect(page.locator('.stats-grid')).toBeVisible({ timeout: 15000 });
     await audit(page, '匯入學生｜確認名單', findings, seen);
 
-    await page.goto('/');
-    await expect(page.locator('main')).toBeVisible();
-    await audit(page, '首頁｜已匯入、尚未使用', findings, seen);
     await page.locator('button', { hasText: '使用這份名單' }).click();
+    await page.locator('a', { hasText: '前往核對結果' }).click();
     await expect(page.locator('.data-banner-current')).toBeVisible({ timeout: 15000 });
     await audit(page, '核對結果｜學生總表', findings, seen);
 
@@ -190,12 +188,7 @@ test.describe('R5 可及性稽核（09 §6）', () => {
     await expect(page.locator('.mapping-table tbody tr').first()).toBeVisible({ timeout: 10000 });
     await audit(page, '課表設定｜班名對應頁籤（有待處理班名）', findings, seen);
 
-    await page.goto('/history');
-    await expect(page.locator('tbody tr[data-status="current"]')).toHaveCount(1);
-    await audit(page, '匯入紀錄｜有資料', findings, seen);
-    await page.locator('a', { hasText: '查看當時結果' }).first().click();
-    await expect(page.locator('h1')).toHaveText('歷史資料（唯讀）');
-    await audit(page, '歷史檢視｜學生總表', findings, seen);
+
 
     expect(new Set(seen).size).toBe(EXPECTED_STATES);
     // 相同規則、相同元素種類的重複項（例如表格每一列一顆按鈕）合併並標註數量，方便閱讀
@@ -483,11 +476,6 @@ test.describe('R5 可及性稽核（09 §6）', () => {
     const basisNow = page.locator('.data-banner-current .pill');
     await expect(basisNow).toContainText('核對基準日');
     expect(isGreen(await rgb(basisNow)), '目前使用的資料，核對基準日標籤應為綠色').toBe(true);
-    await page.goto('/history');
-    await page.locator('a', { hasText: '查看當時結果' }).first().click();
-    await expect(page.locator('.data-banner-history')).toBeVisible({ timeout: 15000 });
-    const basisOld = page.locator('.data-banner-history .pill');
-    await expect(basisOld).toContainText('核對基準日');
-    expect(isNeutral(await rgb(basisOld)), '歷史資料的核對基準日標籤應為中性灰').toBe(true);
+
   });
 });
