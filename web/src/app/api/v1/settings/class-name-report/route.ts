@@ -14,7 +14,6 @@ import { sanitizePathParam, maskSensitiveInfo, SecurityError } from '@/contracts
  *  - runId：以該 run 當時的設定快照比對；名單預設為該 run 的名單。快照缺失 → 200＋snapshotStatus＝unavailable（無法判定）。
  *  - importId：指定名單批次；未指定時預設現行名單（無現行名單則最新 ready 批次）。
  *  - runId 與 importId 同時指定時，兩者必須指向同一份名單，否則 400 INVALID_QUERY。
- * 上一份名單（Q12-b 漂移參考）由 server 依固定規則解析（見 resolvePreviousRosterImportId），client 不指定。
  */
 export async function GET(request: NextRequest) {
   try {

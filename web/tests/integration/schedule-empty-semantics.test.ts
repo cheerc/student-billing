@@ -17,7 +17,6 @@ import {
 } from '@/adapters/sqlite/settings-repository';
 import { getCalculationRun } from '@/adapters/sqlite/runs-repository';
 import { buildSchedulePreview } from '@/application/schedule-preview';
-import { resolveFormalRuleSetVersion } from '@/application/rule-set-resolver';
 import {
   buildSeedGridRows,
   gridRowsToClasses,
@@ -84,7 +83,7 @@ describe('UX23：空時段與整班移除（09 §8.2.4 方案 A）——run 計�
 
   function runWith(draft: SettingsDraft) {
     return executeCalculationRun(db, importA, `run_b4_${Math.random().toString(36).slice(2)}`, {
-      ruleSetVersion: resolveFormalRuleSetVersion(db),
+      ruleSetVersion: 'erp-tag-v4',
       aliasMap: draftToAliasMap(draft),
       scheduleOverride: draftToScheduleOverride(draft),
     });
@@ -131,7 +130,7 @@ describe('UX23：空時段與整班移除（09 §8.2.4 方案 A）——run 計�
     ).map((r) => r.person_code);
     expect(math1Students).toHaveLength(13);
 
-    const ruleSet = resolveFormalRuleSetVersion(db);
+    const ruleSet = 'erp-tag-v4';
     baseline = daysOf(executeCalculationRun(db, importA, 'run_b4_baseline', { ruleSetVersion: ruleSet }).results);
   });
 
@@ -211,7 +210,7 @@ describe('UX23：空時段與整班移除（09 §8.2.4 方案 A）——run 計�
   });
 
   it('尚無已儲存設定（未帶 scheduleOverride）：seed 課表路徑不變——國小數學-一 不在 seed，13 位解不到時段', () => {
-    const { run } = executeCalculationRun(db, importA, 'run_b4_seedpath', { ruleSetVersion: resolveFormalRuleSetVersion(db) });
+    const { run } = executeCalculationRun(db, importA, 'run_b4_seedpath', { ruleSetVersion: 'erp-tag-v4' });
     // #157 Ruling 1／3：「國小數學-一」不在 seed 課表 → 該班未對應 → 類別 unset、
     // 不是數學候選班，因此診斷碼由「缺排課（SCHEDULE_NOT_FOUND）」改為
     // 「班名未對應課表（CLASS_NOT_MAPPED）」——後者更準確地指出真正的原因是班名沒對上。
@@ -239,7 +238,7 @@ describe('UX23：空時段與整班移除（09 §8.2.4 方案 A）——run 計�
   });
   it('三者一致（逐堂預覽／班級扣天／學生 run）：對照組——一A 有時段：班級實扣 −0.5 ＝ 13 位學生各 −0.5', () => {
     const draft = seedDraftWithAlias();
-    const preview = buildSchedulePreview(draft, 'erp-tag-v2');
+    const preview = buildSchedulePreview(draft, 'erp-tag-v4');
     const c = preview.classes.find((k) => k.classKey === CLASS_1A)!;
     expect(c.anqin.rounded).toBe(-0.5);
     const days = daysOf(runWith(draft).results);
@@ -250,7 +249,7 @@ describe('UX23：空時段與整班移除（09 §8.2.4 方案 A）——run 計�
 
   it('三者一致：刪光時段——逐堂預覽回一列 null 佔位＋SCHEDULE_EMPTY；班級 0／missing_time；學生 run 不扣天且帶 SCHEDULE_EMPTY', () => {
     const draft = draftEmptiedClass();
-    const preview = buildSchedulePreview(draft, 'erp-tag-v2');
+    const preview = buildSchedulePreview(draft, 'erp-tag-v4');
     const rows = preview.rows.filter((r) => r.classKey === CLASS_1A);
     expect(rows).toHaveLength(1);
     expect(rows[0].anqin.overlapMinutes).toBeNull();
@@ -269,7 +268,7 @@ describe('UX23：空時段與整班移除（09 §8.2.4 方案 A）——run 計�
 
   it('三者一致：整班移除——逐堂預覽與班級表都沒有該班；學生 run 落 SCHEDULE_NOT_FOUND 且不扣天（不退回 seed）', () => {
     const draft = draftRemovedClass();
-    const preview = buildSchedulePreview(draft, 'erp-tag-v2');
+    const preview = buildSchedulePreview(draft, 'erp-tag-v4');
     expect(preview.classes.some((k) => k.classKey === CLASS_1A)).toBe(false);
     expect(preview.rows.some((r) => r.classKey === CLASS_1A)).toBe(false);
 

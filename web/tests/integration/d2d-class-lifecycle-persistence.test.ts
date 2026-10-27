@@ -108,7 +108,7 @@ function seedStudents(db: Database.Database, importId: string) {
 
 function activate(db: Database.Database, importId: string, runId: string, version: string) {
   const res = executeCalculationRun(db, importId, runId, { ruleSetVersion: version as never });
-  saveCalculationRun(db, res.run, res.results, res.classCategories, res.classSemantics);
+  saveCalculationRun(db, res.run, res.results, res.classCategories);
   db.prepare('UPDATE active_state SET active_run_id = ?, active_import_id = ? WHERE id = 1').run(runId, importId);
   return res;
 }

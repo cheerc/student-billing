@@ -17,8 +17,5 @@ if (/run:\s*.*(?:test:e2e:isolated|playwright test|merge-reports)/.test(workflow
 if (!rootGuide.includes('npm run test:e2e:full')) failures.push('root CLAUDE.md lacks canonical command');
 if (!webGuide.includes('@AGENTS.md') || !webGuide.includes('@tests/e2e/CLAUDE.md')) failures.push('web/CLAUDE.md delegation missing');
 if (!e2eGuide.includes('npm run test:e2e:full')) failures.push('E2E CLAUDE.md lacks canonical command');
-for (const seededSpec of ['d2d-upgrade-restore.spec.ts', 'd2d-upgrade-journey.spec.ts']) {
-  if (!e2eGuide.includes(seededSpec)) failures.push(`E2E CLAUDE.md must identify seeded spec ${seededSpec}`);
-}
 if (failures.length) {for (const f of failures) console.error(`PARITY CONTRACT FAIL: ${f}`);process.exitCode=1;}
 else console.log('PASS: local/nightly FULL E2E canonical command + docs parity');

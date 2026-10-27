@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { parseResultsState, pruneResultsState } from '@/lib/results-state';
 import SummaryTable, { type StudentColumnKey } from './summary-table';
-import type { RunClassCategorySnapshot, RunClassSemanticsRateSnapshot } from '@/application/applicable-rate';
+import type { RunClassCategorySnapshot } from '@/application/applicable-rate';
 import DetailDrawer from './detail-drawer';
 import { TabList, tabPanelProps } from './ui/tabs';
 import ClassDeductionsPanel from './results/class-deductions-panel';
@@ -62,13 +62,10 @@ interface ActiveRunViewProps {
    */
   unmappedClasses?: string[] | null;
   /**
-   * D2b 3（N-8）：該 run 的班級類別快照（具快照能力的 run 才有；server 由 run_class_categories 讀出，以名冊班名為 key）。
-   * 學生總表的「本班適用折扣」依它判斷；v1／v2 為 null → 名稱映射。
+   * 該 run 的班級類別快照（server 由 run_class_categories 讀出，以名冊班名為 key）。
+   * 學生總表的「本班適用折扣」依它判斷；缺該班快照時顯示「未設定」。
    */
   classCategorySnapshots?: RunClassCategorySnapshot[] | null;
-  classSemanticSnapshots?: RunClassSemanticsRateSnapshot[] | null;
-  /** 該 run 的規則集版本（快照語意隨版本而異：v4 起固定 5 天不再改寫本班折扣）。 */
-  classCategoryRuleSetVersion?: string | null;
   /** current＝目前使用的資料；history＝歷史資料（唯讀，來自匯入紀錄）。預設 current。 */
   mode?: 'current' | 'history';
   /** 資料來源（檔名與日期）；橫幅據此標示來源日期（09 §2）。 */
@@ -130,8 +127,6 @@ export default function ActiveRunView({
   deductionsUnavailable,
   unmappedClasses = null,
   classCategorySnapshots = null,
-  classSemanticSnapshots = null,
-  classCategoryRuleSetVersion = null,
   mode = 'current',
   source,
 }: ActiveRunViewProps) {
@@ -706,8 +701,6 @@ export default function ActiveRunView({
               loading={loading}
               singleClass={singleClass}
               classCategorySnapshots={classCategorySnapshots ?? null}
-              classSemanticSnapshots={classSemanticSnapshots ?? null}
-              ruleSetVersion={classCategoryRuleSetVersion ?? null}
               renderFilter={renderFilter}
               onSelectStudent={(student) => {
                 if (student.runId === runId) setDrawerSelection({ runId, student });
@@ -738,7 +731,6 @@ export default function ActiveRunView({
       {/* 學生計算明細側欄 Drawer */}
       <DetailDrawer
         student={selectedStudent}
-        ruleSetVersion={classCategoryRuleSetVersion ?? null}
         onClose={() => setDrawerSelection({ runId, student: null })}
       />
     </div>

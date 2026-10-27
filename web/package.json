@@ -12,7 +12,6 @@
     "test": "vitest run",
     "test:perf:isolated": "tsx scripts/perf-isolated.ts",
     "test:perf:roster-isolated": "tsx scripts/perf-roster-isolated.ts",
-    "verify:baseline": "tsx scripts/verify-baseline.ts",
     "verify:fixtures": "tsx scripts/verify-fixtures.ts",
     "bench": "tsx scripts/bench.ts",
     "backup": "tsx scripts/backup-restore.ts backup",

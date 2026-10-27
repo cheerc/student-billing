@@ -1,6 +1,5 @@
 import { z } from 'zod';
 import seedData from '../domain/schedules/schedule-seed.json';
-import { FORMAL_RULE_SET_VERSION_LIST } from '@/domain/billing/rule-set';
 import { persistClassAttributes } from '@/domain/classification/persist-class-attributes';
 import type { CategorySource, ClassCategory } from '@/domain/classification/class-category';
 
@@ -528,12 +527,6 @@ export function gridRowsToCalculateClasses(
 export const SettingsPreviewRequestSchema = z.object({
   draft: SettingsDraftSchema,
   expectedRevision: z.number().int().min(0),
-  /**
-   * D2b 4（Q11）：使用者明確確認升級時帶入的目標規則版本。
-   * 缺省＝沿用現行正式軌版本（既有 v2 DB 因此不動、空 DB 得目標版本 erp-tag-v4）；
-   * 帶入非正式軌版本（含診斷軌與未知字串）一律 400，不猜、不靜默降級。
-   */
-  targetRuleSetVersion: z.enum(FORMAL_RULE_SET_VERSION_LIST).optional(),
 });
 
 export const SettingsApplyRequestSchema = z.object({

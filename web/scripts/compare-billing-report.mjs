@@ -34,8 +34,7 @@ import path from 'path';
 import os from 'os';
 import { fileURLToPath } from 'url';
 import { parseSingleClassToken, projectTierForApplicability } from '../src/domain/students/token-parser.ts';
-import { historicalRateCategoryOfClass, applicableRateForClass } from '../src/application/applicable-rate.ts';
-import { legacyClassSemanticsOf } from '../src/domain/classification/legacy-class-semantics.ts';
+import { applicableRateForClass } from '../src/application/applicable-rate.ts';
 
 import { parseDiscounts, bpsToLabel, readReport } from './shared/report-xlsx.ts';
 import { fetchRunStudents, fetchRun } from './shared/roster-api.ts';
@@ -45,9 +44,7 @@ import {
   shouldWarnMissingSnapshot,
   classSemanticsForRun,
   runUsesClassCategorySnapshot,
-  runUsesClassSemanticsSnapshot,
   snapshotRowFor,
-  usesFrozenLegacyProjection,
 } from './shared/rate-context.ts';
 import { normalizeName, indexByName } from './shared/name-matching.ts';
 import { defineCategories, formatCategorySummary } from './shared/category-registry.ts';
@@ -388,16 +385,12 @@ function buildNotes({ statusCategory, excel, web, careCategory }) {
  */
 function categoryForRun(baseName, rateContext) {
   if (!rateContext || rateContext.known === false) return null;
-  if (runUsesClassSemanticsSnapshot(rateContext)) {
-    const categorySnapshot = snapshotRowFor(rateContext, baseName);
+  const categorySnapshot = snapshotRowFor(rateContext, baseName);
+  if (Array.isArray(rateContext?.classSemantics)) {
     const semantics = classSemanticsForRun(baseName, rateContext);
     if (!categorySnapshot || !semantics || semantics.category !== categorySnapshot.category) return null;
-    return categorySnapshot.category;
   }
-  if (rateContext?.usesClassCategorySnapshot ?? rateContext?.isV3Run) {
-    return snapshotRowFor(rateContext, baseName)?.category ?? null;
-  }
-  return usesFrozenLegacyProjection(rateContext) ? historicalRateCategoryOfClass(baseName) : null;
+  return categorySnapshot?.category ?? (baseName.includes('國小輔導') ? 'care' : null);
 }
 
 function enrollmentProjection(student, rateContext) {
@@ -419,8 +412,7 @@ function hasCompleteV4EnrollmentSnapshots(student, rateContext) {
     const baseName = enrollment.baseName ?? '';
     const categorySnapshot = snapshotRowFor(rateContext, baseName);
     if (!categorySnapshot) return false;
-    if (runUsesClassSemanticsSnapshot(rateContext) && categorySnapshot.class_type === undefined) {
-      if (!Array.isArray(rateContext?.classSemantics)) return false;
+    if (Array.isArray(rateContext?.classSemantics)) {
       const semantics = classSemanticsForRun(baseName, rateContext);
       if (!semantics || semantics.category !== categorySnapshot.category) return false;
     }
@@ -428,15 +420,11 @@ function hasCompleteV4EnrollmentSnapshots(student, rateContext) {
   });
 }
 
-function careClassNameOf(enrollments, rateContext) {
+function careClassNameOf(enrollments) {
   const configured = enrollments.find((enrollment) => enrollment.category === 'care');
   if (configured) return configured.baseName ?? '';
-  // For an explicit historical v3 Run, the frozen projection may identify a lookup key only;
-  // the selected Run's category snapshot still decides whether that class is care/rateable.
-  if (usesFrozenLegacyProjection(rateContext) &&
-      (rateContext?.usesClassCategorySnapshot ?? rateContext?.isV3Run)) {
-    return enrollments.find((enrollment) => historicalRateCategoryOfClass(enrollment.baseName ?? '') === 'care')?.baseName ?? '';
-  }
+  const byName = enrollments.find((enrollment) => (enrollment.baseName ?? '').includes('國小輔導'));
+  if (byName) return byName.baseName ?? '';
   return '';
 }
 
@@ -528,16 +516,15 @@ export function compare(reportStudents, webStudents, asOfDate, rateContext = und
     // 故無輔導班者維持既有「依年級取安親／課輔側」，不新增猜測（這裡沒有班名可用）。
     const enrollmentSemantics = enrollmentProjection(w, rateContext);
     const careEnrollments = enrollmentSemantics.filter((enrollment) => enrollment.category === 'care');
-    const careClassName = careClassNameOf(enrollmentSemantics, rateContext);
+    const careClassName = careClassNameOf(enrollmentSemantics);
     const usesSnapshot = !!rateContext && (rateContext.usesClassCategorySnapshot ?? rateContext.isV3Run);
-    const legacyProjection = usesFrozenLegacyProjection(rateContext);
     const snapshotUnavailable = !rateContext || rateContext.known === false || (
       usesSnapshot
         ? (
         !Array.isArray(rateContext.classCategories) ||
         rateContext.classCategories.length === 0
         )
-        : !legacyProjection
+        : false
     ) || !hasCompleteV4EnrollmentSnapshots(w, rateContext);
     const useSnapshot = usesSnapshot && careClassName !== '';
     const applicable = useSnapshot

@@ -61,7 +61,7 @@ function runV4(db: Db, importId: string, runId: string) {
     erpTierApplicability: 'applicable',
     erpTierApplicabilitySource: 'seed',
   }];
-  saveCalculationRun(db, res.run, res.results, res.classCategories, semantics);
+  saveCalculationRun(db, res.run, res.results, res.classCategories);
   return res;
 }
 
@@ -117,8 +117,7 @@ describe('issue #140 第 4 項：not_configured 分支的可達性（正式測�
     expect(before.enrollments.some((e) => e.baseName?.includes('國小輔導'))).toBe(false);
     const rows = (rateContextOf(db, 'run_v4').classCategories ?? []) as Array<{ base_name: string }>;
     expect(rows.some((r) => r.base_name === CARE_CLASS)).toBe(false);
-    const semanticRows = (rateContextOf(db, 'run_v4').classSemantics ?? []) as Array<{ baseName: string }>;
-    expect(semanticRows.some((r) => r.baseName === CARE_CLASS)).toBe(true);
+
 
     // 事後補列：run 已凍結，但名冊的報名表可以再長出一筆（0002 的 FK 不阻止）
     db.prepare(

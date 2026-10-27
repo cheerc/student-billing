@@ -80,33 +80,6 @@ describe('settings preview 的影響基準＝目前生效設定', () => {
     expect(again.issueDelta!.after).toBe(again.issueDelta!.before);
   });
 
-  it('v2 persisted-before issue delta 排除 retired-only warning，仍計 business issue 與 tier review', () => {
-    const runId = (db.prepare('SELECT active_run_id FROM active_state WHERE id = 1').get() as { active_run_id: string }).active_run_id;
-    db.prepare(`UPDATE student_calculations SET issues = '[]', tier_comparisons = '[]', has_issues = 0 WHERE run_id = ?`).run(runId);
-    const people = db.prepare('SELECT person_code FROM student_calculations WHERE run_id = ? ORDER BY person_code LIMIT 3').all(runId) as Array<{ person_code: string }>;
-    expect(people).toHaveLength(3);
-
-    db.prepare('UPDATE student_calculations SET issues = ?, has_issues = 1 WHERE run_id = ? AND person_code = ?')
-      .run(JSON.stringify([{ code: 'NUMERIC_POLICY_DIFFERENCE' }]), runId, people[0].person_code);
-    db.prepare('UPDATE student_calculations SET issues = ?, has_issues = 1 WHERE run_id = ? AND person_code = ?')
-      .run(JSON.stringify([{ code: 'NUMERIC_POLICY_DIFFERENCE' }, { code: 'CLASS_NOT_MAPPED' }]), runId, people[1].person_code);
-    db.prepare('UPDATE student_calculations SET tier_comparisons = ?, has_issues = 1 WHERE run_id = ? AND person_code = ?')
-      .run(JSON.stringify([{ needsReview: true }]), runId, people[2].person_code);
-    db.prepare('UPDATE calculation_runs SET rule_set_version = ? WHERE id = ?').run('erp-tag-v2', runId);
-
-    const preview = previewSettingsChange(db, undefined, {
-      draft: buildSeedDraft(),
-      expectedRevision: 1,
-      targetRuleSetVersion: 'erp-tag-v4',
-    });
-
-    expect(preview.issueDelta).toMatchObject({ before: 2 });
-    expect(db.prepare('SELECT has_issues FROM student_calculations WHERE run_id = ? AND person_code = ?').get(runId, people[0].person_code))
-      .toEqual({ has_issues: 1 });
-    expect(JSON.parse((db.prepare('SELECT issues FROM student_calculations WHERE run_id = ? AND person_code = ?').get(runId, people[0].person_code) as { issues: string }).issues))
-      .toEqual([{ code: 'NUMERIC_POLICY_DIFFERENCE' }]);
-  });
-
   it('已儲存有一→一A 對應後整班移除一A：13 位各 +0.5（由 −0.5 回到不扣天），不是相對 seed 的差異', () => {
     save(draftWithAlias(), 1, 'base-save-2');
     const removed: SettingsDraft = {

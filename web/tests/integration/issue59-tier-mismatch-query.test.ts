@@ -10,7 +10,7 @@ import { activateImport } from '@/application/activate-import';
 import { queryRunStudents } from '@/application/query-students';
 import { queryStudentOptions } from '@/application/query-student-options';
 import { buildSeedDraft } from '@/adapters/sqlite/settings-repository';
-import { parseClassTokens, projectLegacyImportTierEvidence, type StudentSnapshot } from '@/domain/students';
+import { parseClassTokens,  type StudentSnapshot } from '@/domain/students';
 import { saveSettings } from '../helpers/d1-test-kit';
 
 /**
@@ -41,7 +41,7 @@ function makeStudent(
     tagsRaw: '',
     tags: [],
     notesRaw: '',
-    enrollments: parseClassTokens(classesStr).map(projectLegacyImportTierEvidence),
+    enrollments: parseClassTokens(classesStr),
     sourceRow,
   };
 }

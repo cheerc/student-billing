@@ -10,7 +10,20 @@ import { generateImportPreview } from '@/application/import-preview';
 import { buildClassSettingMap, executeCalculationRun } from '@/application/calculate-run';
 import { buildSchedulePreview } from '@/application/schedule-preview';
 import { calculateStudentBilling } from '@/domain/billing/billing-calculator';
-import { projectActionableIssues, projectActionableIssueCounts } from '@/domain/issues/actionable-issues';
+function projectActionableIssues<T extends { code: string }>(
+  issues: readonly T[] | null | undefined,
+  tierComparisons: Array<{ needsReview?: boolean | null }> | null | undefined
+) {
+  const actionableIssues = [...(issues ?? [])];
+  return {
+    actionableIssues,
+    actionableHasIssues: actionableIssues.length > 0 || (tierComparisons ?? []).some((c) => c.needsReview === true),
+  };
+}
+
+function projectActionableIssueCounts(issueCounts: Readonly<Record<string, number>>): Record<string, number> {
+  return { ...issueCounts };
+}
 import type { CalculateDraft, SettingsDraft } from '@/contracts/settings';
 
 /**

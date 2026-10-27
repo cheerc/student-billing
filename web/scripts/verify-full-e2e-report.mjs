@@ -6,9 +6,6 @@ import { fileURLToPath } from 'node:url';
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const artifact = path.join(root, 'full-e2e');
 const blobDir = path.join(root, 'blob-report', 'full-e2e');
-const seededFiles = ['d2d-upgrade-restore.spec.ts', 'd2d-upgrade-journey.spec.ts'];
-const seededSet = new Set(seededFiles);
-const seededJourneyFile = 'd2d-upgrade-journey.spec.ts';
 const problems = [];
 const error = msg => problems.push(msg);
 const readJson = (p, name) => {
@@ -18,8 +15,7 @@ const readJson = (p, name) => {
 const currentSpecs = fs.readdirSync(path.join(root, 'tests', 'e2e')).filter(f => f.endsWith('.spec.ts')).sort();
 const currentSet = new Set(currentSpecs);
 const slugOf = f => f.slice(0, -'.spec.ts'.length).replace(/[^a-zA-Z0-9_-]/g, '-').toLowerCase();
-const missingSeededFiles = seededFiles.filter(file => !currentSet.has(file));
-if (!currentSpecs.length || missingSeededFiles.length) error(`E2E inventory is empty or seeded spec missing: ${missingSeededFiles.join(', ')}`);
+if (!currentSpecs.length) error('E2E inventory is empty');
 const manifest = readJson(path.join(artifact, 'manifest.json'), 'manifest');
 if (manifest) {
   if (manifest.schemaVersion !== 1 || manifest.kind !== 'student-billing-full-e2e' || manifest.complete !== true) {
@@ -29,12 +25,10 @@ if (manifest) {
   const finished = Date.parse(manifest.finishedAt);
   if (!Number.isFinite(started) || !Number.isFinite(finished) || finished < started) error('Manifest timestamps are missing or invalid');
   if (JSON.stringify(manifest.specFiles) !== JSON.stringify(currentSpecs)) error('Manifest spec inventory differs from checkout');
-  if (JSON.stringify(manifest.seededSpecFiles) !== JSON.stringify(seededFiles)) error('Manifest seeded-spec inventory differs from verifier contract');
   const files = (manifest.runs ?? []).map(r => r.file);
-  const expectedOrder = [...currentSpecs.filter(f => !seededSet.has(f)), ...seededFiles];
-  if (JSON.stringify(files) !== JSON.stringify(expectedOrder)) error('Not every spec was attempted exactly once in expected (normal, then seeded) order');
+  const expectedOrder = [...currentSpecs];
+  if (JSON.stringify(files) !== JSON.stringify(expectedOrder)) error('Not every spec was attempted exactly once in expected order');
   for (const run of manifest.runs ?? []) {
-    if (run.seeded !== seededSet.has(run.file)) error(`Unexpected seeded flag: ${run.file}`);
     if (run.exitCode !== 0 || run.signal) error(`E2E child command failed/interrupted: ${run.file} exit=${run.exitCode}, signal=${run.signal}`);
     if (currentSet.has(run.file)) {
       const log = path.join(artifact, 'logs', `${slugOf(run.file)}.log`);
@@ -94,7 +88,6 @@ for (const t of tests) {
   else { failed++; error(`Non-first-pass test: ${t.file}/${t.title} ${t.status}`); }
 }
 for (const [file, n] of counted) if (n < 1) error(`No executed test case in spec: ${file}`);
-if (counted.get(seededJourneyFile) !== 2) error(`Seeded upgrade journey expected 2 cases, reported ${counted.get(seededJourneyFile) ?? 0}`);
 if (report?.stats) {
   const { expected, unexpected, flaky, skipped: statSkipped } = report.stats;
   if (expected !== passed || unexpected !== 0 || flaky !== 0 || statSkipped !== 0 || tests.length !== passed + skipped + failed) {
@@ -105,7 +98,6 @@ const summary = {
   status: problems.length ? 'FAIL' : 'PASS',
   githubSha: process.env.GITHUB_SHA ?? null,
   specFiles: currentSpecs.length,
-  seededSpecFiles: seededFiles,
   blobs: blobNames.length,
   testCases: tests.length,
   passed, skipped, failed, problems,

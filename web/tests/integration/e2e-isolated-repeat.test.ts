@@ -103,13 +103,7 @@ describe('e2e-isolated --repeat：每輪 DB 起點', () => {
     expect(passes[1].sidecars, '--keep-db 連 -wal 一併保留').toContain('-wal');
   }, 150000);
 
-  it('--keep-db 與 --seed-v2-active 互斥：明確報錯、不跑任何一輪', () => {
-    const { result, passes } = runRunner(['--repeat', '2', '--keep-db', '--seed-v2-active', 'tests/e2e/fake.spec.ts']);
-    expect(result.status).not.toBe(0);
-    expect(result.stderr).toContain('--keep-db');
-    expect(result.stderr).toContain('--seed-v2-active');
-    expect(passes.length).toBe(0);
-  }, 150000);
+
 
   it('--keep-db 沒有搭配 --repeat N（N≥2）沒有意義：明確報錯而不是靜默忽略', () => {
     const { result, passes } = runRunner(['--keep-db', 'tests/e2e/fake.spec.ts']);
@@ -119,12 +113,5 @@ describe('e2e-isolated --repeat：每輪 DB 起點', () => {
     expect(passes.length).toBe(0);
   }, 150000);
 
-  it('--seed-v2-active --repeat 2：每輪起點都是同一份 seed（大小相同且非空），不受上一輪殘留影響', () => {
-    const { result, passes } = runRunner(['--seed-v2-active', '--repeat', '2', 'tests/e2e/fake.spec.ts']);
-    expect(result.status, result.stderr).toBe(0);
-    expect(passes.length).toBe(2);
-    expect(passes[0].size, '第 1 輪起點是 seed（非空）').toBeGreaterThan(0);
-    expect(passes[1].size, '第 2 輪起點與第 1 輪相同＝重新複製 seed，不含上一輪殘留').toBe(passes[0].size);
-    expect(passes[1].sidecars).toEqual([]);
-  }, 150000);
+
 });

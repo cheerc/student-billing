@@ -10,7 +10,7 @@ import {
   readStoredDraft,
 } from '@/adapters/sqlite/settings-repository';
 import { executeCalculationRun } from './calculate-run';
-import { resolveRuleSetForApply, RuleSetResolutionError } from './rule-set-resolver';
+import { TARGET_FORMAL_RULE_SET_VERSION } from '@/domain/billing/rule-set';
 import { getCurrentActiveRun, saveCalculationRun } from '@/adapters/sqlite/runs-repository';
 
 export class SettingsApplyError extends Error {
@@ -133,21 +133,6 @@ export function applySettingsPreview(
       );
     }
 
-    // 規則版本：只用 preview 記錄的目標版本（D1 F-3）；舊 preview 沒有記錄時視為建立當時的 active 版本
-    // （revision CAS 保證 active 沒變）；記錄的不是正式軌版本 → 預覽資料損毀，拒絕套用（尚未寫入任何資料）。
-    let targetRuleSetVersion: string;
-    try {
-      targetRuleSetVersion = resolveRuleSetForApply(db, preview.targetRuleSetVersion);
-    } catch (e) {
-      if (e instanceof RuleSetResolutionError) {
-        if (e.code === 'UPGRADE_REQUIRED') {
-          throw new SettingsApplyError(409, e.message, 'UPGRADE_REQUIRED');
-        }
-        throw new SettingsApplyError(500, '預覽記錄的規則版本無效，預覽資料損毀，請重新預覽', 'PREVIEW_CORRUPTED');
-      }
-      throw e;
-    }
-
     // 封存設定快照
     saveSettingsVersion(db, {
       id: settingsVersionId,
@@ -183,16 +168,15 @@ export function applySettingsPreview(
     // 以新設定重算（alias + schedule 覆寫）
     const aliasMap = draftToAliasMap(draft);
     const scheduleOverride = draftToScheduleOverride(draft);
-    const { run, results, classCategories, classSemantics } = executeCalculationRun(db, preview.importId, runId, {
+    const { run, results, classCategories } = executeCalculationRun(db, preview.importId, runId, {
       scheduleVersionId: settingsVersionId,
-      ruleSetVersion: targetRuleSetVersion,
-      upgradePreviewId: previewId,
+      ruleSetVersion: TARGET_FORMAL_RULE_SET_VERSION,
       // 儲存課表不是重新啟用名單；核對基準日沿用交易內的現行 run（UX75）。
       asOfDate: getCurrentActiveRun(db).run?.asOfDate,
       aliasMap,
       scheduleOverride,
     });
-    saveCalculationRun(db, run, results, classCategories, classSemantics);
+    saveCalculationRun(db, run, results, classCategories);
 
     const mismatchCount = results.filter((r) => r.tierMismatch).length;
 

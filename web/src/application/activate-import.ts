@@ -2,7 +2,7 @@ import Database from 'better-sqlite3';
 import crypto from 'crypto';
 import { executeCalculationRun, resolveLatestSavedSettings, CalculateRunOptions } from './calculate-run';
 import { saveCalculationRun } from '@/adapters/sqlite/runs-repository';
-import { resolveTargetRuleSetVersion, RuleSetResolutionError } from './rule-set-resolver';
+import { TARGET_FORMAL_RULE_SET_VERSION } from '@/domain/billing/rule-set';
 
 export class ActivateConflictError extends Error {
   statusCode = 409;
@@ -27,12 +27,12 @@ export class ActivateError extends Error {
 /**
  * activate 不接受 client 指定課表版本或設定覆寫（09 §8.2.1）：
  * scheduleVersionId／aliasMap／scheduleOverride 一律由 server 解析最新已儲存設定決定。
- * 新 Run 固定使用 v4；舊 active Run 必須先經 settings upgrade preview/apply 明確升級。
+ * 新 Run 固定使用 erp-tag-v4。
  */
 export interface ActivateOptions
   extends Omit<
     CalculateRunOptions,
-    'scheduleVersionId' | 'aliasMap' | 'scheduleOverride' | 'ruleSetVersion' | 'upgradePreviewId'
+    'scheduleVersionId' | 'aliasMap' | 'scheduleOverride' | 'ruleSetVersion'
   > {
   importId: string;
   expectedRevision: number;
@@ -76,16 +76,13 @@ export function activateImport(
   const hashOf = (body: Record<string, unknown>) => crypto.createHash('sha256').update(JSON.stringify(body)).digest('hex');
   const requestFields = { importId, expectedRevision, asOfDate: options.asOfDate || '' };
   const bodyHash = hashOf(requestFields);
-  // D1 之前的紀錄，hash 內含 ruleSetVersion（不帶時預設 erp-tag-v2）；同 key 同內容的重送仍要回原結果，
-  // 不能因為 hash 欄位減少而讓已成功的請求變成「不同的請求內容」。
-  const legacyBodyHash = hashOf({ ...requestFields, ruleSetVersion: 'erp-tag-v2' });
 
   const existingIdemp = db
     .prepare('SELECT request_body_hash, response_payload FROM idempotency_records WHERE idempotency_key = ?')
     .get(idempotencyKey) as { request_body_hash: string; response_payload: string } | undefined;
 
   if (existingIdemp) {
-    if (existingIdemp.request_body_hash === bodyHash || existingIdemp.request_body_hash === legacyBodyHash) {
+    if (existingIdemp.request_body_hash === bodyHash) {
       return JSON.parse(existingIdemp.response_payload);
     } else {
       throw new ActivateError(400, `相同 idempotencyKey「${idempotencyKey}」已被使用於不同的請求內容。`, 'IDEMPOTENCY_CONFLICT');
@@ -117,29 +114,18 @@ export function activateImport(
 
     const nextRevision = activeState.revision + 1;
 
-    // 舊 active Run 只能透過 settings preview/apply 明確升級；activate 不提供升級捷徑。
-    let targetRuleSetVersion;
-    try {
-      targetRuleSetVersion = resolveTargetRuleSetVersion(db);
-    } catch (e) {
-      if (e instanceof RuleSetResolutionError) {
-        throw new ActivateError(409, e.message, 'UPGRADE_REQUIRED');
-      }
-      throw e;
-    }
-
     // 執行全量計算：每一次 activate 由 server 解析最新已儲存設定，
     // 忽略 client 傳入的 scheduleVersionId／alias／時段覆寫（09 §8.2.1）。
-    // 規則版本同樣由 server 決定（F-2）：新 run 固定使用 v4；舊 active run 需先經明確 settings upgrade。
-    const { run, results, classCategories, classSemantics } = executeCalculationRun(db, importId, runId, {
-      ruleSetVersion: targetRuleSetVersion,
+    // 規則版本同樣由 server 決定（F-2）：新 run 固定使用 v4。
+    const { run, results, classCategories } = executeCalculationRun(db, importId, runId, {
+      ruleSetVersion: TARGET_FORMAL_RULE_SET_VERSION,
       numericPolicy: options.numericPolicy,
       asOfDate: options.asOfDate,
       ...resolveLatestSavedSettings(db),
     });
 
     // 儲存計算結果與 run (R2-1: 同步傳入 classCategories)
-    saveCalculationRun(db, run, results, classCategories, classSemantics);
+    saveCalculationRun(db, run, results, classCategories);
 
     // 切換 ActiveState
     db.prepare(`

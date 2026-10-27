@@ -6,12 +6,10 @@ import {
 
 export type DiscountExplanationStatus =
   | 'verified_v4'
-  | 'historical_limited'
   | 'source_unavailable'
   | 'snapshot_inconsistent';
 
 export interface DiscountExplanationInput {
-  ruleSetVersion: string | null | undefined;
   subjectCount: number | null | undefined;
   baseDiscountBps: number | null | undefined;
   applicable: {
@@ -56,14 +54,10 @@ const sameRate = (saved: number | null | undefined, expected: number | null): bo
 
 /**
  * Project a saved student's discount evidence for display. This never changes any persisted value.
- * Only current v4 runs with a complete trace and matching saved rates receive an explanation chain.
+ * Only a saved result with a complete trace and matching saved rates receives an explanation chain.
  */
 export function buildDiscountExplanation(input: DiscountExplanationInput): DiscountExplanation {
   const sourceAvailable = input.hasRawTags && (input.rawTags === null || typeof input.rawTags === 'string');
-
-  if (input.ruleSetVersion !== 'erp-tag-v4') {
-    return { status: 'historical_limited', sourceAvailable, factors: null };
-  }
 
   const savedRates = [
     input.baseDiscountBps,

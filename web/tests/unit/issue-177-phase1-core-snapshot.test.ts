@@ -170,7 +170,6 @@ describe('Issue #177 Phase 1: New run calculations retire 6 attendance columns t
     expect(careCat?.resolvedBaseName).toBe('國小輔導-三年級');
 
     // classSemantics is no longer generated
-    expect(outcome.classSemantics).toBeUndefined();
   });
 });
 
@@ -249,10 +248,10 @@ describe('Issue #177 Phase 1: Migration 0011 & single snapshot persistence', () 
       mapped: 1,
     });
 
-    // run_semantics_snapshots must remain empty
-    const semanticSnapshotCount = db
-      .prepare('SELECT COUNT(*) as cnt FROM run_semantics_snapshots WHERE run_id = ?')
-      .get(runId) as { cnt: number };
-    expect(semanticSnapshotCount.cnt).toBe(0);
+    // run_semantics_snapshots table is dropped in 0012
+    const tableExists = db
+      .prepare("SELECT COUNT(*) as cnt FROM sqlite_master WHERE type = 'table' AND name = 'run_semantics_snapshots'")
+      .get() as { cnt: number };
+    expect(tableExists.cnt).toBe(0);
   });
 });

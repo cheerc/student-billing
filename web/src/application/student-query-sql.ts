@@ -1,5 +1,4 @@
 import type { QuerySelection, QueryValue } from '@/contracts/student-query';
-import { historicalRateCategoryOfClass } from './applicable-rate';
 
 export interface QueryPredicate { sql: string; args: Array<string | number> }
 export function sqlValue(value: Exclude<QueryValue, null>): string | number {
@@ -53,13 +52,4 @@ export function branchPredicate(column: string, selected?: QuerySelection): Quer
 
 export function escapeLike(value: string): string {
   return value.replace(/[\\%_]/g, (c) => '\\' + c);
-}
-
-/** Read-only filter mapping for historical runs without class-category snapshots; current runs use their saved snapshot. */
-export function applicableRateColumn(className: string): string | null {
-  const category = historicalRateCategoryOfClass(className);
-  if (category === 'care') return '(CASE WHEN sc.grade IN (1,2) THEN sc.applicable_anqin_bps WHEN sc.grade BETWEEN 3 AND 6 THEN sc.applicable_tutoring_bps ELSE NULL END)';
-  if (category === 'math') return 'sc.applicable_math_bps';
-  if (category === 'english') return 'sc.applicable_english_bps';
-  return null;
 }

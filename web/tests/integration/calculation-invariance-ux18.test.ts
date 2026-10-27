@@ -64,9 +64,9 @@ describe('UX18：全量 seed 預設草稿的計算值與改動前 golden 逐班�
     expect(G.v1['小六加強班-自然'].tutoring.totalOverlapMinutes).toBe(30);
   });
 
-  for (const v of ['v2', 'v1'] as const) {
-    it(`① 讀模型核心（${ruleSetOf(v)}）：每個 golden 班的重疊分鐘、未取整 raw、D24 實扣皆相同`, () => {
-      const preview = buildSchedulePreview(buildSeedDraft(), ruleSetOf(v));
+  for (const v of ['v2'] as const) {
+    it(`① 讀模型核心（${'erp-tag-v4'}）：每個 golden 班的重疊分鐘、未取整 raw、D24 實扣皆相同`, () => {
+      const preview = buildSchedulePreview(buildSeedDraft(), 'erp-tag-v4');
       const byKey = new Map(preview.classes.map((c) => [c.classKey, c]));
       for (const [name, exp] of Object.entries(G[v])) {
         const c = byKey.get(name);

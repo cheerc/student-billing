@@ -141,9 +141,9 @@
 ### Full E2E 唯一執行契約（Issue #101；本機 = GitHub Nightly）
 
 - **任何人或 Agent 執行「全量 Full E2E」時，唯一正式入口是在 `web/` 執行 `npm run test:e2e:full`。** `.github/workflows/nightly-e2e.yml` 必須呼叫**完全相同**的命令；本機和 CI 不得各自維護測試檔清單、skip、SQLite seed、`.next` 清理、retries、reporter、測試結果聚合與 coverage gate。
-- `web/scripts/e2e-full.mjs` 是 full E2E orchestration SSOT：動態掃描 `web/tests/e2e/*.spec.ts`，一般檔案透過 `test:e2e:isolated` 每檔獨立 DB+server；`d2d-upgrade-restore.spec.ts` 與 `d2d-upgrade-journey.spec.ts` 必須分別用 `--seed-v2-active` 真正跑完，journey 排最後，不能以 skip 冒充 covered；最後合併 Blob/HTML/JUnit/JSON 並執行 fail-closed verifier。任何失敗／漏跑／未經核准 skip／報告缺失都不是 PASS。
+- `web/scripts/e2e-full.mjs` 是 full E2E orchestration SSOT：動態掃描 `web/tests/e2e/*.spec.ts`，檔案透過 `test:e2e:isolated` 每檔獨立 DB+server；最後合併 Blob/HTML/JUnit/JSON 並執行 fail-closed verifier。任何失敗／漏跑／未經核准 skip／報告缺失都不是 PASS。
 - `npm run test:e2e:isolated`（無 args）及單檔命令僅供既有功能測試與針對性除錯，**不得**作為 full E2E merge/review/nightly 的驗收證據。針對性驗證必須明列檔名與測試數。
-- 目前 E2E 使用 Chromium、serial、`retries: 0`，禁止以 rerun-to-green、測試隔離黑名單、blanket skip 或 `continue-on-error` 掩蓋 flaky。每檔隔離 SQLite 與 Next server；`.next` 在一般全量階段內共用，只於 full 開始與 v2 seeded phase 前清理；本機和 nightly 同一行為。
+- 目前 E2E 使用 Chromium、serial、`retries: 0`，禁止以 rerun-to-green、測試隔離黑名單、blanket skip 或 `continue-on-error` 掩蓋 flaky。每檔隔離 SQLite 與 Next server；`.next` 在全量執行前清理；本機和 nightly 同一行為。
 - CI/本機的 Node/OS、瀏覽器 shared libraries 前置安裝可以不同，但 **full E2E 測試執行入口與 coverage 驗收不能不同**。本機綠燈不代表 hosted Ubuntu 已驗證，必須記錄 exact HEAD/Node/Playwright/規格檔數/測試案例數/失敗證據。
 - Nightly 固定 GitHub-hosted Ubuntu，schedule + 手動 `workflow_dispatch`，不在每個 PR 增加 full E2E gate；scheduled run 若紅，需追蹤原始失敗、run URL 與負責人，不得以手動重跑綠燈取消首次失敗證據。
 - **開發 E2E、新增/刪除 spec、修改 runner、reporter、seed 或 CI workflow 前，一律先讀** `web/tests/e2e/CLAUDE.md`。如變更 full 流程，必須同時維護 root `CLAUDE.md`、`web/CLAUDE.md` 指引以及測試文件，確保本機／nightly 不分岔。

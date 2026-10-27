@@ -10,8 +10,6 @@ import { buildDiscountExplanation } from '@/application/discount-explanation';
 interface DetailDrawerProps {
   student: StudentCalculationItem | null;
   onClose: () => void;
-  /** The exact rule set version for this student's immutable Run. */
-  ruleSetVersion?: string | null;
 }
 
 const FOCUSABLE =
@@ -32,9 +30,9 @@ const FOCUSABLE =
 const formatApplicableRate = (bps: number | null): string =>
   bps === null ? '—' : formatDiscountBps(bps);
 
-export default function DetailDrawer({ student, onClose, ruleSetVersion = null }: DetailDrawerProps) {
+export default function DetailDrawer({ student, onClose }: DetailDrawerProps) {
   if (!student) return null;
-  return <DrawerPanel student={student} onClose={onClose} ruleSetVersion={ruleSetVersion} />;
+  return <DrawerPanel student={student} onClose={onClose} />;
 }
 
 /**
@@ -45,11 +43,9 @@ export default function DetailDrawer({ student, onClose, ruleSetVersion = null }
 function DrawerPanel({
   student,
   onClose,
-  ruleSetVersion,
 }: {
   student: StudentCalculationItem;
   onClose: () => void;
-  ruleSetVersion: string | null;
 }) {
   const { trace } = student;
   const panelRef = useRef<HTMLDivElement | null>(null);
@@ -57,7 +53,6 @@ function DrawerPanel({
   const hasRawTags = trace !== null && typeof trace === 'object' && Object.prototype.hasOwnProperty.call(trace, 'rawTags');
   const rawTags = hasRawTags ? trace.rawTags : undefined;
   const explanation = buildDiscountExplanation({
-    ruleSetVersion,
     subjectCount: student.subjectCount,
     baseDiscountBps: student.baseDiscountBps,
     applicable: {
@@ -232,13 +227,9 @@ function DrawerPanel({
             <div style={{ fontSize: '0.8125rem', display: 'flex', flexDirection: 'column', gap: '6px' }}>
               {explanation.status !== 'verified_v4' && (
                 <p role="note" style={{ margin: 0, color: 'var(--text-muted)' }}>
-                  {explanation.status === 'historical_limited'
-                    ? explanation.sourceAvailable
-                      ? '歷史折扣說明受限；本區只顯示該次已保存結果，原始標籤可在下方「原始資料」查看。'
-                      : '歷史折扣說明受限，且標籤來源資料不可用；本區只顯示該次已保存結果。'
-                    : explanation.status === 'source_unavailable'
-                      ? '標籤來源資料不足，無法還原本次折扣推導。'
-                      : '無法依已保存資訊完整還原本次推導，請人工核對。'}
+                  {explanation.status === 'source_unavailable'
+                    ? '標籤來源資料不足，無法還原本次折扣推導。'
+                    : '無法依已保存資訊完整還原本次推導，請人工核對。'}
                 </p>
               )}
               <div>

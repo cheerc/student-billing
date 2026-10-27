@@ -139,7 +139,7 @@ describe('D2d B: 八項總表重複同類取選中班（Q10-A）', () => {
       const res = executeCalculationRun(db, 'imp_en', 'run_d2d_b', {
         ruleSetVersion: 'erp-tag-v4',
       });
-      saveCalculationRun(db, res.run, res.results, res.classCategories, res.classSemantics);
+      saveCalculationRun(db, res.run, res.results, res.classCategories);
 
       const rec = res.results.find((r) => r.personCode === 'S-EN-DUP')!;
       // D60-2: 新 Run 的 englishDays 等 6 個點名表欄位已退役為 null；選中班由 calculator selection 承載。

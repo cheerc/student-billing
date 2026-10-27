@@ -17,14 +17,7 @@ export interface SettingsPreviewData {
   runId: string | null;
   totalStudents: number | null;
   affectedStudents: number | null;
-  /**
-   * D2d r3／F-2：本次套用會產生的規則版本。由 server 決定並記錄在 preview 列，
-   * apply 只讀它建立新 run。client 端據此在套用成功後更新「目前生效的版本」，
-   * 使 `canUpgrade` 轉 false、banner 消失、畫面回到乾淨狀態。
-   *
-   * （server 回應本來就有這個欄位，只是 client 型別先前未宣告。）
-   */
-  targetRuleSetVersion?: string;
+
   mismatchCount?: number | null;
   mismatchBefore?: number | null;
   mismatchAfter?: number | null;

@@ -4,7 +4,6 @@ import { ParsedToken } from '@/domain/students';
 import { createStudentPredicateBuilder } from './student-query-predicates';
 import { normalizeStudentQuery, StudentQueryInputError, queryIdentity, decodeStudentCursor, encodeStudentCursor, type NormalizedStudentQuery } from '@/contracts/student-query';
 import { noCoursePredicate } from './student-query-sql';
-import { projectActionableIssues } from '@/domain/issues/actionable-issues';
 
 export class QueryStudentError extends Error {
   statusCode: number;
@@ -95,6 +94,17 @@ export interface RunStudentsQueryResult {
 
 export { KNOWN_ISSUE_CODES, VALID_TIER_COMPARISONS } from '@/contracts/student-query';
 
+/** 畫面與 API 的問題欄位：有任何問題，或任一級距比對需人工確認（needsReview）即為有問題。 */
+function issueView<T extends { code: string }>(
+  issues: readonly T[],
+  tierComparisons: ReadonlyArray<{ needsReview?: boolean | null }>
+): { actionableIssues: T[]; actionableHasIssues: boolean } {
+  return {
+    actionableIssues: [...issues],
+    actionableHasIssues: issues.length > 0 || tierComparisons.some((c) => c.needsReview === true),
+  };
+}
+
 function parseRunQuery(params: RunStudentQueryParams): NormalizedStudentQuery {
   try {
     return normalizeStudentQuery(params, ALLOWED_RUN_QUERY_PARAMS);
@@ -177,7 +187,7 @@ export function queryRunStudents(db: Database.Database, runId: string, params: R
     const itemEnrollments = enrollmentsMap[r.person_code] || [];
     const tierComparisons = JSON.parse(r.tier_comparisons);
     const issues = JSON.parse(r.issues);
-    const actionable = projectActionableIssues(issues, tierComparisons);
+    const actionable = issueView(issues, tierComparisons);
     return {
     id: r.id,
     runId: r.run_id,
@@ -278,7 +288,7 @@ export function getStudentCalculationDetail(
 
   const tierComparisons = JSON.parse(row.tier_comparisons);
   const issues = JSON.parse(row.issues);
-  const actionable = projectActionableIssues(issues, tierComparisons);
+  const actionable = issueView(issues, tierComparisons);
 
   return {
     id: row.id,

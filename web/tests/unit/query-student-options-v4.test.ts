@@ -60,7 +60,7 @@ function seedStudentWithHomework(db: Database.Database, importId: string) {
 
 function activate(db: Database.Database, importId: string, runId: string, version: string = 'erp-tag-v4') {
   const res = executeCalculationRun(db, importId, runId, { ruleSetVersion: version as any });
-  saveCalculationRun(db, res.run, res.results, res.classCategories, res.classSemantics);
+  saveCalculationRun(db, res.run, res.results, res.classCategories);
   db.prepare('UPDATE active_state SET active_run_id = ?, active_import_id = ?, revision = revision + 1 WHERE id = 1').run(runId, importId);
   return res;
 }
@@ -104,8 +104,6 @@ describe('Ruling 3: queryStudentOptions 與表格欄位一致性（優先讀快�
   });
 
   it('Phase 1 移除 run_class_semantics 後，subject filter 依 enrollment 名稱搜尋', () => {
-    db.prepare('DELETE FROM run_class_semantics WHERE run_id = ?').run(RUN_ID);
-    db.prepare('DELETE FROM run_semantics_snapshots WHERE run_id = ?').run(RUN_ID);
 
     const query = normalizeStudentQuery(
       { subject: ['寫功課'] },

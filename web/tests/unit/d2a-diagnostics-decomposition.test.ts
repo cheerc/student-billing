@@ -87,8 +87,8 @@ describe('Issue #159 PR-2: new v4 runs omit retired diagnostic warnings', () => 
     expect(issuesV4.map((i) => i.code)).not.toContain('NUMERIC_POLICY_DIFFERENCE');
     expect(Object.keys(resultV4.run.issueCounts)).not.toContain('RULESET_POLICY_DIFFERENCE');
     expect(Object.keys(resultV4.run.issueCounts)).not.toContain('NUMERIC_POLICY_DIFFERENCE');
-    expect(resultV4.run.diagnosticAlgorithmVersion).toBeUndefined();
-    expect(resultV4.run.diagnostics).toBeUndefined();
+    expect((resultV4.run as any).diagnosticAlgorithmVersion).toBeUndefined();
+    expect((resultV4.run as any).diagnostics).toBeUndefined();
 
     db.close();
   });

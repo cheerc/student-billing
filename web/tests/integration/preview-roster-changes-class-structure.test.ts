@@ -15,7 +15,6 @@ import { saveCalculationRun } from '@/adapters/sqlite/runs-repository';
 import { generateImportPreview } from '@/application/import-preview';
 import { computeImportRosterChanges } from '@/application/import-roster-diff';
 import { saveImportBatch } from '@/adapters/sqlite/import-repository';
-import { resolveFormalRuleSetVersion } from '@/application/rule-set-resolver';
 import { POST as previewPOST } from '@/app/api/v1/imports/preview/route';
 import { calculateSubjectCountByCategory, calculateBaseDiscountBps, parseTagDiscounts } from '@/domain/billing/discount-rules';
 import { StudentSnapshot } from '@/domain/students';
@@ -204,7 +203,7 @@ describe('API: preview 的 rosterDiff.changes 帶 PR-1 逐班資料（報名集�
    * 情境：把「國小數學-三B」由自動偵測的 math **手動**改成 care（設定頁合法操作，categorySource=manual）。
    *
    * 兩次計算必須走**同一條**解析路徑，否則 before 側不可比：
-   *  - 異動明細：`computeImportRosterChanges` 的 ruleSetVersion 由 `resolveFormalRuleSetVersion(db)` 決定
+   *  - 異動明細：`computeImportRosterChanges` 的 ruleSetVersion 由 `'erp-tag-v4'` 決定
    *    （無 active run → TARGET_FORMAL_RULE_SET_VERSION）。空 DB 時與 v3 一致。
    *  - 對照 run：`executeCalculationRun` 預設是 erp-tag-v2（其 `options.ruleSetVersion` 預設值），
    *    v2 的科數走名稱規則（R09）而非手動類別 → 不會吃到 classSettings，兩者無從比較。
@@ -311,7 +310,7 @@ describe('API: preview 的 rosterDiff.changes 帶 PR-1 逐班資料（報名集�
       scheduleOverride: draftToScheduleOverride(draft),
       classSettings: draftMap,
     });
-    saveCalculationRun(db0, res.run, res.results, res.classCategories, res.classSemantics);
+    saveCalculationRun(db0, res.run, res.results, res.classCategories);
     const runRow = db0
       .prepare('SELECT subject_count, base_discount_bps FROM student_calculations WHERE run_id = ? AND person_code = ?')
       .get('run_manual_category', target!.personCode) as
@@ -392,7 +391,6 @@ describe('API: preview 的 rosterDiff.changes 帶 PR-1 逐班資料（報名集�
 
     // 手算（R03 計入類別集合 ＋ R10）：不取用實作輸出
     const settings = resolveLatestSavedSettings(db0);
-    const version = resolveFormalRuleSetVersion(db0);
     const categoriesOf = (map?: Map<string, ClassSettingLookup>) =>
       new Set(
         target!.enrollments

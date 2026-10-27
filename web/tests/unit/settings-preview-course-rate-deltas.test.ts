@@ -166,13 +166,7 @@ describe('Ruling 2: settings-preview 納入課程學費折扣差異（courseRate
     expect(preview.affectedStudents).toBe(1);
   });
 
-  it('2. 舊版 active 時未明確確認升級 v4，預覽必須 fail-closed', () => {
-    const draft: SettingsDraft = buildSeedDraft();
-    expect(() => previewSettingsChange(db, 'imp_four', {
-      draft,
-      expectedRevision: 1,
-    })).toThrow(/erp-tag-v4|upgrade/i);
-  });
+
 
   it('3. settings_only 模式下：courseRateDeltas 與 affectedStudents 必須維持 null，不可為 [] 或 0', () => {
     const freshDb = new Database(':memory:');

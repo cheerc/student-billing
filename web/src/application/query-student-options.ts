@@ -3,9 +3,6 @@ import { getCalculationRun } from '@/adapters/sqlite/runs-repository';
 import { parseTagDiscounts } from '@/domain/billing/discount-rules';
 import { normalizeStudentQuery, type QueryValue } from '@/contracts/student-query';
 import { createStudentPredicateBuilder } from './student-query-predicates';
-import { historicalRateCategoryOfClass } from './applicable-rate';
-import { historicalRuleSetMetadata } from '@/domain/billing/rule-set';
-import { projectActionableIssues } from '@/domain/issues/actionable-issues';
 import { ALLOWED_RUN_QUERY_PARAMS, validateRunQueryParams, QueryStudentError } from './query-students';
 
 export interface StudentFilterOption { value: string; count: number; labelKey?: 'unparsedClassLabel' }
@@ -53,32 +50,19 @@ export function queryStudentOptions(db: Database.Database, runId: string, params
   const selected = query.selections.enrollmentKey;
   const classKey = selected && !selected.none && selected.values.length === 1 && typeof selected.values[0] === 'string' ? selected.values[0] : null;
 
-  // Ruling 3: 優先讀 run.classCategories；只對無類別快照的歷史 run 使用唯讀舊映射。
+  // 班級類別一律讀 run.classCategories 單一快照；缺該班快照＝無法判定，不以班名猜測。
   let category: 'care' | 'math' | 'english' | null = null;
-  let isFixedFiveV3 = false;
-  const runMetadata = historicalRuleSetMetadata(run.ruleSetVersion);
-  const usesSnapshot = runMetadata.known && runMetadata.hasClassCategorySnapshot && Array.isArray(run.classCategories);
-
   if (classKey !== null) {
-    if (usesSnapshot && run.classCategories) {
-      const snap = run.classCategories.find((c) => c.base_name === classKey);
-      if (snap) {
-        if (runMetadata.fixedFiveDaysAffectsRate && snap.fixed_five_days === 1) {
-          isFixedFiveV3 = true;
-        }
-        if (snap.category === 'care' || snap.category === 'math' || snap.category === 'english') {
-          category = snap.category;
-        }
-      }
-    } else if (runMetadata.known) {
-      category = historicalRateCategoryOfClass(classKey);
+    const snap = (run.classCategories ?? []).find((c) => c.base_name === classKey);
+    if (snap && (snap.category === 'care' || snap.category === 'math' || snap.category === 'english')) {
+      category = snap.category;
     }
   }
 
   const contextStatus: 'configured' | 'not_configured' | 'requires_class' =
     classKey === null
       ? 'requires_class'
-      : isFixedFiveV3 || category !== null
+      : category !== null
         ? 'configured'
         : 'not_configured';
 
@@ -113,8 +97,7 @@ export function queryStudentOptions(db: Database.Database, runId: string, params
     add('hasClass', [(row.subject_count ?? 0) > 0]);
     const comparisons = JSON.parse(row.tier_comparisons) as Array<{ status: string; needsReview?: boolean }>;
     const issues = JSON.parse(row.issues) as Array<{ code: string }>;
-    const actionable = projectActionableIssues(issues, comparisons);
-    add('hasIssues', [actionable.actionableHasIssues]);
+    add('hasIssues', [issues.length > 0 || comparisons.some((c) => c.needsReview === true)]);
     const hasMismatch = comparisons.some((c) => c.status === 'mismatch');
     // 值宇宙涵蓋任一班曾match者；全run的false人數可為0，選該match班後卻可能大於0。
     const hasMatch = comparisons.some((c) => c.status === 'match');
@@ -122,7 +105,7 @@ export function queryStudentOptions(db: Database.Database, runId: string, params
     if (hasMismatch) tierMismatchValues.push(true);
     if (hasMatch) tierMismatchValues.push(false);
     add('tierMismatch', tierMismatchValues);
-    add('issueCode', actionable.actionableIssues.length ? actionable.actionableIssues.map((i) => i.code) : [null]);
+    add('issueCode', issues.length ? issues.map((i) => i.code) : [null]);
     add('tierComparison', comparisons.length ? comparisons.map((c) => c.status) : [null]);
     const trace = JSON.parse(row.trace);
     const tags = parseTagDiscounts(trace.rawTags);
@@ -132,17 +115,15 @@ export function queryStudentOptions(db: Database.Database, runId: string, params
     add('hasExtraDeduction', [Boolean(trace.careDays?.anqin?.hasExtraFlag || trace.careDays?.tutoring?.hasExtraFlag)]);
     if (classKey && names?.has(classKey)) {
       if (contextStatus === 'configured') {
-        const value = isFixedFiveV3
-          ? 10000
-          : category === 'care'
-            ? row.grade === 1 || row.grade === 2
-              ? row.applicable_anqin_bps
-              : row.grade >= 3 && row.grade <= 6
-                ? row.applicable_tutoring_bps
-                : null
-            : category === 'math'
-              ? row.applicable_math_bps
-              : row.applicable_english_bps;
+        const value = category === 'care'
+          ? row.grade === 1 || row.grade === 2
+            ? row.applicable_anqin_bps
+            : row.grade >= 3 && row.grade <= 6
+              ? row.applicable_tutoring_bps
+              : null
+          : category === 'math'
+            ? row.applicable_math_bps
+            : row.applicable_english_bps;
         add('applicableDiscountBps', [value]);
       }
     } else if (classKey === null) {

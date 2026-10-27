@@ -2,7 +2,7 @@ import Database from 'better-sqlite3';
 import crypto from 'crypto';
 import { StudentSnapshot, ParsedToken } from '@/domain/students';
 import { calculateStudentBilling, RuleSetVersion, ResolvedClassSession } from '@/domain/billing/billing-calculator';
-import { CalculationRunRecord, StudentCalculationRecord, RunClassCategoryRecord, RunClassSemanticRecord } from '@/adapters/sqlite/runs-repository';
+import { CalculationRunRecord, StudentCalculationRecord, RunClassCategoryRecord } from '@/adapters/sqlite/runs-repository';
 import seedData from '@/domain/schedules/schedule-seed.json';
 import { SettingsDraft } from '@/contracts/settings';
 import { todayInTaipei } from '@/lib/datetime';
@@ -52,8 +52,6 @@ export interface CalculateRunOptions {
   aliasMap?: Map<string, string>;
   scheduleOverride?: Map<string, ResolvedClassSession[]>;
   classSettings?: Map<string, ClassSettingLookup>;
-  /** Stored, unexpired v4 preview authorization, supplied only by settings apply. */
-  upgradePreviewId?: string;
 }
 
 /**
@@ -87,46 +85,13 @@ export function executeCalculationRun(
   importId: string,
   runId: string,
   options: CalculateRunOptions = {}
-): { run: CalculationRunRecord; results: StudentCalculationRecord[]; classCategories?: RunClassCategoryRecord[]; classSemantics?: RunClassSemanticRecord[] } {
+): { run: CalculationRunRecord; results: StudentCalculationRecord[]; classCategories?: RunClassCategoryRecord[] } {
   const scheduleVersionId = options.scheduleVersionId || SEED_SCHEDULE_VERSION_ID;
   const ruleSetVersion = options.ruleSetVersion || TARGET_FORMAL_RULE_SET_VERSION;
   if (ruleSetVersion !== TARGET_FORMAL_RULE_SET_VERSION) {
-    throw new Error(
-      `新計算 Run 僅支援 ${TARGET_FORMAL_RULE_SET_VERSION}；舊版資料請透過課表設定明確預覽並確認升級。`
-    );
+    throw new Error(`新計算 Run 僅支援 ${TARGET_FORMAL_RULE_SET_VERSION}。`);
   }
 
-  // The low-level run boundary is also used by application callers, so a caller-supplied v4
-  // version cannot bypass the active-run upgrade gate. An old/unknown active run is writable
-  // only when settings apply forwards the ID of the same stored, current, v4-target preview.
-  const active = db.prepare('SELECT active_run_id, active_import_id, revision FROM active_state WHERE id = 1').get() as
-    | { active_run_id: string | null; active_import_id: string | null; revision: number }
-    | undefined;
-  if (active?.active_run_id) {
-    const activeRun = db.prepare('SELECT rule_set_version FROM calculation_runs WHERE id = ?').get(active.active_run_id) as
-      | { rule_set_version: string }
-      | undefined;
-    if (!activeRun) {
-      throw new Error(`現行 active Run「${active.active_run_id}」不存在，無法安全建立新 Run。`);
-    }
-    if (activeRun.rule_set_version !== TARGET_FORMAL_RULE_SET_VERSION) {
-      const preview = options.upgradePreviewId ? getSettingsPreview(db, options.upgradePreviewId) : null;
-      const expiresAtMs = preview?.expiresAt ? Date.parse(preview.expiresAt) : Number.NaN;
-      const hasValidFutureExpiry = Number.isFinite(expiresAtMs) && expiresAtMs > Date.now();
-      if (
-        !preview ||
-        !hasValidFutureExpiry ||
-        preview.targetRuleSetVersion !== TARGET_FORMAL_RULE_SET_VERSION ||
-        preview.importId !== importId ||
-        preview.importId !== active.active_import_id ||
-        preview.expectedRevision !== active.revision
-      ) {
-        throw new Error(
-          `現行 Run 使用 ${activeRun.rule_set_version}；建立新 Run 必須經由未過期、版本一致的 v4 明確升級預覽。`
-        );
-      }
-    }
-  }
   const numericPolicy = options.numericPolicy || 'integer-minute-rational-v1';
   const asOfDate = options.asOfDate || todayInTaipei();
   const now = new Date().toISOString();
@@ -326,5 +291,5 @@ export function executeCalculationRun(
     classCategories = Array.from(classCategoryMap.values());
   }
 
-  return { run, results, classCategories, classSemantics: undefined };
+  return { run, results, classCategories };
 }

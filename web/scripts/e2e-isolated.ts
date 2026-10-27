@@ -12,12 +12,9 @@ import { assertIsolatedE2eTarget, DEFAULT_ISOLATED_E2E_PORT } from './e2e-isolat
  *   npm run test:e2e:isolated -- --repeat 2        # 同一組連跑 N 輪（每輪新 server＋**全新 DB**，每輪都從乾淨狀態開始；穩定性檢查用）
  *   npm run test:e2e:isolated -- --repeat 2 --keep-db
  *                                                  # 診斷用 opt-in：N 輪沿用**同一個** DB（不在輪間重設），重現「DB 狀態跨輪殘留」
- *                                                  # （issue #25）。只在 --repeat N（N≥2）時有意義；與 --seed-v2-active 互斥
+ *                                                  # （issue #25）。只在 --repeat N（N≥2）時有意義
  *   npm run test:e2e:isolated -- --port 3101       # 指定埠（不可為 3000）
  *   npm run test:e2e:isolated -- tests/e2e/imports.spec.ts   # 只跑指定 spec
- *   npm run test:e2e:isolated -- --seed-v2-active tests/e2e/d2d-upgrade-journey.spec.ts
- *                                                  # 升級旅程專用：每輪 server 啟動前先把隔離 DB 還原為「既有 v2 DB」
- *                                                  # 前置狀態（scripts/e2e-seed-v2-active.ts；seed 只產生一次，每輪複製），其餘隔離契約不變
  *
  * 每組執行都建立系統臨時目錄下的獨立 sqlite，結束後刪除；不會讀寫 data/app.sqlite，也不會連 3000 服務。
  *
@@ -30,14 +27,12 @@ interface Args {
   port: number;
   repeat: number;
   files: string[];
-  /** D2d E：每輪 server 啟動前還原「既有 v2 DB」前置狀態（僅升級旅程 spec 需要） */
-  seedV2Active: boolean;
   /** 診斷 opt-in：--repeat 各輪沿用同一個 DB，不在輪間重設（重現 issue #25 的跨輪殘留） */
   keepDb: boolean;
 }
 
 function parseArgs(argv: string[]): Args {
-  const args: Args = { shared: false, port: DEFAULT_ISOLATED_E2E_PORT, repeat: 1, files: [], seedV2Active: false, keepDb: false };
+  const args: Args = { shared: false, port: DEFAULT_ISOLATED_E2E_PORT, repeat: 1, files: [], keepDb: false };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--shared') {
@@ -47,8 +42,6 @@ function parseArgs(argv: string[]): Args {
     } else if (a === '--repeat') {
       args.repeat = Number(argv[++i]);
       if (!Number.isInteger(args.repeat) || args.repeat < 1) throw new Error('--repeat 必須是正整數');
-    } else if (a === '--seed-v2-active') {
-      args.seedV2Active = true;
     } else if (a === '--keep-db') {
       args.keepDb = true;
     } else if (a.startsWith('--')) {
@@ -56,9 +49,6 @@ function parseArgs(argv: string[]): Args {
     } else {
       args.files.push(a);
     }
-  }
-  if (args.keepDb && args.seedV2Active) {
-    throw new Error('--keep-db 與 --seed-v2-active 互斥：seed 的語意是每輪還原同一份前置狀態，--keep-db 是不重設；請擇一');
   }
   if (args.keepDb && args.repeat < 2) {
     throw new Error('--keep-db 只在搭配 --repeat N（N≥2）時有意義；沒有第 2 輪就沒有可沿用的 DB');
@@ -81,21 +71,12 @@ interface GroupResult {
   statuses: number[];
 }
 
-function runGroup(files: string[], port: number, repeat: number, seedV2Active: boolean, keepDb: boolean): GroupResult {
+function runGroup(files: string[], port: number, repeat: number, keepDb: boolean): GroupResult {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sb-e2e-'));
   const databasePath = path.join(tmpDir, 'app.sqlite');
-  // D2d E：每輪 server 啟動前重建「既有 v2 DB」現況，因此保留一份未被 server 觸碰的樣板，
-  // 供每輪以複製取代重跑（同一個 DB 路徑、同一個 tmpDir，隔離契約不變）。
-  const seedPath = path.join(tmpDir, 'seed-v2-active.sqlite');
   let statuses: number[] = [];
   try {
     assertIsolatedE2eTarget({ databasePath, port });
-    if (seedV2Active) {
-      const seeded = spawnSync('npx', ['tsx', 'scripts/e2e-seed-v2-active.ts', seedPath], {
-        stdio: 'inherit',
-      });
-      if (seeded.status !== 0) throw new Error('建立 v2 前置狀態失敗（e2e-seed-v2-active.ts）');
-    }
     statuses = [];
     for (let pass = 1; pass <= repeat; pass++) {
       console.log(
@@ -106,8 +87,6 @@ function runGroup(files: string[], port: number, repeat: number, seedV2Active: b
         // 每輪的 server 由 Playwright 啟動、輪結束即關閉（reuseExistingServer:false），所以在此刪檔是安全的。
         fs.rmSync(databasePath, { force: true });
         for (const suffix of ['-wal', '-shm']) fs.rmSync(databasePath + suffix, { force: true });
-        // 無 seed：不預建 DB，server 首次開啟時建立並 migrate；有 seed：從樣板複製一份，從同一個 v2 現況開始。
-        if (seedV2Active) fs.copyFileSync(seedPath, databasePath);
       }
       const res = spawnSync(
         'npx',
@@ -133,7 +112,7 @@ function main(): void {
   const files = args.files.length > 0 ? args.files : listSpecFiles();
   const groups = args.shared ? [files] : files.map((f) => [f]);
 
-  const results = groups.map((g) => runGroup(g, args.port, args.repeat, args.seedV2Active, args.keepDb));
+  const results = groups.map((g) => runGroup(g, args.port, args.repeat, args.keepDb));
 
   console.log('\n=== 隔離 E2E 結果 ===');
   for (const r of results) {

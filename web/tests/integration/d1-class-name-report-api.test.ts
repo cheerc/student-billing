@@ -84,11 +84,9 @@ describe('GET /api/v1/settings/class-name-report', () => {
     ]);
     expect(body.rosterOnlyStudents).toBe(2);
     expect(body.systemOnly).toEqual([
-      { baseName: '國小數學-二A', active: true, aliasCoveredBy: [], previousRosterStudents: 2 },
-      { baseName: '國小輔導-三年級', active: true, aliasCoveredBy: [], previousRosterStudents: 1 },
+      { baseName: '國小數學-二A', active: true, aliasCoveredBy: [] },
+      { baseName: '國小輔導-三年級', active: true, aliasCoveredBy: [] },
     ]);
-    expect(body.systemOnlyPreviousRosterStudents).toBe(2);
-    expect(body.previousRoster).toEqual({ importId: 'imp_old', fileName: 'old.xlsx', createdAt: '2026-09-01T08:00:00.000Z' });
     expect([...collectKeys(body)].filter((k) => /categor|類別/i.test(k))).toEqual([]);
   });
 
@@ -101,8 +99,7 @@ describe('GET /api/v1/settings/class-name-report', () => {
     const body = await res.json();
     expect(body.importId).toBe('imp_old');
     expect(body.scope).toEqual({ kind: 'latest' });
-    expect(body.previousRoster).toBeNull();
-    expect(body.systemOnlyPreviousRosterStudents).toBeNull();
+
   });
 
   it('?runId：名冊＝該 run 的名單、設定＝該 run 的快照（setv_old 有別名 → 「一」已對應）；快照缺失 → 200 且 snapshotStatus＝unavailable', async () => {
@@ -165,9 +162,6 @@ describe('POST /api/v1/imports/preview：classNameReport 摘要（使用這份�
       rosterOnlyClassCount: 12,
       rosterOnlyStudentCount: 191,
       systemOnlyClassCount: 7,
-      systemOnlyPreviousRosterStudentCount: null,
-      previousRoster: null,
-      previousRosterStatus: 'none',
       reportPath: `/settings?tab=mapping&import=${body.batchId}`,
     });
     expect([...collectKeys(body.classNameReport)].filter((k) => /categor|類別/i.test(k))).toEqual([]);
@@ -191,8 +185,6 @@ describe('POST /api/v1/imports/preview：classNameReport 摘要（使用這份�
       rosterOnlyClassCount: 12,
       rosterOnlyStudentCount: 191,
       systemOnlyClassCount: 7,
-      systemOnlyPreviousRosterStudentCount: 4,
-      previousRoster: { importId: 'imp_prev', fileName: 'prev.xlsx', createdAt: '2026-09-01T08:00:00.000Z' },
     });
   });
 

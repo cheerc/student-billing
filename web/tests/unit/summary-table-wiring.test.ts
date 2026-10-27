@@ -53,13 +53,12 @@ describe('Ruling 4: SummaryTable ruleSetVersion 與快照接線防回歸單元�
     },
   ];
 
-  it('1. 當傳入 ruleSetVersion="erp-tag-v4" 且班級為 none（固定 5 天）時，本班適用折扣正確渲染「未設定」而非「無折扣」', () => {
+  it('1. 當傳入  且班級為 none（固定 5 天）時，本班適用折扣正確渲染「未設定」而非「無折扣」', () => {
     const html = renderToStaticMarkup(
       React.createElement(SummaryTable, {
         students: [dummyStudent],
         singleClass: '國小輔導-寫功課',
         classCategorySnapshots: snapshots,
-        ruleSetVersion: 'erp-tag-v4',
         onSelectStudent: () => {},
       })
     );
@@ -68,18 +67,4 @@ describe('Ruling 4: SummaryTable ruleSetVersion 與快照接線防回歸單元�
     expect(html).not.toContain('無折扣');
   });
 
-  it('2. 當傳入 ruleSetVersion="erp-tag-v3" 且班級為 none（固定 5 天）時，維持 v3 行為渲染「無折扣」（10000 bps）', () => {
-    const html = renderToStaticMarkup(
-      React.createElement(SummaryTable, {
-        students: [dummyStudent],
-        singleClass: '國小輔導-寫功課',
-        classCategorySnapshots: snapshots,
-        ruleSetVersion: 'erp-tag-v3',
-        onSelectStudent: () => {},
-      })
-    );
-
-    expect(html).toContain('無折扣');
-    expect(html).not.toContain('未設定');
-  });
 });

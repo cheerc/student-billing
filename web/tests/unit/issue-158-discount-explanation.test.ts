@@ -7,7 +7,7 @@ const saved = {
 
 function input(overrides: Partial<DiscountExplanationInput> = {}): DiscountExplanationInput {
   return {
-    ruleSetVersion: 'erp-tag-v4',
+    
     subjectCount: 1,
     baseDiscountBps: 10000,
     applicable: saved.applicable,
@@ -150,11 +150,7 @@ describe('Issue #158：只讀折扣說明投影', () => {
     expect(buildDiscountExplanation(input({ rawTags: undefined, hasRawTags: false })).status).toBe('source_unavailable');
   });
 
-  it.each(['erp-tag-v3', 'excel-v260922-compat', 'unknown', null])('歷史或未知版本 %s 不套用 v4 說明', (ruleSetVersion) => {
-    const result = buildDiscountExplanation(input({ ruleSetVersion }));
-    expect(result.status).toBe('historical_limited');
-    expect(result.factors).toBeNull();
-  });
+
 
   it('v4 已保存數值和標籤推導不一致時不輸出未驗證的因素鏈', () => {
     const result = buildDiscountExplanation(input({

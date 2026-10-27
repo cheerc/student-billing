@@ -1,6 +1,5 @@
 import React from 'react';
 import type { ClassNameMatchReport } from '@/application/class-name-match-report';
-import { formatDateTime } from '@/lib/datetime';
 
 /**
  * 班名比對報告（課表設定「班名對應」；04 §8 UX44–UX46；09 §3.3）。
@@ -29,13 +28,7 @@ export function ClassNameReportPanel({ report }: { report: ClassNameMatchReport 
     );
   }
 
-  const { rosterOnly, systemOnly, previousRoster, previousRosterStatus } = report;
-  const previousLabel =
-    previousRosterStatus === 'unavailable'
-      ? '無法判定上一份現行名冊（歷史記錄不完整），所以不顯示人數。'
-      : previousRoster
-      ? `上一份名單是「${previousRoster.fileName}」（${formatDateTime(previousRoster.createdAt)} 建立）；人數是該班在那份名單的學生數，供對照名冊變動。`
-      : '沒有上一份名單可參考，所以不顯示人數。';
+  const { rosterOnly, systemOnly } = report;
 
   return (
     <section className="card class-name-report" aria-label="班名比對報告">
@@ -80,18 +73,13 @@ export function ClassNameReportPanel({ report }: { report: ClassNameMatchReport 
           <h3>系統有／本次名冊無</h3>
           <p className="note">
             {systemOnly.length} 個班。這些班在課表設定裡，但本次名冊沒有人用該班名報名（系統不會自動停用）。
-            {previousRoster && report.systemOnlyPreviousRosterStudents !== null
-              ? `上一份名單在這些班共有 ${report.systemOnlyPreviousRosterStudents} 位學生。`
-              : ''}
           </p>
-          <p className="note">{previousLabel}</p>
           {systemOnly.length === 0 ? (
             <div className="class-name-report-empty">✓ 課表裡的每個班，本次名冊都有人報名。</div>
           ) : (
-            <div role="table" aria-label="系統班名清單" className="class-name-report-table cols-3">
+            <div role="table" aria-label="系統班名清單" className="class-name-report-table cols-2">
               <div role="row" className="class-name-report-row class-name-report-head">
                 <div role="columnheader">系統班名</div>
-                <div role="columnheader">上一份名單人數</div>
                 <div role="columnheader">備註</div>
               </div>
               {systemOnly.map((c) => (
@@ -99,7 +87,6 @@ export function ClassNameReportPanel({ report }: { report: ClassNameMatchReport 
                   <div role="cell" style={{ fontWeight: 600 }}>
                     {c.baseName}
                   </div>
-                  <div role="cell">{c.previousRosterStudents === null ? '—' : `${c.previousRosterStudents} 人`}</div>
                   <div role="cell">
                     {!c.active && <span className="pill">已停用</span>}
                     {c.aliasCoveredBy.length > 0 && (

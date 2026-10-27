@@ -102,7 +102,6 @@ describe('T3：純合成驗收 xlsx CLI → 真產品解析與計算', () => {
         importIds.push(preview.previewId);
         expect(activated.totalStudents).toBe(index + 2);
         const report = getClassNameMatchReport(db, { importId: preview.previewId, scope: { kind: 'latest' } });
-        expect(report.previousRoster?.importId ?? null).toBe(index === 0 ? null : importIds[index - 1]);
         if (index === 2) {
           expect(db.prepare('SELECT base_discount_bps FROM student_calculations WHERE run_id = ? AND person_code = ?').get(activated.runId, 'R3_003')).toEqual({ base_discount_bps: 8500 });
           expect(db.prepare('SELECT base_discount_bps, applicable_math_bps FROM student_calculations WHERE run_id = ? AND person_code = ?').get(activated.runId, 'R3_004')).toEqual({ base_discount_bps: 10000, applicable_math_bps: null });

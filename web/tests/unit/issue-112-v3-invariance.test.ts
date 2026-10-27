@@ -90,7 +90,7 @@ describe('PR-2: erp-tag-v4 billing invariants', () => {
     expect(resV4.applicableRates.math).toBe(9000);
   });
 
-  it('3. persisted v3 applicableRateForClass：固定 5 天之 none 班保留歷史 10000 bps 投影（Q7-A）', () => {
+  it('3. applicableRateForClass：固定 5 天之 none 班解耦為 not_configured', () => {
     const rateFields = {
       grade: 4,
       applicableAnqinBps: 9500,
@@ -106,10 +106,10 @@ describe('PR-2: erp-tag-v4 billing invariants', () => {
     const rateV3 = applicableRateForClass(
       '國小輔導-寫功課',
       rateFields,
-      { ruleSetVersion: 'erp-tag-v3', findSnapshot: (name) => snapshotMap.get(name) }
+      {  findSnapshot: (name) => snapshotMap.get(name) }
     );
 
-    expect(rateV3).toEqual({ status: 'configured', bps: 10000 });
+    expect(rateV3).toEqual({ status: 'not_configured' });
   });
 
   it('4. v4 天數計算保底與額外扣天順序：固定 5 天受額外扣天扣除，但受年級下限保底（#147 / D51）', () => {

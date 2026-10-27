@@ -29,7 +29,6 @@ function render(overrides: Record<string, unknown> = {}, ruleSetVersion: string 
   const html = renderToStaticMarkup(React.createElement(DetailDrawer, {
     student: { ...base, ...overrides } as unknown as StudentCalculationItem,
     onClose: () => {},
-    ruleSetVersion,
   }));
   return discountBlock(html);
 }
@@ -101,12 +100,7 @@ describe('Issue #158：學生明細說明已保存折扣推導', () => {
     expect(zeroSubjects).not.toContain('無報名');
   });
 
-  it('歷史 run 保留保存結果，但不把 v4 因素說成歷史推導原因', () => {
-    const html = render({}, 'erp-tag-v3');
-    expect(html).toContain('歷史折扣說明受限');
-    expect(html).toContain('85折');
-    expect(html).not.toMatch(/兄弟姊妹折扣[：:]\s*有/);
-  });
+
 
   it('缺少 trace.rawTags 時明示來源不足，且不斷言因素有或無', () => {
     const html = render({ trace: {} });

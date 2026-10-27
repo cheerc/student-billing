@@ -5,7 +5,6 @@ import { getLatestSettingsVersion, readStoredDraft } from '@/adapters/sqlite/set
 import { SettingsDraft } from '@/contracts/settings';
 import { loadRunSnapshot } from '@/application/run-snapshot';
 import { SEED_CLASSES } from '@/domain/schedules/seed-manifest';
-import { historicalRuleSetMetadata } from '@/domain/billing/rule-set';
 import { sanitizePathParam, maskSensitiveInfo, SecurityError } from '@/contracts/security';
 
 const seedSubjectMap = new Map<string, string>();
@@ -58,11 +57,6 @@ export async function GET(request: NextRequest) {
     const scheduleClasses = draft?.classes;
     const configuredClasses = new Set(scheduleClasses ? scheduleClasses.map((c) => c.baseName) : SEED_CLASSES.map((c) => c.baseName));
     const activeClasses = new Set(scheduleClasses ? scheduleClasses.filter((c) => c.active).map((c) => c.baseName) : SEED_CLASSES.map((c) => c.baseName));
-    const runMetadata = historicalRuleSetMetadata(run.ruleSetVersion);
-    const requireRunSemanticSnapshot = !runMetadata.known || runMetadata.hasClassSemanticsSnapshot;
-    const runSubjectMap = run.classSemantics === undefined
-      ? undefined
-      : new Map(run.classSemantics.map((semantic) => [semantic.baseName, semantic.subject]));
     const aliasMap = new Map<string, string>();
     if (draft) {
       for (const a of draft.aliases) {
@@ -95,12 +89,7 @@ export async function GET(request: NextRequest) {
         };
       }
       const targetName = aliasMap.get(r.base_name) || r.base_name;
-      let subject: string;
-      if (requireRunSemanticSnapshot || runSubjectMap !== undefined) {
-        subject = runSubjectMap?.get(r.base_name)?.trim() || '未設定';
-      } else {
-        subject = seedSubjectMap.get(targetName) || seedSubjectMap.get(r.base_name) || '未設定';
-      }
+      const subject = seedSubjectMap.get(targetName) || seedSubjectMap.get(r.base_name) || '未設定';
       const isConfigured = configuredClasses.has(targetName);
       const isActive = activeClasses.has(targetName);
       const isAliased = aliasMap.has(r.base_name);

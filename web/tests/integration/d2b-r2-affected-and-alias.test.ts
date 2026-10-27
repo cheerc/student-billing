@@ -86,7 +86,7 @@ function seedTwoStudents(db: Database.Database, importId: string) {
 
 function activate(db: Database.Database, importId: string, runId: string) {
   const res = executeCalculationRun(db, importId, runId, { ruleSetVersion: 'erp-tag-v4' as any });
-  saveCalculationRun(db, res.run, res.results, res.classCategories, res.classSemantics);
+  saveCalculationRun(db, res.run, res.results, res.classCategories);
   db.prepare('UPDATE active_state SET active_run_id = ?, active_import_id = ? WHERE id = 1').run(runId, importId);
   return res;
 }

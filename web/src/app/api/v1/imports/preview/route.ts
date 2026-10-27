@@ -8,7 +8,6 @@ import { findPendingClassNames } from '@/application/pending-classes';
 import { getClassNameMatchReport, summarizeClassNameReport } from '@/application/class-name-match-report';
 import { getCurrentActiveRun } from '@/adapters/sqlite/runs-repository';
 import { validateSameOrigin, maskSensitiveInfo } from '@/contracts/security';
-import { RuleSetResolutionError } from '@/application/rule-set-resolver';
 
 export async function POST(request: Request | NextRequest) {
   try {
@@ -82,7 +81,7 @@ export async function POST(request: Request | NextRequest) {
         duplicateReason: saveResult.duplicateReason,
         batchId: saveResult.batchId,
         rosterDiff,
-        // 班名比對摘要（使用這份名單之前）：與課表設定「班名對應」完整報告同源同判斷；上一份名單依固定規則解析
+        // 班名比對摘要（使用這份名單之前）：與課表設定「班名對應」完整報告同源同判斷
         classNameReport: summarizeClassNameReport(
           getClassNameMatchReport(db, { importId: saveResult.batchId, scope: { kind: 'latest' } })
         ),
@@ -90,12 +89,6 @@ export async function POST(request: Request | NextRequest) {
       { status: 200 }
     );
   } catch (error) {
-    if (error instanceof RuleSetResolutionError) {
-      return NextResponse.json(
-        { error: maskSensitiveInfo(error.message), code: error.code },
-        { status: 409 }
-      );
-    }
     if (error instanceof ErpReaderError) {
       return NextResponse.json(
         { error: maskSensitiveInfo(error.message), code: error.code },
