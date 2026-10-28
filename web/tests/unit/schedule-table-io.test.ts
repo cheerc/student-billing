@@ -74,10 +74,10 @@ const FIXTURE_ROWS: ScheduleGridRow[] = [
   },
 ];
 
-/** 手算的有效屬性：Gino → 美語班＋不固定；國小數學-一A → 數學班＋不固定（固定 5 天預設恆為 false）。 */
+/** 手算的有效屬性：Gino → 美語班＋多科折扣；國小數學-一A → 數學班＋多科折扣。 */
 const FIXTURE_ATTRS: ScheduleExportClassAttr[] = [
-  { className: '兒童美語-Gino', classType: 'non_care', category: 'english' as const, fixedFiveDays: false },
-  { className: '國小數學-一A', classType: 'non_care', category: 'math' as const, fixedFiveDays: false },
+  { className: '兒童美語-Gino', classType: 'english', category: 'english' as const, hasMultiSubjectDiscount: true, fixedFiveDays: false },
+  { className: '國小數學-一A', classType: 'math', category: 'math' as const, hasMultiSubjectDiscount: true, fixedFiveDays: false },
 ];
 
 /** 直接用 ExcelJS 造一份「別人寫的」活頁簿，測匯入端的驗證（不經過被測的匯出函式）。 */
@@ -106,7 +106,7 @@ describe('#81：課表 Excel 全量匯出／匯入', () => {
       expect(headers).toEqual([
         '班級名稱',
         '課程類型',
-        '列入多科折扣',
+        '是否有多科折扣',
         '天數固定5天',
         '不計扣天',
         '帶班老師',
@@ -120,18 +120,18 @@ describe('#81：課表 Excel 全量匯出／匯入', () => {
       expect(ws.rowCount).toBe(4);
     });
 
-    it('匯出的是**有效屬性**的白話值（手算：Gino→美語班/否/否、一A→數學班/否/否）', async () => {
+    it('匯出的是**有效屬性**的白話值（手算：Gino→美語班/是/否/否、一A→數學班/是/否/否）', async () => {
       const buffer = await buildScheduleWorkbook(FIXTURE_ROWS, FIXTURE_ATTRS);
       const wb = new ExcelJS.Workbook();
       await wb.xlsx.load(buffer as unknown as ArrayBuffer);
       const ws = wb.getWorksheet(SCHEDULE_TABLE_SHEET_NAME)!;
 
       const row2 = (ws.getRow(2).values as unknown[]).slice(1) as string[];
-      expect(row2).toEqual(['兒童美語-Gino', '非安親課輔班', '美語班', '否', '否', 'Cathy', '一', '15:20', '16:50']);
+      expect(row2).toEqual(['兒童美語-Gino', '美語班', '是', '否', '否', 'Cathy', '一', '15:20', '16:50']);
 
       const row4 = (ws.getRow(4).values as unknown[]).slice(1) as string[];
       // 只有班名的佔位列：老師與星期留空字串、時間空字串（不是 "null"、不是 undefined）
-      expect(row4).toEqual(['國小數學-一A', '非安親課輔班', '數學班', '否', '否', '', '', '', '']);
+      expect(row4).toEqual(['國小數學-一A', '數學班', '是', '否', '否', '', '', '', '']);
     });
 
     it('固定 5 天為 true 時匯出「是」（安親課輔班適用）', async () => {
@@ -148,13 +148,13 @@ describe('#81：課表 Excel 全量匯出／匯入', () => {
         skipDeduction: false,
       };
       const buffer = await buildScheduleWorkbook([careRow], [
-        { className: '國小輔導-四年級', classType: 'care', category: 'care', fixedFiveDays: true },
+        { className: '國小輔導-四年級', classType: 'care', category: 'care', hasMultiSubjectDiscount: true, fixedFiveDays: true },
       ]);
       const wb = new ExcelJS.Workbook();
       await wb.xlsx.load(buffer as unknown as ArrayBuffer);
       const ws = wb.getWorksheet(SCHEDULE_TABLE_SHEET_NAME)!;
+      // 欄 4 為天數固定 5 天（是），欄 5 為不計扣天（否）
       expect((ws.getRow(2).values as unknown[])[4]).toBe('是');
-      // 固定 5 天與不計扣天是兩個獨立欄位：勾固定 5 天不會連動不計扣天
       expect((ws.getRow(2).values as unknown[])[5]).toBe('否');
     });
 
@@ -178,14 +178,13 @@ describe('#81：課表 Excel 全量匯出／匯入', () => {
       // 逐列還原：只有第 1 列是 true
       expect(result.rows.map((r) => r.skipDeduction)).toEqual([true, false, false]);
       expect(result.classAttrs).toEqual([
-        { className: '兒童美語-Gino', classType: 'non_care', category: 'english', categorySource: 'manual', fixedFiveDays: false },
-        { className: '國小數學-一A', classType: 'non_care', category: 'math', categorySource: 'manual', fixedFiveDays: false },
+        { className: '兒童美語-Gino', classType: 'english', hasMultiSubjectDiscount: true, category: 'english', categorySource: 'manual', fixedFiveDays: false },
+        { className: '國小數學-一A', classType: 'math', hasMultiSubjectDiscount: true, category: 'math', categorySource: 'manual', fixedFiveDays: false },
       ]);
     });
 
     it('關鍵案例：同一班兩列可各填各的不計扣天（逐列獨立往返）', async () => {
       // 手算：row-1 與 row-2 同為「兒童美語-Gino」，但一列勾、一列不勾 → 往返後必須仍是兩種值。
-      // 這是逐時段化的核心承諾：舊版會因為「同班必須一致」而整批拒絕。
       const rows = FIXTURE_ROWS.map((r, i) => (i === 0 ? { ...r, skipDeduction: true } : r));
       const result = await parseScheduleWorkbook(await buildScheduleWorkbook(rows, FIXTURE_ATTRS));
       expect(result.rows.filter((r) => r.className === '兒童美語-Gino').map((r) => r.skipDeduction))
@@ -196,29 +195,29 @@ describe('#81：課表 Excel 全量匯出／匯入', () => {
 
     it('不計扣天非「是／否」→ 整批拒絕（不靜默當成「否」）', async () => {
       const buffer = await makeWorkbook([...SCHEDULE_TABLE_HEADERS], [
-        ['甲班', '非安親課輔班', '數學班', '否', 'YES', '', '一', '10:00', '11:00'],
+        ['甲班', '數學班', '是', '否', 'YES', '', '一', '10:00', '11:00'],
       ]);
       await expect(parseScheduleWorkbook(buffer)).rejects.toThrow(/「不計扣天」請填「是」或「否」/);
     });
 
-    it('同一班不同列的「折扣類別」不一致 → 仍拒絕（不計扣天已逐列化，類別仍整班共用）', async () => {
+    it('同一班不同列的「多科折扣設定」不一致 → 仍拒絕', async () => {
       const buffer = await makeWorkbook([...SCHEDULE_TABLE_HEADERS], [
-        ['甲班', '非安親課輔班', '數學班', '否', '是', '', '一', '10:00', '11:00'],
-        ['甲班', '非安親課輔班', '美語班', '否', '否', '', '二', '10:00', '11:00'],
+        ['甲班', '數學班', '否', '否', '是', '', '一', '10:00', '11:00'],
+        ['甲班', '數學班', '是', '否', '否', '', '二', '10:00', '11:00'],
       ]);
-      await expect(parseScheduleWorkbook(buffer)).rejects.toThrow(/班級「甲班」在不同列填了不同的折扣類別，請先讓它們一致再匯入。/);
+      await expect(parseScheduleWorkbook(buffer)).rejects.toThrow(/班級「甲班」在不同列填了不同的多科折扣設定，請先讓它們一致再匯入。/);
     });
 
     it('跨類型互斥驗證（specs/14 §3.6 & A11）：安親課輔班填寫了星期或時間 → 整批拒絕', async () => {
       const bufferWithWeekday = await makeWorkbook([...SCHEDULE_TABLE_HEADERS], [
-        ['安親班', '安親課輔班', '安親課輔班', '否', '否', '李老師', '一', '', ''],
+        ['安親班', '安親課輔班', '是', '否', '否', '李老師', '一', '', ''],
       ]);
       await expect(parseScheduleWorkbook(bufferWithWeekday)).rejects.toThrow(
         /為安親課輔班，安親課輔班不輸入星期與上課時間，請留空/
       );
 
       const bufferWithTime = await makeWorkbook([...SCHEDULE_TABLE_HEADERS], [
-        ['安親班', '安親課輔班', '安親課輔班', '否', '否', '李老師', '', '13:00', '16:00'],
+        ['安親班', '安親課輔班', '是', '否', '否', '李老師', '', '13:00', '16:00'],
       ]);
       await expect(parseScheduleWorkbook(bufferWithTime)).rejects.toThrow(
         /為安親課輔班，安親課輔班不輸入星期與上課時間，請留空/
@@ -227,55 +226,55 @@ describe('#81：課表 Excel 全量匯出／匯入', () => {
 
     it('跨類型互斥驗證（specs/14 §3.6 & A11）：安親課輔班填寫了「不計扣天＝是」 → 整批拒絕', async () => {
       const buffer = await makeWorkbook([...SCHEDULE_TABLE_HEADERS], [
-        ['安親班', '安親課輔班', '安親課輔班', '否', '是', '李老師', '', '', ''],
+        ['安親班', '安親課輔班', '是', '否', '是', '李老師', '', '', ''],
       ]);
       await expect(parseScheduleWorkbook(buffer)).rejects.toThrow(
         /為安親課輔班，安親課輔班不適用「不計扣天」，請填「否」或留空/
       );
     });
 
-    it('跨類型互斥驗證（specs/14 §3.6 & A11）：非安親課輔班填寫了「天數固定5天＝是」 → 整批拒絕', async () => {
+    it('跨類型互斥驗證（specs/14 §3.6 & A11）：美語/數學班填寫了「天數固定5天＝是」 → 整批拒絕', async () => {
       const buffer = await makeWorkbook([...SCHEDULE_TABLE_HEADERS], [
-        ['數學班', '非安親課輔班', '數學班', '是', '否', '張老師', '一', '16:30', '18:00'],
+        ['數學班', '數學班', '是', '是', '否', '張老師', '一', '16:30', '18:00'],
       ]);
       await expect(parseScheduleWorkbook(buffer)).rejects.toThrow(
-        /為非安親課輔班，非安親課輔班不適用「天數固定5天」，請填「否」/
+        /為數學班，數學班不適用「天數固定5天」，請填「否」/
       );
     });
 
     it('課程類型未知文字 → 整批拒絕', async () => {
       const buffer = await makeWorkbook([...SCHEDULE_TABLE_HEADERS], [
-        ['未知班', '其他班別', '數學班', '否', '否', '張老師', '一', '16:30', '18:00'],
+        ['未知班', '其他班別', '否', '否', '否', '張老師', '一', '16:30', '18:00'],
       ]);
       await expect(parseScheduleWorkbook(buffer)).rejects.toThrow(
-        /「課程類型」請填「安親課輔班」或「非安親課輔班」/
+        /「課程類型」請填「安親課輔班」、「美語班」、「數學班」、「其他班」或「不排課」/
       );
     });
 
     it('同一班不同列的「課程類型」不一致 → 整批拒絕並精確點名課程類型', async () => {
       const buffer = await makeWorkbook([...SCHEDULE_TABLE_HEADERS], [
-        ['衝突班', '非安親課輔班', '數學班', '否', '否', '', '一', '10:00', '11:00'],
-        ['衝突班', '安親課輔班', '數學班', '否', '否', '', '', '', ''],
+        ['衝突班', '數學班', '是', '否', '否', '', '一', '10:00', '11:00'],
+        ['衝突班', '安親課輔班', '是', '否', '否', '', '', '', ''],
       ]);
       await expect(parseScheduleWorkbook(buffer)).rejects.toThrow(
         /班級「衝突班」在不同列填了不同的課程類型，請先讓它們一致再匯入。/
       );
     });
 
-    it('同一班不同列的「折扣類別」不一致 → 整批拒絕並精確點名折扣類別', async () => {
+    it('同一班不同列的「多科折扣設定」不一致 → 整批拒絕並精確點名多科折扣設定', async () => {
       const buffer = await makeWorkbook([...SCHEDULE_TABLE_HEADERS], [
-        ['衝突班', '非安親課輔班', '數學班', '否', '否', '', '一', '10:00', '11:00'],
-        ['衝突班', '非安親課輔班', '美語班', '否', '否', '', '二', '10:00', '11:00'],
+        ['衝突班', '數學班', '是', '否', '否', '', '一', '10:00', '11:00'],
+        ['衝突班', '數學班', '否', '否', '否', '', '二', '10:00', '11:00'],
       ]);
       await expect(parseScheduleWorkbook(buffer)).rejects.toThrow(
-        /班級「衝突班」在不同列填了不同的折扣類別，請先讓它們一致再匯入。/
+        /班級「衝突班」在不同列填了不同的多科折扣設定，請先讓它們一致再匯入。/
       );
     });
 
     it('同一班不同列的「固定 5 天」不一致 → 整批拒絕並精確點名固定 5 天設定', async () => {
       const buffer = await makeWorkbook([...SCHEDULE_TABLE_HEADERS], [
-        ['衝突班', '安親課輔班', '安親課輔班', '是', '否', '', '', '', ''],
-        ['衝突班', '安親課輔班', '安親課輔班', '否', '否', '', '', '', ''],
+        ['衝突班', '安親課輔班', '是', '是', '否', '', '', '', ''],
+        ['衝突班', '安親課輔班', '是', '否', '否', '', '', '', ''],
       ]);
       await expect(parseScheduleWorkbook(buffer)).rejects.toThrow(
         /班級「衝突班」在不同列填了不同的固定 5 天設定，請先讓它們一致再匯入。/
@@ -291,38 +290,42 @@ describe('#81：課表 Excel 全量匯出／匯入', () => {
       expect(result.rows).toEqual([
         {
           className: '兒童美語-Gino',
-          classType: 'non_care',
+          classType: 'english',
           teacher: 'Cathy',
           weekday: '一',
           startTime: '15:20',
           endTime: '16:50',
+          hasMultiSubjectDiscount: true,
           category: 'english',
           fixedFiveDays: false,
           skipDeduction: false,
         },
         {
           className: '兒童美語-Gino',
-          classType: 'non_care',
+          classType: 'english',
           teacher: 'Cathy',
           weekday: '五',
           startTime: '15:20',
           endTime: '16:50',
+          hasMultiSubjectDiscount: true,
           category: 'english',
           fixedFiveDays: false,
           skipDeduction: false,
         },
         {
           className: '國小數學-一A',
-          classType: 'non_care',
+          classType: 'math',
           teacher: null,
           weekday: '',
           startTime: '',
           endTime: '',
+          hasMultiSubjectDiscount: true,
           category: 'math',
           fixedFiveDays: false,
           skipDeduction: false,
         },
       ]);
+    });
     });
 
     it('安親課輔班（無時段、可勾固定 5 天）匯出與匯入 round-trip（specs/14 §3.6）', async () => {
@@ -353,13 +356,14 @@ describe('#81：課表 Excel 全量匯出／匯入', () => {
           weekday: '',
           startTime: '',
           endTime: '',
+          hasMultiSubjectDiscount: true,
           category: 'care',
           fixedFiveDays: true,
           skipDeduction: false,
         },
       ]);
       expect(result.classAttrs).toEqual([
-        { className: '國小輔導-四年級', classType: 'care', category: 'care', categorySource: 'manual', fixedFiveDays: true },
+        { className: '國小輔導-四年級', classType: 'care', hasMultiSubjectDiscount: true, category: 'care', categorySource: 'manual', fixedFiveDays: true },
       ]);
     });
 
@@ -385,8 +389,8 @@ describe('#81：課表 Excel 全量匯出／匯入', () => {
       const buffer = await buildScheduleWorkbook(FIXTURE_ROWS, FIXTURE_ATTRS);
       const result = await parseScheduleWorkbook(buffer);
       expect(result.classAttrs).toEqual([
-        { className: '兒童美語-Gino', classType: 'non_care', category: 'english', categorySource: 'manual', fixedFiveDays: false },
-        { className: '國小數學-一A', classType: 'non_care', category: 'math', categorySource: 'manual', fixedFiveDays: false },
+        { className: '兒童美語-Gino', classType: 'english', hasMultiSubjectDiscount: true, category: 'english', categorySource: 'manual', fixedFiveDays: false },
+        { className: '國小數學-一A', classType: 'math', hasMultiSubjectDiscount: true, category: 'math', categorySource: 'manual', fixedFiveDays: false },
       ]);
     });
 
@@ -417,7 +421,7 @@ describe('#81：課表 Excel 全量匯出／匯入', () => {
       }
     });
 
-    it('若 non_care 帶有 fixedFiveDays: true，匯出時忠實輸出，匯入時嚴格拒絕互斥', async () => {
+    it('若排課班級帶有 fixedFiveDays: true，匯出時忠實輸出，匯入時嚴格拒絕互斥', async () => {
       const row: ScheduleGridRow = {
         rowId: 'r1',
         className: '國小數學-四A',
@@ -431,7 +435,7 @@ describe('#81：課表 Excel 全量匯出／匯入', () => {
         skipDeduction: false,
       };
       const attrs: ScheduleExportClassAttr[] = [
-        { className: '國小數學-四A', classType: 'non_care', category: 'math', fixedFiveDays: true },
+        { className: '國小數學-四A', classType: 'math', hasMultiSubjectDiscount: true, category: 'math', fixedFiveDays: true },
       ];
       const buffer = await buildScheduleWorkbook([row], attrs);
       const wb = new ExcelJS.Workbook();
@@ -440,9 +444,9 @@ describe('#81：課表 Excel 全量匯出／匯入', () => {
       // 依 D17 照實呈現：匯出端維持忠實輸出
       expect((ws.getRow(2).values as unknown[])[4]).toBe('是');
 
-      // 匯入端嚴格把關：整批拒絕非安親課輔班之固定 5 天
+      // 匯入端嚴格把關：整批拒絕數學班之固定 5 天
       await expect(parseScheduleWorkbook(buffer)).rejects.toThrow(
-        /第 2 列為非安親課輔班，非安親課輔班不適用「天數固定5天」，請填「否」/
+        /第 2 列為數學班，數學班不適用「天數固定5天」，請填「否」/
       );
     });
 
@@ -460,7 +464,7 @@ describe('#81：課表 Excel 全量匯出／匯入', () => {
         skipDeduction: true,
       };
       const attrs: ScheduleExportClassAttr[] = [
-        { className: '國小輔導-四年級', classType: 'care', category: 'care', fixedFiveDays: true },
+        { className: '國小輔導-四年級', classType: 'care', hasMultiSubjectDiscount: true, category: 'care', fixedFiveDays: true },
       ];
       const buffer = await buildScheduleWorkbook([row], attrs);
       const result = await parseScheduleWorkbook(buffer);
@@ -494,27 +498,27 @@ describe('#81：課表 Excel 全量匯出／匯入', () => {
 
     it('星期可留空（#82 的佔位列）；非空時各種寫法都正規化成一到日', async () => {
       const buffer = await makeWorkbook([...SCHEDULE_TABLE_HEADERS], [
-        ['空白班', '非安親課輔班', '不列入折扣', '否', '否', '', '', '', ''],
-        ['週三班', '非安親課輔班', '不列入折扣', '否', '否', '', '週三', '10:00', '11:00'],
-        ['數字班', '非安親課輔班', '不列入折扣', '否', '否', '', '5', '10:00', '11:00'],
-        ['星期天', '非安親課輔班', '不列入折扣', '否', '否', '', '天', '10:00', '11:00'],
+        ['空白班', '其他班', '否', '否', '否', '', '', '', ''],
+        ['週三班', '其他班', '否', '否', '否', '', '週三', '10:00', '11:00'],
+        ['數字班', '其他班', '否', '否', '否', '', '5', '10:00', '11:00'],
+        ['星期天', '其他班', '否', '否', '否', '', '天', '10:00', '11:00'],
       ]);
       const result = await parseScheduleWorkbook(buffer);
       expect(result.rows.map((r) => r.weekday)).toEqual(['', '三', '五', '日']);
     });
 
-    it('折扣類別接受白話標籤，也接受內部值（方便使用者手動編輯匯出檔）', async () => {
+    it('課程類型接受白話標籤，也接受內部值（方便使用者手動編輯匯出檔）', async () => {
       const buffer = await makeWorkbook([...SCHEDULE_TABLE_HEADERS], [
-        ['白話班', '非安親課輔班', '安親課輔班', '否', '否', '', '一', '10:00', '11:00'],
-        ['內值班', '非安親課輔班', 'math', '否', '否', '', '一', '10:00', '11:00'],
+        ['美語一', '美語班', '是', '否', '否', '', '一', '10:00', '11:00'],
+        ['數學一', 'math', '是', '否', '否', '', '一', '10:00', '11:00'],
       ]);
       const result = await parseScheduleWorkbook(buffer);
-      expect(result.rows.map((r) => r.category)).toEqual(['care', 'math']);
+      expect(result.rows.map((r) => r.classType)).toEqual(['english', 'math']);
     });
 
     it('整列空白（多餘的空白列）略過，不當成資料列', async () => {
       const buffer = await makeWorkbook([...SCHEDULE_TABLE_HEADERS], [
-        ['有資料班', '非安親課輔班', '數學班', '否', '否', '王老師', '一', '10:00', '11:00'],
+        ['有資料班', '數學班', '是', '否', '否', '王老師', '一', '10:00', '11:00'],
         ['', '', '', '', '', '', '', '', ''],
       ]);
       const result = await parseScheduleWorkbook(buffer);
@@ -524,43 +528,25 @@ describe('#81：課表 Excel 全量匯出／匯入', () => {
 
     it('工作表名稱不是預期的也能讀（使用者可能改過分頁名）', async () => {
       const buffer = await makeWorkbook([...SCHEDULE_TABLE_HEADERS], [
-        ['甲班', '非安親課輔班', '數學班', '否', '否', '', '一', '10:00', '11:00'],
+        ['甲班', '數學班', '是', '否', '否', '', '一', '10:00', '11:00'],
       ], '我的備份');
       const result = await parseScheduleWorkbook(buffer);
       expect(result.rows).toHaveLength(1);
     });
   });
 
-  describe('#157 PR-2：Excel 未設定來源語意', () => {
-    it('匯入（未設定）後以 unset source 經草稿序列化；明確類別則以 manual source 保存', async () => {
+  describe('D61 Phase 2：多科折扣單選匯入契約', () => {
+    it('匯入是否有多科折扣（是／否）正確設定 hasMultiSubjectDiscount 與投影類別', async () => {
       const buffer = await makeWorkbook([...SCHEDULE_TABLE_HEADERS], [
-        ['數學關鍵字新班', '非安親課輔班', '（未設定）', '否', '否', '', '', '', ''],
-        ['明確不折扣新班', '非安親課輔班', '不列入折扣', '否', '否', '', '', '', ''],
+        ['美語有折扣', '美語班', '是', '否', '否', '', '', '', ''],
+        ['美語無折扣', '美語班', '否', '否', '否', '', '', '', ''],
       ]);
       const imported = await parseScheduleWorkbook(buffer);
-      const unsetAttrs = imported.classAttrs.find((attr) => attr.className === '數學關鍵字新班');
-      const explicitNoneAttrs = imported.classAttrs.find((attr) => attr.className === '明確不折扣新班');
+      const yesAttrs = imported.classAttrs.find((attr) => attr.className === '美語有折扣');
+      const noAttrs = imported.classAttrs.find((attr) => attr.className === '美語無折扣');
 
-      expect(unsetAttrs).toMatchObject({ category: 'unset', categorySource: 'unset' });
-      expect(explicitNoneAttrs).toMatchObject({ category: 'none', categorySource: 'manual' });
-
-      const existingClasses = imported.classAttrs.map((attr) => ({
-        baseName: attr.className,
-        subject: '其他',
-        teacher: null,
-        active: true,
-        sessions: [],
-        classType: attr.classType,
-        category: attr.category,
-        categorySource: (attr as typeof attr & { categorySource?: 'manual' | 'unset' }).categorySource,
-        fixedFiveDays: attr.fixedFiveDays,
-      }));
-      const persisted = gridRowsToClasses(scheduleImportRowsToGridRows(imported), existingClasses);
-
-      expect(persisted.find((cls) => cls.baseName === '數學關鍵字新班'))
-        .toMatchObject({ category: 'unset', categorySource: 'unset' });
-      expect(persisted.find((cls) => cls.baseName === '明確不折扣新班'))
-        .toMatchObject({ category: 'none', categorySource: 'manual' });
+      expect(yesAttrs).toMatchObject({ classType: 'english', hasMultiSubjectDiscount: true, category: 'english' });
+      expect(noAttrs).toMatchObject({ classType: 'english', hasMultiSubjectDiscount: false, category: 'none' });
     });
   });
 
@@ -585,7 +571,7 @@ describe('#81：課表 Excel 全量匯出／匯入', () => {
     it('表頭有全形空格仍視為相符（行政用 Excel 手編時很容易多打空白）', async () => {
       const buffer = await makeWorkbook(
         SCHEDULE_TABLE_HEADERS.map((h, i) => (i === 0 ? `　${h} ` : h)) as unknown as string[],
-        [['甲班', '非安親課輔班', '數學班', '否', '否', '', '一', '10:00', '11:00']]
+        [['甲班', '數學班', '是', '否', '否', '', '一', '10:00', '11:00']]
       );
       const result = await parseScheduleWorkbook(buffer);
       expect(result.rows).toHaveLength(1);
@@ -593,52 +579,52 @@ describe('#81：課表 Excel 全量匯出／匯入', () => {
 
     it('班級名稱空白 → 拒絕（只有名稱是必填，但名稱本身不能沒有）', async () => {
       const buffer = await makeWorkbook([...SCHEDULE_TABLE_HEADERS], [
-        ['  ', '非安親課輔班', '數學班', '否', '否', '', '一', '10:00', '11:00'],
+        ['  ', '數學班', '是', '否', '否', '', '一', '10:00', '11:00'],
       ]);
       await expect(parseScheduleWorkbook(buffer)).rejects.toThrow(/班級名稱.*不能空白/);
     });
 
     it('時間格式非 HH:mm → 拒絕（25:00 不因為是數字就放行）', async () => {
       const buffer = await makeWorkbook([...SCHEDULE_TABLE_HEADERS], [
-        ['甲班', '非安親課輔班', '數學班', '否', '否', '', '一', '25:00', '11:00'],
+        ['甲班', '數學班', '是', '否', '否', '', '一', '25:00', '11:00'],
       ]);
       await expect(parseScheduleWorkbook(buffer)).rejects.toThrow(/時間格式不正確/);
     });
 
     it('結束時間不晚於開始時間 → 拒絕', async () => {
       const buffer = await makeWorkbook([...SCHEDULE_TABLE_HEADERS], [
-        ['甲班', '非安親課輔班', '數學班', '否', '否', '', '一', '15:00', '14:00'],
+        ['甲班', '數學班', '是', '否', '否', '', '一', '15:00', '14:00'],
       ]);
       await expect(parseScheduleWorkbook(buffer)).rejects.toThrow(/結束時間必須晚於開始時間/);
     });
 
-    it('折扣類別不可辨識 → 拒絕', async () => {
+    it('是否有多科折扣非「是／否」 → 拒絕', async () => {
       const buffer = await makeWorkbook([...SCHEDULE_TABLE_HEADERS], [
-        ['甲班', '非安親課輔班', '物理班', '否', '否', '', '一', '10:00', '11:00'],
+        ['甲班', '數學班', '物理班', '否', '否', '', '一', '10:00', '11:00'],
       ]);
-      await expect(parseScheduleWorkbook(buffer)).rejects.toThrow(/不是可辨識的類別/);
+      await expect(parseScheduleWorkbook(buffer)).rejects.toThrow(/第 2 列的「是否有多科折扣」請填「是」或「否」/);
     });
 
     it('固定 5 天非「是／否」→ 拒絕（不接受靜默當成「否」）', async () => {
       const buffer = await makeWorkbook([...SCHEDULE_TABLE_HEADERS], [
-        ['甲班', '安親課輔班', '數學班', 'YES', '否', '', '', '', ''],
+        ['甲班', '安親課輔班', '是', 'YES', '否', '', '', '', ''],
       ]);
       await expect(parseScheduleWorkbook(buffer)).rejects.toThrow(/請填「是」或「否」/);
     });
 
     it('星期不可辨識 → 拒絕（但空白放行）', async () => {
       const buffer = await makeWorkbook([...SCHEDULE_TABLE_HEADERS], [
-        ['甲班', '非安親課輔班', '數學班', '否', '否', '', '八', '10:00', '11:00'],
+        ['甲班', '數學班', '是', '否', '否', '', '八', '10:00', '11:00'],
       ]);
       await expect(parseScheduleWorkbook(buffer)).rejects.toThrow(/星期無法辨識/);
     });
 
     it('同一班不同列填了不同屬性 → 拒絕（不靜默取其一）', async () => {
       const buffer = await makeWorkbook([...SCHEDULE_TABLE_HEADERS], [
-        ['甲班', '非安親課輔班', '數學班', '否', '否', '', '一', '10:00', '11:00'],
-        ['甲班', '非安親課輔班', '美語班', '否', '否', '', '二', '10:00', '11:00'],
+        ['甲班', '數學班', '是', '否', '否', '', '一', '10:00', '11:00'],
+        ['甲班', '數學班', '否', '否', '否', '', '二', '10:00', '11:00'],
       ]);
-      await expect(parseScheduleWorkbook(buffer)).rejects.toThrow(/班級「甲班」在不同列填了不同的折扣類別，請先讓它們一致再匯入。/);
+      await expect(parseScheduleWorkbook(buffer)).rejects.toThrow(/班級「甲班」在不同列填了不同的多科折扣設定，請先讓它們一致再匯入。/);
     });
 
     it('只有表頭、沒有任何資料列 → 拒絕（避免把空課表當成合法匯入）', async () => {
@@ -654,7 +640,7 @@ describe('#81：課表 Excel 全量匯出／匯入', () => {
 
     it('拒絕時錯誤訊息不含工程碼或檔案路徑（copy-scan 的禁用詞邊界）', async () => {
       const buffer = await makeWorkbook([...SCHEDULE_TABLE_HEADERS], [
-        ['甲班', '非安親課輔班', '數學班', '否', '否', '', '八', '10:00', '11:00'],
+        ['甲班', '數學班', '是', '否', '否', '', '八', '10:00', '11:00'],
       ]);
       const error = await parseScheduleWorkbook(buffer).catch((e: unknown) => e);
       expect(error).toBeInstanceOf(ScheduleTableImportError);
@@ -690,6 +676,7 @@ describe('#81：課表 Excel 全量匯出／匯入', () => {
         return {
           className,
           classType: attr.classType,
+          hasMultiSubjectDiscount: attr.hasMultiSubjectDiscount,
           category: attr.category,
           fixedFiveDays: attr.fixedFiveDays,
         };
@@ -750,7 +737,8 @@ describe('#81：課表 Excel 全量匯出／匯入', () => {
     }];
     const attrs: ScheduleExportClassAttr[] = [{
       className: '合成課程甲',
-      classType: 'non_care',
+      classType: 'other',
+      hasMultiSubjectDiscount: false,
       category: 'none',
       fixedFiveDays: false,
     }];
@@ -1009,4 +997,3 @@ describe('#81：課表 Excel 全量匯出／匯入', () => {
       });
     });
   });
-});

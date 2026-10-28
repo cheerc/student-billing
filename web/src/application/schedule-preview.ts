@@ -199,6 +199,7 @@ export function unknownWeekdayMessage(classKey: string, weekday: string): string
 function aggregateStatus(a: {
   active: boolean;
   shared: boolean;
+  unscheduled: boolean;
   /** #113：班級勾選「不計扣天」→ 重疊分鐘刻意為 0，狀態要如實說明是政策而非算不出來。 */
   skipDeduction: boolean;
   completeCount: number;
@@ -209,6 +210,8 @@ function aggregateStatus(a: {
   if (!a.active) return 'inactive';
   // specs/14 §3.7：安親課輔班專門狀態
   if (a.shared) return 'shared_window';
+  // D61 Phase 2：不排課班級專門狀態
+  if (a.unscheduled) return 'unscheduled';
   if (a.completeCount === 0 && a.incompleteCount === 0) return 'missing_time';
   if (a.incompleteCount > 0) return 'incomplete';
   if (a.anyUnknownWeekday) return 'unknown_weekday';
@@ -232,9 +235,11 @@ export function buildSchedulePreview(draft: CalculateDraft, ruleSetVersion: Form
   const issues: PreviewIssue[] = [];
 
   for (const c of draft.classes) {
-    // specs/14 §3.7 & A5：專門狀態改依班級設定之課程類型 classType === 'care' 判定（取代靜態班名 SHARED_WINDOW_CLASSES）
-    // 經 resolveClassAttributes 正規化後嚴格比對 === 'care'，相容舊草稿未帶 classType 屬性
-    const shared = resolveClassAttributes(c.baseName, c).classType === 'care';
+    // specs/14 §3.7 & D61：專門狀態改依班級設定之課程類型判定
+    // 經 resolveClassAttributes 正規化後判定，相容舊草稿未帶 classType 屬性
+    const resolvedType = resolveClassAttributes(c.baseName, c).classType;
+    const shared = resolvedType === 'care';
+    const unscheduled = resolvedType === 'unscheduled';
     const calcSessions = override.get(c.baseName) ?? [];
     // #113 follow-up（逐時段）：只有未勾選的時段才納入扣天。
     // 勾選者時段仍保留（不是 schedule_empty），只是不扣天。
@@ -247,9 +252,15 @@ export function buildSchedulePreview(draft: CalculateDraft, ruleSetVersion: Form
     let incompleteCount = 0;
 
     if (c.sessions.length === 0) {
-      // 空時段列仍回 null 佔位（不捏造 session）；停用班不列缺時間問題
+      // 空時段列仍回 null 佔位（不捏造 session）；停用班、共用窗口班與不排課班不列缺時間問題
       const rowId = `${c.baseName}#placeholder`;
-      const status: CareStatus = !c.active ? 'inactive' : shared ? 'shared_window' : 'missing_time';
+      const status: CareStatus = !c.active
+        ? 'inactive'
+        : shared
+          ? 'shared_window'
+          : unscheduled
+            ? 'unscheduled'
+            : 'missing_time';
       const group: PreviewRowGroup = { overlapMinutes: null, rawDeduction: null, status };
       rows.push({
         rowId,
@@ -263,7 +274,7 @@ export function buildSchedulePreview(draft: CalculateDraft, ruleSetVersion: Form
         tutoring: { ...group },
       });
       rowIds.push(rowId);
-      if (c.active && !shared) {
+      if (c.active && !shared && !unscheduled) {
         issues.push({
           code: 'SCHEDULE_EMPTY',
           classKey: c.baseName,
@@ -280,7 +291,13 @@ export function buildSchedulePreview(draft: CalculateDraft, ruleSetVersion: Form
         if (!isCompleteTimeRange(s)) {
           // 不完整列：不計算、不捏造分鐘數；起迄如實回傳讓畫面標出缺哪一格
           incompleteCount += 1;
-          const status: CareStatus = !c.active ? 'inactive' : shared ? 'shared_window' : 'missing_time';
+          const status: CareStatus = !c.active
+            ? 'inactive'
+            : shared
+              ? 'shared_window'
+              : unscheduled
+                ? 'unscheduled'
+                : 'missing_time';
           const group: PreviewRowGroup = { overlapMinutes: null, rawDeduction: null, status };
           rows.push({
             rowId,
@@ -293,7 +310,7 @@ export function buildSchedulePreview(draft: CalculateDraft, ruleSetVersion: Form
             anqin: { ...group },
             tutoring: { ...group },
           });
-          if (c.active && !shared) {
+          if (c.active && !shared && !unscheduled) {
             issues.push({
               code: 'SCHEDULE_INCOMPLETE',
               classKey: c.baseName,
@@ -320,13 +337,6 @@ export function buildSchedulePreview(draft: CalculateDraft, ruleSetVersion: Form
           const ded = calculateSessionDeduction(s.startMinutes, s.endMinutes, type, options, s.weekday);
           // #113 follow-up（逐時段）：這一列勾了「不計扣天」→ **逐堂**仍回實測的重疊分鐘與未取整扣天，
           // 但扣天歸零並標上 no_deduction。
-          //
-          // 這是刻意的兩層分工，不是同一份數字算兩次：
-          //  - 班級層（扣天表主列，也就是真正影響天數與計費的層級）只把勾選的時段排除；
-          //  - 逐堂層保留實測值，核對者才看得到「這個班確實重疊了幾分、只是園方政策不扣」
-          //    （D17：照實呈現、把政策判斷跟計算事實分開）。若這裡也歸零，
-          //    使用者會誤以為時段根本不衝突，那正是「照實呈現」要避免的假象。
-          //  - no_deduction 狀態就是兩層之間的說明，畫面據此顯示「不計扣天」。
           const rowSkips = s.skipDeduction === true;
           const status: CareStatus = unknown
             ? 'unknown_weekday'
@@ -357,7 +367,6 @@ export function buildSchedulePreview(draft: CalculateDraft, ruleSetVersion: Form
 
     const classGroup = (type: 'anqin' | 'tutoring'): PreviewClassGroup => {
       // 只統計未勾選「不計扣天」的完整列：calcSessions 來自存檔等價 draft，與存檔後 run 的輸入相同。
-      // #113 follow-up：勾選的時段不列入扣天，但其重疊分鐘照實計算的部分留在逐堂層。
       const res =
         c.active && deductibleSessions.length > 0
           ? calculateClassDeductionD24(deductibleSessions, type, options)
@@ -369,6 +378,7 @@ export function buildSchedulePreview(draft: CalculateDraft, ruleSetVersion: Form
         status: aggregateStatus({
           active: c.active,
           shared,
+          unscheduled,
           // 逐時段版的班級層「不計扣天」＝ 該班**每一列**都勾選；只勾部分時段則照實計算未勾選的那些。
           skipDeduction: allSessionsSkipped,
           completeCount,

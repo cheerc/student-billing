@@ -74,10 +74,10 @@ const FIXTURE_ROWS: ScheduleGridRow[] = [
   },
 ];
 
-/** 手算的有效屬性：固定 5 天預設恆為 false，兩班皆非 → 不固定。 */
+/** 手算的有效屬性：Gino 與一A 皆為排課班級，預設有多科折扣且不固定 5 天。 */
 const FIXTURE_ATTRS = [
-  { className: '兒童美語-Gino', classType: 'non_care' as const, category: 'english' as const, fixedFiveDays: false },
-  { className: '國小數學-一A', classType: 'non_care' as const, category: 'math' as const, fixedFiveDays: false },
+  { className: '兒童美語-Gino', classType: 'english' as const, hasMultiSubjectDiscount: true, category: 'english' as const, fixedFiveDays: false },
+  { className: '國小數學-一A', classType: 'math' as const, hasMultiSubjectDiscount: true, category: 'math' as const, fixedFiveDays: false },
 ];
 
 /** 打 route：multipart 表單。`headers` 可覆寫以測各 guard。 */
@@ -357,8 +357,8 @@ describe('PR #85 G1：課表 Excel route POST handler 防護分支', () => {
       });
 
       expect(body.classAttrs).toEqual([
-        { className: '兒童美語-Gino', classType: 'non_care', category: 'english', categorySource: 'manual', fixedFiveDays: false },
-        { className: '國小數學-一A', classType: 'non_care', category: 'math', categorySource: 'manual', fixedFiveDays: false },
+        { className: '兒童美語-Gino', classType: 'english', hasMultiSubjectDiscount: true, category: 'english', categorySource: 'manual', fixedFiveDays: false },
+        { className: '國小數學-一A', classType: 'math', hasMultiSubjectDiscount: true, category: 'math', categorySource: 'manual', fixedFiveDays: false },
       ]);
     });
 

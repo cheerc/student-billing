@@ -720,6 +720,7 @@ export default function SettingsEditor({
         classAttrs: [...currentAttrs.entries()].map(([className, a]) => ({
           className,
           classType: a.classType,
+          hasMultiSubjectDiscount: a.hasMultiSubjectDiscount,
           category: a.category,
           fixedFiveDays: a.fixedFiveDays,
         })),
@@ -780,6 +781,7 @@ export default function SettingsEditor({
       const importedAttrs = json?.classAttrs as Array<{
         className: string;
         classType?: ClassType | 'non_care';
+        hasMultiSubjectDiscount?: boolean;
         category: ClassCategory;
         categorySource: WritableCategorySource;
         fixedFiveDays: boolean;
@@ -791,6 +793,7 @@ export default function SettingsEditor({
       for (const a of importedAttrs) {
         nextAttrs.set(a.className, {
           classType: a.classType ?? resolveClassAttributes(a.className).classType,
+          hasMultiSubjectDiscount: a.hasMultiSubjectDiscount,
           category: a.category,
           categorySource: a.categorySource,
           fixedFiveDays: a.fixedFiveDays,

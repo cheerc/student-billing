@@ -50,8 +50,11 @@ export function formatDeduction(v: number | null, digits: 0 | 3): string {
   return digits === 3 ? pos.toFixed(3) : String(pos);
 }
 
-/** 上課時間摘要：每堂一行「星期 HH:mm–HH:mm」，無時段顯「待補」。 */
-function scheduleSummary(rows: PreviewRow[], rowIds: string[]): string {
+/** 上課時間摘要：每堂一行「星期 HH:mm–HH:mm」，安親課輔班與不排課班顯「—」，排課班無時段顯「待補」。 */
+function scheduleSummary(rows: PreviewRow[], rowIds: string[], status?: CareStatus): string {
+  if (status === 'shared_window' || status === 'unscheduled') {
+    return '—';
+  }
   const own = rows.filter((r) => rowIds.includes(r.rowId));
   const lines = own.map((r) => {
     if (r.startMinutes === null || r.endMinutes === null) {
@@ -77,10 +80,11 @@ function sideCells(g: PreviewRowGroup): [React.ReactNode, React.ReactNode] {
   return [g.overlapMinutes ?? '—', formatDeduction(g.rawDeduction, 3)];
 }
 
-/** 班級狀態短標：無重疊／安親課輔班（不計時段）／待補／需確認／已計算分開。 */
+/** 班級狀態短標：無重疊／安親課輔班（不計時段）／不排課／待補／需確認／已計算分開。 */
 function statusLabel(s: CareStatus): string {
   if (s === 'inactive') return '停用';
   if (s === 'shared_window') return '安親課輔班（不計時段）';
+  if (s === 'unscheduled') return '不排課';
   if (s === 'missing_time') return '待補';
   if (s === 'incomplete') return '待補';
   if (s === 'unknown_weekday') return '需確認';
@@ -224,7 +228,7 @@ export function ClassDeductionsPanel({ data, onEditClass, expandedClassKey, unav
                       </button>
                     </td>
                     <td>{c.teacher ?? '—'}</td>
-                    <td style={{ fontSize: '0.75rem' }}>{scheduleSummary(data.rows, c.rowIds)}</td>
+                    <td style={{ fontSize: '0.75rem' }}>{scheduleSummary(data.rows, c.rowIds, classStatus(c))}</td>
                     <td className="number cblue">{formatDeduction(c.anqin.raw, 3)}</td>
                     <td className="number cblue">{formatDeduction(c.anqin.rounded, 0)}</td>
                     <td className="number cblue">{formatDeduction(c.tutoring.raw, 3)}</td>
