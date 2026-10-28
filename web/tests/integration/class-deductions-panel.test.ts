@@ -132,4 +132,73 @@ describe('UX05–07／09 §5.2：班級扣天 read model 與面板', () => {
     // seed 內容含多種類型；不應只有一種
     expect(statuses.size).toBeGreaterThan(1);
   });
+
+  it('D61 Phase 2：不排課（unscheduled）與共用窗口班級狀態標籤與上課時間摘要顯示「—」', () => {
+    const mockData: DeductionsResponse = {
+      scope: 'saved_settings',
+      runId: null,
+      scheduleVersionId: 'sv_test',
+      settingsRevision: 1,
+      draftHash: 'hash_test',
+      ruleSetVersion: 'erp-tag-v4',
+      windows: {
+        anqin: { startMinutes: 780, endMinutes: 960, weekdays: ['一', '二', '三', '四', '五'] },
+        tutoring: { startMinutes: 990, endMinutes: 1170, weekdays: ['一', '二', '三', '四', '五'] },
+      },
+      rows: [
+        {
+          rowId: '交通車#placeholder',
+          classKey: '交通車',
+          teacher: '陳司機',
+          weekday: null,
+          startMinutes: null,
+          endMinutes: null,
+          durationMinutes: null,
+          anqin: { overlapMinutes: null, rawDeduction: null, status: 'unscheduled' },
+          tutoring: { overlapMinutes: null, rawDeduction: null, status: 'unscheduled' },
+        },
+        {
+          rowId: '國小輔導-一年級#placeholder',
+          classKey: '國小輔導-一年級',
+          teacher: '王老師',
+          weekday: null,
+          startMinutes: null,
+          endMinutes: null,
+          durationMinutes: null,
+          anqin: { overlapMinutes: null, rawDeduction: null, status: 'shared_window' },
+          tutoring: { overlapMinutes: null, rawDeduction: null, status: 'shared_window' },
+        },
+      ],
+      classes: [
+        {
+          classKey: '交通車',
+          teacher: '陳司機',
+          active: true,
+          rowIds: ['交通車#placeholder'],
+          anqin: { totalOverlapMinutes: 0, raw: 0, rounded: 0, status: 'unscheduled' },
+          tutoring: { totalOverlapMinutes: 0, raw: 0, rounded: 0, status: 'unscheduled' },
+        },
+        {
+          classKey: '國小輔導-一年級',
+          teacher: '王老師',
+          active: true,
+          rowIds: ['國小輔導-一年級#placeholder'],
+          anqin: { totalOverlapMinutes: 0, raw: 0, rounded: 0, status: 'shared_window' },
+          tutoring: { totalOverlapMinutes: 0, raw: 0, rounded: 0, status: 'shared_window' },
+        },
+      ],
+      issues: [],
+    };
+
+    const html = renderToStaticMarkup(
+      React.createElement(ClassDeductionsPanel, { data: mockData, onEditClass: () => {} })
+    );
+
+    // 驗證狀態顯示為「不排課」
+    expect(html).toContain('不排課');
+    // 驗證狀態顯示為「安親課輔班（不計時段）」
+    expect(html).toContain('安親課輔班（不計時段）');
+    // 驗證兩個班級的上課時間摘要皆顯示為「—」，而不是「待補」
+    expect(html).not.toContain('待補');
+  });
 });

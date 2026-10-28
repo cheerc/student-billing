@@ -119,7 +119,7 @@ describe('Issue #177 Phase 2: UI 與課表契約收斂 (TDD RED -> GREEN)', () =
       const workbook = new ExcelJS.Workbook();
       const sheet = workbook.addWorksheet('課表');
       sheet.addRow([...SCHEDULE_TABLE_HEADERS]);
-      sheet.addRow(['國小數學-高階', '非安親課輔班', '數學班', '否', '否', '張老師', '二', '16:00', '17:30']);
+      sheet.addRow(['國小數學-高階', '數學班', '是', '否', '否', '張老師', '二', '16:00', '17:30']);
 
       // 人為加入未知或歷史 __class_semantics 工作表
       const dummyMeta = workbook.addWorksheet('__class_semantics');

@@ -15,18 +15,22 @@ import ExcelJS from 'exceljs';
 import {
   type ScheduleGridRow,
   type ClassType,
+  CLASS_TYPE_LABELS,
+  isSchedulableClassType,
+  supportsMultiSubjectDiscount,
 } from '@/contracts/settings';
 import { timeStringToMinutes } from '@/contracts/settings';
 import type { ClassCategory, WritableCategorySource } from '@/domain/classification/class-category';
-import { CATEGORY_LABELS, resolveClassAttributes } from '@/domain/classification/class-attributes';
+import { deriveEffectiveCategory } from '@/domain/classification/class-category';
+import { resolveClassAttributes } from '@/domain/classification/class-attributes';
 import { normalizeWeekday } from '@/domain/schedules/overlap-calculator';
 
 /** 匯出／匯入的完整表頭；順序即欄位順序，兩邊共用同一份（不各寫一份，避免漂移）。
- *  specs/14 §3.6：表頭包含「課程類型」（值為 安親課輔班 或 非安親課輔班；同班多列必須一致）。 */
+ *  D61 Phase 2：全量升級至 9 欄契約（「是否有多科折扣」取代舊「列入多科折扣」）。 */
 export const SCHEDULE_TABLE_HEADERS = [
   '班級名稱',
   '課程類型',
-  '列入多科折扣',
+  '是否有多科折扣',
   '天數固定5天',
   '不計扣天',
   '帶班老師',
@@ -37,7 +41,7 @@ export const SCHEDULE_TABLE_HEADERS = [
 
 const COLUMN_CLASS_NAME = 0;
 const COLUMN_CLASS_TYPE = 1;
-const COLUMN_CATEGORY = 2;
+const COLUMN_HAS_MULTI_DISCOUNT = 2;
 const COLUMN_FIXED_FIVE = 3;
 // #113 follow-up：不計扣天緊接「天數固定5天」——兩者都是「扣天怎麼算」的設定。
 // 這一欄是**逐列**的：同一班的不同時段可以各填各的。
@@ -56,30 +60,25 @@ const FIXED_FIVE_NO = '否';
 /** #113：「不計扣天」為真時的白話值；為假時沿用 FIXED_FIVE_NO（兩欄共用「是／否」語彙）。 */
 const SKIP_DEDUCTION_YES = '是';
 
-/** 課程類型的白話名稱 */
-export const CLASS_TYPE_CARE_LABEL = '安親課輔班';
-export const CLASS_TYPE_NON_CARE_LABEL = '非安親課輔班';
-
-/** 折扣類別的白話標籤 → 內部值。匯出寫標籤、匯入接受標籤或內部值（方便手動編輯檔案）。 */
-const CATEGORY_BY_LABEL: Record<string, ClassCategory> = {
+/** 課程類型的白話名稱與內部值對應 */
+export const CLASS_TYPE_LABELS_MAP: Record<string, ClassType> = {
   安親課輔班: 'care',
-  數學班: 'math',
   美語班: 'english',
-  不列入折扣: 'none',
-  // #157：未設定是一個獨立狀態；匯出寫「（未設定）」，匯入接受它回 unset，
-  // 不得落回 none（那會把「使用者尚未決定」記成「使用者決定不列入」）。
-  '（未設定）': 'unset',
+  數學班: 'math',
+  其他班: 'other',
+  不排課: 'unscheduled',
   care: 'care',
-  math: 'math',
   english: 'english',
-  none: 'none',
-  unset: 'unset',
+  math: 'math',
+  other: 'other',
+  unscheduled: 'unscheduled',
 };
 
 /** 匯出時每個班級的**有效**屬性（編輯器已解析使用者的指定與未設定；這裡不再重算一次）。 */
 export interface ScheduleExportClassAttr {
   className: string;
   classType?: ClassType | 'non_care';
+  hasMultiSubjectDiscount?: boolean;
   category: ClassCategory;
   categorySource?: WritableCategorySource;
   fixedFiveDays: boolean;
@@ -95,6 +94,7 @@ export interface ScheduleImportRow {
   weekday: string;
   startTime: string;
   endTime: string;
+  hasMultiSubjectDiscount?: boolean;
   category: ClassCategory;
   fixedFiveDays: boolean;
   skipDeduction: boolean;
@@ -107,6 +107,7 @@ export interface ScheduleImportResult {
   classAttrs: Array<{
     className: string;
     classType: ClassType | 'non_care';
+    hasMultiSubjectDiscount?: boolean;
     category: ClassCategory;
     categorySource: WritableCategorySource;
     fixedFiveDays: boolean;
@@ -153,7 +154,7 @@ function normalizeHeader(value: unknown): string {
 
 /**
  * 產生課表 `.xlsx`（完整欄位，一鍵匯出）。
- * `rows` 是編輯中的平鋪時段列；`classAttrs` 提供每班的有效課程類型、折扣類別與固定 5 天。
+ * `rows` 是編輯中的平鋪時段列；`classAttrs` 提供每班的有效課程類型、是否有多科折扣與固定 5 天。
  * 僅產出單一「課表」工作表，不包含隱藏工作表。
  */
 export async function buildScheduleWorkbook(
@@ -169,29 +170,48 @@ export async function buildScheduleWorkbook(
   sheet.columns = SCHEDULE_TABLE_HEADERS.map((header, i) => ({
     header,
     key: `c${i}`,
-    width: i === COLUMN_CLASS_NAME ? 28 : i === COLUMN_CLASS_TYPE ? 16 : i === COLUMN_CATEGORY ? 16 : i === COLUMN_SKIP_DEDUCTION ? 12 : 14,
+    width:
+      i === COLUMN_CLASS_NAME
+        ? 28
+        : i === COLUMN_CLASS_TYPE
+          ? 16
+          : i === COLUMN_HAS_MULTI_DISCOUNT
+            ? 16
+            : i === COLUMN_SKIP_DEDUCTION
+              ? 12
+              : 14,
   }));
 
   for (const row of rows) {
     const trimmedClassName = row.className.trim();
     const explicitAttr = attrsByName.get(trimmedClassName);
     const effectiveAttr = explicitAttr ?? resolveClassAttributes(trimmedClassName);
-    const isCare = effectiveAttr.classType === 'care';
+    const rawType = effectiveAttr.classType ?? 'other';
+    const effectiveClassType: ClassType = rawType === 'non_care' ? 'other' : rawType;
+    const isCare = effectiveClassType === 'care';
+    const isSchedulable = isSchedulableClassType(effectiveClassType);
+
+    // 是否有多科折扣：other 與 unscheduled 固定輸出 否
+    const hasMulti =
+      supportsMultiSubjectDiscount(effectiveClassType) &&
+      (effectiveAttr.hasMultiSubjectDiscount ?? true);
+
+    // 天數固定 5 天：忠實輸出草稿實際保存的值（D17）；若非安親課輔班帶有 true，由匯入端嚴格把關互斥
+    const fixedFive = effectiveAttr.fixedFiveDays ?? false;
+
+    // 不計扣天：僅排課類型（english, math, other）支援；care 與 unscheduled 固定 否
+    const skipDed = isSchedulable && (row.skipDeduction ?? false);
 
     sheet.addRow({
       c0: row.className,
-      c1: isCare ? CLASS_TYPE_CARE_LABEL : CLASS_TYPE_NON_CARE_LABEL,
-      // #157：未指定類別匯出為「（未設定）」，不得落回「不列入折扣」（那是另一個決定）。
-      c2: CATEGORY_LABELS[effectiveAttr.category ?? 'unset'],
-      // specs/14 §3.6 & A11 匯出忠實輸出與欄位防護：
-      // 1. 依 D17 照實呈現：天數固定 5 天忠實輸出草稿實際保存的值，若 non_care 帶有 true，由匯入端嚴格把關互斥。
-      // 2. 安親課輔班時段在草稿層已被 A5 約束強制為空（sessions: []），故星期、時間留空，不計扣天填「否」，忠實反映草稿保存內容。
-      c3: (effectiveAttr.fixedFiveDays ?? false) ? FIXED_FIVE_YES : FIXED_FIVE_NO,
-      c4: isCare ? FIXED_FIVE_NO : ((row.skipDeduction ?? false) ? SKIP_DEDUCTION_YES : FIXED_FIVE_NO),
+      c1: CLASS_TYPE_LABELS[effectiveClassType] ?? effectiveClassType,
+      c2: hasMulti ? FIXED_FIVE_YES : FIXED_FIVE_NO,
+      c3: fixedFive ? FIXED_FIVE_YES : FIXED_FIVE_NO,
+      c4: skipDed ? SKIP_DEDUCTION_YES : FIXED_FIVE_NO,
       c5: row.teacher ?? '',
-      c6: isCare ? '' : (row.weekday === '—' ? '' : row.weekday),
-      c7: isCare ? '' : row.startTime,
-      c8: isCare ? '' : row.endTime,
+      c6: !isSchedulable ? '' : (row.weekday === '—' ? '' : row.weekday),
+      c7: !isSchedulable ? '' : row.startTime,
+      c8: !isSchedulable ? '' : row.endTime,
     });
   }
 
@@ -211,24 +231,6 @@ function validateTimeCell(value: string, location: string): string {
     );
   }
   return trimmed;
-}
-
-function parseCategoryCell(value: string, location: string): ClassCategory {
-  const trimmed = value.trim();
-  if (trimmed === '') {
-    throw new ScheduleTableImportError(
-      `第 ${location} 列的「列入多科折扣」不能空白，請填（未設定）／安親課輔班／數學班／美語班／不列入折扣。`,
-      location
-    );
-  }
-  const category = CATEGORY_BY_LABEL[trimmed];
-  if (!category) {
-    throw new ScheduleTableImportError(
-      `第 ${location} 列的「列入多科折扣」不是可辨識的類別，請填（未設定）／安親課輔班／數學班／美語班／不列入折扣。`,
-      location
-    );
-  }
-  return category;
 }
 
 /**
@@ -292,7 +294,10 @@ export async function parseScheduleWorkbook(input: Buffer | Uint8Array): Promise
   }
 
   const rows: ScheduleImportRow[] = [];
-  const attrsByName = new Map<string, { classType: ClassType | 'non_care'; category: ClassCategory; fixedFiveDays: boolean }>();
+  const attrsByName = new Map<
+    string,
+    { classType: ClassType; hasMultiDiscount: boolean; fixedFiveDays: boolean }
+  >();
   const rowCount = sheet.rowCount;
 
   for (let rowNumber = 2; rowNumber <= rowCount; rowNumber++) {
@@ -300,7 +305,7 @@ export async function parseScheduleWorkbook(input: Buffer | Uint8Array): Promise
     const cells = [
       cellText(excelRow.getCell(COLUMN_CLASS_NAME + 1).value),
       cellText(excelRow.getCell(COLUMN_CLASS_TYPE + 1).value),
-      cellText(excelRow.getCell(COLUMN_CATEGORY + 1).value),
+      cellText(excelRow.getCell(COLUMN_HAS_MULTI_DISCOUNT + 1).value),
       cellText(excelRow.getCell(COLUMN_FIXED_FIVE + 1).value),
       cellText(excelRow.getCell(COLUMN_SKIP_DEDUCTION + 1).value),
       cellText(excelRow.getCell(COLUMN_TEACHER + 1).value),
@@ -319,24 +324,19 @@ export async function parseScheduleWorkbook(input: Buffer | Uint8Array): Promise
     }
 
     const rawClassType = cells[COLUMN_CLASS_TYPE].trim();
-    let classType: ClassType | 'non_care';
-    if (rawClassType === CLASS_TYPE_CARE_LABEL || rawClassType === 'care') {
-      classType = 'care';
-    } else if (rawClassType === CLASS_TYPE_NON_CARE_LABEL || rawClassType === 'non_care') {
-      classType = 'non_care';
-    } else {
+    const classType = CLASS_TYPE_LABELS_MAP[rawClassType];
+    if (!classType) {
       throw new ScheduleTableImportError(
-        `第 ${location} 列的「課程類型」請填「安親課輔班」或「非安親課輔班」。`,
+        `第 ${location} 列的「課程類型」請填「安親課輔班」、「美語班」、「數學班」、「其他班」或「不排課」。`,
         location
       );
     }
 
-    const category = parseCategoryCell(cells[COLUMN_CATEGORY], location);
+    const hasMultiDiscount = parseYesNoCell(cells[COLUMN_HAS_MULTI_DISCOUNT], location, '是否有多科折扣');
     const fixedFiveDays = parseYesNoCell(cells[COLUMN_FIXED_FIVE], location, '天數固定5天');
     const skipDeduction = parseYesNoCell(cells[COLUMN_SKIP_DEDUCTION], location, '不計扣天');
 
-    // #113 follow-up：不計扣天是**逐列**的，同班多列可各填各的 → 不列入一致性檢查。
-    // 只有仍為整班共用的屬性（課程類型、折扣類別、固定 5 天）必須一致；不一致代表檔案本身矛盾，不靜默取其一。
+    // 只有整班共用的屬性（課程類型、是否有多科折扣、固定 5 天）必須一致；不一致代表檔案本身矛盾，不靜默取其一。
     const existing = attrsByName.get(className);
     if (existing) {
       if (existing.classType !== classType) {
@@ -345,9 +345,9 @@ export async function parseScheduleWorkbook(input: Buffer | Uint8Array): Promise
           location
         );
       }
-      if (existing.category !== category) {
+      if (existing.hasMultiDiscount !== hasMultiDiscount) {
         throw new ScheduleTableImportError(
-          `班級「${className}」在不同列填了不同的折扣類別，請先讓它們一致再匯入。`,
+          `班級「${className}」在不同列填了不同的多科折扣設定，請先讓它們一致再匯入。`,
           location
         );
       }
@@ -358,15 +358,17 @@ export async function parseScheduleWorkbook(input: Buffer | Uint8Array): Promise
         );
       }
     } else {
-      attrsByName.set(className, { classType, category, fixedFiveDays });
+      attrsByName.set(className, { classType, hasMultiDiscount, fixedFiveDays });
     }
 
-    // specs/14 §3.6 & A11：跨類型欄位嚴格驗證
+    // specs/16 §3.6 & A11 & D61 Phase 2：跨類型欄位嚴格驗證
+    const rawWeekday = cells[COLUMN_WEEKDAY].trim();
+    const rawStart = cells[COLUMN_START].trim();
+    const rawEnd = cells[COLUMN_END].trim();
+    const hasTimeInput = rawWeekday !== '' || rawStart !== '' || rawEnd !== '';
+
     if (classType === 'care') {
-      const rawWeekday = cells[COLUMN_WEEKDAY].trim();
-      const rawStart = cells[COLUMN_START].trim();
-      const rawEnd = cells[COLUMN_END].trim();
-      if (rawWeekday !== '' || rawStart !== '' || rawEnd !== '') {
+      if (hasTimeInput) {
         throw new ScheduleTableImportError(
           `第 ${location} 列為安親課輔班，安親課輔班不輸入星期與上課時間，請留空。`,
           location
@@ -378,10 +380,36 @@ export async function parseScheduleWorkbook(input: Buffer | Uint8Array): Promise
           location
         );
       }
-    } else {
+    } else if (classType === 'english' || classType === 'math') {
       if (fixedFiveDays) {
         throw new ScheduleTableImportError(
-          `第 ${location} 列為非安親課輔班，非安親課輔班不適用「天數固定5天」，請填「否」。`,
+          `第 ${location} 列為${CLASS_TYPE_LABELS[classType]}，${CLASS_TYPE_LABELS[classType]}不適用「天數固定5天」，請填「否」。`,
+          location
+        );
+      }
+    } else if (classType === 'other') {
+      if (hasMultiDiscount) {
+        throw new ScheduleTableImportError(
+          `第 ${location} 列為其他班，其他班不適用「是否有多科折扣」，請填「否」。`,
+          location
+        );
+      }
+      if (fixedFiveDays) {
+        throw new ScheduleTableImportError(
+          `第 ${location} 列為其他班，其他班不適用「天數固定5天」，請填「否」。`,
+          location
+        );
+      }
+    } else if (classType === 'unscheduled') {
+      if (hasTimeInput) {
+        throw new ScheduleTableImportError(
+          `第 ${location} 列為不排課班級，不排課班級不輸入星期與上課時間，請留空。`,
+          location
+        );
+      }
+      if (hasMultiDiscount || fixedFiveDays || skipDeduction) {
+        throw new ScheduleTableImportError(
+          `第 ${location} 列為不排課班級，不排課班級不適用「是否有多科折扣」、「天數固定5天」或「不計扣天」，請填「否」。`,
           location
         );
       }
@@ -396,6 +424,8 @@ export async function parseScheduleWorkbook(input: Buffer | Uint8Array): Promise
       );
     }
 
+    const category = deriveEffectiveCategory(classType, hasMultiDiscount);
+
     rows.push({
       className,
       classType,
@@ -403,6 +433,7 @@ export async function parseScheduleWorkbook(input: Buffer | Uint8Array): Promise
       weekday: parseWeekdayCell(cells[COLUMN_WEEKDAY], location),
       startTime,
       endTime,
+      hasMultiSubjectDiscount: hasMultiDiscount,
       category,
       fixedFiveDays,
       skipDeduction,
@@ -416,8 +447,9 @@ export async function parseScheduleWorkbook(input: Buffer | Uint8Array): Promise
   const classAttrs: ScheduleImportResult['classAttrs'] = [...attrsByName.entries()].map(([className, a]) => ({
     className,
     classType: a.classType,
-    category: a.category,
-    categorySource: a.category === 'unset' ? ('unset' as const) : ('manual' as const),
+    hasMultiSubjectDiscount: a.hasMultiDiscount,
+    category: deriveEffectiveCategory(a.classType, a.hasMultiDiscount),
+    categorySource: 'manual' as const,
     fixedFiveDays: a.fixedFiveDays,
   }));
 

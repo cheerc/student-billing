@@ -478,4 +478,43 @@ describe('B1：存檔等價 draft——去掉不完整列與 rowId，結果與�
     expect(viaCalc.classes.filter((c) => c.anqin.status === 'incomplete' || c.tutoring.status === 'incomplete')).toEqual([]);
     expect(viaCalc.issues).toEqual([]);
   });
+
+  describe('D61 Phase 2：不排課（unscheduled）預覽專門狀態與空白星期不完整列', () => {
+    it('classType: "unscheduled" 回傳狀態 unscheduled，不發出 SCHEDULE_EMPTY 或 SCHEDULE_INCOMPLETE 問題', () => {
+      const draft = calcDraftOf([
+        calcCls('交通車-A', [], { classType: 'unscheduled' }),
+      ]);
+      const result = buildSchedulePreview(draft, 'erp-tag-v4');
+      expect(result.classes[0].anqin.status).toBe('unscheduled');
+      expect(result.classes[0].tutoring.status).toBe('unscheduled');
+      expect(result.rows[0].anqin.status).toBe('unscheduled');
+      expect(result.rows[0].tutoring.status).toBe('unscheduled');
+      expect(result.rows[0].durationMinutes).toBeNull();
+      expect(result.rows[0].anqin.overlapMinutes).toBeNull();
+      expect(result.issues).toEqual([]);
+    });
+
+    it('空白星期之不完整時間列：calculateSchedulePreview 正常計算 draftHash 不崩潰', () => {
+      const draft = calcDraftOf([
+        calcCls('兒童美語-測試', [
+          { rowId: 'r1', weekday: '', startMinutes: 840, endMinutes: 960, skipDeduction: false },
+        ], { classType: 'english' }),
+      ]);
+      // 驗證 buildSchedulePreview 產生 UNKNOWN_WEEKDAY 問題且班級狀態為 unknown_weekday
+      const result = buildSchedulePreview(draft, 'erp-tag-v4');
+      expect(result.issues).toEqual([
+        expect.objectContaining({ code: 'UNKNOWN_WEEKDAY', classKey: '兒童美語-測試' }),
+      ]);
+      expect(result.classes[0].anqin.status).toBe('unknown_weekday');
+
+      // 驗證 toSaveEquivalentDraft 過濾掉空白星期的完整時段，使其不進入 sessions
+      const savable = toSaveEquivalentDraft(draft);
+      expect(savable.classes[0].sessions).toEqual([]);
+      expect(savable.classes[0].incompleteSessions).toHaveLength(1);
+      expect(savable.classes[0].incompleteSessions![0].startMinutes).toBe(840);
+      expect(savable.classes[0].incompleteSessions![0].endMinutes).toBe(960);
+      // 驗證 SettingsDraftSchema.parse 能安全解析 savable，draftHash 不會拋錯
+      expect(() => SettingsDraftSchema.parse(savable)).not.toThrow();
+    });
+  });
 });
