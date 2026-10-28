@@ -20,14 +20,14 @@ describe('D61 Phase 3：YesNoRadioGroup 單選元件', () => {
     const htmlTrue = renderToStaticMarkup(
       <YesNoRadioGroup label="天數固定5天" name="fixed" value={true} />
     );
-    // 驗證「是」的 radio 帶有 checked 屬性
-    expect(htmlTrue).toMatch(/value="true"[^>]*checked/);
+    expect(htmlTrue).toContain('value="true"');
+    expect(htmlTrue).toMatch(/checked=""\s*value="true"/);
 
     const htmlFalse = renderToStaticMarkup(
       <YesNoRadioGroup label="天數固定5天" name="fixed" value={false} />
     );
-    // 驗證「否」的 radio 帶有 checked 屬性
-    expect(htmlFalse).toMatch(/value="false"[^>]*checked/);
+    expect(htmlFalse).toContain('value="false"');
+    expect(htmlFalse).toMatch(/checked=""\s*value="false"/);
   });
 
   it('disabled=true 時兩個選項皆帶有 disabled 屬性', () => {

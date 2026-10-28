@@ -29,19 +29,21 @@ test.describe('Issue #157 PR-2：從課表頁設定 roster-only 班級', () => {
     const className = form.locator('input[type="text"]').first();
     await expect(className).toHaveValue(ROSTER_ONLY_CLASS);
 
-    // 課程類型由使用者透過既有新增表單決定；不由「國小數學」字樣推導。
-    await form.getByLabel('新增班級課程類型').selectOption('non_care');
+    // D61：新增表單直接選擇「數學班」，支援五種類型精確建立
+    await form.getByLabel('新增班級課程類型').selectOption('math');
     await form.getByRole('button', { name: '確認新增' }).click();
 
-    const category = page.locator(`[data-category-select="${ROSTER_ONLY_CLASS}"]`).first();
-    await expect(category).toHaveValue('unset');
-    await category.selectOption('math');
     await expect(page.locator('.save-status-dirty')).toBeVisible();
 
     await saveSettings(page);
     await reloadSettings(page);
 
-    await expect(page.locator(`[data-category-select="${ROSTER_ONLY_CLASS}"]`).first()).toHaveValue('math');
+    await page.locator('#class-type-tab-math').click();
+    await expect(
+      page.locator('table.schedule-table-math tr.schedule-row', {
+        has: page.locator(`input[value="${ROSTER_ONLY_CLASS}"]`),
+      })
+    ).toBeVisible();
     await expect(
       page.getByRole('region', { name: '名單中尚未加入課表設定的班級' })
         .locator(`[data-roster-only-class="${ROSTER_ONLY_CLASS}"]`)

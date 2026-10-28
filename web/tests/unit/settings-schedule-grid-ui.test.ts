@@ -79,6 +79,7 @@ describe('R2 UI 元件與排課工作流程（RED 測試）', () => {
       const html = renderToStaticMarkup(
         React.createElement(ScheduleGrid, {
           rows: seedRows,
+          initialClassTypeTab: 'english',
           onUpdateRow: () => {},
           onDeleteRow: () => {},
           onAddRow: () => {},
@@ -108,6 +109,7 @@ describe('R2 UI 元件與排課工作流程（RED 測試）', () => {
       const html = renderToStaticMarkup(
         React.createElement(ScheduleGrid, {
           rows: buildSeedGridRows(),
+          initialClassTypeTab: 'english',
           onUpdateRow: () => {},
           onDeleteRow: () => {},
           onAddRow: () => {},
@@ -211,14 +213,11 @@ describe('R2 UI 元件與排課工作流程（RED 測試）', () => {
         })
       );
 
-      // #82：不再顯示「待補」badge，改為平靜的「—」＋ aria-label「未設定時間」
-      expect(html).not.toContain('待補');
-      expect(html).not.toContain('badge-incomplete');
-      // 5 個計算欄位（時長 + 安親×2 + 課輔×2）
-      // 五個計算欄各有可聚焦的「未設定時間」說明按鈕（不是只靠 title 的 hover）
-      expect(html.match(/aria-label="未設定時間"/g)?.length).toBe(5);
-      expect(html).not.toContain('title="未設定時間"');
-      expect(html).toMatch(/<button[^>]*aria-label="未設定時間"/);
+      // D61 1c：取代舊 #82 低調破折號，未填完整時間之列渲染高對比「待補時間」徽章與色框
+      expect(html).toContain('badge-incomplete');
+      expect(html).toContain('待補時間');
+      expect(html).toContain('row-incomplete');
+      expect(html).toContain('input-missing');
     });
   });
 

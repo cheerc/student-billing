@@ -118,7 +118,14 @@ test.describe('R5 文案全頁掃描（09 §7）', () => {
     await expect(page.locator('h1', { hasText: '課表設定' })).toBeVisible({ timeout: 10000 });
     await scan(page, '課表設定｜課表頁籤（空 DB）', violations);
 
-    // 課表警告態（批次 C）：非法星期、空白星期、計算失敗、離頁確認——使用者改課表時實際會看到的畫面
+    const ensureEnglishTab = async () => {
+      if ((await page.locator('#class-type-tab-care').getAttribute('aria-selected')) === 'true') {
+        await page.locator('#class-type-tab-english').click();
+      }
+    };
+
+    // 課表警告態（批次 C & D61）：切換至排課頁籤測試非法星期、空白星期、計算失敗、離頁確認
+    await ensureEnglishTab();
     const row3 = page.locator('.schedule-table tbody tr').nth(3);
     const cancelEdits = async () => {
       await page.locator('button', { hasText: '取消修改' }).click();
@@ -151,18 +158,15 @@ test.describe('R5 文案全頁掃描（09 §7）', () => {
     await expect(page.locator('[data-schedule-import-error]')).toBeVisible({ timeout: 10000 });
     await scan(page, '課表設定｜課表 Excel 匯入失敗（整批拒絕）', violations);
 
-    // #82／#80（本 PR 新增的畫面狀態）：「未設定時間」說明按鈕（focus 才開 tooltip，
-    // 內容不得含工程字）
-    // #157：「自動設定」／「未手動修改」兩處文案已隨 Ruling 4 拆除，課表操作欄不再有它們。
+    // #82 & D61 1c：未填時間顯示高對比「待補時間」徽章（內容不得含工程字）
     await page.reload();
     await expect(page.locator('h1', { hasText: '課表設定' })).toBeVisible({ timeout: 10000 });
-    const notSetTip = page.getByRole('button', { name: '未設定時間' }).first();
-    await notSetTip.focus();
-    await expect(page.getByRole('tooltip')).toBeVisible({ timeout: 10000 });
+    await page.locator('#class-type-tab-math').click();
+    const notSetBadge = page.locator('.badge-incomplete').first();
+    await expect(notSetBadge).toBeVisible({ timeout: 10000 });
     await scan(page, '課表設定｜未設定時間說明（tooltip）', violations);
-    await page.keyboard.press('Escape');
 
-    await row3.locator('input.input-time').first().fill('14:20');
+    await page.locator('.schedule-table tbody tr input.input-time').first().fill('14:20');
     await sideLink(page, /匯入學生/).click();
     const leave = page.getByRole('dialog', { name: '有尚未儲存的課表修改' });
     await expect(leave).toBeVisible({ timeout: 10000 });
@@ -175,7 +179,8 @@ test.describe('R5 文案全頁掃描（09 §7）', () => {
     await scan(page, '課表設定｜班名對應頁籤（尚未匯入）', violations);
     await page.locator('button', { hasText: /^課表/ }).first().click();
 
-    await page.locator('input.input-time').first().fill('13:30');
+    await page.locator('#class-type-tab-english').click();
+    await page.locator('.schedule-table tbody tr input.input-time').first().fill('13:30');
     await page.locator('button', { hasText: '確認變更' }).click();
     await expect(page.locator('dialog.impact-dialog')).toBeVisible({ timeout: 15000 });
     await scan(page, '課表設定｜確認變更視窗（只有課表）', violations);
@@ -360,6 +365,7 @@ test.describe('R5 文案全頁掃描（09 §7）', () => {
         }),
       })
     );
+    await ensureEnglishTab();
     await page.locator('.schedule-table tbody tr').nth(3).locator('input.input-time').first().fill('14:40');
     await page.locator('button', { hasText: '確認變更' }).click();
     await expect(page.locator('dialog.impact-dialog')).toBeVisible({ timeout: 15000 });
@@ -377,6 +383,7 @@ test.describe('R5 文案全頁掃描（09 §7）', () => {
         body: JSON.stringify({ error: '版本衝突：目前 revision 為 3，請求為 2', code: 'REVISION_CONFLICT' }),
       })
     );
+    await ensureEnglishTab();
     await page.locator('.schedule-table tbody tr').nth(3).locator('input.input-time').first().fill('14:30');
     await page.locator('button', { hasText: '確認變更' }).click();
     await expect(page.locator('dialog.impact-dialog [data-dialog-error]')).toBeVisible({ timeout: 15000 });
@@ -385,13 +392,22 @@ test.describe('R5 文案全頁掃描（09 §7）', () => {
     await page.keyboard.press('Escape');
     await cancelEdits();
 
-    // 空白星期：預覽回 400（真實伺服器行為）
-    await page.locator('.schedule-table tbody tr').nth(3).locator('input.input-weekday').fill('');
-    await page.waitForTimeout(500);
+    // 預覽失敗態（D39 錯誤代碼與白話文案掃描）
+    await page.route('**/api/v1/settings/preview', (route) =>
+      route.fulfill({
+        status: 400,
+        contentType: 'application/json',
+        body: JSON.stringify({ error: '無法預覽此變更：設定格式不正確', code: 'INVALID_DRAFT' }),
+      })
+    );
+    await ensureEnglishTab();
+    await page.locator('.schedule-table tbody tr input.input-time').first().fill('14:50');
     await page.locator('button', { hasText: '確認變更' }).click();
     await expect(page.locator('dialog.impact-dialog [data-dialog-error]')).toBeVisible({ timeout: 15000 });
     await scan(page, '課表設定｜確認變更視窗（空白星期，預覽失敗）', violations);
+    await page.unroute('**/api/v1/settings/preview');
     await page.keyboard.press('Escape');
+    await cancelEdits();
 
     // 涵蓋的頁面狀態數（新增狀態時同步調整；少了代表有狀態被略過）
     expect(new Set(scanned).size).toBe(EXPECTED_STATES);

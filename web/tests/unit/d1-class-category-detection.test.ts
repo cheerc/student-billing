@@ -170,7 +170,7 @@ describe('class-category 純函式架構約束', () => {
     }
     // R2-4: 接線後的精確 importers 斷言，防止無授權依賴漫延。
     // Round3 PR-1（spike §B4）：異動明細（roster-changes.ts）也讀取此模組，讓 before 側與 run 端**同源**解析類別。
-    // #80：屬性欄併入 schedule-grid.tsx（取代已刪除的 class-attributes-panel.tsx）。
+    // D61：schedule-grid.tsx 廢除五態下拉改為是／否單選後，不再依賴 class-category。
     // #81：Excel 匯入把白話標籤對回內部類別值（含 #157 的「（未設定）」）。
     // #157：`domain/billing/discount-rules.ts` 的科數計算也吃這個值域的型別。
     // #148：主畫面摘要與名冊讀取依固定類別契約處理 v4 semantics。
@@ -180,7 +180,6 @@ describe('class-category 純函式架構約束', () => {
       'application/roster-changes.ts',
       'application/roster-query.ts',
       'components/settings-editor.tsx',
-      'components/settings/schedule-grid.tsx',
       'contracts/settings.ts',
       'domain/billing/billing-calculator.ts',
       'domain/billing/discount-rules.ts',
