@@ -149,6 +149,11 @@ export default function ActiveRunView({
   const [deductionFilters, setDeductionFilters] = useState<DeductionFilters>(restored.deductionFilters);
   const [searchQuery, setSearchQuery] = useState('');
   const [appliedQ, setAppliedQ] = useState('');
+  const [isHydrated, setIsHydrated] = useState(false);
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setIsHydrated(true);
+  }, []);
   const [prunedNotice, setPrunedNotice] = useState(restored.pruned.length ? restored.pruned : initialNotices?.pruned ?? []);
   const [invalidNotice, setInvalidNotice] = useState(restored.invalid || Boolean(initialNotices?.invalid));
   const [applicableRemoved, setApplicableRemoved] = useState(false);
@@ -550,7 +555,7 @@ export default function ActiveRunView({
   })();
 
   return (
-    <div className="results-page">
+    <div className="results-page" data-hydrated={isHydrated ? 'true' : 'false'}>
       {/* 資料來源橫幅（09 §2：來源時間／檔名一行，核對基準日另外標明）。 */}
       <section
         className="data-banner data-banner-current"
