@@ -80,6 +80,7 @@ const CATEGORY_BY_LABEL: Record<string, ClassCategory> = {
 export interface ScheduleExportClassAttr {
   className: string;
   classType?: ClassType | 'non_care';
+  hasMultiSubjectDiscount?: boolean;
   category: ClassCategory;
   categorySource?: WritableCategorySource;
   fixedFiveDays: boolean;
@@ -95,6 +96,7 @@ export interface ScheduleImportRow {
   weekday: string;
   startTime: string;
   endTime: string;
+  hasMultiSubjectDiscount?: boolean;
   category: ClassCategory;
   fixedFiveDays: boolean;
   skipDeduction: boolean;
@@ -107,6 +109,7 @@ export interface ScheduleImportResult {
   classAttrs: Array<{
     className: string;
     classType: ClassType | 'non_care';
+    hasMultiSubjectDiscount?: boolean;
     category: ClassCategory;
     categorySource: WritableCategorySource;
     fixedFiveDays: boolean;

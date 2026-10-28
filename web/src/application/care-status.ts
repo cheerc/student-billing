@@ -14,10 +14,11 @@ export type CareStatus =
   | 'missing_time' // 列：起訖不完整（缺起／缺迄／迄≤起）；班級（無任何列）：沒有時段（待補）
   | 'incomplete' // 班級層：含不完整列。扣天只統計完整列，不顯示成 calculated
   | 'shared_window' // 安親課輔班（specs/14 §3.7，不計時段），本身沒有 session，不捏造
+  | 'unscheduled' // 不排課班級（D61 Phase 2，不計時段），本身沒有 session，不捏造
   | 'inactive'; // 班級停用，不計算
 
 /**
- * 整班優先序（數字小者優先顯示）：停用／安親課輔班（班級層旗標）＞ 未知／不完整（不可信，需人處理）＞ 已計算 ＞ 無重疊。
+ * 整班優先序（數字小者優先顯示）：停用／安親課輔班／不排課（班級層旗標）＞ 未知／不完整（不可信，需人處理）＞ 已計算 ＞ 無重疊。
  * 「未知／不完整」三種（incomplete、missing_time、unknown_weekday）同一層級，不分先後——實務上兩側會是同一種，
  * 兩側不同時取第一個引數（安親側）。
  *
@@ -28,6 +29,7 @@ export type CareStatus =
 const CARE_STATUS_RANK: Record<CareStatus, number> = {
   inactive: 0,
   shared_window: 1,
+  unscheduled: 1,
   incomplete: 2,
   missing_time: 2,
   unknown_weekday: 2,

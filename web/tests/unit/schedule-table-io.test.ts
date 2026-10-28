@@ -788,4 +788,225 @@ describe('#81：課表 Excel 全量匯出／匯入', () => {
       careWindows: CARE_WINDOWS,
     }).success).toBe(true);
   });
+
+  describe('D61 Phase 2：五種課程類型、是/否單選與 Excel 9 欄匯出入契約', () => {
+    it('SCHEDULE_TABLE_HEADERS 包含「是否有多科折扣」且共 9 欄', () => {
+      expect(SCHEDULE_TABLE_HEADERS).toEqual([
+        '班級名稱',
+        '課程類型',
+        '是否有多科折扣',
+        '天數固定5天',
+        '不計扣天',
+        '帶班老師',
+        '星期',
+        '開始時間',
+        '結束時間',
+      ]);
+    });
+
+    it('五種班級類型與屬性 100% 無損往返（含待補時間列）', async () => {
+      const rows: ScheduleGridRow[] = [
+        {
+          rowId: 'r-1',
+          className: '國小輔導-低年級',
+          teacher: '王老師',
+          weekday: '',
+          startTime: '',
+          endTime: '',
+          startMinutes: null,
+          endMinutes: null,
+          active: true,
+          skipDeduction: false,
+        },
+        {
+          rowId: 'r-2',
+          className: '兒童美語-進階',
+          teacher: 'John',
+          weekday: '二',
+          startTime: '16:40',
+          endTime: '18:10',
+          startMinutes: 1000,
+          endMinutes: 1090,
+          active: true,
+          skipDeduction: false,
+        },
+        {
+          rowId: 'r-3',
+          className: '兒童美語-進階',
+          teacher: 'John',
+          weekday: '',
+          startTime: '',
+          endTime: '',
+          startMinutes: null,
+          endMinutes: null,
+          active: true,
+          skipDeduction: false,
+        },
+        {
+          rowId: 'r-4',
+          className: '國小數學-競賽',
+          teacher: '李老師',
+          weekday: '四',
+          startTime: '17:00',
+          endTime: '18:30',
+          startMinutes: 1020,
+          endMinutes: 1110,
+          active: true,
+          skipDeduction: false,
+        },
+        {
+          rowId: 'r-5',
+          className: '平日作文-初階',
+          teacher: '張老師',
+          weekday: '三',
+          startTime: '17:00',
+          endTime: '19:00',
+          startMinutes: 1020,
+          endMinutes: 1140,
+          active: true,
+          skipDeduction: true,
+        },
+        {
+          rowId: 'r-6',
+          className: '下午交通車',
+          teacher: '司機陳',
+          weekday: '',
+          startTime: '',
+          endTime: '',
+          startMinutes: null,
+          endMinutes: null,
+          active: true,
+          skipDeduction: false,
+        },
+      ];
+
+      const attrs: ScheduleExportClassAttr[] = [
+        { className: '國小輔導-低年級', classType: 'care', hasMultiSubjectDiscount: true, fixedFiveDays: true, category: 'care' },
+        { className: '兒童美語-進階', classType: 'english', hasMultiSubjectDiscount: true, fixedFiveDays: false, category: 'english' },
+        { className: '國小數學-競賽', classType: 'math', hasMultiSubjectDiscount: false, fixedFiveDays: false, category: 'none' },
+        { className: '平日作文-初階', classType: 'other', hasMultiSubjectDiscount: false, fixedFiveDays: false, category: 'none' },
+        { className: '下午交通車', classType: 'unscheduled', hasMultiSubjectDiscount: false, fixedFiveDays: false, category: 'none' },
+      ];
+
+      const buffer = await buildScheduleWorkbook(rows, attrs);
+      const parsed = await parseScheduleWorkbook(buffer);
+
+      expect(parsed.rows).toHaveLength(6);
+      expect(parsed.classAttrs).toHaveLength(5);
+
+      const byName = new Map(parsed.classAttrs.map((a) => [a.className, a]));
+      expect(byName.get('國小輔導-低年級')).toMatchObject({
+        classType: 'care',
+        hasMultiSubjectDiscount: true,
+        fixedFiveDays: true,
+      });
+      expect(byName.get('兒童美語-進階')).toMatchObject({
+        classType: 'english',
+        hasMultiSubjectDiscount: true,
+        fixedFiveDays: false,
+      });
+      expect(byName.get('國小數學-競賽')).toMatchObject({
+        classType: 'math',
+        hasMultiSubjectDiscount: false,
+        fixedFiveDays: false,
+      });
+      expect(byName.get('平日作文-初階')).toMatchObject({
+        classType: 'other',
+        hasMultiSubjectDiscount: false,
+        fixedFiveDays: false,
+      });
+      expect(byName.get('下午交通車')).toMatchObject({
+        classType: 'unscheduled',
+        hasMultiSubjectDiscount: false,
+        fixedFiveDays: false,
+      });
+
+      // 檢查時段列 skipDeduction
+      const rOther = parsed.rows.find((r) => r.className === '平日作文-初階')!;
+      expect(rOther.skipDeduction).toBe(true);
+      const rCare = parsed.rows.find((r) => r.className === '國小輔導-低年級')!;
+      expect(rCare.skipDeduction).toBe(false);
+      expect(rCare.startTime).toBe('');
+      expect(rCare.endTime).toBe('');
+    });
+
+    describe('跨欄位防呆嚴格拒絕', () => {
+      it('其他班：填「是否有多科折扣 = 是」或「天數固定5天 = 是」整批拒絕', async () => {
+        const buf1 = await makeWorkbook(
+          ['班級名稱', '課程類型', '是否有多科折扣', '天數固定5天', '不計扣天', '帶班老師', '星期', '開始時間', '結束時間'],
+          [['作文A', '其他班', '是', '否', '是', '陳老師', '三', '17:00', '18:30']]
+        );
+        await expect(parseScheduleWorkbook(buf1)).rejects.toThrow(ScheduleTableImportError);
+        await expect(parseScheduleWorkbook(buf1)).rejects.toThrow('其他班不適用「是否有多科折扣」');
+
+        const buf2 = await makeWorkbook(
+          ['班級名稱', '課程類型', '是否有多科折扣', '天數固定5天', '不計扣天', '帶班老師', '星期', '開始時間', '結束時間'],
+          [['作文B', '其他班', '否', '是', '是', '陳老師', '三', '17:00', '18:30']]
+        );
+        await expect(parseScheduleWorkbook(buf2)).rejects.toThrow(ScheduleTableImportError);
+        await expect(parseScheduleWorkbook(buf2)).rejects.toThrow('其他班不適用「天數固定5天」');
+      });
+
+      it('不排課：填寫星期／起迄時間，或三個開關任一填「是」整批拒絕', async () => {
+        const bufTime = await makeWorkbook(
+          ['班級名稱', '課程類型', '是否有多科折扣', '天數固定5天', '不計扣天', '帶班老師', '星期', '開始時間', '結束時間'],
+          [['車車', '不排課', '否', '否', '否', '司機', '一', '16:00', '17:00']]
+        );
+        await expect(parseScheduleWorkbook(bufTime)).rejects.toThrow(ScheduleTableImportError);
+        await expect(parseScheduleWorkbook(bufTime)).rejects.toThrow('不排課班級不輸入星期與上課時間');
+
+        const bufFlag = await makeWorkbook(
+          ['班級名稱', '課程類型', '是否有多科折扣', '天數固定5天', '不計扣天', '帶班老師', '星期', '開始時間', '結束時間'],
+          [['車車', '不排課', '是', '否', '否', '司機', '', '', '']]
+        );
+        await expect(parseScheduleWorkbook(bufFlag)).rejects.toThrow(ScheduleTableImportError);
+        await expect(parseScheduleWorkbook(bufFlag)).rejects.toThrow('不適用');
+      });
+
+      it('安親課輔班：填寫時間或「不計扣天 = 是」整批拒絕', async () => {
+        const buf = await makeWorkbook(
+          ['班級名稱', '課程類型', '是否有多科折扣', '天數固定5天', '不計扣天', '帶班老師', '星期', '開始時間', '結束時間'],
+          [['安親一', '安親課輔班', '是', '否', '是', '王老師', '', '', '']]
+        );
+        await expect(parseScheduleWorkbook(buf)).rejects.toThrow(ScheduleTableImportError);
+        await expect(parseScheduleWorkbook(buf)).rejects.toThrow('安親課輔班不適用「不計扣天」');
+      });
+
+      it('美語班／數學班：填「天數固定5天 = 是」整批拒絕', async () => {
+        const buf = await makeWorkbook(
+          ['班級名稱', '課程類型', '是否有多科折扣', '天數固定5天', '不計扣天', '帶班老師', '星期', '開始時間', '結束時間'],
+          [['美語一', '美語班', '是', '是', '否', 'John', '一', '17:00', '18:30']]
+        );
+        await expect(parseScheduleWorkbook(buf)).rejects.toThrow(ScheduleTableImportError);
+        await expect(parseScheduleWorkbook(buf)).rejects.toThrow('不適用「天數固定5天」');
+      });
+
+      it('舊表頭或舊值（如「（未設定）」）整批拒絕', async () => {
+        const oldHeaders = [
+          '班級名稱',
+          '課程類型',
+          '列入多科折扣',
+          '天數固定5天',
+          '不計扣天',
+          '帶班老師',
+          '星期',
+          '開始時間',
+          '結束時間',
+        ];
+        const bufOldHeader = await makeWorkbook(
+          oldHeaders,
+          [['美語一', '美語班', '美語班', '否', '否', 'John', '一', '17:00', '18:30']]
+        );
+        await expect(parseScheduleWorkbook(bufOldHeader)).rejects.toThrow(ScheduleTableImportError);
+        await expect(parseScheduleWorkbook(bufOldHeader)).rejects.toThrow('缺少：是否有多科折扣');
+
+        const bufUnset = await makeWorkbook(
+          ['班級名稱', '課程類型', '是否有多科折扣', '天數固定5天', '不計扣天', '帶班老師', '星期', '開始時間', '結束時間'],
+          [['美語一', '美語班', '（未設定）', '否', '否', 'John', '一', '17:00', '18:30']]
+        );
+        await expect(parseScheduleWorkbook(bufUnset)).rejects.toThrow(ScheduleTableImportError);
+        await expect(parseScheduleWorkbook(bufUnset)).rejects.toThrow('請填「是」或「否」');
+      });
+    });
+  });
 });

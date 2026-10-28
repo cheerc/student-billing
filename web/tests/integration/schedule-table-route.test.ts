@@ -400,4 +400,133 @@ describe('PR #85 G1：課表 Excel route POST handler 防護分支', () => {
       expect(headers).toEqual([...SCHEDULE_TABLE_HEADERS]);
     });
   });
+
+  describe('D61 Phase 2：五種課程類型、是/否單選與 Excel 9 欄匯出入契約', () => {
+    it('mode=export 與 mode=import 完整支援五種類型與 hasMultiSubjectDiscount', async () => {
+      const rows: ScheduleGridRow[] = [
+        {
+          rowId: 'r-care',
+          className: '國小輔導-四年級',
+          teacher: '王老師',
+          weekday: '',
+          startTime: '',
+          endTime: '',
+          startMinutes: null,
+          endMinutes: null,
+          active: true,
+          skipDeduction: false,
+        },
+        {
+          rowId: 'r-eng',
+          className: '兒童美語-初階',
+          teacher: 'Mary',
+          weekday: '一',
+          startTime: '15:20',
+          endTime: '16:50',
+          startMinutes: 920,
+          endMinutes: 1010,
+          active: true,
+          skipDeduction: false,
+        },
+        {
+          rowId: 'r-math',
+          className: '國小數學-特訓',
+          teacher: '李老師',
+          weekday: '三',
+          startTime: '16:40',
+          endTime: '18:10',
+          startMinutes: 1000,
+          endMinutes: 1090,
+          active: true,
+          skipDeduction: false,
+        },
+        {
+          rowId: 'r-other',
+          className: '小六加強班-語文',
+          teacher: '陳老師',
+          weekday: '五',
+          startTime: '17:00',
+          endTime: '18:30',
+          startMinutes: 1020,
+          endMinutes: 1110,
+          active: true,
+          skipDeduction: true,
+        },
+        {
+          rowId: 'r-unsch',
+          className: '交通車-下午',
+          teacher: '司機林',
+          weekday: '',
+          startTime: '',
+          endTime: '',
+          startMinutes: null,
+          endMinutes: null,
+          active: true,
+          skipDeduction: false,
+        },
+      ];
+
+      const classAttrs = [
+        { className: '國小輔導-四年級', classType: 'care', hasMultiSubjectDiscount: true, fixedFiveDays: true, category: 'care' as const },
+        { className: '兒童美語-初階', classType: 'english', hasMultiSubjectDiscount: true, fixedFiveDays: false, category: 'english' as const },
+        { className: '國小數學-特訓', classType: 'math', hasMultiSubjectDiscount: false, fixedFiveDays: false, category: 'none' as const },
+        { className: '小六加強班-語文', classType: 'other', hasMultiSubjectDiscount: false, fixedFiveDays: false, category: 'none' as const },
+        { className: '交通車-下午', classType: 'unscheduled', hasMultiSubjectDiscount: false, fixedFiveDays: false, category: 'none' as const },
+      ];
+
+      const exportForm = new FormData();
+      exportForm.set('mode', 'export');
+      exportForm.set('payload', JSON.stringify({ rows, classAttrs }));
+      const exported = await postForm(exportForm);
+      expect(exported.status).toBe(200);
+
+      const importForm = new FormData();
+      importForm.set('mode', 'import');
+      importForm.set('file', new File([Buffer.from(await exported.arrayBuffer())], 'schedule.xlsx'));
+      const res = await postForm(importForm);
+      expect(res.status).toBe(200);
+
+      const body = (await res.json()) as {
+        rows: Array<Record<string, unknown>>;
+        classAttrs: Array<Record<string, unknown>>;
+      };
+
+      expect(body.rows).toHaveLength(5);
+      expect(body.classAttrs).toHaveLength(5);
+
+      const unschAttr = body.classAttrs.find((a) => a.className === '交通車-下午');
+      expect(unschAttr).toMatchObject({
+        classType: 'unscheduled',
+        hasMultiSubjectDiscount: false,
+      });
+
+      const mathAttr = body.classAttrs.find((a) => a.className === '國小數學-特訓');
+      expect(mathAttr).toMatchObject({
+        classType: 'math',
+        hasMultiSubjectDiscount: false,
+      });
+
+      const otherAttr = body.classAttrs.find((a) => a.className === '小六加強班-語文');
+      expect(otherAttr).toMatchObject({
+        classType: 'other',
+        hasMultiSubjectDiscount: false,
+      });
+    });
+
+    it('mode=import 匯入違規檔案（如其他班填多科折扣=是）回傳 400 INVALID_SCHEDULE_TABLE', async () => {
+      const buf = await makeForeignWorkbook(
+        ['班級名稱', '課程類型', '是否有多科折扣', '天數固定5天', '不計扣天', '帶班老師', '星期', '開始時間', '結束時間'],
+        [['小六加強', '其他班', '是', '否', '是', '王老師', '一', '16:00', '17:00']]
+      );
+      const form = new FormData();
+      form.set('mode', 'import');
+      form.set('file', new File([new Uint8Array(buf)], 'invalid.xlsx'));
+
+      const res = await postForm(form);
+      expect(res.status).toBe(400);
+      expect(await codeOf(res)).toBe('INVALID_SCHEDULE_TABLE');
+      const body = await res.json();
+      expect(body.error).toContain('其他班不適用「是否有多科折扣」');
+    });
+  });
 });
