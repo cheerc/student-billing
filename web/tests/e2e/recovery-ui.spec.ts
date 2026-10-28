@@ -66,12 +66,16 @@ async function activateFromPreview(page: import('@playwright/test').Page) {
   await expect(page.getByText(/\d+ 位學生資料已備妥/)).toBeVisible({ timeout: 15000 });
   await page.locator('a', { hasText: '前往核對結果' }).click();
   await expect(page.locator('.data-banner-current', { hasText: '目前使用的資料' })).toBeVisible({ timeout: 15000 });
+  await expect(page.locator('.results-page[data-hydrated="true"]')).toBeVisible({ timeout: 15000 });
 }
 
 /** 已在結果頁則直接返回（冪等）。 */
 async function ensureActivated(page: import('@playwright/test').Page) {
   await page.goto('/');
-  if ((await page.locator('.data-banner-current', { hasText: '目前使用的資料' }).count()) > 0) return;
+  if ((await page.locator('.data-banner-current', { hasText: '目前使用的資料' }).count()) > 0) {
+    await expect(page.locator('.results-page[data-hydrated="true"]')).toBeVisible({ timeout: 15000 });
+    return;
+  }
   await uploadAndPreview(page);
   await activateFromPreview(page);
 }
@@ -195,6 +199,7 @@ test.describe('R4 重寫：T06 故障恢復與歷程查閱 E2E 驗收', () => {
     expect(full).toBe(FIXTURE_TOTAL_STUDENTS);
 
     // 施加篩選後人數收斂
+    await expect(page.locator('.results-page[data-hydrated="true"]')).toBeVisible({ timeout: 15000 });
     const search = page.locator('input[placeholder*="搜尋"]').first();
     await search.fill('STU0001');
     await expect(counts.locator('[data-count="matched"]')).not.toHaveText(String(full));
