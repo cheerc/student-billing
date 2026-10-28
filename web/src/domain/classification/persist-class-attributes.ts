@@ -4,6 +4,7 @@ import type { CategorySource, ClassCategory, WritableCategorySource } from './cl
 /** Read-side attributes accepted by the draft writer, including legacy values that must be dropped. */
 export interface ClassAttributesForDraft {
   classType?: ClassType;
+  hasMultiSubjectDiscount?: boolean;
   category?: ClassCategory;
   categorySource?: CategorySource;
   fixedFiveDays?: boolean;
@@ -12,6 +13,7 @@ export interface ClassAttributesForDraft {
 /** The only category sources new settings drafts may contain. */
 export interface PersistedClassAttributes {
   classType?: ClassType;
+  hasMultiSubjectDiscount?: boolean;
   category?: ClassCategory;
   categorySource?: WritableCategorySource;
   fixedFiveDays?: boolean;
@@ -23,7 +25,7 @@ export interface PersistedClassAttributes {
  * - manual keeps the explicit user choice;
  * - unset always writes the explicit unset marker, so a later seed fallback cannot restore it;
  * - seed and legacy auto are read compatibility only and are omitted;
- * - fixedFiveDays remains an explicit boolean, including false.
+ * - fixedFiveDays and hasMultiSubjectDiscount remain explicit booleans when provided.
  */
 export function persistClassAttributes(attributes: ClassAttributesForDraft): PersistedClassAttributes {
   const categoryFields: Pick<PersistedClassAttributes, 'category' | 'categorySource'> =
@@ -36,6 +38,9 @@ export function persistClassAttributes(attributes: ClassAttributesForDraft): Per
 
   return {
     ...(attributes.classType !== undefined ? { classType: attributes.classType } : {}),
+    ...(attributes.hasMultiSubjectDiscount !== undefined
+      ? { hasMultiSubjectDiscount: attributes.hasMultiSubjectDiscount }
+      : {}),
     ...categoryFields,
     ...(attributes.fixedFiveDays !== undefined ? { fixedFiveDays: attributes.fixedFiveDays } : {}),
   };

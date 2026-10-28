@@ -79,7 +79,7 @@ const CATEGORY_BY_LABEL: Record<string, ClassCategory> = {
 /** 匯出時每個班級的**有效**屬性（編輯器已解析使用者的指定與未設定；這裡不再重算一次）。 */
 export interface ScheduleExportClassAttr {
   className: string;
-  classType?: ClassType;
+  classType?: ClassType | 'non_care';
   category: ClassCategory;
   categorySource?: WritableCategorySource;
   fixedFiveDays: boolean;
@@ -90,7 +90,7 @@ export interface ScheduleExportClassAttr {
  *  仍須整班一致，由解析層驗證）。 */
 export interface ScheduleImportRow {
   className: string;
-  classType: ClassType;
+  classType: ClassType | 'non_care';
   teacher: string | null;
   weekday: string;
   startTime: string;
@@ -106,7 +106,7 @@ export interface ScheduleImportResult {
   /** 匯入明確類別為 manual；「（未設定）」保留 unset，不得升格為使用者指定。 */
   classAttrs: Array<{
     className: string;
-    classType: ClassType;
+    classType: ClassType | 'non_care';
     category: ClassCategory;
     categorySource: WritableCategorySource;
     fixedFiveDays: boolean;
@@ -292,7 +292,7 @@ export async function parseScheduleWorkbook(input: Buffer | Uint8Array): Promise
   }
 
   const rows: ScheduleImportRow[] = [];
-  const attrsByName = new Map<string, { classType: ClassType; category: ClassCategory; fixedFiveDays: boolean }>();
+  const attrsByName = new Map<string, { classType: ClassType | 'non_care'; category: ClassCategory; fixedFiveDays: boolean }>();
   const rowCount = sheet.rowCount;
 
   for (let rowNumber = 2; rowNumber <= rowCount; rowNumber++) {
@@ -319,7 +319,7 @@ export async function parseScheduleWorkbook(input: Buffer | Uint8Array): Promise
     }
 
     const rawClassType = cells[COLUMN_CLASS_TYPE].trim();
-    let classType: ClassType;
+    let classType: ClassType | 'non_care';
     if (rawClassType === CLASS_TYPE_CARE_LABEL || rawClassType === 'care') {
       classType = 'care';
     } else if (rawClassType === CLASS_TYPE_NON_CARE_LABEL || rawClassType === 'non_care') {

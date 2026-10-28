@@ -73,6 +73,12 @@ describe('UX18：全量 seed 預設草稿的計算值與改動前 golden 逐班�
         const c = byKey.get(name);
         expect(c, `${name} 存在於讀模型`).toBeDefined();
         for (const t of ['anqin', 'tutoring'] as const) {
+          // D61 Option A: 小六加強班-數學 歸入 other 且預設 skipDeduction=true（不計扣天），故可扣除分鐘與實扣為 0
+          if (name === '小六加強班-數學') {
+            expect(c![t].totalOverlapMinutes, `${v} ${name} ${t} 分鐘`).toBe(0);
+            expect(c![t].rounded, `${v} ${name} ${t} 實扣`).toBe(0);
+            continue;
+          }
           expect(c![t].totalOverlapMinutes, `${v} ${name} ${t} 分鐘`).toBe(exp[t].totalOverlapMinutes);
           near(c![t].raw, exp[t].raw, `${v} ${name} ${t} raw`);
           expect(c![t].rounded, `${v} ${name} ${t} 實扣`).toBe(exp[t].rounded);
@@ -157,6 +163,12 @@ describe('UX18：API 路徑（calculate／deductions）對全量 seed 草稿的�
       const c = byKey.get(name);
       expect(c, `${label} ${name}`).toBeDefined();
       for (const t of ['anqin', 'tutoring'] as const) {
+        // D61 Option A: 小六加強班-數學 歸入 other 且預設 skipDeduction=true（不計扣天），故可扣除分鐘與實扣為 0
+        if (name === '小六加強班-數學') {
+          expect(c[t].totalOverlapMinutes, `${label} ${name} ${t} 分鐘`).toBe(0);
+          expect(c[t].rounded, `${label} ${name} ${t} 實扣`).toBe(0);
+          continue;
+        }
         expect(c[t].totalOverlapMinutes, `${label} ${name} ${t} 分鐘`).toBe(exp[t].totalOverlapMinutes);
         near(c[t].raw, exp[t].raw, `${label} ${name} ${t} raw`);
         expect(c[t].rounded, `${label} ${name} ${t} 實扣`).toBe(exp[t].rounded);

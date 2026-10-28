@@ -1,12 +1,15 @@
 import Database from 'better-sqlite3';
 import crypto from 'crypto';
 import {
+  ClassSetting,
   DEFAULT_CARE_CLASS_NAMES,
   SettingsDraft,
   buildSeedGridRows,
   gridRowsToClasses,
+  supportsMultiSubjectDiscount,
 } from '@/contracts/settings';
-import { SEED_CLASSES } from '@/domain/schedules/seed-manifest';
+import { isFiveClassType, normalizeLegacyClassSetting } from '@/domain/classification/class-attributes';
+import { SEED_CLASSES, SEED_CLASS_TYPES } from '@/domain/schedules/seed-manifest';
 
 export interface SettingsVersionRecord {
   id: string;
@@ -59,6 +62,19 @@ export function readStoredDraft(contentJson: string): SettingsDraft {
     for (const cls of draft.classes) {
       if ((cls.categorySource as string) === 'auto') {
         cls.categorySource = 'unset';
+      }
+      if (cls.classType === 'non_care' || (cls.classType === 'care' && cls.hasMultiSubjectDiscount === undefined)) {
+        const norm = normalizeLegacyClassSetting(cls.baseName, cls);
+        cls.classType = norm.classType;
+        cls.hasMultiSubjectDiscount = norm.hasMultiSubjectDiscount;
+        // D61 Ruling 2：舊 'non_care' 歸入 'other' 之既有時段預設轉為 skipDeduction: true，保持既有計算零突變。
+        if (norm.migratedLegacyNonCareToOther && Array.isArray(cls.sessions)) {
+          for (const s of cls.sessions) {
+            if (!s.skipDeduction) {
+              s.skipDeduction = true;
+            }
+          }
+        }
       }
     }
   }
@@ -248,14 +264,17 @@ export function buildSeedDraft(
   careWindows?: { anqin: { start: number; end: number }; tutoring: { start: number; end: number } }
 ): SettingsDraft {
   const seedRows = buildSeedGridRows();
-  const explicitSeedClasses = (seedClasses ?? SEED_CLASSES).map((seed) => {
-    const isCare = DEFAULT_CARE_CLASS_NAMES.has(seed.baseName);
+  const explicitSeedClasses: ClassSetting[] = (seedClasses ?? SEED_CLASSES).map((seed) => {
+    const seedType =
+      SEED_CLASS_TYPES.get(seed.baseName) ??
+      (DEFAULT_CARE_CLASS_NAMES.has(seed.baseName) ? 'care' : 'other');
     return {
       baseName: seed.baseName,
       teacher: null,
       active: true,
       sessions: [],
-      classType: isCare ? ('care' as const) : ('non_care' as const),
+      classType: seedType,
+      hasMultiSubjectDiscount: supportsMultiSubjectDiscount(seedType),
     };
   });
   const fullSeedClasses = gridRowsToClasses(seedRows, explicitSeedClasses);

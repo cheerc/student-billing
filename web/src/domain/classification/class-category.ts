@@ -20,9 +20,40 @@
  * 不依賴 DB／UI／規則版本。
  */
 
-import { SEED_CLASS_CATEGORIES } from '@/domain/schedules/seed-manifest';
+import { SEED_CLASS_CATEGORIES, SEED_CLASS_TYPES } from '@/domain/schedules/seed-manifest';
+
+export type FiveClassType = 'care' | 'english' | 'math' | 'other' | 'unscheduled';
+
+export type EffectiveMappedCategory = 'care' | 'english' | 'math' | 'none' | 'unset';
 
 export type ClassCategory = 'care' | 'math' | 'english' | 'none' | 'unset';
+
+export function isFiveClassType(value: unknown): value is FiveClassType {
+  return (
+    value === 'care' ||
+    value === 'english' ||
+    value === 'math' ||
+    value === 'other' ||
+    value === 'unscheduled'
+  );
+}
+
+/**
+ * D61 Ruling 1：由 (classType, hasMultiSubjectDiscount) 確定性投影回有效折扣類別。
+ * `care | english | math` 且 `hasMultiSubjectDiscount === true` 回傳該類型，否則回傳 `'none'`。
+ */
+export function deriveEffectiveCategory(
+  classType: FiveClassType,
+  hasMultiSubjectDiscount: boolean
+): 'care' | 'english' | 'math' | 'none' {
+  if (
+    (classType === 'care' || classType === 'english' || classType === 'math') &&
+    hasMultiSubjectDiscount === true
+  ) {
+    return classType;
+  }
+  return 'none';
+}
 
 export interface ClassAttributes {
   category: ClassCategory;
@@ -58,7 +89,8 @@ export interface ResolvedClassEnrollment {
   category: ClassCategory;
   categorySource: EffectiveCategorySource;
   fixedFiveDays: boolean;
-  classType: 'care' | 'non_care' | null;
+  classType: FiveClassType | null;
+  hasMultiSubjectDiscount: boolean;
   classTypeId: string | null;
   subject: string;
   subjectSource: 'manual' | 'seed' | 'legacy_migration' | 'unset';
@@ -68,7 +100,8 @@ export interface ResolvedClassEnrollment {
 }
 
 export interface ClassSettingLookup {
-  classType?: 'care' | 'non_care';
+  classType?: FiveClassType | 'non_care' | null;
+  hasMultiSubjectDiscount?: boolean;
   classTypeId?: string;
   classTypeDefinition?: {
     id: string;
@@ -84,6 +117,162 @@ export interface ClassSettingLookup {
   category?: ClassCategory;
   categorySource?: CategorySource;
   fixedFiveDays?: boolean;
+}
+
+export interface RawLegacyClassLike {
+  classType?: string | null;
+  classTypeId?: string | null;
+  hasMultiSubjectDiscount?: boolean;
+  category?: ClassCategory;
+  categorySource?: CategorySource;
+  fixedFiveDays?: boolean;
+}
+
+export interface NormalizedClassSetting {
+  classType: FiveClassType;
+  hasMultiSubjectDiscount: boolean;
+  fixedFiveDays: boolean;
+  category: EffectiveMappedCategory;
+  categorySource: EffectiveCategorySource;
+  /** 舊版 'non_care' 轉入 'other' 且未帶新制標記時為 true（供 readStoredDraft 正規化 skipDeduction，見 D61 Ruling 2）。 */
+  migratedLegacyNonCareToOther: boolean;
+}
+
+/**
+ * D61：相容正規化舊版設定與五類型設定（供 readStoredDraft、resolveClassAttributes、resolveClassEnrollment 共用）。
+ */
+export function normalizeLegacyClassSetting(
+  baseName: string,
+  saved?: RawLegacyClassLike
+): NormalizedClassSetting {
+  const rawType = saved?.classType ?? saved?.classTypeId ?? undefined;
+  const fixedFiveDays = saved?.fixedFiveDays ?? false;
+  const rawSource: EffectiveCategorySource | undefined =
+    saved?.categorySource === 'auto' ? undefined : saved?.categorySource;
+  const seedType = SEED_CLASS_TYPES.get(baseName);
+
+  if (isFiveClassType(rawType)) {
+    let classType: FiveClassType = rawType;
+    let hasMultiSubjectDiscount: boolean;
+    let categorySource: EffectiveCategorySource;
+
+    if (
+      saved?.category !== undefined &&
+      (rawSource === 'manual' || rawSource === 'unset')
+    ) {
+      if (rawSource === 'unset' || saved.category === 'unset' || saved.category === 'none') {
+        hasMultiSubjectDiscount = false;
+        categorySource = rawSource === 'unset' || saved.category === 'unset' ? 'unset' : 'manual';
+      } else {
+        // Phase 1 UI 橋接或舊測試直接指定 category='care'|'english'|'math'
+        if (!(fixedFiveDays && rawType === 'care')) {
+          classType = saved.category;
+        }
+        hasMultiSubjectDiscount = true;
+        categorySource = 'manual';
+      }
+    } else {
+      if (classType === 'other' || classType === 'unscheduled') {
+        hasMultiSubjectDiscount = false;
+      } else {
+        hasMultiSubjectDiscount =
+          saved?.hasMultiSubjectDiscount ??
+          (saved?.category === 'none' || saved?.category === 'unset' ? false : true);
+      }
+      const defaultSeedMulti = seedType !== undefined && seedType !== 'other';
+      categorySource =
+        seedType !== undefined &&
+        classType === seedType &&
+        hasMultiSubjectDiscount === defaultSeedMulti &&
+        rawSource !== 'manual'
+          ? 'seed'
+          : 'manual';
+    }
+
+    const category: EffectiveMappedCategory =
+      saved?.category === 'unset' || rawSource === 'unset'
+        ? 'unset'
+        : deriveEffectiveCategory(classType, hasMultiSubjectDiscount);
+
+    return {
+      classType,
+      hasMultiSubjectDiscount,
+      fixedFiveDays,
+      category,
+      categorySource,
+      migratedLegacyNonCareToOther: false,
+    };
+  }
+
+  let classType: FiveClassType;
+  let hasMultiSubjectDiscount: boolean;
+  let categorySource: EffectiveCategorySource;
+  let migratedLegacyNonCareToOther = false;
+  let category: EffectiveMappedCategory;
+
+  if (rawType === undefined && fixedFiveDays) {
+    classType = 'care';
+    hasMultiSubjectDiscount =
+      saved?.hasMultiSubjectDiscount ??
+      (saved?.category === 'none' || saved?.category === 'unset' ? false : true);
+    categorySource = saved?.categorySource === 'auto' ? 'unset' : (saved?.categorySource ?? 'unset');
+    category = saved?.category ?? 'unset';
+  } else if (rawSource === 'manual' && saved?.category !== undefined) {
+    if (saved.category === 'care' || saved.category === 'english' || saved.category === 'math') {
+      classType = saved.category;
+      hasMultiSubjectDiscount = true;
+      categorySource = 'manual';
+      category = classType;
+    } else if (rawType === undefined && seedType === 'care') {
+      classType = 'care';
+      hasMultiSubjectDiscount = false;
+      categorySource = saved.category === 'unset' ? 'unset' : 'manual';
+      category = saved.category === 'unset' ? 'unset' : 'none';
+    } else {
+      classType = 'other';
+      hasMultiSubjectDiscount = false;
+      categorySource = saved.category === 'unset' ? 'unset' : 'manual';
+      category = saved.category === 'unset' ? 'unset' : 'none';
+      migratedLegacyNonCareToOther = saved.hasMultiSubjectDiscount === undefined;
+    }
+  } else if (rawSource === 'unset' || saved?.category === 'unset') {
+    if (rawType === undefined && seedType === 'care') {
+      classType = 'care';
+      hasMultiSubjectDiscount = false;
+      categorySource = 'unset';
+      category = 'unset';
+    } else {
+      classType = 'other';
+      hasMultiSubjectDiscount = false;
+      categorySource = 'unset';
+      category = 'unset';
+      migratedLegacyNonCareToOther = saved?.hasMultiSubjectDiscount === undefined;
+    }
+  } else if (seedType !== undefined) {
+    classType = seedType;
+    hasMultiSubjectDiscount =
+      saved?.hasMultiSubjectDiscount ??
+      (saved?.category === 'none' ? false : seedType !== 'other');
+    categorySource = 'seed';
+    category = deriveEffectiveCategory(classType, hasMultiSubjectDiscount);
+    migratedLegacyNonCareToOther =
+      seedType === 'other' && saved?.hasMultiSubjectDiscount === undefined;
+  } else {
+    classType = 'other';
+    hasMultiSubjectDiscount = saved?.hasMultiSubjectDiscount ?? false;
+    categorySource = 'unset';
+    category = 'unset';
+    migratedLegacyNonCareToOther = saved?.hasMultiSubjectDiscount === undefined;
+  }
+
+  return {
+    classType,
+    hasMultiSubjectDiscount,
+    fixedFiveDays,
+    category,
+    categorySource,
+    migratedLegacyNonCareToOther,
+  };
 }
 
 /**
@@ -130,7 +319,7 @@ export function effectiveCategoryOf(
  */
 export function deriveErpTierApplicability(params: {
   mapped: boolean;
-  classType: 'care' | 'non_care' | null;
+  classType: FiveClassType | 'non_care' | string | null;
   fixedFiveDays: boolean;
 }): 'applicable' | 'not_applicable' {
   return params.mapped && params.classType === 'care' && !params.fixedFiveDays
@@ -139,12 +328,10 @@ export function deriveErpTierApplicability(params: {
 }
 
 /**
- * 解析學生報名班級的類別與固定 5 天屬性。
+ * 解析學生報名班級的五類型、多科折扣旗標、投影類別與固定 5 天屬性（D61）。
  *
- * - 名冊班名（經 alias）對應到課表設定的班 → 用該班設定；未指定類別即 `unset`。
- * - 未對應 → `unset`、`mapped: false`、`fixedFiveDays: false`
- *   （Ruling 3：該班對學生之折扣與天數影響為零，且不論班名為何都需 warn）。
- * - 固定 5 天為純布林（specs/14 §3.3），未設定者預設 `false`。
+ * - 名冊班名（經 alias）對應到課表設定的班 → 正規化為五類型並投影 `category`（`'care' | 'english' | 'math' | 'none'`）。
+ * - 未對應（`mapped: false`）→ 維持 `classType: null`、`hasMultiSubjectDiscount: false`、`category: 'unset'`、`CLASS_NOT_MAPPED`。
  */
 export function resolveClassEnrollment(
   token: { rawToken: string; baseName: string },
@@ -155,10 +342,10 @@ export function resolveClassEnrollment(
   const cls = classSettingMap?.get(resolvedBaseName);
 
   if (cls) {
-    const { category, categorySource } = effectiveCategoryOf(resolvedBaseName, cls);
+    const norm = normalizeLegacyClassSetting(resolvedBaseName, cls);
     const mapped = true;
-    const fixedFiveDays = cls.fixedFiveDays ?? false;
-    const classType = ((cls.classType ?? cls.classTypeId) as ('care' | 'non_care' | null)) ?? null;
+    const fixedFiveDays = norm.fixedFiveDays;
+    const classType = norm.classType;
     const erpTierApplicability = deriveErpTierApplicability({
       mapped,
       classType,
@@ -170,11 +357,12 @@ export function resolveClassEnrollment(
       baseName: token.baseName,
       resolvedBaseName,
       mapped,
-      category,
-      categorySource,
+      category: norm.category,
+      categorySource: norm.categorySource,
       fixedFiveDays,
       classType,
-      classTypeId: cls.classTypeId ?? cls.classType ?? null,
+      hasMultiSubjectDiscount: norm.hasMultiSubjectDiscount,
+      classTypeId: cls.classTypeId ?? classType,
       subject: cls.subject ?? '',
       subjectSource: cls.subjectSource ?? 'unset',
       summaryDayRoleConditions: cls.summaryDayRoleConditions ?? [],
@@ -192,6 +380,7 @@ export function resolveClassEnrollment(
     categorySource: 'unset',
     fixedFiveDays: false,
     classType: null,
+    hasMultiSubjectDiscount: false,
     classTypeId: null,
     subject: '',
     subjectSource: 'unset',

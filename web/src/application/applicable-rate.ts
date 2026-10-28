@@ -7,6 +7,8 @@
  * SQL（query-students）與選項端點（query-student-options）共用同一個類別判斷，畫面也以此為準。
  */
 
+import type { ClassType } from '@/contracts/settings';
+
 export type RateCategory = 'care' | 'math' | 'english';
 
 export interface ApplicableRateFields {
@@ -39,7 +41,7 @@ export function applicableRateForCategory(
 export interface RunClassCategorySnapshot {
   base_name: string;
   resolved_base_name?: string | null;
-  class_type?: 'care' | 'non_care' | string | null;
+  class_type?: ClassType | 'non_care' | string | null;
   category: string;
   fixed_five_days: number;
   mapped?: number;

@@ -27,7 +27,7 @@ describe('D2b 1: 設定資料模型 — 有效類別與固定 5 天（#157：未
     // 用非 seed 的班名（「某自創班」不在 seed 49 班內）。seed 班的未指定情況另有 seed 基準，
     // 見 issue-157-seed-category-fallback.test.ts。
     const r = resolveClassAttributes('某自創班');
-    expect(r.classType).toBe('non_care');
+    expect(r.classType).toBe('other');
     expect(r.category).toBe('unset');
     expect(r.categorySource).toBe('unset');
     expect(r.fixedFiveDays).toBe(false);
@@ -35,14 +35,14 @@ describe('D2b 1: 設定資料模型 — 有效類別與固定 5 天（#157：未
 
   it('seed 班未指定類別 → 套用 seed 基準（來源為 seed，非 manual）', () => {
     const r = resolveClassAttributes('國小數學-四A');
-    expect(r.classType).toBe('non_care');
+    expect(r.classType).toBe('math');
     expect(r.category).toBe('math');
     expect(r.categorySource).toBe('seed');
   });
 
   it('手動設定類別時有效值＝手動值，來源為 manual', () => {
     const r = resolveClassAttributes('某自創班', { category: 'care', categorySource: 'manual' });
-    expect(r.classType).toBe('non_care');
+    expect(r.classType).toBe('care');
     expect(r.category).toBe('care');
     expect(r.categorySource).toBe('manual');
   });
@@ -85,7 +85,8 @@ describe('D2b 1: 設定資料模型 — 有效類別與固定 5 天（#157：未
   it('有效值輸出為 draft 的欄位（含 classType，且固定 5 天預設 false，無 fixedSource）', () => {
     const out = toSavedClassAttributes(resolveClassAttributes('國小輔導-寫功課'));
     expect(out).toEqual({
-      classType: 'non_care',
+      classType: 'other',
+      hasMultiSubjectDiscount: false,
       category: 'unset',
       categorySource: 'unset',
       fixedFiveDays: false,
@@ -97,11 +98,12 @@ describe('D2b 5（Q9）: 整班改名帶走設定（含手動值與 classType）
   it('手動值隨班改名保留，來源仍為 manual', () => {
     const out = carryAttributesOnRename(
       [{ from: '新名字A', to: '新名字B' }],
-      new Map([['新名字A', { classType: 'care', category: 'care', categorySource: 'manual', fixedFiveDays: true }]]),
-      new Map([['新名字B', { classType: 'non_care', category: 'math', categorySource: 'manual', fixedFiveDays: false }]])
+      new Map([['新名字A', { classType: 'care', hasMultiSubjectDiscount: true, category: 'care', categorySource: 'manual', fixedFiveDays: true }]]),
+      new Map([['新名字B', { classType: 'math', hasMultiSubjectDiscount: true, category: 'math', categorySource: 'manual', fixedFiveDays: false }]])
     );
     expect(out.get('新名字B')).toEqual({
       classType: 'care',
+      hasMultiSubjectDiscount: true,
       category: 'care',
       categorySource: 'manual',
       fixedFiveDays: true,
@@ -111,11 +113,12 @@ describe('D2b 5（Q9）: 整班改名帶走設定（含手動值與 classType）
   it('未指定類別的班改名後仍是 unset，classType 與 fixedFiveDays 隨班保留（#157：不得依新名重新判定）', () => {
     const out = carryAttributesOnRename(
       [{ from: '新名字A', to: '新名字B' }],
-      new Map([['新名字A', { classType: 'non_care', category: 'unset', categorySource: 'unset', fixedFiveDays: true }]]),
+      new Map([['新名字A', { classType: 'other', hasMultiSubjectDiscount: false, category: 'unset', categorySource: 'unset', fixedFiveDays: true }]]),
       new Map()
     );
     expect(out.get('新名字B')).toEqual({
-      classType: 'non_care',
+      classType: 'other',
+      hasMultiSubjectDiscount: false,
       category: 'unset',
       categorySource: 'unset',
       fixedFiveDays: true,
@@ -124,11 +127,12 @@ describe('D2b 5（Q9）: 整班改名帶走設定（含手動值與 classType）
     // 改名成一個「看起來像數學班」的名字，也不得因此變成 math（這正是 Ruling 1 的重點）
     const out2 = carryAttributesOnRename(
       [{ from: '新名字A', to: '國小數學-新名' }],
-      new Map([['新名字A', { classType: 'non_care', category: 'unset', categorySource: 'unset', fixedFiveDays: false }]]),
+      new Map([['新名字A', { classType: 'other', hasMultiSubjectDiscount: false, category: 'unset', categorySource: 'unset', fixedFiveDays: false }]]),
       new Map()
     );
     expect(out2.get('國小數學-新名')).toEqual({
-      classType: 'non_care',
+      classType: 'other',
+      hasMultiSubjectDiscount: false,
       category: 'unset',
       categorySource: 'unset',
       fixedFiveDays: false,
@@ -172,13 +176,15 @@ describe('D2b 1: draft ↔ 班級屬性清單轉換（單一來源）', () => {
       cls('自創班', { category: 'care', categorySource: 'manual' }),
     ]);
     expect(attrs.get('某自創班')).toEqual({
-      classType: 'non_care',
+      classType: 'other',
+      hasMultiSubjectDiscount: false,
       category: 'unset',
       categorySource: 'unset',
       fixedFiveDays: false,
     });
     expect(attrs.get('自創班')).toEqual({
-      classType: 'non_care',
+      classType: 'care',
+      hasMultiSubjectDiscount: true,
       category: 'care',
       categorySource: 'manual',
       fixedFiveDays: false,
@@ -188,7 +194,8 @@ describe('D2b 1: draft ↔ 班級屬性清單轉換（單一來源）', () => {
   it('baseline 版本讀出的是「當時已儲存」的屬性，與 draft 逐欄可比較', () => {
     const base = attributesFromBaselineClasses([cls('某自創班')]);
     expect(base.get('某自創班')).toEqual({
-      classType: 'non_care',
+      classType: 'other',
+      hasMultiSubjectDiscount: false,
       category: 'unset',
       categorySource: 'unset',
       fixedFiveDays: false,

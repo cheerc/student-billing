@@ -56,6 +56,7 @@ export function buildSavedContextDraft(): SettingsDraft {
   const classes = seed.classes
     .filter((c) => c.baseName !== '國小數學-二B')
     .map((c) => {
+      const baseSessions = c.sessions.map((s) => ({ ...s, skipDeduction: false }));
       if (c.baseName === '國小數學-三A') {
         return {
           ...c,
@@ -66,10 +67,10 @@ export function buildSavedContextDraft(): SettingsDraft {
         };
       }
       if (c.baseName === '兒童美語-EA') {
-        return { ...c, sessions: c.sessions.map((s) => ({ ...s, weekday: '八' })) };
+        return { ...c, sessions: baseSessions.map((s) => ({ ...s, weekday: '八' })) };
       }
-      if (c.baseName === '兒童美語-EB') return { ...c, active: false };
-      return c;
+      if (c.baseName === '兒童美語-EB') return { ...c, active: false, sessions: baseSessions };
+      return { ...c, sessions: baseSessions };
     });
   return {
     ...seed,

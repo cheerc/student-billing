@@ -3,6 +3,7 @@ import { getDatabase } from '@/adapters/sqlite';
 import { getCurrentActiveRun } from '@/adapters/sqlite/runs-repository';
 import { getLatestSettingsVersion, readStoredDraft, buildSeedDraft, draftToAliasMap } from '@/adapters/sqlite/settings-repository';
 import { maskSensitiveInfo, SecurityError } from '@/contracts/security';
+import type { ClassType } from '@/contracts/settings';
 
 export async function GET() {
   try {
@@ -49,12 +50,12 @@ export async function GET() {
       }
 
       const snap = categorySnapshots.get(baseName);
-      let classType: 'care' | 'non_care' | null = null;
+      let classType: ClassType | 'non_care' | null = null;
       let category: 'care' | 'math' | 'english' | 'none' | 'unset' = 'unset';
       let fixedFiveDays = false;
 
       if (snap) {
-        classType = (snap.class_type as 'care' | 'non_care' | null) ?? null;
+        classType = (snap.class_type as ClassType | 'non_care' | null) ?? null;
         category = (snap.category as 'care' | 'math' | 'english' | 'none' | 'unset') ?? 'unset';
         fixedFiveDays = snap.fixed_five_days === 1;
       } else if (targetClass) {
