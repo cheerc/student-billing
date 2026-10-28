@@ -468,4 +468,153 @@ describe('specs/14 & Issue #155：雙頁籤與簡化操作（移除切換按鈕�
     expect(html).not.toContain('data-focus-class-missing');
     expect(html).toContain('id="class-type-panel-care"');
   });
+
+  describe('D61 Phase 3：五頁籤 UI、欄位徹底分離與 1c 待補時間雙重警示', () => {
+    const d61Rows: ScheduleGridRow[] = [
+      {
+        rowId: 'care-1',
+        className: '國小輔導-一年級',
+        teacher: '王老師',
+        weekday: '',
+        startTime: '',
+        endTime: '',
+        startMinutes: null,
+        endMinutes: null,
+        active: true,
+        skipDeduction: false,
+      },
+      {
+        rowId: 'eng-1',
+        className: '兒童美語-初階',
+        teacher: 'John',
+        weekday: '一',
+        startTime: '15:20',
+        endTime: '16:50',
+        startMinutes: 920,
+        endMinutes: 1010,
+        active: true,
+        skipDeduction: false,
+      },
+      {
+        rowId: 'eng-incomplete',
+        className: '兒童美語-待補班',
+        teacher: 'Mary',
+        weekday: '',
+        startTime: '',
+        endTime: '',
+        startMinutes: null,
+        endMinutes: null,
+        active: true,
+        skipDeduction: false,
+      },
+      {
+        rowId: 'math-1',
+        className: '國小數學-特訓',
+        teacher: '李老師',
+        weekday: '三',
+        startTime: '16:40',
+        endTime: '18:10',
+        startMinutes: 1000,
+        endMinutes: 1090,
+        active: true,
+        skipDeduction: false,
+      },
+      {
+        rowId: 'other-1',
+        className: '小六加強班-語文',
+        teacher: '陳老師',
+        weekday: '五',
+        startTime: '17:00',
+        endTime: '18:30',
+        startMinutes: 1020,
+        endMinutes: 1110,
+        active: true,
+        skipDeduction: true,
+      },
+      {
+        rowId: 'unsch-1',
+        className: '交通車-下午',
+        teacher: '司機林',
+        weekday: '',
+        startTime: '',
+        endTime: '',
+        startMinutes: null,
+        endMinutes: null,
+        active: true,
+        skipDeduction: false,
+      },
+    ];
+
+    const d61Attrs = new Map<string, ClassAttributesView>([
+      ['國小輔導-一年級', { classType: 'care', hasMultiSubjectDiscount: true, category: 'care', categorySource: 'manual', fixedFiveDays: false }],
+      ['兒童美語-初階', { classType: 'english', hasMultiSubjectDiscount: true, category: 'english', categorySource: 'manual', fixedFiveDays: false }],
+      ['兒童美語-待補班', { classType: 'english', hasMultiSubjectDiscount: true, category: 'english', categorySource: 'manual', fixedFiveDays: false }],
+      ['國小數學-特訓', { classType: 'math', hasMultiSubjectDiscount: false, category: 'none', categorySource: 'manual', fixedFiveDays: false }],
+      ['小六加強班-語文', { classType: 'other', hasMultiSubjectDiscount: false, category: 'none', categorySource: 'manual', fixedFiveDays: false }],
+      ['交通車-下午', { classType: 'unscheduled', hasMultiSubjectDiscount: false, category: 'none', categorySource: 'manual', fixedFiveDays: false }],
+    ]);
+
+    it('UX106：5 個課程類型頁籤依固定順序呈現', () => {
+      const html = render({ rows: d61Rows, classAttributes: d61Attrs });
+      expect(html).toContain('安親課輔班');
+      expect(html).toContain('美語班');
+      expect(html).toContain('數學班');
+      expect(html).toContain('其他班');
+      expect(html).toContain('不排課');
+
+      // 檢查頁籤順序
+      const posCare = html.indexOf('安親課輔班');
+      const posEng = html.indexOf('美語班');
+      const posMath = html.indexOf('數學班');
+      const posOther = html.indexOf('其他班');
+      const posUnsch = html.indexOf('不排課');
+      expect(posCare).toBeLessThan(posEng);
+      expect(posEng).toBeLessThan(posMath);
+      expect(posMath).toBeLessThan(posOther);
+      expect(posOther).toBeLessThan(posUnsch);
+    });
+
+    it('UX106：[其他班] 頁籤不出現多科折扣與固定 5 天，僅顯示不計扣天（預設是）', () => {
+      const html = render({ rows: d61Rows, classAttributes: d61Attrs, initialClassTypeTab: 'other' });
+      expect(html).toContain('id="class-type-panel-other"');
+      expect(html).toContain('不計扣天');
+      expect(html).not.toContain('是否有多科折扣');
+      expect(html).not.toContain('天數固定 5 天');
+    });
+
+    it('UX106：[不排課] 頁籤僅顯示班級名稱、帶班老師、狀態與操作，狀態顯示「不排課」', () => {
+      const html = render({ rows: d61Rows, classAttributes: d61Attrs, initialClassTypeTab: 'unscheduled' });
+      expect(html).toContain('id="class-type-panel-unscheduled"');
+      expect(html).toContain('交通車-下午');
+      expect(html).toContain('不排課');
+      expect(html).not.toContain('是否有多科折扣');
+      expect(html).not.toContain('天數固定 5 天');
+      expect(html).not.toContain('不計扣天');
+      expect(html).not.toContain('上課時間 起 — 迄');
+    });
+
+    it('UX108：未填時間排課列渲染 1c 雙重警示（row-incomplete、input-missing、待補時間徽章）', () => {
+      const html = render({ rows: d61Rows, classAttributes: d61Attrs, initialClassTypeTab: 'english' });
+      expect(html).toContain('row-incomplete');
+      expect(html).toContain('input-missing');
+      expect(html).toContain('badge-incomplete');
+      expect(html).toContain('待補時間');
+    });
+
+    it('UX108：美語班頁籤標籤包含待補計數提示（待補 1）', () => {
+      const html = render({ rows: d61Rows, classAttributes: d61Attrs, initialClassTypeTab: 'english' });
+      expect(html).toMatch(/美語班\s*\(\d+\s*·\s*待補\s*1\)/);
+    });
+
+    it('UX106：處於 [安親課輔班] 或 [不排課] 頁籤時，工具列自動隱藏課表星期篩選', () => {
+      const htmlCare = render({ rows: d61Rows, classAttributes: d61Attrs, initialClassTypeTab: 'care' });
+      expect(htmlCare).not.toContain('id="schedule-weekday-filter"');
+
+      const htmlUnsch = render({ rows: d61Rows, classAttributes: d61Attrs, initialClassTypeTab: 'unscheduled' });
+      expect(htmlUnsch).not.toContain('id="schedule-weekday-filter"');
+
+      const htmlEng = render({ rows: d61Rows, classAttributes: d61Attrs, initialClassTypeTab: 'english' });
+      expect(htmlEng).toContain('id="schedule-weekday-filter"');
+    });
+  });
 });
