@@ -29,9 +29,18 @@ export async function reloadSettings(page: Page): Promise<void> {
 
 /** 等本次 apply 成功、dialog 關閉與 dirty 清除；toast 不能識別是哪次儲存。 */
 export async function saveSettings(page: Page): Promise<void> {
-  await page.getByRole('button', { name: '確認變更', exact: true }).click();
+  const confirmBtn = page.getByRole('button', { name: '確認變更', exact: true });
   const dialog = page.locator('dialog.impact-dialog');
-  await expect(dialog).toBeVisible();
+
+  await expect(confirmBtn).toBeEnabled();
+  await expect.poll(async () => {
+    if (await dialog.isVisible()) return true;
+    if (await confirmBtn.isEnabled()) {
+      await confirmBtn.click();
+    }
+    return dialog.isVisible();
+  }, { timeout: 10000, intervals: [100, 250, 500] }).toBe(true);
+
   const applied = page.waitForResponse((response) =>
     response.url().endsWith('/api/v1/settings/apply') && response.request().method() === 'POST'
   );

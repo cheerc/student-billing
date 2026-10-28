@@ -38,6 +38,7 @@ test.describe('R4 重寫：核對結果頁 E2E 驗收（學生總表 12 欄 + �
     await expect(page.getByText(/\d+ 位學生資料已備妥/)).toBeVisible({ timeout: 15000 });
     await page.locator('a', { hasText: '前往核對結果' }).click();
     await expect(page.locator('.data-banner-current', { hasText: '目前使用的資料' })).toBeVisible({ timeout: 15000 });
+    await expect(page.locator('.results-page[data-hydrated="true"]')).toBeVisible({ timeout: 15000 });
 
     // 3. 結果雙頁籤（09 §2／§5.2）
     await expect(page.locator('button[role="tab"]', { hasText: '學生總表' })).toBeVisible();
@@ -129,6 +130,7 @@ test.describe('R4 重寫：核對結果頁 E2E 驗收（學生總表 12 欄 + �
       await page.locator('a', { hasText: '前往核對結果' }).click();
     }
     await expect(page.locator('.data-banner-current', { hasText: '目前使用的資料' })).toBeVisible({ timeout: 15000 });
+    await expect(page.locator('.results-page[data-hydrated="true"]')).toBeVisible({ timeout: 15000 });
   }
 
   test('UX13: 搜尋／需確認篩選後人數與清單一致，且「本班N人」不受其他條件收斂（表頭篩選）', async ({ page }) => {
@@ -203,6 +205,7 @@ test.describe('R4 重寫：核對結果頁 E2E 驗收（學生總表 12 欄 + �
   test('UX12: 級距差異篩選＝fixture 的 4 筆，列內容與抽屜可查；吻合＋待確認含「班名未對應課表」（中文名稱，代碼不外露）', async ({ page }) => {
     await ensureActivated(page);
     await page.goto('/');
+    await expect(page.locator('.results-page[data-hydrated="true"]')).toBeVisible({ timeout: 15000 });
 
     const counts = page.locator('.counts-line');
     const table = page.locator('.results-table');
