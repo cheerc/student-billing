@@ -857,6 +857,77 @@ body {
   text-align: center;
 }
 
+/* D61 Phase 3：YesNoRadioGroup 單選樣式 */
+.yes-no-radio-group {
+  display: inline-flex;
+  align-items: center;
+  background: #f1f5f9;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  padding: 2px;
+  gap: 2px;
+  user-select: none;
+}
+
+.yes-no-option {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 34px;
+  min-height: 28px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  color: #475569;
+  background: transparent;
+  transition: all 0.15s ease;
+}
+
+.yes-no-radio-input {
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
+  pointer-events: none;
+}
+
+.yes-no-option.selected.yes-option {
+  background: #eff6ff;
+  color: #1d4ed8;
+  border: 1px solid #93c5fd;
+  font-weight: 600;
+}
+
+.yes-no-option.selected.no-option {
+  background: #ffffff;
+  color: #334155;
+  border: 1px solid #cbd5e1;
+  font-weight: 600;
+}
+
+.yes-no-option:has(.yes-no-radio-input:focus-visible) {
+  outline: 2px solid #2563eb;
+  outline-offset: 1px;
+}
+
+.yes-no-radio-group.disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.yes-no-radio-group.disabled .yes-no-option {
+  cursor: not-allowed;
+}
+
+.same-class-marker {
+  font-size: 11px;
+  color: #64748b;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
 /* #113：「不計扣天」與「天數固定 5 天」同為置中 checkbox 欄，共用同一套 toggle 版型。
    #113 follow-up：不計扣天改為**逐列**勾選，版型不變（仍沿用 .fixed-five-toggle）。 */
 .schedule-table .col-skip-deduction {
@@ -928,13 +999,27 @@ body {
 }
 
 .badge-incomplete {
-  background: #fffbeb;
+  background: #fef3c7;
   color: #92400e;
+  border: 1px solid #fde68a;
   padding: 2px 6px;
   border-radius: 4px;
   font-size: 11px;
   font-weight: 600;
   display: inline-block;
+}
+
+.schedule-table tr.row-incomplete td {
+  background: #fffbeb;
+}
+
+.schedule-table tr.row-incomplete td.sticky-col {
+  border-left: 3px solid #f59e0b;
+}
+
+.input-missing {
+  border: 1.5px solid #d97706 !important;
+  background: #fef3c7 !important;
 }
 
 .badge-needs-review {

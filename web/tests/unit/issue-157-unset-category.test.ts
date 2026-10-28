@@ -321,7 +321,7 @@ describe('Ruling 4：類別顯示名稱與下拉必須能表達「未設定」',
       },
     ];
     const attrs = new Map<string, ClassAttributesView>([
-      ['國小數學-四A', { classType: 'non_care', category: 'unset', categorySource: 'unset', fixedFiveDays: false }],
+      ['國小數學-四A', { classType: 'math', category: 'unset', categorySource: 'unset', hasMultiSubjectDiscount: false, fixedFiveDays: false }],
     ]);
 
     const html = renderToStaticMarkup(
@@ -338,10 +338,9 @@ describe('Ruling 4：類別顯示名稱與下拉必須能表達「未設定」',
       })
     );
 
-    // 這就是舊 `value={attr?.category ?? 'none'}` 的錯誤呈現：未設定被畫成「不列入折扣」
-    expect(html).toContain('<option value="unset" selected=""');
-    expect(html).not.toContain('<option value="none" selected=""');
-    expect(html).toContain(CATEGORY_LABELS.unset);
+    // D61：五態下拉已廢除，改為「是否有多科折扣」單選；未指定多科折扣時單選預設為「否」
+    expect(html).toContain('aria-label="國小數學-四A 的是否有多科折扣"');
+    expect(html).toMatch(/value="false"[^>]*checked|checked=""[^>]*value="false"/);
   });
 });
 

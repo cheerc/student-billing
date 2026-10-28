@@ -15,6 +15,7 @@ import {
   SettingsBaseline,
   isSettingsDirty,
   supportsMultiSubjectDiscount,
+  CLASS_TYPE_LABELS,
   type ClassAttributeSetting,
   type ClassType,
 } from '@/contracts/settings';
@@ -39,6 +40,7 @@ import {
 } from '@/domain/classification/class-attributes';
 import { persistClassAttributes } from '@/domain/classification/persist-class-attributes';
 import type { ClassCategory, WritableCategorySource } from '@/domain/classification/class-category';
+import { deriveEffectiveCategory } from '@/domain/classification/class-category';
 import { TabList, tabPanelProps } from '@/components/ui/tabs';
 import { useUnsavedChangesGuard } from '@/components/ui/use-unsaved-changes-guard';
 import { formatDateTime } from '@/lib/datetime';
@@ -536,6 +538,23 @@ export default function SettingsEditor({
     setPreview(null);
   };
 
+  const handleToggleMultiDiscount = (className: string, hasMulti: boolean) => {
+    setManualAttrs((prev) => {
+      const next = new Map(prev);
+      const base = currentAttrs.get(className) ?? resolveClassAttributes(className);
+      const rawType = base.classType === 'non_care' ? 'other' : (base.classType ?? 'other');
+      const category = deriveEffectiveCategory(rawType, hasMulti);
+      next.set(className, {
+        ...base,
+        hasMultiSubjectDiscount: hasMulti,
+        category,
+        categorySource: 'manual',
+      });
+      return next;
+    });
+    setPreview(null);
+  };
+
 
   // 當前有效班級名稱集合
   const currentActiveBaseNames = useMemo(() => {
@@ -657,7 +676,7 @@ export default function SettingsEditor({
   const handleAddRow = (
     row: Omit<ScheduleGridRow, 'rowId'>,
     classType?: ClassType | 'non_care',
-    options?: { initialCategory?: 'unset' }
+    options?: { initialCategory?: 'unset'; hasMultiSubjectDiscount?: boolean; fixedFiveDays?: boolean }
   ) => {
     const startMin = timeStringToMinutes(row.startTime);
     const endMin = timeStringToMinutes(row.endTime);
@@ -671,16 +690,19 @@ export default function SettingsEditor({
     if (classType) {
       const resolvedType: ClassType = classType === 'non_care' ? 'other' : classType;
       const className = row.className.trim();
+      const hasMulti = options?.hasMultiSubjectDiscount ?? supportsMultiSubjectDiscount(resolvedType);
+      const fixedFive = options?.fixedFiveDays ?? false;
+      const category = deriveEffectiveCategory(resolvedType, hasMulti);
       const newClass: ClassSetting = {
         baseName: className,
         teacher: row.teacher ?? null,
         active: row.active,
         sessions: [],
         classType: resolvedType,
-        hasMultiSubjectDiscount: supportsMultiSubjectDiscount(resolvedType),
-        category: 'unset',
-        categorySource: 'unset',
-        ...(resolvedType === 'care' ? { fixedFiveDays: false } : {}),
+        hasMultiSubjectDiscount: hasMulti,
+        category,
+        categorySource: 'manual',
+        ...(resolvedType === 'care' ? { fixedFiveDays: fixedFive } : {}),
       };
       setDraft((prev) => prev.classes.some((item) => item.baseName === className)
         ? prev
@@ -689,10 +711,10 @@ export default function SettingsEditor({
         const next = new Map(prev);
         next.set(className, {
           classType: resolvedType,
-          hasMultiSubjectDiscount: supportsMultiSubjectDiscount(resolvedType),
-          category: 'unset',
-          categorySource: 'unset',
-          fixedFiveDays: false,
+          hasMultiSubjectDiscount: hasMulti,
+          category,
+          categorySource: 'manual',
+          fixedFiveDays: fixedFive,
         });
         return next;
       });
@@ -996,6 +1018,7 @@ export default function SettingsEditor({
             focusClass={focusClass}
             classAttributes={currentAttrs}
             onSelectCategory={handleSelectCategory}
+            onToggleMultiDiscount={handleToggleMultiDiscount}
             onToggleFixedFiveDays={handleToggleFixedFiveDays}
             onExportExcel={handleExportExcel}
             onImportExcel={handleImportExcel}
@@ -1035,13 +1058,16 @@ export default function SettingsEditor({
           <ul style={{ margin: '6px 0 0 18px' }}>
             {mergeConflicts.map((c) => (
               <li key={c.mergedName}>
-                「{c.mergedName}」由 {c.sources.join('、')} 合併而來，各班的課程類型、類別與固定 5 天設定不同（
+                「{c.mergedName}」由 {c.sources.join('、')} 合併而來，各班的課程類型、多科折扣與固定 5 天設定不同（
                 {c.sourceAttributes
-                  .map(
-                    (a) =>
-                      `${a.classType === 'care' ? '安親課輔班' : '非安親課輔班'}／${CATEGORY_LABELS[a.category]}／${a.fixedFiveDays ? '固定 5 天' : '不固定'}`
-                  )
-                  .join('、')}
+                  .map((a) => {
+                    const type = a.classType === 'non_care' ? 'other' : a.classType;
+                    const typeLabel = CLASS_TYPE_LABELS[type];
+                    const multiLabel = `多科折扣：${(a.hasMultiSubjectDiscount ?? true) ? '是' : '否'}`;
+                    const fixedLabel = a.classType === 'care' ? (a.fixedFiveDays ? '固定 5 天' : '不固定') : '';
+                    return [typeLabel, multiLabel, fixedLabel].filter(Boolean).join('／');
+                  })
+                  .join(' vs ')}
                 ）。請先選擇要保留的設定，或改回不同的班名。
               </li>
             ))}

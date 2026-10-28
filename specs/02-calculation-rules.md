@@ -462,6 +462,14 @@ v1–v3 歷史 read-only 投影使用明確凍結的舊 semantic projection；un
 2. **級距推導回歸直覺自動推導**：
    - `已對應 && classType === 'care' && !fixedFiveDays`：自動比對米豆奶週收費級距；
    - `classType === 'care' && fixedFiveDays`（如寫功課班）：保底 5 天且不解析級距後綴；
-   - `classType === 'non_care'`（如兒童美語、國小數學）：不適用級距，不報級距錯誤；
+   - `classType === 'non_care' / other / unscheduled`（如兒童美語、國小數學）：不適用級距，不報級距錯誤；
    - 未對應課表的班級：單獨發出 `CLASS_NOT_MAPPED` 需確認警告。
 3. **單一現行規則**：系統所有新計算、預覽與比對固定使用 `erp-tag-v4`；舊規則集（`erp-tag-v1`、`erp-tag-v2`、`erp-tag-v3`、`excel-v260922-compat`）之相容層與升級橫幅完全拆除。
+
+### 9A.9 D61 五種課程類型重構與 2×2 計費解耦（Issue #184）
+
+依 2026-10-28 Operator 拍板之 D61 決策（Issue #184）：
+1. **五種課程類型收斂**：課程類型擴充為 `care`（安親課輔班）、`english`（美語班）、`math`（數學班）、`other`（其他班）與 `unscheduled`（不排課）。
+2. **2×2 計費核心解耦**：多科折扣資格（`hasMultiSubjectDiscount`）與衝堂扣天完全解耦。美語班與數學班多科折扣設為「否」時，僅不計入多科折扣科數，其時段重疊衝堂扣天照常依 D24 計算。
+3. **其他班所見即所得扣天（Option A）**：`other` 類型不計多科折扣；其排課時段預設 `skipDeduction: true`（不扣天，對既有 477 筆真實資料 0 漂移）；當手動改為 `skipDeduction: false` 時，時段重疊如實扣除學生安親／課輔天數。
+4. **不排課班級**：`unscheduled` 類型無排課時段，不計多科折扣與衝堂扣天，預覽狀態為 `unscheduled`（顯示為「不排課」），上課時間顯示為「—」。

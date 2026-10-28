@@ -1,5 +1,12 @@
 # 14 課程類型分類與課表設定重構 Plan（#112）
 
+> **Issue #184 current status (D61 Five Class Types & Yes/No Refactor):** Operator 2026-10-28 拍板 D61 重構已全量落地：
+> - 課程類型擴充收斂為 5 種（care, english, math, other, unscheduled），固定順序分頁籤與選單；
+> - 「是否有多科折扣」、「天數固定 5 天」、「不計扣天」全面統一為 YesNoRadioGroup「是／否」單選，廢除舊五態下拉與核取方塊；
+> - 2×2 計費解耦：多科折扣選「否」不影響衝堂扣天；其他班時段所見即所得扣天（預設不計扣天＝是）；
+> - 1c 未填時間雙重視覺警示（頁籤待補計數、.row-incomplete 琥珀底與左側色條、.input-missing 色框、待補時間徽章）；
+> - 詳細規範與決策記錄見 [06 D61](06-handoff-decisions.md) 與 [16](16-five-class-types-yes-no-refactor-plan.md)。
+
 > **Issue #177 current status (D60 Simplification):** All Phase 1–4 simplifications are implemented:
 > - ClassSemanticsPanel and legacy semantic migration suggestions table are completely removed.
 > - Attendance day columns are retired; only anqinDays and tutoringDays are computed and displayed.

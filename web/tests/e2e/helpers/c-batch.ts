@@ -23,21 +23,33 @@ export const brandLink = (page: Page): Locator => page.locator('aside.side .bran
 /** 課表頁：第 4 列（兒童美語-Gino 週一）的起始時間輸入框；改它就是一次有效的課表草稿。 */
 export const scheduleHeading = (page: Page): Locator => page.locator('h1', { hasText: '課表設定' });
 export const startInput = (page: Page): Locator =>
-  page.locator('.schedule-table tbody tr').nth(3).locator('input.input-time').first();
+  page.locator('.schedule-table tbody tr input.input-time').first();
 export const dirtyBar = (page: Page): Locator => page.locator('.save-status-dirty');
 
 /**
- * 以「使用者實際操作」修改草稿：先點進輸入框（產生使用者互動，瀏覽器才會在離開時顯示原生提醒），再輸入。
+ * 以「使用者實際操作」修改草稿：先切換至排課頁籤點進輸入框，再輸入。
  */
-export async function editStart(page: Page, value = '15:45', input: Locator = startInput(page)): Promise<void> {
-  await input.click();
-  await input.fill(value);
+export async function editStart(page: Page, value = '15:45', input?: Locator): Promise<void> {
+  const englishTab = page.locator('#class-type-tab-english');
+  if (await englishTab.isVisible()) {
+    const isCare = await page.locator('#class-type-tab-care').getAttribute('aria-selected');
+    if (isCare === 'true') {
+      await englishTab.click();
+    }
+  }
+  const target = input ?? startInput(page);
+  await target.click();
+  await target.fill(value);
   await expect(dirtyBar(page)).toBeVisible();
 }
 
 export async function openSchedule(page: Page, url = '/settings'): Promise<void> {
   await page.goto(url);
   await expect(scheduleHeading(page)).toBeVisible({ timeout: 15000 });
+  const englishTab = page.locator('#class-type-tab-english');
+  if (await englishTab.isVisible()) {
+    await englishTab.click();
+  }
   await expect(startInput(page)).toBeVisible();
 }
 

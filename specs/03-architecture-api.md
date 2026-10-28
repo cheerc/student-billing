@@ -331,9 +331,10 @@ run 的設定快照＝`run.scheduleVersionId`：`seed-v250922`（該 run 沒有�
   - `unmappedClassWarning`: true（v3 未對應班出 `CLASS_NOT_MAPPED`；v1/v2 為 false）。
 - 禁止以字面 `=== 'erp-tag-v2'` 比較，新舊行為一律經由能力旗標分流。
 
-#### 5.3.2 班級設定草稿資料模型擴充
-- `ClassSettingSchema` 支援班級屬性可選欄位：`classType`（'care'|'non_care'，specs/14 §3.1）、`category`（'care'|'math'|'english'|'none'|'unset'）、`categorySource`（有效值 `manual`／`seed`／`unset`；`auto` 僅為舊資料的讀取相容值）、`fixedFiveDays`（boolean，specs/14 §3.3 簡化為純布林，移除 fixedSource）。
-- `category` 不依班名推導。讀取已存舊設定 JSON 維持 `readStoredDraft` 為唯一 JSON 入口；有效類別由解析層套用 `manual > explicit unset > seed > unset`。seed 值只在讀取時套用，不回寫草稿；舊快照仍保留原形狀。
+#### 5.3.2 班級設定草稿資料模型擴充（D61）
+- `ClassSettingSchema` 支援五種課程類型：`classType`（'care'|'english'|'math'|'other'|'unscheduled'，D61）、`hasMultiSubjectDiscount`（boolean）、`category`（'care'|'math'|'english'|'none'|'unset'）、`categorySource`（有效值 `manual`／`seed`／`unset`；`auto` 僅為舊資料的讀取相容值）、`fixedFiveDays`（boolean，僅 care 支援）、`incompleteSessions`（D61 Ruling 3：未填時間待補時段列）。
+- `category` 不依班名推導，由 `(classType, hasMultiSubjectDiscount)` 確定性投影。讀取已存舊設定 JSON 維持 `readStoredDraft` 為唯一 JSON 入口；有效類別由解析層套用 `manual > explicit unset > seed > unset`。
+- 課表 Excel 匯出入全量升級為 9 欄契約（`班級名稱｜課程類型｜是否有多科折扣｜天數固定5天｜不計扣天｜帶班老師｜星期｜開始時間｜結束時間`），全面以嚴格「是／否」解析並落實跨類型防呆。
 - `isSettingsDirty` 支援 `baseline.classAttrs` 與 `currentAttrs` 之變更比對（F-13）。
 
 #### 5.3.3 計算路徑接線與未對應班契約

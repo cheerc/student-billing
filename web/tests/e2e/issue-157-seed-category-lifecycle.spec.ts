@@ -24,76 +24,68 @@ async function saveAndReload(page: Page) {
   await reloadSettings(page);
 }
 
-test.describe('Issue #157 Ruling 6／8：seed 類別生命週期與撤回持久化', () => {
+test.describe('Issue #157 & D61：seed 類別生命週期與多科折扣持久化', () => {
   test.beforeEach(async ({ page }) => {
     await page.goto('/settings');
     await resetSeedSettings(page);
     await reloadSettings(page);
+    // 預設在安親頁籤，切換至數學頁籤
+    await page.locator('#class-type-tab-math').click();
   });
 
-  test('seed 班改名後，畫面值與存檔重新載入後的值一致', async ({ page }) => {
+  test('seed 班改名後，多科折扣與課程類型隨班帶走，存檔重新載入後值一致', async ({ page }) => {
     await renameWholeClass(page, '國小數學-三A', '國小數學-三A新名');
     const renamed = classRow(page, '國小數學-三A新名');
-    await expect(renamed.locator('[data-category-select="國小數學-三A新名"]')).toHaveValue('unset');
+    const radio = renamed.locator('div[role="radiogroup"][aria-label*="是否有多科折扣"]');
+    await expect(radio.locator('input[value="true"]')).toBeChecked();
 
     await saveAndReload(page);
+    await page.locator('#class-type-tab-math').click();
     await expect(
-      classRow(page, '國小數學-三A新名').locator('[data-category-select="國小數學-三A新名"]')
-    ).toHaveValue('unset');
+      classRow(page, '國小數學-三A新名').locator('div[role="radiogroup"][aria-label*="是否有多科折扣"]').locator('input[value="true"]')
+    ).toBeChecked();
   });
 
-  test('使用者先撤回的 seed 班改名並存檔後仍為 unset', async ({ page }) => {
-    await classRow(page, '國小數學-三B')
-      .locator('[data-category-select="國小數學-三B"]')
-      .first()
-      .selectOption('unset');
-    await renameWholeClass(page, '國小數學-三B', '國小數學-三B撤回改名');
+  test('使用者先改多科折扣為「否」的 seed 班改名並存檔後仍為否', async ({ page }) => {
+    const row = classRow(page, '國小數學-三B');
+    await row.locator('div[role="radiogroup"][aria-label*="是否有多科折扣"]').locator('label.no-option').click();
+
+    await renameWholeClass(page, '國小數學-三B', '國小數學-三B改名');
+    const renamed = classRow(page, '國小數學-三B改名');
     await expect(
-      classRow(page, '國小數學-三B撤回改名').locator('[data-category-select="國小數學-三B撤回改名"]')
-    ).toHaveValue('unset');
+      renamed.locator('div[role="radiogroup"][aria-label*="是否有多科折扣"]').locator('input[value="false"]')
+    ).toBeChecked();
 
     await saveAndReload(page);
+    await page.locator('#class-type-tab-math').click();
     await expect(
-      classRow(page, '國小數學-三B撤回改名').locator('[data-category-select="國小數學-三B撤回改名"]')
-    ).toHaveValue('unset');
+      classRow(page, '國小數學-三B改名').locator('div[role="radiogroup"][aria-label*="是否有多科折扣"]').locator('input[value="false"]')
+    ).toBeChecked();
   });
 
   test('兩個相同 seed 類別合併後，存檔重新載入仍保留畫面值', async ({ page }) => {
     await renameWholeClass(page, '國小數學-四A', '國小數學-四年級合班');
     await renameWholeClass(page, '國小數學-四B', '國小數學-四年級合班');
     const merged = classRow(page, '國小數學-四年級合班');
-    await expect(merged.locator('[data-category-select="國小數學-四年級合班"]')).toHaveValue('unset');
+    await expect(
+      merged.locator('div[role="radiogroup"][aria-label*="是否有多科折扣"]').locator('input[value="true"]')
+    ).toBeChecked();
 
     await saveAndReload(page);
+    await page.locator('#class-type-tab-math').click();
     await expect(
-      classRow(page, '國小數學-四年級合班').locator('[data-category-select="國小數學-四年級合班"]')
-    ).toHaveValue('unset');
+      classRow(page, '國小數學-四年級合班').locator('div[role="radiogroup"][aria-label*="是否有多科折扣"]').locator('input[value="true"]')
+    ).toBeChecked();
   });
 
-  test('未改名 seed 班在其他類別修改存檔後仍取得 seed 基準', async ({ page }) => {
-    await classRow(page, '國小數學-五A')
-      .locator('[data-category-select="國小數學-五A"]')
-      .first()
-      .selectOption('none');
+  test('未改名 seed 班在其他班修改存檔後仍保留多科折扣為是', async ({ page }) => {
+    const row5A = classRow(page, '國小數學-五A');
+    await row5A.locator('div[role="radiogroup"][aria-label*="是否有多科折扣"]').locator('label.no-option').click();
     await saveAndReload(page);
+    await page.locator('#class-type-tab-math').click();
 
     await expect(
-      classRow(page, '國小數學-五B').locator('[data-category-select="國小數學-五B"]')
-    ).toHaveValue('math');
-  });
-
-  test('選回「未設定」並存檔重新載入後仍是 unset', async ({ page }) => {
-    await classRow(page, '國小數學-六A')
-      .locator('[data-category-select="國小數學-六A"]')
-      .first()
-      .selectOption('unset');
-    await expect(
-      classRow(page, '國小數學-六A').locator('[data-category-select="國小數學-六A"]')
-    ).toHaveValue('unset');
-
-    await saveAndReload(page);
-    await expect(
-      classRow(page, '國小數學-六A').locator('[data-category-select="國小數學-六A"]')
-    ).toHaveValue('unset');
+      classRow(page, '國小數學-五B').locator('div[role="radiogroup"][aria-label*="是否有多科折扣"]').locator('input[value="true"]')
+    ).toBeChecked();
   });
 });

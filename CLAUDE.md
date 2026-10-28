@@ -14,7 +14,7 @@
 - 真實名單預覽、去重人數統計、班級與學生篩選、本地 SQLite 持久化（單一現況留存模型：1 筆最新啟用計算 Run、1 筆最新啟用學生名單、1 筆最新課表設定版本；上傳預覽保留與現況名單之逐人異動明細 `rosterDiff`）。
 - 天數計算（安親天數、課輔天數；點名表專用之 6 項非收費天數欄位已依 D60 退役）。
 - 課程適用折扣計算、ERP 登記級距比對、差異提示與計算過程解釋。
-- 課程類型（安親課輔班／非安親課輔班）、課程、老師、每週時段、別名映射 (Alias) 維護，支援 Preview（影響評估）與 Apply（原子套用與重算）。
+- 課程類型（安親課輔班／美語班／數學班／其他班／不排課，D61）、課程、老師、每週時段、別名映射 (Alias) 維護，支援 Preview（影響評估）與 Apply（原子套用與重算）。
 - 本地最小唯讀 API 供查詢當前 Run 之計算結果（全站收斂為 4 條 Agent 查帳 GET API + 7 條 Web 流程路由）。
 
 ### P1 負向範圍 (Negative Scope - 絕對禁止在 P1 實作)
@@ -35,12 +35,12 @@
 
 若文件內容或要求出現衝突，依下列優先順序判定：
 
-1. **使用者最新明確決策**：`specs/06-handoff-decisions.md`（D01–D60，特別是 D17、D24、D33 UI 重設方向、D52 雙審查與解耦裁決、D57 #159 PR-2 現行 v4-only runtime、D58 #148 PR-3 bounded class semantics data contract、D59 PR-4 semantic consumers，以及 D60 系統全面減法、單一現況留存與 Agent 查帳 API 收斂）。
+1. **使用者最新明確決策**：`specs/06-handoff-decisions.md`（D01–D61，特別是 D17、D24、D33 UI 重設方向、D52 雙審查與解耦裁決、D57 #159 PR-2 現行 v4-only runtime、D58 #148 PR-3 bounded class semantics data contract、D59 PR-4 semantic consumers、D60 系統全面減法與單一現況留存，以及 D61 五種課程類型重構、單選統一與 1c 待補時間雙重警示）。
 2. **正式規則與契約規格**：
-   - `specs/02-calculation-rules.md`（收費規則 R01–R18、§9A erp-tag-v4 解耦段與 D60 規則減法、欄位契約、結構化班名）
+   - `specs/02-calculation-rules.md`（收費規則 R01–R18、§9A erp-tag-v4 解耦段、D60 規則減法與 D61 2×2 解耦與其他班扣天、欄位契約、結構化班名）
    - `specs/03-architecture-api.md`（單一現況留存模型、不可變快照、資料模型、交易與 11 條 API 契約）
-   - `specs/04-tdd-acceptance.md`（U01–U74、I01–I20、UX01–UX105、原生 Excel 實測錨點）
-   - `specs/09-ui-workflow-redesign-spec.md`（先課表→匯入→核對 3 頁 UI 流程，及其必要 API／設定生命週期放寬；授權來源為 D33 與 D60，不改 02 計費規則）
+   - `specs/04-tdd-acceptance.md`（U01–U74、I01–I20、UX01–UX109、原生 Excel 實測錨點）
+   - `specs/09-ui-workflow-redesign-spec.md`（先課表→匯入→核對 3 頁 UI 流程，及其必要 API／設定生命週期放寬；授權來源為 D33、D60 與 D61，不改 02 計費規則）
 3. **執行計畫**：
    - `specs/07-p1-implementation-plan.md`（T00–T07 依序執行，展示 A/B/C 交付節點）
    - `specs/10-ui-workflow-redesign-plan.md`（UI 重設 R0–R5 分批；驗收矩陣在 04 §8，本檔不定義規則）
@@ -48,6 +48,7 @@
    - `specs/12-round2-acceptance-fix-plan.md`（第二次人工驗收修正 R2-F01／R2-F02 與驗收工具 T1／T2／T3；驗收列 UX74 起在 04 §8，工具指令在該檔 §4，本檔不定義規則）
    - `specs/14-class-type-settings-plan.md`（課程類型分類與課表設定重構規格與拆分計畫：依課程類型分頁、固定 5 天旗標與課程學費折扣解耦；授權來源為 2026-10-18 operator 裁決，實作時同步更新 02／03／04／09，拆分見該檔 §6）
    - `specs/15-class-semantics-simplification-plan.md`（系統全面減法、單一現況留存模型與 Agent 查帳 API 收斂計畫：拆除語意面板、退役點名表 6 欄天數、單一現行規則 erp-tag-v4、移除 /history、Migration 0012/0013、收斂為 3 頁 UI + 11 條 API；授權來源為 2026-10-27 operator D60 裁決）
+   - `specs/16-five-class-types-yes-no-refactor-plan.md`（五種課程類型重構、「是／否」單選統一與未填時間醒目警示計畫：五頁籤、2×2 計費解耦、其他班所見即所得扣天、1c 雙重視覺警示與 Excel 9 欄五類型契約；授權來源為 2026-10-28 operator D61 裁決）
 4. **歷史 Review 與交接記錄**：`specs/reviews/*`（僅供脈絡參考，若有數字或推論與 04 §3 或 D24 衝突，以最新正式規格為準）。
 
 第 2 層各文件各管其域：02 管計費規則、03 管資料模型與交易不變式、04 管驗收、09 管 UI 流程。09 對 01／03 的 UI 流程與設定生命週期放寬，僅限 D33/D60 授權且 09 §8 明列的範圍；02 計費規則與 03 §4 的不可變快照／交易不變式不因 09 改變。
