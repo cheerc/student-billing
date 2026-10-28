@@ -158,7 +158,7 @@ describe('Issue #177 Phase 2: UI 與課表契約收斂 (TDD RED -> GREEN)', () =
         expect(clsRecord.subjectSource).toBeUndefined();
         expect(clsRecord.classTypeId).toBeUndefined();
         expect(clsRecord.semanticOnly).toBeUndefined();
-        expect(['care', 'non_care']).toContain(cls.classType);
+        expect(['care', 'english', 'math', 'other', 'unscheduled']).toContain(cls.classType);
       }
     });
   });

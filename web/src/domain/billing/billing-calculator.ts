@@ -18,7 +18,8 @@ import {
   isUnknownWeekday,
 } from '../schedules/overlap-calculator';
 import seedData from '../schedules/schedule-seed.json';
-import { resolveClassEnrollment, ClassSettingLookup, ClassCategory } from '../classification/class-category';
+import { SEED_CLASS_TYPES } from '../schedules/seed-manifest';
+import { resolveClassEnrollment, ClassSettingLookup } from '../classification/class-category';
 import { projectTierForApplicability } from '../students/token-parser';
 
 /**
@@ -140,13 +141,14 @@ export function resolveClassSessions(
   if (valid.length === 0) {
     return { sessions: [], status: 'schedule_empty', resolvedBaseName };
   }
+  const defaultSeedSkip = SEED_CLASS_TYPES.get(resolvedBaseName) === 'other';
   return {
     sessions: valid.map((s: any) => ({
       start: s.startMinutes,
       end: s.endMinutes,
       weekday: s.weekday ?? null,
-      // #113 follow-up：seed 時段沒有此欄位 → 未勾選＝false（不猜）
-      skipDeduction: s.skipDeduction === true,
+      // D61：seed 其他班預設 skipDeduction=true，其餘未指定為 false（與 buildSeedGridRows 同源）
+      skipDeduction: s.skipDeduction !== undefined ? s.skipDeduction === true : defaultSeedSkip,
     })),
     status: 'calculated',
     resolvedBaseName,
@@ -213,53 +215,50 @@ export function calculateStudentBilling(
     tagDiscounts.specialDiscount
   );
 
-  // 3. 抽取數學與美語之衝堂扣天
+  // 3. 抽取數學、美語與其他班之衝堂扣天（D61：與是否有多科折扣 2×2 解耦）
   let mathAnqinDed = 0;
   let mathTutoringDed = 0;
   let mathScheduleStatus = 'no_enrollment';
   let englishAnqinDed = 0;
   let englishTutoringDed = 0;
-  let englishScheduleStatus = 'no_enrollment';
+  let otherAnqinDed = 0;
+  let otherTutoringDed = 0;
   let unknownWeekdayCount = 0;
   const additionalIssues: Array<{ code: string; message: string }> = [];
 
   /**
-   * D2d B（04 §8 UX71）：v3 選班的對外輸出。
-   * 兩處選班區塊（數學／美語）共用這份結果，避免各自維護一份「哪一班被選中」的推論。
+   * D2d B（04 §8 UX71）& D61：選班的對外輸出。
+   * 數學／美語／其他班共用這份結果，避免各自維護一份「哪一班被選中」的推論。
    */
   const selection: StudentSelection = {};
 
   /**
    * D2d D（04 §8 UX73）：逐報名課的**自身**課表解析狀態。
-   *
-   * `tierComparisons` 是逐 enrollment 產生的，但原本每個 enrollment 都共用同一個
-   * `schStatus`（只取選中班的狀態），於是「空課表的未入選候選」不會被標為需確認——
-   * 使用者看到該生天數正常，就以為每一班都算過了。這裡保留每個候選自己的 status，
-   * 讓 tierComparisons 能逐列反映（原本的 math/english 全班共用值仍保留，
-   * 作為非 v3 與無逐列資訊時的退路）。
    */
   const statusByRawToken = new Map<string, string>();
 
   {
-    // v3 依類別選扣天最多 (正量最多)
+    // 依課程類型選扣天最多 (正量最多)
     const isAnqinSide = student.grade === 1 || student.grade === 2;
     const isTutoringSide = student.grade !== null && student.grade >= 3 && student.grade <= 6;
 
-    // --- 數學類別 ---
-    const mathCandidates = effectiveStudent.enrollments
-      .map((enr, idx) => ({ enr, idx, res: resolvedEnrollments![idx] }))
-      .filter((item) => item.res.category === 'math')
-      .sort((a, b) => a.idx - b.idx);
-
-    if (mathCandidates.length > 0) {
+    const evaluateCandidates = (
+      candidates: Array<{ enr: ParsedToken; idx: number }>,
+      label: '數學' | '美語' | '其他'
+    ): { anqinDed: number; tutoringDed: number; status: string; chosen?: ClassSelection } => {
+      if (candidates.length === 0) {
+        return { anqinDed: 0, tutoringDed: 0, status: 'no_enrollment' };
+      }
       const evals: CandidateEval[] = [];
-      for (const cand of mathCandidates) {
-        const ses = resolveClassSessions(cand.enr, options.aliasMap, options.scheduleOverride, classMapFor(options));
+      for (const cand of candidates) {
+        const ses = resolveClassSessions(
+          cand.enr,
+          options.aliasMap,
+          options.scheduleOverride,
+          classMapFor(options)
+        );
         statusByRawToken.set(cand.enr.rawToken, ses.status);
         if (ses.status === 'calculated') {
-          // #113 follow-up（逐時段）：扣天只由**未勾選**的時段構成（deductSessions 內部處理）。
-          // 整班都勾選 → 扣天 0，但時段仍存在、status 仍是 calculated（不是缺課表），
-          // 這是刻意的政策結果，不是算不出來。
           const ded = deductSessions(ses.sessions);
           const pos = isAnqinSide ? -ded.anqin : isTutoringSide ? -ded.tutoring : 0;
           evals.push({
@@ -282,23 +281,18 @@ export function calculateStudentBilling(
             positiveDeduction: 0,
             isCalculable: false,
           });
-          // D2d D（04 §8 UX73；S manifest §7.5 第 5 點、02 §9 可計算性）：
-          // 不可計算的候選**保留其需確認警告**，不因未被選中就靜默。
-          // `schedule_not_found`（查無課表）與 `schedule_empty`（已對應但時段為空）
-          // 兩種不可計算都要出警告——使用者看到的都是「這一班算不出扣天，請確認」。
-          // v2 凍結（F-8）：本段只在 `maxDeductionSelection`（v3）區塊內，v2 不經過。
           if (ses.status === 'schedule_not_found' || ses.status === 'schedule_empty') {
             additionalIssues.push(
               ses.status === 'schedule_not_found'
                 ? {
                     code: 'SCHEDULE_NOT_FOUND',
-                    message: `學生報名之數學班級「${cand.enr.rawToken}」未於${
+                    message: `學生報名之${label}班級「${cand.enr.rawToken}」未於${
                       options.scheduleOverride ? '現行已儲存排課設定' : '排課種子'
                     }中找到，天數採 0 扣天 fallback，待確認排課或 alias 對應。`,
                   }
                 : {
                     code: 'SCHEDULE_EMPTY',
-                    message: `學生報名之數學班級「${cand.enr.rawToken}」已對應到${
+                    message: `學生報名之${label}班級「${cand.enr.rawToken}」已對應到${
                       options.scheduleOverride ? '現行已儲存排課設定' : '排課種子'
                     }但時段為空，無法計算衝堂扣天；扣天採 0 fallback，待確認該班時段。`,
                   }
@@ -308,7 +302,6 @@ export function calculateStudentBilling(
       }
 
       const calculables = evals.filter((e) => e.isCalculable);
-      let mathTieBreak: ClassSelection['tieBreak'];
       if (calculables.length > 0) {
         // 取正量最多者；平手時保留報名順序較前者（只替換「嚴格大於」，不動等值者）。
         let best = calculables[0];
@@ -317,105 +310,62 @@ export function calculateStudentBilling(
             best = calculables[i];
           }
         }
-        mathTieBreak = best === calculables[0] && calculables.length > 1 && calculables[1].positiveDeduction === best.positiveDeduction
-          ? 'first_enrollment'
-          : 'max_positive_deduction';
-        mathAnqinDed = best.anqinDed;
-        mathTutoringDed = best.tutoringDed;
-        mathScheduleStatus = best.status;
-        selection.math = toClassSelection(best, evals.length, calculables.length, mathTieBreak);
-      } else {
-        const first = evals[0];
-        mathAnqinDed = 0;
-        mathTutoringDed = 0;
-        mathScheduleStatus = first.status;
-        // 全部不可計算：仍記錄 fallback 依據的那一班，但 isCalculable=false，
-        // 呼叫端不得把它當成「有扣天」（04 §8 UX67／UX73）。
-        selection.math = toClassSelection(first, evals.length, 0, 'no_calculable_candidate');
-      }
-    }
-
-    // --- 美語類別 ---
-    const englishCandidates = effectiveStudent.enrollments
-      .map((enr, idx) => ({ enr, idx, res: resolvedEnrollments![idx] }))
-      .filter((item) => item.res.category === 'english')
-      .sort((a, b) => a.idx - b.idx);
-
-    if (englishCandidates.length > 0) {
-      const evals: CandidateEval[] = [];
-      for (const cand of englishCandidates) {
-        const ses = resolveClassSessions(cand.enr, options.aliasMap, options.scheduleOverride, classMapFor(options));
-        statusByRawToken.set(cand.enr.rawToken, ses.status);
-        if (ses.status === 'calculated') {
-          // #113 follow-up（逐時段）：與數學候選同一規則——扣天只由未勾選的時段構成。
-          const ded = deductSessions(ses.sessions);
-          const pos = isAnqinSide ? -ded.anqin : isTutoringSide ? -ded.tutoring : 0;
-          evals.push({
-            enr: cand.enr,
-            idx: cand.idx,
-            status: ses.status,
-            anqinDed: ded.anqin,
-            tutoringDed: ded.tutoring,
-            positiveDeduction: pos,
-            isCalculable: true,
-          });
-          unknownWeekdayCount += ded.unknownWeekdayCount;
-        } else {
-          evals.push({
-            enr: cand.enr,
-            idx: cand.idx,
-            status: ses.status,
-            anqinDed: 0,
-            tutoringDed: 0,
-            positiveDeduction: 0,
-            isCalculable: false,
-          });
-          // D2d D（04 §8 UX73）：美語候選的不可計算警告。`missingEnglishScheduleWarning`
-          // 仍只守 `schedule_not_found`（F-8：v3 才補美語缺課表警告），但 `schedule_empty`
-          // 是本班自己時段為空、與 F-8 無關，故不受該旗標限制——只要走到 v3 選班區塊
-          // 就必須保留這則需確認警告。
-          if (ses.status === 'schedule_not_found') {
-            additionalIssues.push({
-              code: 'SCHEDULE_NOT_FOUND',
-              message: `學生報名之美語班級「${cand.enr.rawToken}」未於${
-                options.scheduleOverride ? '現行已儲存排課設定' : '排課種子'
-              }中找到，天數採 0 扣天 fallback，待確認排課或 alias 對應。`,
-            });
-          } else if (ses.status === 'schedule_empty') {
-            additionalIssues.push({
-              code: 'SCHEDULE_EMPTY',
-              message: `學生報名之美語班級「${cand.enr.rawToken}」已對應到${
-                options.scheduleOverride ? '現行已儲存排課設定' : '排課種子'
-              }但時段為空，無法計算衝堂扣天；扣天採 0 fallback，待確認該班時段。`,
-            });
-          }
-        }
+        const tieBreak: ClassSelection['tieBreak'] =
+          best === calculables[0] &&
+          calculables.length > 1 &&
+          calculables[1].positiveDeduction === best.positiveDeduction
+            ? 'first_enrollment'
+            : 'max_positive_deduction';
+        return {
+          anqinDed: best.anqinDed,
+          tutoringDed: best.tutoringDed,
+          status: best.status,
+          chosen: toClassSelection(best, evals.length, calculables.length, tieBreak),
+        };
       }
 
-      const calculables = evals.filter((e) => e.isCalculable);
-      let englishTieBreak: ClassSelection['tieBreak'];
-      if (calculables.length > 0) {
-        let best = calculables[0];
-        for (let i = 1; i < calculables.length; i++) {
-          if (calculables[i].positiveDeduction > best.positiveDeduction) {
-            best = calculables[i];
-          }
-        }
-        englishTieBreak = best === calculables[0] && calculables.length > 1 && calculables[1].positiveDeduction === best.positiveDeduction
-          ? 'first_enrollment'
-          : 'max_positive_deduction';
-        englishAnqinDed = best.anqinDed;
-        englishTutoringDed = best.tutoringDed;
-        englishScheduleStatus = best.status;
-        selection.english = toClassSelection(best, evals.length, calculables.length, englishTieBreak);
-      } else {
-        const first = evals[0];
-        englishAnqinDed = 0;
-        englishTutoringDed = 0;
-        englishScheduleStatus = first.status;
-        selection.english = toClassSelection(first, evals.length, 0, 'no_calculable_candidate');
-      }
-    }
+      const first = evals[0];
+      return {
+        anqinDed: 0,
+        tutoringDed: 0,
+        status: first.status,
+        chosen: toClassSelection(first, evals.length, 0, 'no_calculable_candidate'),
+      };
+    };
+
+    const indexedEnrollments = effectiveStudent.enrollments.map((enr, idx) => ({
+      enr,
+      idx,
+      res: resolvedEnrollments![idx],
+    }));
+
+    // --- 數學班（classType === 'math'）---
+    const mathRes = evaluateCandidates(
+      indexedEnrollments.filter((item) => item.res.classType === 'math').sort((a, b) => a.idx - b.idx),
+      '數學'
+    );
+    mathAnqinDed = mathRes.anqinDed;
+    mathTutoringDed = mathRes.tutoringDed;
+    mathScheduleStatus = mathRes.status;
+    if (mathRes.chosen) selection.math = mathRes.chosen;
+
+    // --- 美語班（classType === 'english'）---
+    const englishRes = evaluateCandidates(
+      indexedEnrollments.filter((item) => item.res.classType === 'english').sort((a, b) => a.idx - b.idx),
+      '美語'
+    );
+    englishAnqinDed = englishRes.anqinDed;
+    englishTutoringDed = englishRes.tutoringDed;
+    if (englishRes.chosen) selection.english = englishRes.chosen;
+
+    // --- 其他班（classType === 'other'，Option A 所見即所得扣天）---
+    const otherRes = evaluateCandidates(
+      indexedEnrollments.filter((item) => item.res.classType === 'other').sort((a, b) => a.idx - b.idx),
+      '其他'
+    );
+    otherAnqinDed = otherRes.anqinDed;
+    otherTutoringDed = otherRes.tutoringDed;
+    if (otherRes.chosen) selection.other = otherRes.chosen;
   }
 
   // 4. 計算安親與課輔每週收費天數 (R11, R12)
@@ -433,6 +383,8 @@ export function calculateStudentBilling(
     mathDeductionTutoring: mathTutoringDed,
     englishDeductionAnqin: englishAnqinDed,
     englishDeductionTutoring: englishTutoringDed,
+    otherDeductionAnqin: otherAnqinDed,
+    otherDeductionTutoring: otherTutoringDed,
     extraDeduction: tagDiscounts.extraDeduction,
     hasHomeworkOrMeian,
     isEnrolledAnqin,

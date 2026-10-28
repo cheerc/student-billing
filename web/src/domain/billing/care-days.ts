@@ -6,6 +6,8 @@ export interface CareDaysInput {
   mathDeductionTutoring: number;
   englishDeductionAnqin: number;
   englishDeductionTutoring: number;
+  otherDeductionAnqin?: number;
+  otherDeductionTutoring?: number;
   extraDeduction: number | null;
   hasHomeworkOrMeian: boolean;
   isEnrolledAnqin?: boolean;
@@ -22,6 +24,8 @@ export interface CareDaysInput {
 export function calculateCareDays(input: CareDaysInput): CareDaysResult {
   const extra = input.extraDeduction ?? 0;
   const hasExtraFlag = input.extraDeduction !== null;
+  const otherAnqin = input.otherDeductionAnqin ?? 0;
+  const otherTutoring = input.otherDeductionTutoring ?? 0;
 
   // 1. 安親天數 (R11)
   let anqinDays: number | null = null;
@@ -30,7 +34,10 @@ export function calculateCareDays(input: CareDaysInput): CareDaysResult {
 
   if (input.grade === 1 || input.grade === 2) {
     const homeworkFloor = input.hasHomeworkOrMeian ? 5 : 0;
-    const baseVal = Math.max(5 + input.mathDeductionAnqin + input.englishDeductionAnqin, homeworkFloor);
+    const baseVal = Math.max(
+      5 + input.mathDeductionAnqin + input.englishDeductionAnqin + otherAnqin,
+      homeworkFloor
+    );
     anqinDays = Math.max(3.5, baseVal - extra);
     anqinDisplay = hasExtraFlag ? `${anqinDays}*額` : `${anqinDays}`;
     anqinStatus = 'calculated';
@@ -47,7 +54,10 @@ export function calculateCareDays(input: CareDaysInput): CareDaysResult {
 
   if (input.grade !== null && input.grade >= 3 && input.grade <= 6) {
     const homeworkFloor = input.hasHomeworkOrMeian ? 5 : 0;
-    const baseVal = Math.max(5 + input.mathDeductionTutoring + input.englishDeductionTutoring, homeworkFloor);
+    const baseVal = Math.max(
+      5 + input.mathDeductionTutoring + input.englishDeductionTutoring + otherTutoring,
+      homeworkFloor
+    );
     tutoringDays = Math.max(3.0, baseVal - extra);
     tutoringDisplay = hasExtraFlag ? `${tutoringDays}*額` : `${tutoringDays}`;
     tutoringStatus = 'calculated';

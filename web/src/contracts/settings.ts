@@ -1,11 +1,15 @@
 import { z } from 'zod';
 import seedData from '../domain/schedules/schedule-seed.json';
+import { SEED_CLASS_TYPES } from '../domain/schedules/seed-manifest';
 import { persistClassAttributes } from '@/domain/classification/persist-class-attributes';
-import type { CategorySource, ClassCategory } from '@/domain/classification/class-category';
+import {
+  normalizeLegacyClassSetting,
+  type CategorySource,
+  type ClassCategory,
+} from '@/domain/classification/class-category';
 
 /**
  * seed 內的 8 個預設安親課輔班（source=care_window）。
- * 預設課程類型為 'care'，其餘 41 班預設為 'non_care'（specs/14 §3.9）。
  */
 export const DEFAULT_CARE_CLASS_NAMES: ReadonlySet<string> = new Set(
   (seedData.classes as Array<{ baseName: string; source?: string }>)
@@ -13,9 +17,40 @@ export const DEFAULT_CARE_CLASS_NAMES: ReadonlySet<string> = new Set(
     .map((c) => c.baseName)
 );
 
-/** 課程類型：安親課輔班（care，時段由窗口決定，支援固定 5 天）或非安親課輔班（non_care，逐時段排課與不計扣天）。 */
-export const ClassTypeSchema = z.enum(['care', 'non_care']);
+/** D61：五種課程類型識別碼（固定順序：安親課輔班／美語班／數學班／其他班／不排課）。 */
+export const ClassTypeSchema = z.enum(['care', 'english', 'math', 'other', 'unscheduled']);
 export type ClassType = z.infer<typeof ClassTypeSchema>;
+
+export const CLASS_TYPE_ORDER: readonly ClassType[] = [
+  'care',
+  'english',
+  'math',
+  'other',
+  'unscheduled',
+] as const;
+
+export const CLASS_TYPE_LABELS: Record<ClassType, string> = {
+  care: '安親課輔班',
+  english: '美語班',
+  math: '數學班',
+  other: '其他班',
+  unscheduled: '不排課',
+};
+
+/** 是否為可排課之課程類型（美語班／數學班／其他班為 true；安親課輔班／不排課為 false）。 */
+export function isSchedulableClassType(t: ClassType): boolean {
+  return t === 'english' || t === 'math' || t === 'other';
+}
+
+/** 是否支援「是否有多科折扣」開關（安親課輔班／美語班／數學班為 true）。 */
+export function supportsMultiSubjectDiscount(t: ClassType): boolean {
+  return t === 'care' || t === 'english' || t === 'math';
+}
+
+/** 該課程類型新增時段／空佔位列之預設「不計扣天」值（其他班預設 true，其餘為 false）。 */
+export function defaultSkipDeductionForClassType(t: ClassType): boolean {
+  return t === 'other';
+}
 
 /** 將 "HH:mm" 時間字串轉換為當日分鐘數 (0~1440) */
 export function timeStringToMinutes(timeStr: string | null | undefined): number | null {
@@ -89,14 +124,34 @@ export function isCompleteTimeRange<T extends { startMinutes: number | null; end
   return s.startMinutes !== null && s.endMinutes !== null && s.endMinutes > s.startMinutes;
 }
 
-/** 單一班級設定 */
+/** 時段是否同時滿足存檔星期（1–8 字元非空）與完整起迄區間（D61 §5.2 同源判斷）。 */
+export function isSavableCompleteSession<
+  T extends { weekday: string; startMinutes: number | null; endMinutes: number | null }
+>(s: T): s is T & { startMinutes: number; endMinutes: number } {
+  return isSavableWeekday(s.weekday) && isCompleteTimeRange(s);
+}
+
+/**
+ * D61 Ruling 3：保存填寫一半的待補時段列（供存檔重載後還原，絕不進入計費核心 scheduleOverride）。
+ */
+export const IncompleteSessionSchema = z.object({
+  weekday: z.string().max(8).default(''),
+  startMinutes: z.number().int().min(0).max(1440).nullable().default(null),
+  endMinutes: z.number().int().min(0).max(1440).nullable().default(null),
+  skipDeduction: z.boolean().default(false),
+});
+
+export type IncompleteSession = z.infer<typeof IncompleteSessionSchema>;
+
 /** 單一班級設定物件 Schema（未套用 refinement，供 extend 使用） */
 const ClassSettingObjectSchema = z.object({
   baseName: z.string().min(1),
   teacher: z.string().nullable().default(null),
   active: z.boolean().default(true),
   sessions: z.array(SessionSchema).default([]),
-  classType: ClassTypeSchema.optional(),
+  incompleteSessions: z.array(IncompleteSessionSchema).optional(),
+  classType: z.union([ClassTypeSchema, z.literal('non_care')]).optional(),
+  hasMultiSubjectDiscount: z.boolean().optional(),
   classTypeId: z.string().optional(),
   category: z.enum(['care', 'math', 'english', 'none', 'unset']).optional(),
   /**
@@ -110,15 +165,47 @@ const ClassSettingObjectSchema = z.object({
 });
 
 function validateClassSetting(
-  cls: { classType?: ClassType; fixedFiveDays?: boolean },
+  cls: {
+    classType?: ClassType | 'non_care';
+    hasMultiSubjectDiscount?: boolean;
+    fixedFiveDays?: boolean;
+    sessions?: unknown[];
+    incompleteSessions?: unknown[];
+  },
   ctx: z.RefinementCtx
 ) {
-  if (cls.classType === 'non_care' && cls.fixedFiveDays === true) {
+  if (cls.classType !== undefined && cls.classType !== 'care' && cls.fixedFiveDays === true) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
       path: ['fixedFiveDays'],
       message: '非安親課輔班不支援固定 5 天',
     });
+  }
+  if (
+    (cls.classType === 'other' || cls.classType === 'unscheduled') &&
+    cls.hasMultiSubjectDiscount === true
+  ) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['hasMultiSubjectDiscount'],
+      message: '此課程類型不支援多科折扣',
+    });
+  }
+  if (cls.classType === 'care' || cls.classType === 'unscheduled') {
+    if (Array.isArray(cls.sessions) && cls.sessions.length > 0) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['sessions'],
+        message: '此課程類型不支援排課時段',
+      });
+    }
+    if (Array.isArray(cls.incompleteSessions) && cls.incompleteSessions.length > 0) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['incompleteSessions'],
+        message: '此課程類型不支援待補時段',
+      });
+    }
   }
 }
 
@@ -163,12 +250,13 @@ export const ScheduleGridRowSchema = z
 
 export type ScheduleGridRow = z.infer<typeof ScheduleGridRowSchema>;
 
-/** 由 schedule-seed 產生全量 89 筆平鋪時段列（F1: 空時段原樣攜帶 null，不捏造假分鐘數） */
+/** 由 schedule-seed 產生全量 89 筆平鋪時段列（F1: 空時段原樣攜帶 null，不捏造假分鐘數；D61: 其他班預設 skipDeduction=true） */
 export function buildSeedGridRows(): ScheduleGridRow[] {
   const rows: ScheduleGridRow[] = [];
   let rowSeq = 1;
 
   for (const cls of seedData.classes) {
+    const defaultSkip = SEED_CLASS_TYPES.get(cls.baseName) === 'other';
     for (const session of cls.sessions) {
       const hasStart = session.startMinutes !== null && session.startMinutes !== undefined;
       const hasEnd = session.endMinutes !== null && session.endMinutes !== undefined;
@@ -186,7 +274,7 @@ export function buildSeedGridRows(): ScheduleGridRow[] {
         startMinutes: startMin,
         endMinutes: endMin,
         active: true,
-        skipDeduction: false,
+        skipDeduction: defaultSkip,
       });
     }
   }
@@ -194,30 +282,86 @@ export function buildSeedGridRows(): ScheduleGridRow[] {
   return rows;
 }
 
-/** 將平鋪時段列聚合為 ClassSetting[] 結構（F1: null 時段列不產出實體 session）。
- *  #113 follow-up：完整列各自帶自己的 `skipDeduction`（逐時段），不同於 category／fixedFiveDays 的整班共用。 */
+/**
+ * 將可排課班級的輸入時段拆分為完整合法 `sessions` 與待補 `incompleteSessions`（供 gridRowsToClasses 與 toSaveEquivalentDraft 共用）。
+ * - `care` 與 `unscheduled` 一律輸出 `sessions: []` 且不帶 `incompleteSessions`。
+ * - 單列全空佔位（星期空、起迄皆 null、skipDeduction 為該類型預設值）省略 `incompleteSessions`。
+ */
+export function splitSavableSessions(
+  classType: ClassType,
+  rows: ReadonlyArray<{
+    weekday: string;
+    startMinutes: number | null;
+    endMinutes: number | null;
+    skipDeduction?: boolean;
+  }>
+): { sessions: Session[]; incompleteSessions?: IncompleteSession[] } {
+  if (!isSchedulableClassType(classType)) {
+    return { sessions: [] };
+  }
+
+  const defaultSkip = defaultSkipDeductionForClassType(classType);
+  const sessions: Session[] = [];
+  const incomplete: IncompleteSession[] = [];
+
+  for (const r of rows) {
+    const skip = r.skipDeduction ?? false;
+    if (isSavableCompleteSession(r)) {
+      sessions.push({
+        weekday: r.weekday,
+        startMinutes: r.startMinutes,
+        endMinutes: r.endMinutes,
+        skipDeduction: skip,
+      });
+    } else if (r.weekday.length <= 8) {
+      incomplete.push({
+        weekday: r.weekday,
+        startMinutes: r.startMinutes,
+        endMinutes: r.endMinutes,
+        skipDeduction: skip,
+      });
+    }
+  }
+
+  if (incomplete.length === 0) {
+    return { sessions };
+  }
+
+  if (
+    sessions.length === 0 &&
+    incomplete.length === 1 &&
+    incomplete[0].weekday.trim() === '' &&
+    incomplete[0].startMinutes === null &&
+    incomplete[0].endMinutes === null &&
+    incomplete[0].skipDeduction === defaultSkip
+  ) {
+    return { sessions };
+  }
+
+  return { sessions, incompleteSessions: incomplete };
+}
+
+/** 將平鋪時段列聚合為 ClassSetting[] 結構（F1: null 時段列不產出實體 session；D61: 保留填寫一半的 incompleteSessions）。 */
 export function gridRowsToClasses(
   rows: ScheduleGridRow[],
   existingClasses?: ClassSetting[]
 ): ClassSetting[] {
-  return groupGridRowsToClasses(rows, existingClasses, (classRows) =>
-    classRows.filter(isCompleteTimeRange).map((r) => ({
-      weekday: r.weekday,
-      startMinutes: r.startMinutes,
-      endMinutes: r.endMinutes,
-      skipDeduction: r.skipDeduction ?? false,
-    }))
+  return groupGridRowsToClasses(rows, existingClasses, (classType, classRows) =>
+    splitSavableSessions(classType, classRows)
   );
 }
 
 /**
  * 平鋪列 → 班級的共用分組（存檔與 calculate 同一套：班名分組、teacher／active 的決定方式），
- * 只有「每班的 sessions 怎麼產生」由呼叫端決定。
+ * 只有「每班的 sessions／incompleteSessions 怎麼產生」由呼叫端決定。
  */
 function groupGridRowsToClasses<S>(
   rows: ScheduleGridRow[],
   existingClasses: ClassSetting[] | undefined,
-  toSessions: (classRows: ScheduleGridRow[]) => S[]
+  toSessions: (
+    classType: ClassType,
+    classRows: ScheduleGridRow[]
+  ) => { sessions: S[]; incompleteSessions?: IncompleteSession[] }
 ): Array<Omit<ClassSetting, 'sessions'> & { sessions: S[] }> {
   const existingMap = new Map<string, ClassSetting>();
   if (existingClasses) {
@@ -242,42 +386,48 @@ function groupGridRowsToClasses<S>(
     const teacher = classRows[0]?.teacher ?? existing?.teacher ?? null;
     const active = classRows.some((r) => r.active);
 
-    const classType: ClassType = existing?.classType ??
-      (existing?.classTypeId === 'care' ? 'care' : existing?.classTypeId === 'non_care' ? 'non_care' : undefined) ??
-      (DEFAULT_CARE_CLASS_NAMES.has(className) ? 'care' : 'non_care');
+    const norm = normalizeLegacyClassSetting(className, existing);
+    const classType: ClassType = norm.classType;
 
     // Both editor save and grid serialization use this single source rule: manual/unset write,
     // seed/legacy auto do not, and explicit fixedFiveDays=false remains in the draft.
     const attrs = persistClassAttributes({
       classType,
+      hasMultiSubjectDiscount: norm.hasMultiSubjectDiscount,
       category: existing?.category,
       categorySource: existing?.categorySource,
       fixedFiveDays: existing?.fixedFiveDays,
     });
 
+    const { sessions, incompleteSessions } = isSchedulableClassType(classType)
+      ? toSessions(classType, classRows)
+      : { sessions: [] as S[], incompleteSessions: undefined };
+
     classes.push({
       baseName: className,
       teacher,
       active,
-      // specs/14 §3.6 & A5：安親課輔班（classType === 'care'）sessions 一律輸出為 []
-      sessions: classType === 'care' ? [] : toSessions(classRows),
+      sessions,
+      ...(incompleteSessions !== undefined ? { incompleteSessions } : {}),
       classType,
       ...attrs,
     });
   }
 
-
-
   return classes;
 }
 
-/** 將 ClassSetting[] 展平為平鋪時段列（F2: 空 sessions 班級展平為佔位列，不丟失空班） */
+/** 將 ClassSetting[] 展平為平鋪時段列（合併 sessions 與 incompleteSessions；皆空時展開 1 筆空佔位列，skipDeduction 依類型預設） */
 export function classesToGridRows(classes: ClassSetting[]): ScheduleGridRow[] {
   const rows: ScheduleGridRow[] = [];
   let rowSeq = 1;
 
   for (const c of classes) {
-    if (c.sessions.length > 0) {
+    const norm = normalizeLegacyClassSetting(c.baseName, c);
+    const defaultSkip = defaultSkipDeductionForClassType(norm.classType);
+    const incomplete = isSchedulableClassType(norm.classType) ? (c.incompleteSessions ?? []) : [];
+
+    if (c.sessions.length > 0 || incomplete.length > 0) {
       for (const s of c.sessions) {
         rows.push({
           rowId: `grid-${c.baseName}-${rowSeq++}`,
@@ -293,12 +443,21 @@ export function classesToGridRows(classes: ClassSetting[]): ScheduleGridRow[] {
           skipDeduction: s.skipDeduction ?? false,
         });
       }
+      for (const inc of incomplete) {
+        rows.push({
+          rowId: `grid-${c.baseName}-${rowSeq++}`,
+          className: c.baseName,
+          teacher: c.teacher,
+          weekday: inc.weekday ?? '',
+          startTime: inc.startMinutes !== null ? minutesToTimeString(inc.startMinutes) : '',
+          endTime: inc.endMinutes !== null ? minutesToTimeString(inc.endMinutes) : '',
+          startMinutes: inc.startMinutes ?? null,
+          endMinutes: inc.endMinutes ?? null,
+          active: c.active,
+          skipDeduction: inc.skipDeduction ?? defaultSkip,
+        });
+      }
     } else {
-      // F2: 空時段班級展平為佔位列，保留該班級在平鋪表格之可見性與可編輯性。
-      // 星期是**空字串**（#82：只有班名時段，其他欄可留空）——不要用 '—' 當佔位：
-      // '—' 是 `normalizeWeekday` 不認得的非空值，會讓這一列被當成「需確認／無法識別的星期」，
-      // 而且會讓 #81 的 Excel 匯出檔被自己的匯入端整批拒絕（匯入只接受一到日或空白）。
-      // 畫面把空星期顯示成「未定」，所以這裡存空字串不會讓使用者看到空白欄。
       rows.push({
         rowId: `grid-${c.baseName}-${rowSeq++}`,
         className: c.baseName,
@@ -309,7 +468,7 @@ export function classesToGridRows(classes: ClassSetting[]): ScheduleGridRow[] {
         startMinutes: null,
         endMinutes: null,
         active: c.active,
-        skipDeduction: false,
+        skipDeduction: defaultSkip,
       });
     }
   }
@@ -370,7 +529,8 @@ export function detectSplitClasses(
  *  specs/14 §3.10：固定 5 天為純布林值，不再有 fixedSource。新增 classType。 */
 export interface ClassAttributeSetting {
   className: string;
-  classType?: ClassType;
+  classType?: ClassType | 'non_care';
+  hasMultiSubjectDiscount?: boolean;
   category?: 'care' | 'math' | 'english' | 'none' | 'unset';
   categorySource?: CategorySource;
   fixedFiveDays?: boolean;
@@ -432,6 +592,7 @@ export function isSettingsDirty(
       if (!ba) return true;
       if (
         ca.classType !== ba.classType ||
+        ca.hasMultiSubjectDiscount !== ba.hasMultiSubjectDiscount ||
         ca.category !== ba.category ||
         ca.categorySource !== ba.categorySource ||
         ca.fixedFiveDays !== ba.fixedFiveDays
@@ -507,15 +668,15 @@ export function gridRowsToCalculateClasses(
   rows: ScheduleGridRow[],
   existingClasses?: ClassSetting[]
 ): CalculateDraft['classes'] {
-  return groupGridRowsToClasses(rows, existingClasses, (classRows) =>
-    classRows.map((r) => ({
+  return groupGridRowsToClasses(rows, existingClasses, (_classType, classRows) => ({
+    sessions: classRows.map((r) => ({
       rowId: r.rowId,
       weekday: r.weekday,
       startMinutes: r.startMinutes,
       endMinutes: r.endMinutes,
       skipDeduction: r.skipDeduction ?? false,
-    }))
-  );
+    })),
+  }));
 }
 
 export const SettingsPreviewRequestSchema = z.object({

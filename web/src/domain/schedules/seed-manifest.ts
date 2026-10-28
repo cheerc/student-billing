@@ -150,10 +150,19 @@ export const SEED_BASE_NAMES = SEED_CLASSES.map((c) => c.baseName);
  * 同類），故為 `none`——舊的班名關鍵字規則因該名不含「國小數學」而恰好也得到 `none`，
  * 兩者在此班一致；本表**不以班名關鍵字為依據**，而以課程性質為依據。
  */
-export const SEED_CLASS_CATEGORIES: ReadonlyMap<string, SeedClassCategory> = new Map([
-  ["小六加強班-自然", "none"],
-  ["小六加強班-國文", "none"],
-  ["小六加強班-數學", "none"],
+export type SeedClassType = 'care' | 'english' | 'math' | 'other';
+
+/**
+ * D61：seed 49 個既有班級的五種課程類型基準（逐班明列，不依班名關鍵字推導）。
+ * - 國小輔導 8 班 → `care`（安親課輔班）
+ * - 兒童美語 24 班 → `english`（美語班）
+ * - 國小數學 12 班 → `math`（數學班）
+ * - 加強班 3 班＋國語文 2 班共 5 班 → `other`（其他班）
+ */
+export const SEED_CLASS_TYPES: ReadonlyMap<string, SeedClassType> = new Map([
+  ["小六加強班-自然", "other"],
+  ["小六加強班-國文", "other"],
+  ["小六加強班-數學", "other"],
   ["兒童美語-Gino", "english"],
   ["兒童美語-Archy", "english"],
   ["兒童美語-Chevady", "english"],
@@ -173,8 +182,8 @@ export const SEED_CLASS_CATEGORIES: ReadonlyMap<string, SeedClassCategory> = new
   ["兒童美語-Hopper", "english"],
   ["兒童美語-Teffer", "english"],
   ["兒童美語-Toker", "english"],
-  ["國小國語文-小三小四", "none"],
-  ["國小國語文-小五", "none"],
+  ["國小國語文-小三小四", "other"],
+  ["國小國語文-小五", "other"],
   ["國小輔導-一A", "care"],
   ["國小輔導-一B", "care"],
   ["國小輔導-二A", "care"],
@@ -203,6 +212,14 @@ export const SEED_CLASS_CATEGORIES: ReadonlyMap<string, SeedClassCategory> = new
 ]);
 
 export type SeedClassCategory = 'care' | 'math' | 'english' | 'none';
+
+/** 由 SEED_CLASS_TYPES 同源導出（`other -> 'none'`，其餘同名），維持單一資料來源。 */
+export const SEED_CLASS_CATEGORIES: ReadonlyMap<string, SeedClassCategory> = new Map(
+  Array.from(SEED_CLASS_TYPES.entries(), ([baseName, classType]) => [
+    baseName,
+    classType === 'other' ? 'none' : classType,
+  ])
+);
 
 export interface BaseNameClassificationResult {
   matched: string[];

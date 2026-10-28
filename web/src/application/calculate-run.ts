@@ -4,9 +4,14 @@ import { StudentSnapshot, ParsedToken } from '@/domain/students';
 import { calculateStudentBilling, RuleSetVersion, ResolvedClassSession } from '@/domain/billing/billing-calculator';
 import { CalculationRunRecord, StudentCalculationRecord, RunClassCategoryRecord } from '@/adapters/sqlite/runs-repository';
 import seedData from '@/domain/schedules/schedule-seed.json';
-import { SettingsDraft } from '@/contracts/settings';
+import { ClassType, SettingsDraft } from '@/contracts/settings';
 import { todayInTaipei } from '@/lib/datetime';
-import { resolveClassEnrollment, effectiveCategoryOf, ClassSettingLookup } from '@/domain/classification/class-category';
+import {
+  resolveClassEnrollment,
+  effectiveCategoryOf,
+  normalizeLegacyClassSetting,
+  ClassSettingLookup,
+} from '@/domain/classification/class-category';
 import { TARGET_FORMAL_RULE_SET_VERSION } from '@/domain/billing/rule-set';
 import {
   getLatestSettingsVersion,
@@ -33,7 +38,8 @@ export function buildClassSettingMap(draft: SettingsDraft): Map<string, ClassSet
   const map = new Map<string, ClassSettingLookup>();
   for (const c of draft.classes) {
     map.set(c.baseName, {
-      classType: c.classType ?? (c.classTypeId === 'care' ? 'care' : c.classTypeId === 'non_care' ? 'non_care' : undefined),
+      classType: c.classType ?? (c.classTypeId as ClassType | 'non_care' | undefined),
+      hasMultiSubjectDiscount: c.hasMultiSubjectDiscount,
       category: c.category,
       categorySource: c.categorySource,
       fixedFiveDays: c.fixedFiveDays,
@@ -271,16 +277,15 @@ export function executeCalculationRun(
     if (classSettings) {
       for (const [className, cls] of classSettings) {
         if (!classCategoryMap.has(className)) {
-          const { category, categorySource } = effectiveCategoryOf(className, cls);
-          const classType = (cls.classType ?? cls.classTypeId) as ('care' | 'non_care' | null) ?? null;
+          const norm = normalizeLegacyClassSetting(className, cls);
           classCategoryMap.set(className, {
             baseName: className,
             resolvedBaseName: className,
-            classType,
-            category,
+            classType: norm.classType,
+            category: norm.category,
             fixedFiveDays: cls.fixedFiveDays ? 1 : 0,
             mapped: 1,
-            source: categorySource,
+            source: norm.categorySource,
           });
         }
       }

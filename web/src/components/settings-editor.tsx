@@ -14,6 +14,7 @@ import {
   detectSplitClasses,
   SettingsBaseline,
   isSettingsDirty,
+  supportsMultiSubjectDiscount,
   type ClassAttributeSetting,
   type ClassType,
 } from '@/contracts/settings';
@@ -110,7 +111,7 @@ function toClassAttributeSetting(a: ClassAttributesView & { className?: string }
  * 把手動覆寫寫進 draft 的班級（存檔／預覽都用它）。
  * specs/14 §3.10：classType 與 fixedFiveDays 隨班保存，不再有 fixedSource。
  */
-function applyManualAttrsToClasses<T extends { baseName: string; classType?: 'care' | 'non_care'; fixedFiveDays?: boolean }>(
+function applyManualAttrsToClasses<T extends { baseName: string; classType?: ClassType | 'non_care'; fixedFiveDays?: boolean }>(
   classes: T[],
   manualAttrs: Map<string, ClassAttributesView>
 ): T[] {
@@ -120,12 +121,13 @@ function applyManualAttrsToClasses<T extends { baseName: string; classType?: 'ca
     delete (clean as Record<string, unknown>).categorySource;
     delete (clean as Record<string, unknown>).fixedFiveDays;
     const m = manualAttrs.get(c.baseName);
-    const resolvedClassType = m?.classType ?? c.classType;
+    const resolvedClassType = (m?.classType ?? c.classType) as ClassType;
     return {
       ...clean,
       classType: resolvedClassType,
       ...persistClassAttributes({
         classType: resolvedClassType,
+        hasMultiSubjectDiscount: m?.hasMultiSubjectDiscount,
         category: m?.category,
         categorySource: m?.categorySource,
         fixedFiveDays: resolvedClassType === 'care' ? (m?.fixedFiveDays ?? c.fixedFiveDays ?? false) : false,
@@ -654,7 +656,7 @@ export default function SettingsEditor({
   // 新增時段列（支援選定課程類型）
   const handleAddRow = (
     row: Omit<ScheduleGridRow, 'rowId'>,
-    classType?: ClassType,
+    classType?: ClassType | 'non_care',
     options?: { initialCategory?: 'unset' }
   ) => {
     const startMin = timeStringToMinutes(row.startTime);
@@ -667,16 +669,18 @@ export default function SettingsEditor({
     };
     setRows((prev) => [...prev, newRow]);
     if (classType) {
+      const resolvedType: ClassType = classType === 'non_care' ? 'other' : classType;
       const className = row.className.trim();
       const newClass: ClassSetting = {
         baseName: className,
         teacher: row.teacher ?? null,
         active: row.active,
         sessions: [],
-        classType,
+        classType: resolvedType,
+        hasMultiSubjectDiscount: supportsMultiSubjectDiscount(resolvedType),
         category: 'unset',
         categorySource: 'unset',
-        ...(classType === 'care' ? { fixedFiveDays: false } : {}),
+        ...(resolvedType === 'care' ? { fixedFiveDays: false } : {}),
       };
       setDraft((prev) => prev.classes.some((item) => item.baseName === className)
         ? prev
@@ -684,7 +688,8 @@ export default function SettingsEditor({
       setManualAttrs((prev) => {
         const next = new Map(prev);
         next.set(className, {
-          classType,
+          classType: resolvedType,
+          hasMultiSubjectDiscount: supportsMultiSubjectDiscount(resolvedType),
           category: 'unset',
           categorySource: 'unset',
           fixedFiveDays: false,
@@ -774,7 +779,7 @@ export default function SettingsEditor({
 
       const importedAttrs = json?.classAttrs as Array<{
         className: string;
-        classType?: ClassType;
+        classType?: ClassType | 'non_care';
         category: ClassCategory;
         categorySource: WritableCategorySource;
         fixedFiveDays: boolean;

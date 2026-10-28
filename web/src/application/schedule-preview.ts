@@ -2,10 +2,12 @@ import Database from 'better-sqlite3';
 import {
   CalculateDraft,
   CalculateDraftSchema,
+  ClassType,
   SettingsDraft,
   SettingsDraftSchema,
   isCompleteTimeRange,
   isSavableWeekday,
+  splitSavableSessions,
 } from '@/contracts/settings';
 import { draftToScheduleOverride, hashSettingsDraft } from '@/adapters/sqlite/settings-repository';
 import {
@@ -159,17 +161,19 @@ const normZero = (n: number): number => (n === 0 ? 0 : n);
 export function toSaveEquivalentDraft(draft: CalculateDraft): SettingsDraft {
   return {
     ...draft,
-    classes: draft.classes.map((c) => ({
-      ...c,
-      sessions: c.sessions.filter(isCompleteTimeRange).map((s) => ({
-        weekday: s.weekday,
-        startMinutes: s.startMinutes,
-        endMinutes: s.endMinutes,
-        // #113 follow-up（逐時段）：存檔等價 draft 必須保留每一列自己的不計扣天旗標，
-        // 否則「預覽算 0、存檔後 run 照扣」——draftHash 也會與真正存檔的設定不一致。
-        skipDeduction: s.skipDeduction ?? false,
-      })),
-    })),
+    classes: draft.classes.map((c) => {
+      const resolvedType: ClassType =
+        c.classType === 'non_care' ? 'other' : (c.classType ?? 'other');
+      const { sessions, incompleteSessions } = splitSavableSessions(
+        resolvedType,
+        c.sessions
+      );
+      return {
+        ...c,
+        sessions,
+        ...(incompleteSessions !== undefined ? { incompleteSessions } : {}),
+      };
+    }),
   };
 }
 

@@ -24,15 +24,14 @@ describe('Issue #112 PR-1A: 課程類型 (classType) 資料模型與屬性重構
       }
     });
 
-    it('其餘非 care_window 班級預設 classType 為 non_care', () => {
-      const nonCareExamples = ['國小數學-四A', '兒童美語-Gino', '小六數學加強班', '正音A班'];
-      for (const name of nonCareExamples) {
-        const attr = resolveClassAttributes(name);
-        expect(attr.classType).toBe('non_care');
-      }
+    it('D61：其餘非 care_window 班級依五類型分流（english | math | other）', () => {
+      expect(resolveClassAttributes('國小數學-四A').classType).toBe('math');
+      expect(resolveClassAttributes('兒童美語-Gino').classType).toBe('english');
+      expect(resolveClassAttributes('小六數學加強班').classType).toBe('other');
+      expect(resolveClassAttributes('正音A班').classType).toBe('other');
     });
 
-    it('舊草稿向後相容：未帶 classType 時，若 baseName 在 8 個 care 班或 fixedFiveDays 為 true 則歸入 care，其餘歸入 non_care', () => {
+    it('舊草稿向後相容：未帶 classType 時，若 baseName 在 8 個 care 班或 fixedFiveDays 為 true 則歸入 care，其餘依 SEED_CLASS_TYPES 或歸入 other', () => {
       // 8 個 care 班之一且無 classType
       const r1 = resolveClassAttributes('國小輔導-四年級', {});
       expect(r1.classType).toBe('care');
@@ -41,15 +40,15 @@ describe('Issue #112 PR-1A: 課程類型 (classType) 資料模型與屬性重構
       const r2 = resolveClassAttributes('自訂寫功課班', { fixedFiveDays: true });
       expect(r2.classType).toBe('care');
 
-      // 一般班級（未帶 classType，fixedFiveDays: false）
+      // 一般班級（未帶 classType，fixedFiveDays: false）依 seed 定義為 math
       const r3 = resolveClassAttributes('國小數學-五B', { fixedFiveDays: false });
-      expect(r3.classType).toBe('non_care');
+      expect(r3.classType).toBe('math');
 
       // 顯式 classType 優先
       const r4 = resolveClassAttributes('國小數學-五B', { classType: 'care' });
       expect(r4.classType).toBe('care');
       const r5 = resolveClassAttributes('國小輔導-四年級', { classType: 'non_care' });
-      expect(r5.classType).toBe('non_care');
+      expect(r5.classType).toBe('care');
     });
 
     it('ClassSettingSchema 支援 classType，且已不含 fixedSource', () => {
@@ -287,6 +286,7 @@ describe('Issue #112 PR-1A: 課程類型 (classType) 資料模型與屬性重構
 
       expect(out.get('新安親班')).toEqual({
         classType: 'care',
+        hasMultiSubjectDiscount: true,
         category: 'care',
         categorySource: 'manual',
         fixedFiveDays: true,

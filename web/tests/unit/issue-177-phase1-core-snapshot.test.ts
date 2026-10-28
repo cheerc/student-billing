@@ -110,7 +110,7 @@ describe('Issue #177 Phase 1: deriveErpTierApplicability', () => {
       undefined,
       classSettingMap
     );
-    expect(english.classType).toBe('non_care');
+    expect(english.classType).toBe('english');
     expect(english.erpTierApplicability).toBe('not_applicable');
 
     const unmapped = resolveClassEnrollment(

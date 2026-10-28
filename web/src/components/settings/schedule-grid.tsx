@@ -32,7 +32,7 @@ interface ScheduleGridProps {
   onDeleteRow: (rowId: string) => void;
   onAddRow: (
     row: Omit<ScheduleGridRow, 'rowId'>,
-    classType?: ClassType,
+    classType?: ClassType | 'non_care',
     options?: { initialCategory?: 'unset' }
   ) => void;
   rosterOnlyClasses?: Array<{ baseName: string; students: number; tokens: number }>;
@@ -53,7 +53,7 @@ interface ScheduleGridProps {
    */
   focusClass?: string | null;
   /** 初始課程類型頁籤（預設 non_care） */
-  initialClassTypeTab?: ClassType;
+  initialClassTypeTab?: ClassType | 'non_care';
   /**
    * #80：班級的折扣類別與「天數固定 5 天」併入同一張表格後，編輯器把**有效值**與變更處理器交進來。
    * 未提供（單獨使用本元件的測試）時這兩欄仍渲染，只是不可操作。
@@ -152,7 +152,7 @@ export function ScheduleGrid({
   const importInputRef = useRef<HTMLInputElement | null>(null);
 
   const getClassType = useCallback(
-    (className: string): ClassType => {
+    (className: string): ClassType | 'non_care' => {
       const clean = className.trim();
       const attr = classAttributes?.get(clean);
       if (attr?.classType) return attr.classType;
@@ -163,17 +163,17 @@ export function ScheduleGrid({
 
   // specs/14 §3.6：課表設定頁以分頁籤呈現：[非安親課輔班]（預設開啟）、[安親課輔班]（第二順位）
   // 若帶有 ?class=X 且 X 為安親課輔班，自動切換至 [安親課輔班] 避免誤判 missing
-  const initialTab = useMemo<ClassType>(() => {
+  const initialTab = useMemo<ClassType | 'non_care'>(() => {
     if (focusClass) {
       return getClassType(focusClass);
     }
     return initialClassTypeTab;
   }, [focusClass, getClassType, initialClassTypeTab]);
 
-  const [activeTypeTab, setActiveTypeTab] = useState<ClassType>(initialTab);
+  const [activeTypeTab, setActiveTypeTab] = useState<ClassType | 'non_care'>(initialTab);
 
   // 新增班級表單狀態（#82：只有班名必填，其餘預設皆空；specs/14 A1：支援課程類型）
-  const [newClassType, setNewClassType] = useState<ClassType>('non_care');
+  const [newClassType, setNewClassType] = useState<ClassType | 'non_care'>('non_care');
   const [newClassName, setNewClassName] = useState('');
   const [newTeacher, setNewTeacher] = useState('');
   const [newWeekday, setNewWeekday] = useState('');
@@ -239,7 +239,7 @@ export function ScheduleGrid({
   const nonCareClassesCount = useMemo(() => {
     return new Set(
       rows
-        .filter((r) => getClassType(r.className) === 'non_care')
+        .filter((r) => getClassType(r.className) !== 'care')
         .map((r) => r.className.trim())
         .filter(Boolean)
     ).size;
@@ -256,7 +256,7 @@ export function ScheduleGrid({
 
   // 非安親課輔班時段列
   const displayedNonCareRows = useMemo(() => {
-    return filteredRows.filter((r) => getClassType(r.className) === 'non_care');
+    return filteredRows.filter((r) => getClassType(r.className) !== 'care');
   }, [filteredRows, getClassType]);
 
   // 安親課輔班：每班一列
@@ -274,8 +274,8 @@ export function ScheduleGrid({
     return list;
   }, [filteredRows, getClassType]);
 
-  const currentTabRowCount = activeTypeTab === 'non_care' ? displayedNonCareRows.length : displayedCareRows.length;
-  const currentTabClassCount = activeTypeTab === 'non_care' ? nonCareClassesCount : careClassesCount;
+  const currentTabRowCount = activeTypeTab !== 'care' ? displayedNonCareRows.length : displayedCareRows.length;
+  const currentTabClassCount = activeTypeTab !== 'care' ? nonCareClassesCount : careClassesCount;
 
   const pendingRosterOnlyClassUnavailable =
     pendingRosterOnlyClass !== null &&
@@ -367,7 +367,7 @@ export function ScheduleGrid({
             { key: 'care', label: `安親課輔班 (${careClassesCount})` },
           ]}
           selected={activeTypeTab}
-          onSelect={(key) => setActiveTypeTab(key as ClassType)}
+          onSelect={(key) => setActiveTypeTab(key as ClassType | 'non_care')}
         />
       </div>
 
@@ -556,7 +556,7 @@ export function ScheduleGrid({
               <span>課程類型 *</span>
               <select
                 value={newClassType}
-                onChange={(e) => setNewClassType(e.target.value as ClassType)}
+                onChange={(e) => setNewClassType(e.target.value as ClassType | 'non_care')}
                 aria-label="新增班級課程類型"
               >
                 <option value="non_care">非安親課輔班</option>
@@ -582,7 +582,7 @@ export function ScheduleGrid({
                 onChange={(e) => setNewTeacher(e.target.value)}
               />
             </label>
-            {newClassType === 'non_care' && (
+            {newClassType !== 'care' && (
               <>
                 <label>
                   <span>星期</span>
@@ -631,7 +631,7 @@ export function ScheduleGrid({
         aria-labelledby={`class-type-tab-${activeTypeTab}`}
         className="scroll table-scroll-container schedule-table-scroll"
       >
-        {activeTypeTab === 'non_care' ? (
+        {activeTypeTab !== 'care' ? (
           /* [非安親課輔班] 表格：包含不計扣天與時段計算，無天數固定 5 天 */
           <table className="schedule-table schedule-table-non-care">
             <thead>

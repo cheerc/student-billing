@@ -10,10 +10,11 @@ export interface IssueDetectionInput {
   internalStudent: boolean;
   specialDiscount: number | null;
   isStaffFamily: boolean;
-  /** Current v4 category-resolved enrollments (supports Q8: fixed-five and none). */
+  /** Current v4 category-resolved enrollments (supports Q8: fixed-five and none, D61 Ruling 4: classType). */
   categoryEnrollments: Array<{
     rawToken: string;
     baseName: string;
+    classType?: string | null;
     category: string;
     fixedFiveDays: boolean;
     erpBillingTier?: number | null;
@@ -36,9 +37,15 @@ export interface TierCompareInput {
 export function detectStudentIssues(input: IssueDetectionInput): StudentIssue[] {
   const issues: StudentIssue[] = [];
 
-  // 1. R17: 同類別重複報名提示 (DUPLICATE_SUBJECT_ENROLLMENT)
-  const englishTokens = input.categoryEnrollments.filter((e) => e.category === 'english');
-  const mathTokens = input.categoryEnrollments.filter((e) => e.category === 'math');
+  // 1. R17 & D61 Ruling 4: 同類別重複報名提示 (DUPLICATE_SUBJECT_ENROLLMENT)
+  // 美語／數學改依 classType === 'english' | 'math' 判定（相容未帶 classType 的既有測試 fallback 至 category）；
+  // 安親課輔維持 category === 'care' 與 fixedFiveDays && category === 'none' 分流。
+  const englishTokens = input.categoryEnrollments.filter((e) =>
+    e.classType !== undefined && e.classType !== null ? e.classType === 'english' : e.category === 'english'
+  );
+  const mathTokens = input.categoryEnrollments.filter((e) =>
+    e.classType !== undefined && e.classType !== null ? e.classType === 'math' : e.category === 'math'
+  );
   const careTokens = input.categoryEnrollments.filter((e) => e.category === 'care');
   // Q8: fixed-five class explicitly categorized as none (for example homework).
   const fixedFiveNoneTokens = input.categoryEnrollments.filter((e) => e.fixedFiveDays && e.category === 'none');

@@ -74,10 +74,11 @@ export interface ClassSelection {
   tieBreak: 'max_positive_deduction' | 'first_enrollment' | 'no_calculable_candidate';
 }
 
-/** 一名學生的選班結果（依折扣類別）。v1／v2／compat 無此輸出（維持首班語意）。 */
+/** 一名學生的選班結果（依課程類型）。 */
 export interface StudentSelection {
   math?: ClassSelection;
   english?: ClassSelection;
+  other?: ClassSelection;
 }
 
 export interface StudentBillingCalculation {

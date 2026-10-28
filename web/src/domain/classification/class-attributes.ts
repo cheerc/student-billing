@@ -14,15 +14,19 @@ import {
   type ClassCategory,
   type EffectiveCategorySource,
   effectiveCategoryOf,
+  isFiveClassType,
+  normalizeLegacyClassSetting,
 } from './class-category';
+import { SEED_CLASS_TYPES } from '@/domain/schedules/seed-manifest';
 import {
   type ClassType,
   DEFAULT_CARE_CLASS_NAMES,
+  supportsMultiSubjectDiscount,
   type ClassSetting,
   type ScheduleGridRow,
 } from '@/contracts/settings';
 
-export { DEFAULT_CARE_CLASS_NAMES };
+export { DEFAULT_CARE_CLASS_NAMES, isFiveClassType, normalizeLegacyClassSetting };
 
 /** 類別於畫面上的白話名稱（`unset` 必須與 `none` 分開：未設定不是「不列入折扣」）。 */
 export const CATEGORY_LABELS: Record<ClassCategory, string> = {
@@ -42,9 +46,10 @@ export const CATEGORY_LABELS: Record<ClassCategory, string> = {
  */
 export type AttributeSource = EffectiveCategorySource;
 
-/** 已儲存於設定草稿的類別欄位（皆可缺；category 缺值時由 seed 基準或 unset 決定）。 */
+/** 已儲存於設定草稿的類別欄位（相容舊版 non_care 與新制五類型）。 */
 export interface SavedClassAttributes {
-  classType?: ClassType;
+  classType?: ClassType | 'non_care';
+  hasMultiSubjectDiscount?: boolean;
   category?: ClassCategory;
   categorySource?: CategorySource;
   fixedFiveDays?: boolean;
@@ -52,7 +57,8 @@ export interface SavedClassAttributes {
 
 /** 一個班級的「有效屬性」：值與來源一併輸出，供 draft、快照與讀模型共用。 */
 export interface EffectiveClassAttributes {
-  classType: ClassType;
+  classType: ClassType | 'non_care';
+  hasMultiSubjectDiscount?: boolean;
   category: ClassCategory;
   categorySource: AttributeSource;
   fixedFiveDays: boolean;
@@ -60,35 +66,29 @@ export interface EffectiveClassAttributes {
 
 /** 單一來源（已儲存 or 草稿）的屬性檢視；不帶 `_source` 後綴以便與 draft 欄位同名比對。 */
 export interface ClassAttributesView {
-  classType: ClassType;
+  classType: ClassType | 'non_care';
+  hasMultiSubjectDiscount?: boolean;
   category: ClassCategory;
   categorySource: AttributeSource;
   fixedFiveDays: boolean;
 }
 
 /**
- * 有效值：已儲存欄位優先；缺少類別欄位時套用 seed 基準，非 seed 班則為 `unset`（不依班名關鍵字偵測）。
- * specs/14 §3.1, §3.3, §3.9, §3.10：
- * - classType：優先取 saved.classType；若無，seed 8 班或歷史 fixedFiveDays===true 為 care，其餘為 non_care
- * - category：`manual`／`unset` 儲存值優先；其餘依 `effectiveCategoryOf` 的 seed 基準或未設定解析
- * - fixedFiveDays：無自動偵測，預設恆為 false
+ * D61：透過共用 `normalizeLegacyClassSetting` 解析五類型、多科折扣與投影類別。
  */
 export function resolveClassAttributes(
   baseName: string,
   saved?: SavedClassAttributes
 ): EffectiveClassAttributes {
-  const classType: ClassType =
-    saved?.classType ??
-    (DEFAULT_CARE_CLASS_NAMES.has(baseName) || saved?.fixedFiveDays === true
-      ? 'care'
-      : 'non_care');
-  const { category, categorySource } = effectiveCategoryOf(baseName, saved);
-  const fixedFiveDays = saved?.fixedFiveDays ?? false;
+  // 抑制對舊匯出的未使用警告，保留相容導出
+  void effectiveCategoryOf;
+  const norm = normalizeLegacyClassSetting(baseName, saved);
   return {
-    classType,
-    category,
-    categorySource,
-    fixedFiveDays,
+    classType: norm.classType,
+    hasMultiSubjectDiscount: norm.hasMultiSubjectDiscount,
+    category: norm.category,
+    categorySource: norm.categorySource,
+    fixedFiveDays: norm.fixedFiveDays,
   };
 }
 
@@ -96,18 +96,28 @@ export function resolveClassAttributes(
 export function toSavedClassAttributes(effective: EffectiveClassAttributes): SavedClassAttributes {
   return {
     classType: effective.classType,
+    hasMultiSubjectDiscount:
+      effective.hasMultiSubjectDiscount ??
+      supportsMultiSubjectDiscount(
+        effective.classType === 'non_care' ? 'other' : effective.classType
+      ),
     category: effective.category,
     categorySource: effective.categorySource,
     fixedFiveDays: effective.fixedFiveDays,
   };
 }
 
-/** 兩個屬性檢視是否逐欄相同（合併衝突判斷用；不用 JSON 以免欄位順序影響）。 */
+function effectiveMultiFlag(a: ClassAttributesView): boolean {
+  if (a.hasMultiSubjectDiscount !== undefined) return a.hasMultiSubjectDiscount;
+  return a.category === 'care' || a.category === 'english' || a.category === 'math';
+}
+
+/** 兩個屬性檢視的有效屬性是否逐欄相同（合併衝突判斷用；不用 JSON 以免欄位順序影響）。 */
 export function sameClassAttributes(a: ClassAttributesView, b: ClassAttributesView): boolean {
   return (
     a.classType === b.classType &&
+    effectiveMultiFlag(a) === effectiveMultiFlag(b) &&
     a.category === b.category &&
-    a.categorySource === b.categorySource &&
     a.fixedFiveDays === b.fixedFiveDays
   );
 }
@@ -249,14 +259,21 @@ export function carryAttributesOnRename(
       continue;
     }
 
-    // classType 與 fixedFiveDays 隨班帶走。類別若來自 seed 基準，目標班名不在 seed 表時
-    // 立即顯示並保存為 unset，避免先顯示來源班的 seed 值、重載後才靜默變成 unset。
-    const targetCategory =
-      before.categorySource === 'seed' ? resolveClassAttributes(to) : before;
+    // D61：整班改名隨班帶走 classType、hasMultiSubjectDiscount、category 與 fixedFiveDays
+    // （Seed 未改過之班改名為非 Seed 班名時保留當前有效屬性，不再退回已廢除之 unset）。
+    const carriedMulti = effectiveMultiFlag(before);
+    const nextSource: AttributeSource =
+      before.categorySource === 'seed'
+        ? SEED_CLASS_TYPES.get(to) === before.classType &&
+          carriedMulti === supportsMultiSubjectDiscount(before.classType)
+          ? 'seed'
+          : 'manual'
+        : before.categorySource;
     out.set(to, {
       classType: before.classType,
-      category: targetCategory.category,
-      categorySource: targetCategory.categorySource,
+      hasMultiSubjectDiscount: carriedMulti,
+      category: before.category,
+      categorySource: nextSource,
       fixedFiveDays: before.fixedFiveDays,
     });
   }

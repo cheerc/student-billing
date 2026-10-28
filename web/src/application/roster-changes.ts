@@ -252,6 +252,7 @@ function countedRawTokens(calc: StudentBillingCalculation): Set<string> {
   if (sel) {
     if (sel.math) out.add(sel.math.selectedRawToken);
     if (sel.english) out.add(sel.english.selectedRawToken);
+    if (sel.other) out.add(sel.other.selectedRawToken);
     return out;
   }
   return out;

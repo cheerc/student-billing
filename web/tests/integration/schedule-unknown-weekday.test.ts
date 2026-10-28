@@ -218,9 +218,15 @@ describe('UX07（修訂）：提交端契約不放寬——空白星期仍被 se
   it('POST /settings/preview：帶空白星期的完整時段列 → 400，不建立 preview', async () => {
     const db = getDatabase() as any;
     const seed = buildSeedDraft();
-    const rows = classesToGridRows(seed.classes).map((r, i) => (i === 0 ? { ...r, weekday: '' } : r));
-    // 存檔路徑（gridRowsToClasses）只丟起迄不完整的列；空白星期的完整列會原樣帶進 draft
-    const saveDraft = { ...seed, classes: gridRowsToClasses(rows, seed.classes) };
+    // 直接帶入含有空白星期的 sessions，驗證 settings/preview 仍拒絕此種非法草稿（存檔契約維持嚴格）
+    const saveDraft = {
+      ...seed,
+      classes: seed.classes.map((c, i) =>
+        i === 0
+          ? { ...c, sessions: [{ weekday: '', startMinutes: 900, endMinutes: 960, skipDeduction: false }] }
+          : c
+      ),
+    };
     const res = await previewPOST(
       new NextRequest('http://127.0.0.1:3000/api/v1/settings/preview', {
         method: 'POST',

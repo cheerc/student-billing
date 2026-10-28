@@ -1,5 +1,6 @@
 import Database from 'better-sqlite3';
 import { loadRunClassCategories, type RunClassCategorySnapshot } from '@/application/applicable-rate';
+import type { ClassType } from '@/contracts/settings';
 
 export interface CalculationRunRecord {
   id: string;
@@ -55,7 +56,7 @@ export interface StudentCalculationRecord {
 export interface RunClassCategoryRecord {
   baseName: string;
   resolvedBaseName?: string | null;
-  classType?: 'care' | 'non_care' | string | null;
+  classType?: ClassType | 'non_care' | string | null;
   category: string;
   fixedFiveDays: number;
   mapped: number;
