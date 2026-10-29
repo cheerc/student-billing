@@ -1,9 +1,14 @@
 /**
  * `e2e-conventions.test.ts` 的例外清單（Issue #188 Phase 1）。
  *
- * 為什麼需要這份清單：Phase 1 只修 A 族（導覽／列定位），族 B（淘汰選取器）是 Phase 2、
- * 族 D（空白星期契約）是 Phase 4。守門測試在 Phase 1 合併時就必須是綠的（CI 跑 `npm test`），
- * 否則它會擋住自己的 PR；但把例外寫成「整個檔跳過」會讓 Phase 2 修完後沒人回來拿掉例外。
+ * 為什麼需要這份清單：Issue #188 Phase 1 只修 A 族（導覽／列定位），族 B（淘汰選取器）
+ * 與族 D（空白星期契約）在 Phase 1 合併時尚未收斂。守門測試在 Phase 1 就必須是綠的
+ * （CI 跑 `npm test`），否則它會擋住自己的 PR；但把例外寫成「整個檔跳過」會讓後續 Phase
+ * 修完後沒人回來拿掉例外。
+ *
+ * Phase 2 已移除族 B 的 4 筆（`d2b-class-category-empty-db`、`round3-preview-category-deltas`、
+ * `schedule-excel-io`、`schedule-grid-workflow`）。剩下的唯一一筆是新班尚未進 seed 的情形，
+ * 不屬族 B。
  *
  * 因此每一筆例外只放行**一種具體事實**（`literals`：特定淘汰字面；`managedInputWithoutHelper`：
  * 仍直接觸碰時段／星期輸入框而不用 row helper），以及一個收斂動作。
@@ -23,30 +28,7 @@ export interface ConventionExemption {
   managedInputWithoutHelper?: boolean;
 }
 
-const DATA_CATEGORY_SELECT = /data-category-select/;
-const SCHEDULE_TABLE_NON_CARE = /schedule-table-non-care/;
-
 export const VISIBILITY_EXEMPTIONS: Record<string, ConventionExemption> = {
-  'd2b-class-category-empty-db.spec.ts': {
-    reason:
-      '族 B（Issue #188 Phase 2）：仍以 data-category-select 操作類別；Phase 2 改為 YesNoRadioGroup 後刪除本條。',
-    literals: [DATA_CATEGORY_SELECT],
-  },
-  'round3-preview-category-deltas.spec.ts': {
-    reason:
-      '族 B（Issue #188 Phase 2）：類別變更路徑尚待裁決（Excel 匯出入）；Phase 2 落地後刪除本條。',
-    literals: [DATA_CATEGORY_SELECT],
-  },
-  'schedule-excel-io.spec.ts': {
-    reason:
-      '族 B（Issue #188 Phase 2）：匯出前後仍以 data-category-select／non-care 總表計數；Phase 2 改為逐頁籤後刪除本條。',
-    literals: [DATA_CATEGORY_SELECT, SCHEDULE_TABLE_NON_CARE],
-  },
-  'schedule-grid-workflow.spec.ts': {
-    reason:
-      '族 B（Issue #188 Phase 2）：仍斷言舊的「含時段」摘要並以 page.locator 取第一個 input-time；Phase 2 改用 helper 與頁籤統計後刪除本條。',
-    managedInputWithoutHelper: true,
-  },
   'schedule-add-placeholder-row.spec.ts': {
     reason:
       '新班在儲存前不存在於 seed／?class= 深連結，classRow 定位不到；本檔自建 rowOf 查該列。Phase 2 若 helper 支援「剛新增的列」再收斂。',

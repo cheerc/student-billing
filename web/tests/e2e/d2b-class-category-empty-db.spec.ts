@@ -1,5 +1,11 @@
 import { test, expect, type Page } from '@playwright/test';
-import { resetSeedSettings, saveSettings, classRow } from './helpers/d2c-settings';
+import {
+  resetSeedSettings,
+  saveSettings,
+  multiDiscountGroup,
+  selectClassTypeTab,
+  setMultiDiscount,
+} from './helpers/d2c-settings';
 
 async function renameWholeClass(page: Page, from: string, to: string) {
   await page
@@ -31,8 +37,8 @@ test.describe('D2b 空 DB 畫面契約：settings_only 影響預覽、Q11 升級
   });
 
   test('D2b-6: 類別變更進影響預覽（科數／折扣差異）並可儲存', async ({ page }) => {
-    const row = classRow(page, '國小數學-四A');
-    await row.locator('[data-category-select="國小數學-四A"]').first().selectOption('none');
+    // D61 單選統一：舊的五態下拉選單已不存在，改由「是否有多科折扣＝否」表達 category none
+    await setMultiDiscount(page, '國小數學-四A', false);
     await page.locator('button', { hasText: '確認變更' }).click();
 
     const dialog = page.locator('dialog.impact-dialog');
@@ -56,10 +62,11 @@ test.describe('D2b 空 DB 畫面契約：settings_only 影響預覽、Q11 升級
   test.afterEach(async ({ page }) => {
     await resetSeedSettings(page);
     await page.goto('/settings');
-    // #157：seed 草稿帶的是使用者明確指定的類別（math），
-    // 還原後仍是 math（resetSeedSettings 走的是 buildSeedDraft()）。
+    // #157：seed 兩班都是 math（seed-manifest.ts 的 SEED_CLASS_TYPES），且 D61 起
+    // 「是」是 math 的投影來源 → 還原後兩班的多科折扣都必須回到「是」。
+    await selectClassTypeTab(page, 'math');
     for (const name of ['國小數學-四A', '國小數學-四B']) {
-      await expect(page.locator(`[data-category-select="${name}"]`).first()).toHaveValue('math');
+      await expect(multiDiscountGroup(page, name).locator('input[value="true"]')).toBeChecked();
     }
     const current = await page.request.get('/api/v1/runs/current');
     expect(current.ok()).toBe(true);
@@ -75,10 +82,10 @@ test.describe('D2b 空 DB 畫面契約：settings_only 影響預覽、Q11 升級
 
   test('D2b-5（Q9）: 同名合併且設定不同時阻擋儲存並說明', async ({ page }) => {
     // D2c N-1：本案例必須自足，不依賴前一案例的狀態。
-    // #157 Ruling 4：沒有「恢復自動」按鈕。把「國小數學-四A」設為手動的 none、
-    // 「國小數學-四B」設為手動的 math → 兩班有效屬性確定不同 → 合併必然是衝突。
-    await page.locator('[data-category-select="國小數學-四A"]').first().selectOption('none');
-    await page.locator('[data-category-select="國小數學-四B"]').first().selectOption('math');
+    // #157 Ruling 4：沒有「恢復自動」按鈕。把「國小數學-四A」設為多科折扣＝否（category none）、
+    // 「國小數學-四B」設為多科折扣＝是（category math）→ 兩班有效屬性確定不同 → 合併必然是衝突。
+    await setMultiDiscount(page, '國小數學-四A', false);
+    await setMultiDiscount(page, '國小數學-四B', true);
 
     // D2c N-1：本案例必須自足——把手動設定**先儲存**再改名。
     // 合併衝突的判定基準是各來源班的「有效屬性」（已儲存的手動值優先，未手動者依 baseline 班名
