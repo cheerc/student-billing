@@ -361,7 +361,7 @@ export async function parseScheduleWorkbook(input: Buffer | Uint8Array): Promise
       attrsByName.set(className, { classType, hasMultiDiscount, fixedFiveDays });
     }
 
-    // specs/16 §3.6 & A11 & D61 Phase 2：跨類型欄位嚴格驗證
+    // D61 Phase 2 & A11（specs/06 D61）：跨類型欄位嚴格驗證
     const rawWeekday = cells[COLUMN_WEEKDAY].trim();
     const rawStart = cells[COLUMN_START].trim();
     const rawEnd = cells[COLUMN_END].trim();

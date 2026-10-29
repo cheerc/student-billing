@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
 
 /**
- * D61 / specs/16 Phase 3 (UX106): 課表設定 5 頁籤 UI、欄位徹底分離與簡化操作 E2E 驗收
+ * D61 Phase 3（specs/06 D61；UX106): 課表設定 5 頁籤 UI、欄位徹底分離與簡化操作 E2E 驗收
  *
  * 驗收條件涵蓋：
  *  - 5 個課程類型頁籤固定順序：[安親課輔班]、[美語班]、[數學班]、[其他班]、[不排課]
