@@ -313,7 +313,7 @@ npm run test:e2e:isolated -- tests/e2e/<本 Phase 的檔>
 | 幾何斷言對版面敏感 | 表頭接縫／sticky 依賴 `border-collapse`（已知 #99） | 本 Phase 只改「進哪個頁籤」，不改 `<=1px`／`leakedPixels === 0` 門檻 |
 | `?class=` 深度連結 | 依 `specs/09:60`「`?class=` 自動切至目標類型頁籤」；已有 E2E 覆蓋（`leave-confirm` 的入口矩陣） | helper 先斷言「目標班列可見」，失敗時錯誤訊息要指出班名與頁籤 |
 | CI 較慢 | nightly 上 focus 案例多為 15s／30s timeout；本機單獨重跑可在 6 秒內取得 409 | 不以加 timeout 修；先修入口。若修完仍偶發，另開 issue 記錄實際耗時（不得默默放寬） |
-| 文件引用落差 | ~~根 `CLAUDE.md` §2 引用 `specs/15`、`specs/16`，但兩檔不在 `main`~~ | 已由 Coordinator 於同批文件變更中移除引用（依 operator 指示，非 D 決策條目）；本計畫不再提及那兩檔（§8）。原始碼註解中的殘留另列 §8 |
+| 文件引用落差 | ~~根 `CLAUDE.md` §2 引用 `specs/15`、`specs/16`，但兩檔不在 `main`~~ | 文件層與原始碼註解引用均已於 PR #197 移除（依 operator 指示，非 D 決策條目），現況見 §8；兩檔未合併的事實與說明見 `specs/README.md` |
 
 ---
 
@@ -323,11 +323,11 @@ npm run test:e2e:isolated -- tests/e2e/<本 Phase 的檔>
 
 1. **P2 Ruling → 採 Excel 匯出入**：已裁決為 R-188-P2（[Issue #188 裁決留言](https://github.com/cheerc/student-billing/issues/188#issuecomment-6498485036)），並附條件「若只改類型無法達成原 expected，實作者須回報而非自行重算」。Phase 2 已依此實作（PR #192）。
 2. **P4 契約 → 採 D-1**：已裁決為 R-188-P4，同一則留言。改測試期望為 200 並同步修 `specs/09:87`／`04 UX32`，保留 `schedule-unknown-weekday.test.ts` 的 400 契約。
+3. **`specs/15`／`specs/16` 引用落差 → 已於 PR #197 完成**：文件層（`CLAUDE.md` §2、`specs/README.md`、`specs/14`、`specs/06` D60／D61 尾句）由 #193 移除；原始碼註解的 5 處殘留（`web/src/adapters/xlsx/schedule-table-io.ts`、`web/src/application/activate-import.ts`、`web/tests/unit/d61-five-class-types-billing.test.ts`、`web/tests/integration/d61-legacy-draft-and-snapshot.test.ts`、`web/tests/e2e/schedule-class-type-tabs.spec.ts`）由 #197 改為決策名並指向 `specs/06`，同 PR 併同 `specs/README.md` 補上 15／16 缺號說明。複驗：`grep -rn "specs/1[56]" web/src web/tests` 現為 0 命中（exit 1）。
 
 **待決**
 
-1. **`specs/15`／`specs/16` 引用落差**：文件層（`CLAUDE.md` §2、`specs/README.md`、`specs/14`、`specs/06` D60／D61 尾句）已由 Coordinator 依 operator 指示於同批變更中移除。**原始碼註解仍有 5 處殘留**（`grep -rn "specs/1[56]" web/src web/tests` 實測 5 命中，於檔案：`web/src/adapters/xlsx/schedule-table-io.ts:364`、`web/src/application/activate-import.ts:137`、`web/tests/unit/d61-five-class-types-billing.test.ts:2`、`web/tests/integration/d61-legacy-draft-and-snapshot.test.ts:2`、`web/tests/e2e/schedule-class-type-tabs.spec.ts:4`），待另案清理。
-2. **最終驗證形式**：新的 scheduled nightly，或 coord 核准的 `workflow_dispatch`（需在報告中標明差異）。
+1. **最終驗證形式**：新的 scheduled nightly，或 coord 核准的 `workflow_dispatch`（需在報告中標明差異）。
 
 **本計畫未做的事（避免誤讀）**
 
