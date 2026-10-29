@@ -263,21 +263,24 @@ npx vitest run tests/integration/schedule-unknown-weekday.test.ts
 
 - 針對 `copy-d39.spec.ts` 與 `schedule-unknown-weekday.test.ts` 執行 targeted checks，回報每次 runner 的**實際**案例數；不要把計畫撰寫時記錄的 10／9 當成未來固定值。
 - spec 文字（09 §3.1、04 UX32）與測試同一 PR，避免文件與行為再次分岔。
-- Mutation（已實測，見下「Mutation 邊界」）：在 `splitSavableSessions` 把空白星期列錯送入 `sessions` → 改寫後的 UI `copy-d39` 必須在 preview 200／`incompleteSessions`／真實影響或儲存保留斷言處紅；`schedule-unknown-weekday.test.ts:218` 應**保持綠**，因它直接將空白星期完整時段構造成 `sessions` 呼叫 API，不經 splitter。此 mutation 不能期待兩條不同資料路徑同時紅。
-- 若要另驗 direct API integration 的鑑別力，在 disposable worktree 對 `SessionSchema` 的空白星期驗證作單一 mutation；該測試應紅。不要為此變更本 PR 的產品碼。
+- **必要驗收 mutation（UI 組裝點，乾淨隔離）**：在 `SettingsEditor` 的 `handlePreview` 裡，`gridRowsToClasses(rows, draft.classes)` 之後、送 preview 之前把 `incompleteSessions` 拿掉（即 reviewer 的 D patch，留存於 `/tmp/pr198-mutation-D.diff`）。改寫後的 `copy-d39` D-1 案必須在其 payload 斷言紅（`changedClass.incompleteSessions` 收到 `undefined`），而 `schedule-unknown-weekday.test.ts` 的提交端契約維持不變。
+- **可選的額外證據（共用 splitter，範圍有限）**：把 `splitSavableSessions` 的空白星期列錯送進 `sessions`。這個 patch 動的是**共用**生產者，`buildSeedDraft()` 也走 `gridRowsToClasses` → `splitSavableSessions`（`settings-repository.ts:266`、`:280`），seed 本身有 10 個空白星期列，因此會一併污染 seed、可能讓 integration 的其他案例轉紅；**不可**用它宣稱「integration 全部免疫」。
+- 若要另驗 direct API 的鑑別力，在 disposable worktree 對 `SavedWeekdaySchema` 的空白星期驗證作單一 mutation；那一案應紅。不要為此變更本 PR 的產品碼。
 
-**Mutation 邊界（PR #198 r2 實測；先前「9 綠」與 reviewer「8 綠 1 紅」的差異已釐清）**
+**Mutation 邊界（PR #198 r2 實測；「9 綠」與「8 綠 1 紅」的差異已釐清）**
 
-這份 integration 檔有 9 案：7 案走 `calculate` 路徑，另 2 案屬「提交端契約不放寬」describe（`SettingsDraftSchema` unit 斷言 1 案、`POST /settings/preview` 直接 API 1 案）。不同 mutation 的實際結果：
+這份 integration 檔有 9 案：7 案走 `calculate` 路徑，另 2 案屬「提交端契約不放寬」describe（`SettingsDraftSchema` unit 斷言 1 案、`POST /settings/preview` 直接 API 1 案）。下表把**實驗執行者、受測 SHA、精確 patch** 分開列；rerun 項目由本 session 於 `4a314475b8b0c9eca3a1153aebd8b707c9533e00`（產品碼與 `bc8dec6` 相同）實跑，其他為 reviewer-2 在 `bc8dec6ad58056d5a3f895bc2c51220731c6dc08` 的結果。
 
 | Mutation | 精確替換 | 結果 |
 |---|---|---|
-| M-1：只改 splitter 的存檔判定 | `isSavableCompleteSession` 的 `isSavableWeekday(s.weekday) && isCompleteTimeRange(s)` → `isCompleteTimeRange(s)`（`settings.ts:131`） | integration **9 綠**（這個 predicate 只被 `splitSavableSessions` 使用；`SettingsDraftSchema` 與直接 API 都不經它） |
-| M-2：M-1 ＋ 放寬存檔契約星期 | 再將 `SavedWeekdaySchema` 的 `z.string().min(1).max(8)` → `z.string().max(8)`（`settings.ts:79`） | integration **8 綠 1 紅**：`SettingsDraftSchema 拒絕空白星期與超過 8 字元的星期` 紅 |
-| M-3：直接 API 單獨 mutation | 只將 `SavedWeekdaySchema` 的 `min(1)` 拿掉（保留 `max(8)`） | integration **8 綠 1 紅**：`POST /settings/preview：帶空白星期的完整時段列 → 400` 紅（schema unit 案的長度斷言仍綠） |
-| M-C：只改長度上限 | 只將 `max(8)` → `max(12)`（保留 `min(1)`） | integration **8 綠 1 紅**：`SettingsDraftSchema 拒絕空白星期與超過 8 字元的星期` 紅（空白星期仍被 `min(1)` 拒絕，故直接 API 案綠） |
+| M-1（本 session） | `isSavableCompleteSession` 的 `isSavableWeekday(s.weekday) && isCompleteTimeRange(s)` → `isCompleteTimeRange(s)`（`settings.ts:131`） | integration **9 綠**。這個 predicate 雖然也在共用 splitter 路徑上，但 seed 沒有任何「星期空白＋起迄完整」的列（實測 10 個空白星期列、0 個起迄完整），所以 seed 不會被污染，`SettingsDraftSchema` 也沒被碰到。**原始當時的 patch 未留存，此列為依當時替換內容重建的紀錄，不可視為原始 diff 覆核。** |
+| M-2（本 session） | M-1 ＋ `SavedWeekdaySchema` 的 `z.string().min(1).max(8)` → `z.string().max(8)`（`settings.ts:79`） | integration **8 綠 1 紅**：`SettingsDraftSchema 拒絕空白星期與超過 8 字元的星期` |
+| M-3（本 session） | 只把 `min(1)` 拿掉（保留 `max(8)`） | integration **8 綠 1 紅**：`POST /settings/preview：帶空白星期的完整時段列 → 400` |
+| M-C（本 session） | 只把 `max(8)` → `max(12)`（保留 `min(1)`） | integration **8 綠 1 紅**：`SettingsDraftSchema 拒絕空白星期與超過 8 字元的星期`（空白星期仍被 `min(1)` 拒絕，故直接 API 案綠） |
+| A（reviewer-2，`/tmp/pr198-mutation-A.diff`） | `splitSavableSessions` 的 `incomplete.push({...})` → `sessions.push({... startMinutes: r.startMinutes as number ...})` | integration **8 綠 1 紅**（本 session 重跑同 patch 得到相同結果）：`SettingsDraftSchema 拒絕空白星期與超過 8 字元的星期`。紅的原因不是直接 API 案，而是 A 動到共用 splitter，`buildSeedDraft()` 的 seed 空白星期列因此進入 `sessions`（seed 10 個空白星期列、其中 0 個起迄完整）→ schema 的 `'八'` 斷言受污染 |
+| D（reviewer-2，`/tmp/pr198-mutation-D.diff`） | `handlePreview` 的 `gridRowsToClasses(rows, draft.classes)` 之後 `map` 掉 `incompleteSessions` | `copy-d39` **9 綠 1 紅**（本 session 重跑同 patch）：D-1 案 `changedClass.incompleteSessions` 為 `undefined`；integration **9 綠** |
 
-結論：**這兩個提交端案例是各自獨立的斷言**，不是「整份 integration 獨立於 splitter」——M-1 讓整份 9 案全綠是因為它根本沒碰到 schema；一旦 mutation 跨進共用 `SavedWeekdaySchema`，受影響的是該 schema 的那一案（M-2、M-C 紅的是 unit 斷言，M-3 紅的是直接 API 案）。三個 mutation 後產品檔皆已還原（`git diff --quiet -- web/src/contracts/settings.ts` 為真）。
+結論：**兩個提交端案例是各自獨立的斷言，但整份 integration 不獨立於共用 splitter。** M-1 全綠是因為它沒碰到 schema；A 紅是因為它污染 seed（不是直接 API case 被 splitter 影響）。真正乾淨、能證明 D-1 鑑別力的是 D：只改 UI 組裝點，D-1 案紅、integration 全綠。所有 mutation 後產品檔皆已還原（`git diff --quiet -- web/src` 為真）。
 
 ---
 
