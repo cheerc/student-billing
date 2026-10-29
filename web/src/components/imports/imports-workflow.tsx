@@ -379,7 +379,7 @@ export function ImportsWorkflow({
               erp-reader 對空白人員代碼等狀況會記 issue 後略過該列，該列不進名冊。
               這裡必須照實呈現（含列號／欄名／原因），否則畫面只顯示總人數、
               使用者無從得知有學生被略過而未計入（違反 D17 照實呈現、specs/09 §4）。
-              刻意放在班級名稱提示之前：被略過的資料列比班名待確認更需要優先處理。
+              刻意放在班名同步摘要卡之前：被略過的資料列比班名差異更需要優先處理。
             */}
             {preview.issues.length > 0 && (
               <div className="alert alert-warning issues-alert" style={{ margin: '16px 20px 0' }}>
