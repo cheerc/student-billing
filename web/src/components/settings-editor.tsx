@@ -19,58 +19,14 @@ import {
   type ClassAttributeSetting,
   type ClassType,
 } from '@/contracts/settings';
-import { DynamicCandidate, buildDynamicCandidates, type CandidateCounts } from '@/domain/schedules/seed-manifest';
 import { CalculatePreviewResponse } from '@/application/schedule-preview';
 import type { ClassNameSyncReport } from '@/application/class-name-match-report';
-
-export interface AdaptedLegacyClassNameReport {
-  snapshotStatus: 'ok' | 'unavailable';
-  rosterOnly: Array<{ baseName: string; students: number; tokens: number }> | null;
-  systemOnly: Array<{ baseName: string; active: boolean; aliasCoveredBy: string[] }> | null;
-  matchedCount: number | null;
-  rosterOnlyStudents: number | null;
-}
-
-export function adaptSyncReportToLegacyUI(
-  report: ClassNameSyncReport | null | undefined
-): AdaptedLegacyClassNameReport | null {
-  if (!report) return null;
-  if (report.snapshotStatus === 'unavailable') {
-    return {
-      snapshotStatus: 'unavailable',
-      rosterOnly: null,
-      systemOnly: null,
-      matchedCount: null,
-      rosterOnlyStudents: null,
-    };
-  }
-  return {
-    snapshotStatus: 'ok',
-    rosterOnly:
-      report.mismatches
-        ?.filter((m) => m.legacyAliasTarget === null)
-        .map((m) => ({
-          baseName: m.erpBaseName,
-          students: m.students,
-          tokens: m.tokens,
-        })) ?? [],
-    systemOnly:
-      report.systemOnly?.map((s) => ({
-        baseName: s.baseName,
-        active: s.active,
-        aliasCoveredBy: s.legacyAliasFrom,
-      })) ?? [],
-    matchedCount:
-      (report.exactMatchCount ?? 0) +
-      (report.mismatches?.filter((m) => m.legacyAliasTarget !== null).length ?? 0),
-    rosterOnlyStudents: report.unmappedStudents,
-  };
-}
+import { stageClassNameSync, stageNewClassFromRoster } from '@/domain/schedules/class-name-sync';
 import { WindowSummary } from '@/components/settings/window-summary';
 import { ScheduleGrid } from '@/components/settings/schedule-grid';
 import { ImpactDialog, SettingsPreviewData } from '@/components/settings/impact-dialog';
 import { LeaveConfirmDialog } from '@/components/settings/leave-confirm-dialog';
-import { MappingPanel } from '@/components/settings/mapping-panel';
+import { ClassNameSyncPanel } from '@/components/settings/class-name-sync-panel';
 import {
   attributesFromDraftClasses,
   attributesFromBaselineClasses,
@@ -106,12 +62,11 @@ interface SettingsEditorProps {
   /** 班名比對報告所檢視的名單（server 的 reviewImportId）：儲存後就地刷新要看同一份名單，而不是編輯器儲存所依據的現行名單 */
   reportImportId?: string | null;
   matchedCount?: number;
-  candidates?: DynamicCandidate[];
   lastAppliedRevision?: number;
   lastAppliedAt?: string | null;
   hasActiveImport?: boolean;
   /** 網址 tab 參數決定開啟的頁籤（預設課表） */
-  initialTab?: 'schedule' | 'mapping';
+  initialTab?: 'schedule' | 'sync' | 'mapping';
   /** 「編輯此班課表」帶入的班級（班名）：課表頁定位並列出該班全部時段（F04） */
   focusClass?: string | null;
   /** 報告重新取得失敗後的自動重試間隔（測試注入用；預設為約 1s、3s） */
@@ -230,7 +185,6 @@ export default function SettingsEditor({
   classNameReport = null,
   reportImportId = null,
   matchedCount = 0,
-  candidates: initialCandidates = [],
   lastAppliedRevision,
   lastAppliedAt,
   hasActiveImport = false,
@@ -239,8 +193,31 @@ export default function SettingsEditor({
   currentRuleSetVersion = null,
   reportRefreshRetryDelaysMs = REPORT_REFRESH_RETRY_DELAYS_MS,
 }: SettingsEditorProps) {
-  const [activeTab, setActiveTab] = useState<'schedule' | 'mapping'>(initialTab);
+  const [activeTab, setActiveTab] = useState<'schedule' | 'sync'>(() =>
+    initialTab === 'mapping' || initialTab === 'sync' ? 'sync' : 'schedule'
+  );
   const [draft, setDraft] = useState<SettingsDraft>(initialDraft);
+
+  // 追蹤班名同步暫存操作：erpBaseName -> systemBaseName (改名)
+  const [stagedRenames, setStagedRenames] = useState<Map<string, string>>(new Map());
+  // 追蹤名冊新增班級暫存操作：Set<erpBaseName>
+  const [stagedNewClasses, setStagedNewClasses] = useState<Set<string>>(new Set());
+  /**
+   * 課表焦點的生命週期（specs/09 §3.1、specs/17 §2.2）：
+   * - initial：沿用網址 `?class=` 傳入的初始焦點；
+   * - focused：使用者在班名同步列明確選擇的班；
+   * - cleared：使用者按「顯示全部班級」後不再沿用初始 `focusClass`。
+   * `cleared` 必須與 initial 區分，否則課表頁籤卸載／重掛載時會由舊 prop 復活焦點。
+   */
+  const [scheduleFocus, setScheduleFocus] = useState<
+    { kind: 'initial' } | { kind: 'focused'; className: string } | { kind: 'cleared' }
+  >({ kind: 'initial' });
+  const scheduleFocusClass =
+    scheduleFocus.kind === 'initial'
+      ? focusClass
+      : scheduleFocus.kind === 'focused'
+        ? scheduleFocus.className
+        : null;
 
   // 初始化平鋪排課時段列（對齊 S 表 89 筆）
   const initialRows = useMemo(() => {
@@ -323,42 +300,23 @@ export default function SettingsEditor({
     setReportRecovery(null);
   }
   const report = persistedReportOverride ?? classNameReport;
-  const legacyReport = useMemo(() => adaptSyncReportToLegacyUI(report), [report]);
   const reportRefreshSeq = useRef(0);
   /** 重試計時器集合：卸載時統一清除（見下方 cleanup） */
   const reportRetryTimers = useRef<Set<ReturnType<typeof setTimeout>>>(new Set());
   /** 候選表是否鎖定：報告重新取得進行中或失敗未恢復時，候選不得依過期報告操作 */
   const reportStaleError = reportRecovery === null ? null : REPORT_REFRESH_FAILED_MESSAGE;
 
-  /**
-   * N09／R3-F02（issue #55；UX70）：待確認候選清單與班名比對報告（report.rosterOnly）同步。
-   *
-   * `report` 本身即「**最後一次成功取得**的報告」：重新取得失敗時
-   * `setPersistedReportOverride` 不會被呼叫，故 `persistedReportOverride` 仍持有
-   * 前一次成功值，`report` 就是 last-known。因此候選一律由 `report.rosterOnly` 重建，
-   * 同時滿足兩種 stale 情境：
-   *   - 已成功刷新過（`report` 為 last-known）→ 候選維持最後已知，不回退頁面初始值；
-   *   - 從未成功刷新過（`report` 為 SSR `classNameReport`）→ 候選即該頁最後已知（SSR 初值）。
-   * 只有 `rosterOnly` 為 null（快照不可用）時才回退 `initialCandidates`（空陣列）。
-   *
-   * 排序、去重學生數、Token 筆數與 D32-C 理由字串由既有純函式 `buildDynamicCandidates`
-   * 單一產生：不在此重寫 reason 常數、不直接 typecast report。
-   */
-  const candidates = useMemo<DynamicCandidate[]>(() => {
-    if (!legacyReport?.rosterOnly) return initialCandidates;
-    const unmatched = legacyReport.rosterOnly.map((r) => r.baseName);
-    const counts: CandidateCounts = new Map(
-      legacyReport.rosterOnly.map((r) => [r.baseName, { studentCount: r.students, tokenCount: r.tokens }])
-    );
-    return buildDynamicCandidates(unmatched, counts);
-  }, [legacyReport, initialCandidates]);
-
-  /** Schedule tab uses the same report source as Mapping and hides names already present in this draft. */
-  const scheduleRosterOnly = useMemo(() => {
-    if (!legacyReport?.rosterOnly) return [];
-    const currentNames = new Set(rows.map((row) => row.className.trim()).filter(Boolean));
-    return legacyReport.rosterOnly.filter((item) => !currentNames.has(item.baseName));
-  }, [legacyReport, rows]);
+  /** D62 Phase 2: 班名同步統計摘要 */
+  const syncSummary = useMemo(() => {
+    if (!report || report.snapshotStatus === 'unavailable') return null;
+    const mismatches = report.mismatches ?? [];
+    const unmapped = mismatches.filter((m) => m.legacyAliasTarget === null);
+    return {
+      mismatchCount: mismatches.length,
+      unmappedCount: unmapped.length,
+      unmappedStudents: report.unmappedStudents ?? 0,
+    };
+  }, [report]);
 
   // 儲存成功後就地更新版本與儲存時間（不必重新整理）：下一次確認變更要帶最新版本，狀態列顯示最新儲存時間
   const [revision, setRevision] = useState(currentRevision);
@@ -423,6 +381,85 @@ export default function SettingsEditor({
       setToastMessage(null);
     }, 3000);
   }, []);
+
+  /** D62 Phase 2: 班名同步 — 暫存改名 */
+  const handleStageSync = useCallback((erpBaseName: string, systemBaseName: string) => {
+    try {
+      const res = stageClassNameSync({ rows, aliases: draft.aliases }, { erpBaseName, systemBaseName });
+      setRows(res.rows);
+      setDraft((prev) => ({ ...prev, aliases: res.aliases }));
+      setStagedRenames((prev) => new Map(prev).set(erpBaseName, systemBaseName));
+      showToast(`已暫存：${systemBaseName} → ${erpBaseName}，按『確認變更』後生效`);
+    } catch (err: any) {
+      showToast(err.message || '暫存同步失敗');
+    }
+  }, [rows, draft.aliases, showToast]);
+
+  /** D62 Phase 2: 班名同步 — 暫存新增班級 */
+  const handleStageNewClass = useCallback((erpBaseName: string, classType: ClassType) => {
+    try {
+      const res = stageNewClassFromRoster(rows, { erpBaseName, classType });
+      const resolvedType: ClassType = classType === ('non_care' as ClassType) ? 'other' : classType;
+      // 規格（17 §2.2；04 UX95）：只問課程類型，類別維持 `initialCategory: 'unset'`。
+      // 使用者沒有選類別，系統就不得替他決定——`unset` 不計科數，否則同一學生同時報新班與既有
+      // 美語／數學班時會被系統自動套上多科折扣（10000 → 9500），違反 D17「不得替使用者陳述決定」。
+      const hasMulti = supportsMultiSubjectDiscount(resolvedType);
+      setRows(res.rows);
+      setManualAttrs((prev) => {
+        const next = new Map(prev);
+        next.set(erpBaseName, {
+          classType: resolvedType,
+          category: 'unset',
+          categorySource: 'unset',
+          hasMultiSubjectDiscount: hasMulti,
+          fixedFiveDays: false,
+        });
+        return next;
+      });
+      setStagedNewClasses((prev) => new Set(prev).add(erpBaseName));
+      showToast(`已新增班級「${erpBaseName}」，按『確認變更』後生效`);
+    } catch (err: any) {
+      showToast(err.message || '暫存新增失敗');
+    }
+  }, [rows, showToast]);
+
+  /** D62 Phase 2: 班名同步 — 復原單列暫存 */
+  const handleUndoStaged = useCallback((erpBaseName: string) => {
+    if (stagedRenames.has(erpBaseName)) {
+      const fromName = stagedRenames.get(erpBaseName)!;
+      setRows((prev) =>
+        prev.map((r) => (r.className.trim() === erpBaseName ? { ...r, className: fromName } : r))
+      );
+      const restoredAliases = baseline.aliases.filter(
+        (a) => a.targetBaseName.trim() === fromName || a.rawBaseName.trim() === erpBaseName
+      );
+      setDraft((prev) => {
+        const existing = prev.aliases.filter(
+          (a) => a.targetBaseName.trim() !== fromName && a.rawBaseName.trim() !== erpBaseName
+        );
+        return { ...prev, aliases: [...existing, ...restoredAliases] };
+      });
+      setStagedRenames((prev) => {
+        const next = new Map(prev);
+        next.delete(erpBaseName);
+        return next;
+      });
+      showToast(`已復原「${erpBaseName}」的同步暫存`);
+    } else if (stagedNewClasses.has(erpBaseName)) {
+      setRows((prev) => prev.filter((r) => r.className.trim() !== erpBaseName));
+      setManualAttrs((prev) => {
+        const next = new Map(prev);
+        next.delete(erpBaseName);
+        return next;
+      });
+      setStagedNewClasses((prev) => {
+        const next = new Set(prev);
+        next.delete(erpBaseName);
+        return next;
+      });
+      showToast(`已復原「${erpBaseName}」的新增暫存`);
+    }
+  }, [stagedRenames, stagedNewClasses, baseline.aliases, showToast]);
 
   // 班級改散警告 (D28)
   const splitWarnings = useMemo(() => {
@@ -514,6 +551,21 @@ export default function SettingsEditor({
     return out;
   }, [rows, effectiveManualAttrs]);
 
+  /** D62 Phase 2: ImpactDialog 班名同步與新增變更摘要 */
+  const impactSyncSummary = useMemo(() => {
+    const renames = classLifecycle.renames.map((r) => ({ from: r.from, to: r.to }));
+    const news = classLifecycle.news.map((n) => {
+      const name = n.baseName;
+      const attr = effectiveManualAttrs.get(name);
+      const type = attr?.classType ? (attr.classType === 'non_care' ? 'other' : attr.classType) : undefined;
+      return {
+        name,
+        classType: type ? CLASS_TYPE_LABELS[type] : undefined,
+      };
+    });
+    return { renames, news };
+  }, [classLifecycle, effectiveManualAttrs]);
+
 
   /**
    * 選類別 → 使用者決定（manual）。
@@ -580,27 +632,6 @@ export default function SettingsEditor({
         .map((r) => r.className.trim())
     );
   }, [rows]);
-
-  // 候選人填寫之目標映射
-  const [candidateTargets, setCandidateTargets] = useState<Record<string, string>>({});
-
-  const handleUpdateCandidateTarget = (raw: string, target: string) => {
-    setCandidateTargets((prev) => ({ ...prev, [raw]: target }));
-    setPreview(null);
-  };
-
-  const handleToggleAlias = (raw: string, target: string) => {
-    setDraft((prev) => {
-      const exists = prev.aliases.some((a) => a.rawBaseName === raw && a.targetBaseName === target);
-      return {
-        ...prev,
-        aliases: exists
-          ? prev.aliases.filter((a) => !(a.rawBaseName === raw && a.targetBaseName === target))
-          : [...prev.aliases, { rawBaseName: raw, targetBaseName: target }],
-      };
-    });
-    setPreview(null);
-  };
 
   // 呼叫唯讀計算 API (POST /api/v1/settings/calculate，250ms debounce，帶 requestKey 防晚到覆蓋)
   useEffect(() => {
@@ -856,6 +887,8 @@ export default function SettingsEditor({
       aliases: baseline.aliases,
     }));
     setManualAttrs(new Map(baselineManualAttrs));
+    setStagedRenames(new Map());
+    setStagedNewClasses(new Set());
     setPreview(null);
   };
 
@@ -960,6 +993,8 @@ export default function SettingsEditor({
       );
       setManualAttrs(savedManualAttrs);
       setBaselineManualAttrs(savedManualAttrs);
+      setStagedRenames(new Map());
+      setStagedNewClasses(new Set());
       if (typeof json?.revision === 'number') setRevision(json.revision);
       if (typeof json?.appliedAt === 'string') setSavedAt(json.appliedAt);
       setIsImpactDialogOpen(false);
@@ -995,14 +1030,16 @@ export default function SettingsEditor({
         label="課表設定頁籤"
         idPrefix="settings"
         selected={activeTab}
-        onSelect={(k) => setActiveTab(k as 'schedule' | 'mapping')}
+        onSelect={(k) => setActiveTab(k as 'schedule' | 'sync')}
         tabs={[
           { key: 'schedule', label: '課表' },
           {
-            key: 'mapping',
+            key: 'sync',
             label: (
               <>
-                班名對應 {candidates.length > 0 && <span className="pill warn">{candidates.length}</span>}
+                班名同步 {(syncSummary?.mismatchCount ?? 0) > 0 && (
+                  <span className="pill warn">{syncSummary!.mismatchCount}</span>
+                )}
               </>
             ),
           },
@@ -1015,8 +1052,6 @@ export default function SettingsEditor({
           {/* 唯讀照顧窗口摘要 */}
           <WindowSummary />
 
-
-
           {/* #80：折扣類別與固定 5 天已併入下方「89 筆平鋪時段表格」，同一列一次完成（不再有獨立的屬性卡片） */}
           {/* 89 筆平鋪時段表格（含班級屬性欄、Excel 匯出入工具列） */}
           <ScheduleGrid
@@ -1024,14 +1059,14 @@ export default function SettingsEditor({
             onUpdateRow={handleUpdateRow}
             onDeleteRow={handleDeleteRow}
             onAddRow={handleAddRow}
-            rosterOnlyClasses={scheduleRosterOnly}
-            rosterOnlyLocked={reportRecovery !== null}
-            rosterOnlyStaleMessage={reportStaleError}
+            syncSummary={syncSummary}
+            onGoToSync={() => setActiveTab('sync')}
             calculating={calculating}
             calculateResult={calculateResult}
             calculateInputRows={calculateInputRows}
             calculateError={calculateError}
-            focusClass={focusClass}
+            focusClass={scheduleFocusClass}
+            onClearFocus={() => setScheduleFocus({ kind: 'cleared' })}
             classAttributes={currentAttrs}
             onSelectCategory={handleSelectCategory}
             onToggleMultiDiscount={handleToggleMultiDiscount}
@@ -1044,23 +1079,26 @@ export default function SettingsEditor({
         </section>
       )}
 
-      {/* 頁籤內容二：班名對應 */}
-      {activeTab === 'mapping' && (
-        <section aria-label="班名對應設定" {...tabPanelProps('settings', 'mapping')}>
-          <MappingPanel
+      {/* 頁籤內容二：班名同步 */}
+      {activeTab === 'sync' && (
+        <section aria-label="班名同步設定" {...tabPanelProps('settings', 'sync')}>
+          <ClassNameSyncPanel
             hasStudents={Boolean(importId || hasActiveImport)}
-            candidates={candidates}
+            report={report}
+            rows={rows}
             aliases={draft.aliases}
-            currentActiveBaseNames={currentActiveBaseNames}
-            candidateTargets={candidateTargets}
-            onUpdateCandidateTarget={handleUpdateCandidateTarget}
-            onToggleAlias={handleToggleAlias}
-            classNameReport={legacyReport}
-            classNameReportStaleMessage={reportStaleError}
+            stagedRenames={stagedRenames}
+            stagedNewClasses={stagedNewClasses}
+            onStageSync={handleStageSync}
+            onStageNewClass={handleStageNewClass}
+            onUndoStaged={handleUndoStaged}
+            onGoToSchedule={(className) => {
+              setScheduleFocus({ kind: 'focused', className });
+              setActiveTab('schedule');
+            }}
+            reportStaleMessage={reportStaleError}
             reportRecoveryStage={reportRecovery === 'retrying' ? 'retrying' : reportRecovery}
-            // 重試中鎖定候選表：真正的鎖定（依過期報告不可確認班名）。
-            // 課表頁的時段編輯不在此鎖定範圍——那是使用者自己的草稿，保存後會以新報告解鎖。
-            candidatesLocked={reportRecovery !== null}
+            locked={reportRecovery !== null}
             onRetryReport={() => startReportRefresh(true)}
             onReloadPage={() => window.location.reload()}
           />
@@ -1133,6 +1171,7 @@ export default function SettingsEditor({
         mode={hasActiveImport ? 'with_students' : 'settings_only'}
         preview={preview}
         splitWarnings={splitWarnings}
+        syncSummary={impactSyncSummary}
         onClose={() => {
           setIsImpactDialogOpen(false);
           setPreview(null);

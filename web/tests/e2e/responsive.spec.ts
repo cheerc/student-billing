@@ -216,9 +216,9 @@ test.describe('R5 UX20 響應式驗收', () => {
       expect(covered, `[${vp.name}] 底部操作列蓋住了互動元素`).toEqual([]);
       await page.evaluate(() => window.scrollTo(0, 0));
 
-      await page.locator('button[role="tab"]', { hasText: '班名對應' }).click();
-      await expect(page.locator('.mapping-table')).toBeVisible({ timeout: 10000 });
-      await check('settings-mapping');
+      await page.locator('button[role="tab"]', { hasText: '班名同步' }).click();
+      await expect(page.locator('[data-class-name-sync-panel]')).toBeVisible({ timeout: 10000 });
+      await check('settings-sync');
 
       // ── 匯入學生：選擇檔案／確認名單 ─────────────────────────
       await page.goto('/imports');

@@ -45,8 +45,6 @@ export interface ClassNameSyncReport {
   mismatches: ClassNameMismatch[] | null;
   unmappedStudents: number | null;
   systemOnly: ClassNameSyncSystemOnly[] | null;
-  /** Phase 1 舊 UI / E2E 相容欄位 */
-  rosterOnly?: Array<{ baseName: string; students: number; tokens: number }> | null;
 }
 
 export class ClassNameReportError extends Error {
@@ -120,7 +118,6 @@ export function getClassNameMatchReport(
       mismatches: null,
       unmappedStudents: null,
       systemOnly: null,
-      rosterOnly: null,
     };
   }
 
@@ -211,14 +208,6 @@ export function getClassNameMatchReport(
       };
     });
 
-  const rosterOnly = mismatches
-    .filter((m) => m.legacyAliasTarget === null)
-    .map((m) => ({
-      baseName: m.erpBaseName,
-      students: m.students,
-      tokens: m.tokens,
-    }));
-
   return {
     importId,
     scope,
@@ -228,7 +217,6 @@ export function getClassNameMatchReport(
     mismatches,
     unmappedStudents,
     systemOnly,
-    rosterOnly,
   };
 }
 
@@ -238,8 +226,9 @@ export interface ClassNameReportSummary {
   unmappedCount: number;
   unmappedStudents: number;
   reportPath: string;
-  // Phase 1 舊 UI 兼容性欄位
+  /** 舊 UI 相容欄位：未對應班數（= mismatches 中 legacyAliasTarget === null 的列數） */
   rosterOnlyClassCount: number;
+  /** 舊 UI 相容欄位：未對應影響去重學生數 */
   rosterOnlyStudentCount: number;
   systemOnlyClassCount: number;
 }
@@ -255,7 +244,7 @@ export function summarizeClassNameReport(report: ClassNameSyncReport): ClassName
     mismatchCount,
     unmappedCount,
     unmappedStudents,
-    reportPath: `/settings?tab=mapping&import=${encodeURIComponent(report.importId)}`,
+    reportPath: `/settings?tab=sync&import=${encodeURIComponent(report.importId)}`,
     rosterOnlyClassCount: unmappedCount,
     rosterOnlyStudentCount: unmappedStudents,
     systemOnlyClassCount: report.systemOnly?.length ?? 0,

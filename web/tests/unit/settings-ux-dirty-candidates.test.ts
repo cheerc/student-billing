@@ -6,23 +6,13 @@ import { getDatabase } from '@/adapters/sqlite';
 import { saveImportBatch } from '@/adapters/sqlite/import-repository';
 import { generateImportPreview } from '@/application/import-preview';
 import { activateImport } from '@/application/activate-import';
-import {
-  SEED_CLASSES,
-  SEED_BASE_NAMES,
-  classifyErpDualTrack,
-  buildDynamicCandidates,
-} from '@/domain/schedules/seed-manifest';
-import {
-  ScheduleGridRow,
-  classesToGridRows,
-  buildSeedGridRows,
-  isSettingsDirty,
-} from '@/contracts/settings';
+import { buildSeedGridRows, isSettingsDirty } from '@/contracts/settings';
 import { buildSeedDraft } from '@/adapters/sqlite/settings-repository';
 import { previewSettingsChange } from '@/application/settings-preview';
 import { applySettingsPreview } from '@/application/apply-settings';
+import { stageClassNameSync, stageNewClassFromRoster } from '@/domain/schedules/class-name-sync';
 
-describe('D31 & D32-B: 設定頁 UX（未儲存提示＋候選已對齊隱藏）', () => {
+describe('D31 & D62: 設定頁 UX（未儲存提示＋班名同步草稿）', () => {
   let tempDir: string;
   let tempDbPath: string;
   let importId: string;
@@ -175,61 +165,38 @@ describe('D31 & D32-B: 設定頁 UX（未儲存提示＋候選已對齊隱藏）
     });
   });
 
-  describe('D32-B→D32-C: 候選已對齊自動隱藏（動態引擎 buildDynamicCandidates & classifyErpDualTrack）', () => {
-    it('4. [D32-C] 初始 Seed 狀態下動態候選由差集組裝，建議目標為空', () => {
-      const erp = ['小六國文加強班', '小六數學加強班', '國小數學-一'];
-      const dual = classifyErpDualTrack(erp, SEED_BASE_NAMES, []);
-      expect(dual.candidates.length).toBe(3);
-      for (const c of dual.candidates) {
-        expect(c.suggestedTarget).toBe('');
-        expect(c.isValid).toBe(true);
-      }
+  describe('D62：同步／新增作為設定草稿參與 dirty 判定', () => {
+    it('整班同步暫存改變班名且標記 dirty；復原至原 rows／aliases 後回到 clean', () => {
+      const rows = buildSeedGridRows();
+      const aliases = [{ rawBaseName: '國小數學-一', targetBaseName: '國小數學-一A' }];
+      const baseline = { rows, aliases };
+
+      const staged = stageClassNameSync({ rows, aliases }, {
+        erpBaseName: '國小數學-一',
+        systemBaseName: '國小數學-一A',
+      });
+      expect(staged.rows.some((row) => row.className === '國小數學-一')).toBe(true);
+      expect(staged.rows.some((row) => row.className === '國小數學-一A')).toBe(false);
+      expect(staged.aliases).toHaveLength(0);
+      expect(isSettingsDirty(baseline, staged.rows, staged.aliases)).toBe(true);
+
+      const restoredRows = staged.rows.map((row) =>
+        row.className === '國小數學-一' ? { ...row, className: '國小數學-一A' } : row
+      );
+      expect(isSettingsDirty(baseline, restoredRows, aliases)).toBe(false);
     });
 
-    it('5. [D32-B 語義保留] 改名對齊後：rawBaseName 已存在於有效班級中，該候選行自動消失', () => {
-      // 模擬使用者將「小六加強班-國文」改名對齊為「小六國文加強班」
-      const activeClassNames = SEED_BASE_NAMES.map((name) =>
-        name === '小六加強班-國文' ? '小六國文加強班' : name
-      );
-      const activeClassSet = new Set(activeClassNames);
+    it('新增名冊班級作為設定草稿參與 dirty 判定', () => {
+      const rows = buildSeedGridRows();
+      const baseline = { rows, aliases: [] };
+      const staged = stageNewClassFromRoster(rows, {
+        erpBaseName: '交通車',
+        classType: 'unscheduled',
+      });
 
-      const visible = buildDynamicCandidates(
-        ['小六國文加強班', '小六數學加強班', '國小數學-一', '國小國語文-小三四'],
-        undefined,
-        activeClassSet
-      );
-      // 「小六國文加強班」已與 ERP 對齊，應消失，只剩 3 組
-      expect(visible.length).toBe(3);
-      expect(visible.some((c) => c.rawBaseName === '小六國文加強班')).toBe(false);
-
-      // 其他 3 組依然可見
-      expect(visible.some((c) => c.rawBaseName === '國小數學-一')).toBe(true);
-      expect(visible.some((c) => c.rawBaseName === '國小國語文-小三四')).toBe(true);
-      expect(visible.some((c) => c.rawBaseName === '小六數學加強班')).toBe(true);
-    });
-
-    it('6. [D32-C] 候選行攜去重人數／筆數，reason 無寫死數字', () => {
-      const counts = new Map([
-        ['小六數學加強班', { studentCount: 4, tokenCount: 6 }],
-      ]);
-      const visible = buildDynamicCandidates(['小六數學加強班'], counts, new Set(SEED_BASE_NAMES));
-      expect(visible.length).toBe(1);
-      expect(visible[0]?.studentCount).toBe(4);
-      expect(visible[0]?.tokenCount).toBe(6);
-      expect(visible[0]?.reason ?? '').not.toMatch(/\d+\s*人/);
-    });
-
-    it('7. [D32-C] classifyErpDualTrack 回傳的 candidates 應整合對齊消失語義', () => {
-      const erpBaseNames = ['小六國文加強班', '小六數學加強班', '國小數學-一'];
-      // 改名對齊小六國文加強班
-      const activeClasses = SEED_BASE_NAMES.map((n) =>
-        n === '小六加強班-國文' ? '小六國文加強班' : n
-      );
-
-      const dual = classifyErpDualTrack(erpBaseNames, activeClasses);
-      // 小六國文加強班候選應消失
-      expect(dual.candidates.some((c) => c.rawBaseName === '小六國文加強班')).toBe(false);
-      expect(dual.candidates.length).toBe(2);
+      expect(staged.newRow.className).toBe('交通車');
+      expect(staged.newRow.weekday).toBe('');
+      expect(isSettingsDirty(baseline, staged.rows, [])).toBe(true);
     });
   });
 });

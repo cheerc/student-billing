@@ -177,9 +177,9 @@ test.describe('R5 文案全頁掃描（09 §7）', () => {
     await leave.getByRole('button', { name: '繼續編輯' }).click();
     await cancelEdits();
 
-    await page.locator('button', { hasText: '班名對應' }).click();
+    await page.getByRole('tab', { name: /班名同步/ }).click();
     await page.waitForTimeout(300);
-    await scan(page, '課表設定｜班名對應頁籤（尚未匯入）', violations);
+    await scan(page, '課表設定｜班名同步頁籤（尚未匯入）', violations);
     await page.locator('button', { hasText: /^課表/ }).first().click();
 
     await page.locator('#class-type-tab-english').click();
@@ -316,13 +316,14 @@ test.describe('R5 文案全頁掃描（09 §7）', () => {
     await page.goto('/settings');
     await expect(page.locator('h1', { hasText: '課表設定' })).toBeVisible({ timeout: 10000 });
     await scan(page, '課表設定｜課表頁籤（已有名單）', violations);
-    await page.locator('button', { hasText: '班名對應' }).click();
-    await expect(page.locator('.mapping-table')).toBeVisible({ timeout: 10000 });
-    await scan(page, '課表設定｜班名對應頁籤（有待處理班名）', violations);
+    await page.getByRole('tab', { name: /班名同步/ }).click();
+    await expect(page.locator('[data-class-name-sync-panel]')).toBeVisible({ timeout: 10000 });
+    await scan(page, '課表設定｜班名同步頁籤（有待處理班名）', violations);
 
-    const row = page.locator('tr', { hasText: '國小數學-一' });
-    await row.locator('input.input-target-classname').fill('國小數學-一A');
-    await row.locator('input[type="checkbox"]').check();
+    const row = page.locator('tr[data-mismatch-row="國小數學-一"]');
+    await row.locator('button', { hasText: '同步到既有班級' }).click();
+    await page.locator('select[aria-label="選擇同步目標課表班級"]').selectOption({ value: '國小數學-一A' });
+    await page.locator('button', { hasText: '暫存同步' }).click();
     await page.locator('button', { hasText: '確認變更' }).click();
     await expect(page.locator('dialog.impact-dialog')).toBeVisible({ timeout: 15000 });
     await scan(page, '課表設定｜確認變更視窗（有名單，影響預覽）', violations);
@@ -340,7 +341,7 @@ test.describe('R5 文案全頁掃描（09 §7）', () => {
     await page.keyboard.press('Escape');
     await cancelEdits();
 
-    // 回到「課表」頁籤（前面的班名對應在另一個頁籤），再操作時段列
+    // 回到「課表」頁籤（前面的班名同步在另一個頁籤），再操作時段列
     await page.locator('button[role="tab"]', { hasText: /^課表/ }).first().click();
     await expect(page.locator('.schedule-table')).toBeVisible();
 
