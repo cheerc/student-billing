@@ -1,5 +1,5 @@
 import React from 'react';
-import type { ClassNameMatchReport } from '@/application/class-name-match-report';
+import type { AdaptedLegacyClassNameReport } from '@/components/settings-editor';
 
 /**
  * 班名比對報告（課表設定「班名對應」；04 §8 UX44–UX46；09 §3.3）。
@@ -14,7 +14,7 @@ const ALIAS_NOTE =
   '已建立別名對應的米豆奶班名，在左邊算「已對應」；右邊只看名冊有沒有直接用該班名報名，' +
   '所以只靠別名覆蓋、名冊沒有直接報名的系統班，仍會列在右邊，並標出由哪些別名覆蓋。';
 
-export function ClassNameReportPanel({ report }: { report: ClassNameMatchReport }) {
+export function ClassNameReportPanel({ report }: { report: AdaptedLegacyClassNameReport }) {
   if (report.snapshotStatus === 'unavailable' || !report.rosterOnly || !report.systemOnly) {
     return (
       <section className="card class-name-report" aria-label="班名比對報告">

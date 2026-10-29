@@ -1,6 +1,5 @@
 import { describe, it, expect } from 'vitest';
 import { buildDynamicCandidates, type CandidateCounts } from '@/domain/schedules/seed-manifest';
-import type { ClassNameMatchReport } from '@/application/class-name-match-report';
 
 /**
  * **characterization（非本功能的 RED）**：本檔只 import 並呼叫既有的 `buildDynamicCandidates`，

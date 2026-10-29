@@ -246,7 +246,7 @@ export function carryAttributesOnRename(
 ): Map<string, ClassAttributesView> {
   const out = new Map<string, ClassAttributesView>(currentAttrs);
   for (const { from, to } of renames) {
-    const before = currentAttrs.get(from) ?? baselineAttrs.get(from);
+    const before = currentAttrs.get(from) ?? baselineAttrs.get(from) ?? resolveClassAttributes(from);
     if (!before) continue;
 
     // D2d C（04 §8 UX72；decision `d-20261001043317183960-21`）：併入既有班 Z 時**以 Z 為準**。

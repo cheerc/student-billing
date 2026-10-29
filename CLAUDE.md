@@ -35,7 +35,7 @@
 
 若文件內容或要求出現衝突，依下列優先順序判定：
 
-1. **使用者最新明確決策**：`specs/06-handoff-decisions.md`（D01–D61，特別是 D17、D24、D33 UI 重設方向、D52 雙審查與解耦裁決、D57 #159 PR-2 現行 v4-only runtime、D58 #148 PR-3 bounded class semantics data contract、D59 PR-4 semantic consumers、D60 系統全面減法與單一現況留存，以及 D61 五種課程類型重構、單選統一與 1c 待補時間雙重警示）。
+1. **使用者最新明確決策**：`specs/06-handoff-decisions.md`（D01–D62，特別是 D17、D24、D33 UI 重設方向、D52 雙審查與解耦裁決、D57 #159 PR-2 現行 v4-only runtime、D58 #148 PR-3 bounded class semantics data contract、D59 PR-4 semantic consumers、D60 系統全面減法與單一現況留存、D61 五種課程類型重構、單選統一與 1c 待補時間雙重警示，以及 D62 班名同步：以米豆奶班名為準、逐列人工合併或新增）。
 2. **正式規則與契約規格**：
    - `specs/02-calculation-rules.md`（收費規則 R01–R18、§9A erp-tag-v4 解耦段、D60 規則減法與 D61 2×2 解耦與其他班扣天、欄位契約、結構化班名）
    - `specs/03-architecture-api.md`（單一現況留存模型、不可變快照、資料模型、交易與 11 條 API 契約）
@@ -49,6 +49,7 @@
    - `specs/14-class-type-settings-plan.md`（課程類型分類與課表設定重構規格與拆分計畫：依課程類型分頁、固定 5 天旗標與課程學費折扣解耦；授權來源為 2026-10-18 operator 裁決，實作時同步更新 02／03／04／09，拆分見該檔 §6）
    - `specs/15-class-semantics-simplification-plan.md`（系統全面減法、單一現況留存模型與 Agent 查帳 API 收斂計畫：拆除語意面板、退役點名表 6 欄天數、單一現行規則 erp-tag-v4、移除 /history、Migration 0012/0013、收斂為 3 頁 UI + 11 條 API；授權來源為 2026-10-27 operator D60 裁決）
    - `specs/16-five-class-types-yes-no-refactor-plan.md`（五種課程類型重構、「是／否」單選統一與未填時間醒目警示計畫：五頁籤、2×2 計費解耦、其他班所見即所得扣天、1c 雙重視覺警示與 Excel 9 欄五類型契約；授權來源為 2026-10-28 operator D61 裁決）
+   - `specs/17-class-name-sync-plan.md`（班名同步重構：嚴格同名比對、逐列同步／新增、不建立新別名；授權來源為 2026-10-29 operator D62 裁決）
 4. **歷史 Review 與交接記錄**：`specs/reviews/*`（僅供脈絡參考，若有數字或推論與 04 §3 或 D24 衝突，以最新正式規格為準）。
 
 第 2 層各文件各管其域：02 管計費規則、03 管資料模型與交易不變式、04 管驗收、09 管 UI 流程。09 對 01／03 的 UI 流程與設定生命週期放寬，僅限 D33/D60 授權且 09 §8 明列的範圍；02 計費規則與 03 §4 的不可變快照／交易不變式不因 09 改變。

@@ -86,8 +86,8 @@ describe('GET /api/v1/settings/class-name-report', () => {
     ]);
     expect(body.unmappedStudents).toBe(2);
     expect(body.systemOnly).toEqual([
-      { baseName: '國小數學-二A', active: true, classType: 'math', sessionCount: 0, legacyAliasFrom: [] },
       { baseName: '國小輔導-三年級', active: true, classType: 'care', sessionCount: 0, legacyAliasFrom: [] },
+      { baseName: '國小數學-二A', active: true, classType: 'math', sessionCount: 2, legacyAliasFrom: [] },
     ]);
     expect([...collectKeys(body)].filter((k) => /categor|類別/i.test(k))).toEqual([]);
   });
@@ -110,13 +110,23 @@ describe('GET /api/v1/settings/class-name-report', () => {
     scenario();
     const ok = await (await mod!.GET(getRequest(url('?runId=run_old')))).json();
     expect(ok).toMatchObject({ importId: 'imp_new', scope: { kind: 'run', runId: 'run_old' }, snapshotStatus: 'ok' });
-    expect(ok.rosterOnly).toEqual([{ baseName: '交通車', students: 1, tokens: 1 }]);
-    expect(ok.aliasCoveredCount).toBe(1);
+    expect(ok.exactMatchCount).toBe(1);
+    expect(ok.rosterClassCount).toBe(3);
+    expect(ok.mismatches).toEqual([
+      { erpBaseName: '交通車', students: 1, tokens: 1, legacyAliasTarget: null },
+      { erpBaseName: '國小數學-一', students: 1, tokens: 1, legacyAliasTarget: '國小數學-一A' },
+    ]);
+    expect(ok.unmappedStudents).toBe(1);
 
     const gone = await mod!.GET(getRequest(url('?runId=run_gone')));
     expect(gone.status).toBe(200);
     const goneBody = await gone.json();
-    expect(goneBody).toMatchObject({ importId: 'imp_new', snapshotStatus: 'unavailable', rosterOnly: null, systemOnly: null });
+    expect(goneBody).toMatchObject({
+      importId: 'imp_new',
+      snapshotStatus: 'unavailable',
+      mismatches: null,
+      systemOnly: null,
+    });
   });
 
   it('參數錯誤：未知 runId → 404 RUN_NOT_FOUND；未知 importId → 404 IMPORT_NOT_FOUND；runId 與 importId 指向不同名單 → 400 INVALID_QUERY', async () => {

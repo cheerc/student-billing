@@ -21,7 +21,47 @@ import {
 } from '@/contracts/settings';
 import { DynamicCandidate, buildDynamicCandidates, type CandidateCounts } from '@/domain/schedules/seed-manifest';
 import { CalculatePreviewResponse } from '@/application/schedule-preview';
-import type { ClassNameMatchReport } from '@/application/class-name-match-report';
+import type { ClassNameSyncReport } from '@/application/class-name-match-report';
+
+export interface AdaptedLegacyClassNameReport {
+  snapshotStatus: 'ok' | 'unavailable';
+  rosterOnly: Array<{ baseName: string; students: number; tokens: number }> | null;
+  systemOnly: Array<{ baseName: string; active: boolean; aliasCoveredBy: string[] }> | null;
+  matchedCount: number | null;
+  rosterOnlyStudents: number | null;
+}
+
+export function adaptSyncReportToLegacyUI(
+  report: ClassNameSyncReport | null | undefined
+): AdaptedLegacyClassNameReport | null {
+  if (!report) return null;
+  if (report.snapshotStatus === 'unavailable') {
+    return {
+      snapshotStatus: 'unavailable',
+      rosterOnly: null,
+      systemOnly: null,
+      matchedCount: null,
+      rosterOnlyStudents: null,
+    };
+  }
+  return {
+    snapshotStatus: 'ok',
+    rosterOnly:
+      report.mismatches?.map((m) => ({
+        baseName: m.erpBaseName,
+        students: m.students,
+        tokens: m.tokens,
+      })) ?? [],
+    systemOnly:
+      report.systemOnly?.map((s) => ({
+        baseName: s.baseName,
+        active: s.active,
+        aliasCoveredBy: s.legacyAliasFrom,
+      })) ?? [],
+    matchedCount: report.exactMatchCount,
+    rosterOnlyStudents: report.unmappedStudents,
+  };
+}
 import { WindowSummary } from '@/components/settings/window-summary';
 import { ScheduleGrid } from '@/components/settings/schedule-grid';
 import { ImpactDialog, SettingsPreviewData } from '@/components/settings/impact-dialog';
@@ -58,7 +98,7 @@ interface SettingsEditorProps {
   initialDraft: SettingsDraft;
   unmatched?: string[];
   /** 班名比對報告（D1）；由 server 依 ?import= 的名單（預設現行名單）產生 */
-  classNameReport?: ClassNameMatchReport | null;
+  classNameReport?: ClassNameSyncReport | null;
   /** 班名比對報告所檢視的名單（server 的 reviewImportId）：儲存後就地刷新要看同一份名單，而不是編輯器儲存所依據的現行名單 */
   reportImportId?: string | null;
   matchedCount?: number;
@@ -175,7 +215,7 @@ async function fetchReportWithRetry(params: {
   delaysMs: number[];
   seqRef: { current: number };
   timers: Set<ReturnType<typeof setTimeout>>;
-  onSuccess: (report: ClassNameMatchReport) => void;
+  onSuccess: (report: ClassNameSyncReport) => void;
   onRecovering: () => void;
   /** 自動重試用盡後的階段：使用者按過［重新載入］→ 只剩［重新整理頁面］；否則提供［重新載入］。 */
   onGiveUp: (manualRetry: boolean) => void;
@@ -187,7 +227,7 @@ async function fetchReportWithRetry(params: {
     const response = await fetch(url);
     if (seq !== seqRef.current) return;
     if (!response.ok) throw new Error('REPORT_REFRESH_FAILED');
-    const updated = (await response.json()) as ClassNameMatchReport;
+    const updated = (await response.json()) as ClassNameSyncReport;
     if (seq !== seqRef.current) return;
     onSuccess(updated);
   } catch {
@@ -298,8 +338,8 @@ export default function SettingsEditor({
   const [dialogError, setDialogError] = useState<UserFacingError | null>(null);
 
   // F3：班名比對報告 client state，儲存成功後即時刷新最新 persisted 報告，避免畫面停留於舊資料
-  const [persistedReportOverride, setPersistedReportOverride] = useState<ClassNameMatchReport | null>(null);
-  const [prevReportProp, setPrevReportProp] = useState<ClassNameMatchReport | null>(classNameReport);
+  const [persistedReportOverride, setPersistedReportOverride] = useState<ClassNameSyncReport | null>(null);
+  const [prevReportProp, setPrevReportProp] = useState<ClassNameSyncReport | null>(classNameReport);
   // 重新取得報告失敗時的復原階段：retrying（自動重試中，候選表鎖定且不顯示錯誤畫面）／reload／reloadPage
   const [reportRecovery, setReportRecovery] = useState<ReportRecoveryStage | null>(null);
   if (prevReportProp !== classNameReport) {
@@ -308,6 +348,7 @@ export default function SettingsEditor({
     setReportRecovery(null);
   }
   const report = persistedReportOverride ?? classNameReport;
+  const legacyReport = useMemo(() => adaptSyncReportToLegacyUI(report), [report]);
   const reportRefreshSeq = useRef(0);
   /** 重試計時器集合：卸載時統一清除（見下方 cleanup） */
   const reportRetryTimers = useRef<Set<ReturnType<typeof setTimeout>>>(new Set());
@@ -329,20 +370,20 @@ export default function SettingsEditor({
    * 單一產生：不在此重寫 reason 常數、不直接 typecast report。
    */
   const candidates = useMemo<DynamicCandidate[]>(() => {
-    if (!report?.rosterOnly) return initialCandidates;
-    const unmatched = report.rosterOnly.map((r) => r.baseName);
+    if (!legacyReport?.rosterOnly) return initialCandidates;
+    const unmatched = legacyReport.rosterOnly.map((r) => r.baseName);
     const counts: CandidateCounts = new Map(
-      report.rosterOnly.map((r) => [r.baseName, { studentCount: r.students, tokenCount: r.tokens }])
+      legacyReport.rosterOnly.map((r) => [r.baseName, { studentCount: r.students, tokenCount: r.tokens }])
     );
     return buildDynamicCandidates(unmatched, counts);
-  }, [report, initialCandidates]);
+  }, [legacyReport, initialCandidates]);
 
   /** Schedule tab uses the same report source as Mapping and hides names already present in this draft. */
   const scheduleRosterOnly = useMemo(() => {
-    if (!report?.rosterOnly) return [];
+    if (!legacyReport?.rosterOnly) return [];
     const currentNames = new Set(rows.map((row) => row.className.trim()).filter(Boolean));
-    return report.rosterOnly.filter((item) => !currentNames.has(item.baseName));
-  }, [report, rows]);
+    return legacyReport.rosterOnly.filter((item) => !currentNames.has(item.baseName));
+  }, [legacyReport, rows]);
 
   // 儲存成功後就地更新版本與儲存時間（不必重新整理）：下一次確認變更要帶最新版本，狀態列顯示最新儲存時間
   const [revision, setRevision] = useState(currentRevision);
@@ -1039,7 +1080,7 @@ export default function SettingsEditor({
             candidateTargets={candidateTargets}
             onUpdateCandidateTarget={handleUpdateCandidateTarget}
             onToggleAlias={handleToggleAlias}
-            classNameReport={report}
+            classNameReport={legacyReport}
             classNameReportStaleMessage={reportStaleError}
             reportRecoveryStage={reportRecovery === 'retrying' ? 'retrying' : reportRecovery}
             // 重試中鎖定候選表：真正的鎖定（依過期報告不可確認班名）。

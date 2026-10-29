@@ -1,7 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import { useGlobalTempDb, saveSyntheticBatch, activateBatch, makeStudent, saveSettings } from '../helpers/d1-test-kit';
-import { buildSeedDraft, classesToGridRows, type ScheduleGridRow, type AliasMapping } from '@/contracts/settings';
-import { executeCalculationRun } from '@/application/calculate-run';
+import { buildSeedDraft } from '@/adapters/sqlite/settings-repository';
+import { classesToGridRows, type ScheduleGridRow, type AliasMapping } from '@/contracts/settings';
+import { executeCalculationRun, resolveLatestSavedSettings } from '@/application/calculate-run';
 import { previewSettingsChange } from '@/application/settings-preview';
 import { applySettingsPreview } from '@/application/apply-settings';
 import { loadModule } from '../helpers/d1-test-kit';
@@ -54,7 +55,7 @@ describe('班名同步計費不變式整合測試 (Billing Invariance)', () => {
               endTime: '18:00',
               startMinutes: 990,
               endMinutes: 1080,
-              teacher: null,
+              skipDeduction: false,
             },
           ],
         },
@@ -67,9 +68,10 @@ describe('班名同步計費不變式整合測試 (Billing Invariance)', () => {
     saveSettings(db, 'set_initial', 1, initialDraft);
 
     // 執行 Run A（初始狀態：經別名連上）
+    const settingsA = resolveLatestSavedSettings(db);
     const runA = executeCalculationRun(db, 'imp_inv', 'run_A', {
       ruleSetVersion: 'erp-tag-v4',
-      scheduleVersionId: 'set_initial',
+      ...settingsA,
     });
 
     const s1_A = runA.results.find((r) => r.personCode === 's1')!;
@@ -110,7 +112,7 @@ describe('班名同步計費不變式整合測試 (Billing Invariance)', () => {
               endTime: '18:00',
               startMinutes: 990,
               endMinutes: 1080,
-              teacher: null,
+              skipDeduction: false,
             },
           ],
         },
@@ -126,9 +128,10 @@ describe('班名同步計費不變式整合測試 (Billing Invariance)', () => {
     });
 
     // 取得 Run B
+    const settingsB = resolveLatestSavedSettings(db);
     const runB = executeCalculationRun(db, 'imp_inv', applied.runId!, {
       ruleSetVersion: 'erp-tag-v4',
-      scheduleVersionId: applied.settingsVersionId,
+      ...settingsB,
     });
 
     const s1_B = runB.results.find((r) => r.personCode === 's1')!;

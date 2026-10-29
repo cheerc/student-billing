@@ -141,7 +141,7 @@ describe('D2b 5（Q9）: 整班改名帶走設定（含手動值與 classType）
 
   it('可達性實驗：改名來源班不在 currentAttrs 與 baselineAttrs（如未手動修改的 seed 班），改名應解析來源屬性並保留，不遺失 classType', () => {
     const out = carryAttributesOnRename(
-      [{ from: '國小美語-一', to: '米豆奶美語一' }],
+      [{ from: '兒童美語-Gino', to: '米豆奶美語一' }],
       new Map(),
       new Map()
     );
