@@ -155,7 +155,15 @@ test.describe('R4 重寫：T06 故障恢復與歷程查閱 E2E 驗收', () => {
     // #157 Ruling 3：需確認的成因不再只有「缺排課」。未對應課表的班（CLASS_NOT_MAPPED）
     // 會使該列需確認，但成因是「班名沒對上」，白話說明必須據實指出，不能說「排課缺漏」。
     await expect(drawer).toContainText('班名未對應課表');
-    await expect(drawer.locator('text=班名未對應課表，請確認米豆奶班名或系統班級名稱。').first()).toBeVisible();
+    // #189 P3（PR #199）起白話說明改為指向「課表設定 → 班名同步」，不再只有「請確認」。
+    // 逐字斷言完整句子，並定位到看得見的警告列；不再用 `text=` 子字串定位——那會命中
+    // 收合在「技術資訊」裡的原始 JSON，看起來「有」卻不可見（hosted full run 40934713367）。
+    const unmappedIssue = drawer.locator('.alert-warning li', { hasText: '班名未對應課表' }).first();
+    await expect(unmappedIssue).toBeVisible();
+    await expect(unmappedIssue).toContainText(
+      '班名未對應課表，請到「課表設定 → 班名同步」確認米豆奶班名或系統班級名稱。'
+    );
+    await expect(unmappedIssue).not.toContainText('排課缺漏');
     // 抽屜的比對結果與問題類型都是白話中文，不帶英文標籤或代碼（D39）
     await expect(drawer).not.toContainText(/\(Match\)|\(Mismatch\)|fallback|CLASS_NOT_MAPPED/, { useInnerText: true });
     // 來源列座標在「原始資料」摺疊區（09 §5.1），展開後可見
@@ -177,13 +185,14 @@ test.describe('R4 重寫：T06 故障恢復與歷程查閱 E2E 驗收', () => {
     // 9. 待設定班級提示（09 §8.3：動態判斷，不是寫死班名）。兩種情境都要驗：
     const unmappedNotice = page.locator('.notice-warn', { hasText: '待設定班級提示：' });
 
-    //   ① 不在課表快照的班級（fixture 有「國小數學-一」，課表只有一A／一B…）→ 提示出現，且導向課表設定
+    //   ① 不在課表快照的班級（fixture 有「國小數學-一」，課表只有一A／一B…）→ 提示出現，且導向班名同步
+    //      #189 P3 起連結由「前往課表設定」改為「前往班名同步」並深連結 `?tab=sync`（D62）。
     await applyFilter(page, '所屬班級', { pick: ['國小數學-一'] });
     await expect(unmappedNotice).toBeVisible();
     await expect(unmappedNotice).toContainText('國小數學-一');
-    const goSettings = unmappedNotice.locator('a', { hasText: '前往課表設定' });
+    const goSettings = unmappedNotice.locator('a', { hasText: '前往班名同步' });
     await expect(goSettings).toBeVisible();
-    await expect(goSettings).toHaveAttribute('href', '/settings');
+    await expect(goSettings).toHaveAttribute('href', '/settings?tab=sync');
 
     //   ② 在課表快照的班級（課表有「國小數學-三A」）→ 提示不出現
     await applyFilter(page, '所屬班級', { none: true, pick: ['國小數學-三A'] });
