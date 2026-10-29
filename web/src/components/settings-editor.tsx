@@ -202,6 +202,12 @@ export default function SettingsEditor({
   const [stagedRenames, setStagedRenames] = useState<Map<string, string>>(new Map());
   // 追蹤名冊新增班級暫存操作：Set<erpBaseName>
   const [stagedNewClasses, setStagedNewClasses] = useState<Set<string>>(new Set());
+  /**
+   * D62 Phase 2：「到課表填時段 →」帶入的班名（specs/17 §2.2）。
+   * 與 props 的 `focusClass`（網址 `?class=` 的深連結）分開存放，避免暫存操作覆寫深連結語意；
+   * 傳給 ScheduleGrid 的是 `focusTarget ?? focusClass`，由它切到該班類型頁籤並只顯示該班。
+   */
+  const [focusTarget, setFocusTarget] = useState<string | null>(null);
 
   // 初始化平鋪排課時段列（對齊 S 表 89 筆）
   const initialRows = useMemo(() => {
@@ -384,16 +390,17 @@ export default function SettingsEditor({
     try {
       const res = stageNewClassFromRoster(rows, { erpBaseName, classType });
       const resolvedType: ClassType = classType === ('non_care' as ClassType) ? 'other' : classType;
-      // 規格（17 §2.3；04 UX95／UX112）：只問課程類型，其餘依類型預設；多科折扣與類別由
-      // (classType, hasMultiSubjectDiscount) 投影，不用 unset 蓋掉使用者剛選的類型。
+      // 規格（17 §2.2；04 UX95）：只問課程類型，類別維持 `initialCategory: 'unset'`。
+      // 使用者沒有選類別，系統就不得替他決定——`unset` 不計科數，否則同一學生同時報新班與既有
+      // 美語／數學班時會被系統自動套上多科折扣（10000 → 9500），違反 D17「不得替使用者陳述決定」。
       const hasMulti = supportsMultiSubjectDiscount(resolvedType);
       setRows(res.rows);
       setManualAttrs((prev) => {
         const next = new Map(prev);
         next.set(erpBaseName, {
           classType: resolvedType,
-          category: deriveEffectiveCategory(resolvedType, hasMulti),
-          categorySource: 'manual',
+          category: 'unset',
+          categorySource: 'unset',
           hasMultiSubjectDiscount: hasMulti,
           fixedFiveDays: false,
         });
@@ -1048,7 +1055,7 @@ export default function SettingsEditor({
             calculateResult={calculateResult}
             calculateInputRows={calculateInputRows}
             calculateError={calculateError}
-            focusClass={focusClass}
+            focusClass={focusTarget ?? focusClass}
             classAttributes={currentAttrs}
             onSelectCategory={handleSelectCategory}
             onToggleMultiDiscount={handleToggleMultiDiscount}
@@ -1074,7 +1081,8 @@ export default function SettingsEditor({
             onStageSync={handleStageSync}
             onStageNewClass={handleStageNewClass}
             onUndoStaged={handleUndoStaged}
-            onGoToSchedule={(_className) => {
+            onGoToSchedule={(className) => {
+              setFocusTarget(className);
               setActiveTab('schedule');
             }}
             reportStaleMessage={reportStaleError}
