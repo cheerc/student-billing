@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
-import { exportBuffer, importBuffer, readScheduleRows } from './helpers/schedule-excel';import {
+import { exportBuffer, importBuffer, readScheduleRows } from './helpers/schedule-excel';
+import {
   ensureClassTypeTab,
   multiDiscountGroup,
   selectClassTypeTab,
@@ -25,11 +26,11 @@ import { classesToGridRows, gridRowsToClasses, buildSeedGridRows } from '@/contr
  */
 
 /**
- * 畫面上的時段列數。
+ * 匯出檔的資料列數：`classesToGridRows(gridRowsToClasses(seed))`。
  *
- * **不要寫死 89**：`buildSeedGridRows()` 產 89 列，但課表頁實際載入的是
- * `classesToGridRows(gridRowsToClasses(seed))` = 88 列（國小數學-一B 的 2 列空時段
- * 聚合成 1 個佔位列）。這是實測值（probes），不是推算。
+ * 本 tree 實測三者分別是 `buildSeedGridRows()` 89、`gridRowsToClasses()` 49、
+ * `classesToGridRows(...)` 89 —— 來回轉換不改變列數（含「國小數學-一B」的 2 列空時段，
+ * 轉換後仍是 2 列）。這個函式只給「匯出檔應該有幾列」用，不要拿它當畫面的列數（見下）。
  */
 function appRowCount(): number {
   const seed = buildSeedGridRows();
@@ -37,17 +38,22 @@ function appRowCount(): number {
   return flat.length > 0 ? flat.length : seed.length;
 }
 
-/** 匯出檔與畫面共用的原始列數（`buildSeedGridRows()` 的平鋪時段數）。 */
+/**
+ * seed fixture 的定義列數（`buildSeedGridRows()` 的平鋪時段數）—— 這是**輸入 fixture**
+ * 的定義，不是被測函式的輸出，所以可作為「畫面逐頁籤加總」比對的另一端
+ * （R-192-2）。seed 改了就跟著改，這是預期行為。
+ */
 function seedScheduleRowCount(): number {
   return buildSeedGridRows().length;
 }
 
 /**
- * 逐頁籤的時段列數。
+ * 畫面五個頁籤的時段列數加總。
  *
- * `schedule-excel.ts` 的 `appRowCount()` 是 89 列（`classesToGridRows` 的結果）——那是
- * **匯出檔**的資料列數。畫面上安親頁籤每班只顯示 1 列（`displayedTabRows` 對 care 去重），
- * 所以畫面可見的列數是「排課頁籤全部時段 + 每個安親班 1 列」，兩者不可互相比較。
+ * 與 `appRowCount()`（匯出檔列數）不可互相比較：安親頁籤每班只顯示 1 列
+ * （`schedule-grid.tsx` 的 `displayedTabRows` 對 care／unscheduled 去重），
+ * 而匯出檔對每個安親班仍是一列（seed 的 care 班本來就只有一列）。兩者本 tree 都是 89，
+ * 但那是 fixture 的巧合，不是同一條規則推出來的。
  */
 const SCHEDULABLE_TABS: ClassTypeTab[] = ['english', 'math', 'other', 'unscheduled'];
 
@@ -108,9 +114,9 @@ test.describe('#81：課表 Excel 全量匯出／匯入', () => {
     await expect(page.locator('[data-restore-auto]')).toHaveCount(0);
 
     // 表格仍有原本的全部時段（整批取代不是清空）；逐頁籤加總驗證全量筆數（Reviewer 1 要求，D61 五頁籤）
-    // 89（合併為 88）是匯出檔的資料列數；安親頁籤畫面每班只列 1 列，因此比的是
-    // `buildSeedGridRows()` 的原始列數，不是 `classesToGridRows` 的合併結果。
-    expect(await displayedScheduleRowCount(page)).toBe(seedScheduleRowCount());  });
+    // 右側是 seed fixture 的定義列數（R-192-2），不是被測函式的輸出。
+    expect(await displayedScheduleRowCount(page)).toBe(seedScheduleRowCount());
+  });
 
   test('#81-3: 匯出 → 匯入 → 匯出，兩次匯出檔的**資料內容**一致（值層級冪等）', async ({ page }) => {
     // 不比對 zip 位元組：ExcelJS 寫入 zip 會帶檔案時間戳，位元組相同過於嚴格。

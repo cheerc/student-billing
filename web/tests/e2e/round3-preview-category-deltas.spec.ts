@@ -3,6 +3,7 @@ import ExcelJS from 'exceljs';
 import { XLSX_MIME } from './helpers/c-batch';
 import { selectClassTypeTab } from './helpers/d2c-settings';
 import {
+  SCHEDULE_COLUMNS,
   mutateExport,
   setRowClassType,
   setRowMultiDiscount,
@@ -81,10 +82,20 @@ async function buildFiftyFiveStudentsWorkbook(): Promise<Buffer> {
 async function changeXiaowuToMathViaExcel(page: Page): Promise<void> {
   await selectClassTypeTab(page, 'other');
   await expect(classRowOf(page, '國小國語文-小五')).toBeVisible({ timeout: 15000 });
-  await mutateExport(page, (rows) => {
-    setRowClassType(rows, '國小國語文-小五', '數學班');
-    setRowMultiDiscount(rows, '國小國語文-小五', true);
+
+  // 匯出 → 改兩欄 → 匯入。helper 回傳改過的列，斷言留在這裡：
+  // 若突變沒落在這個班（例如匯出格式改欄序），這裡會紅，而不是在 helper 裡紅。
+  const rows = await mutateExport(page, (exported) => {
+    setRowClassType(exported, '國小國語文-小五', '數學班');
+    setRowMultiDiscount(exported, '國小國語文-小五', true);
   });
+  const changed = rows.filter((row) => row[SCHEDULE_COLUMNS.className]?.trim() === '國小國語文-小五');
+  expect(changed.length, '匯出檔裡應有「國小國語文-小五」的列').toBeGreaterThan(0);
+  for (const row of changed) {
+    expect(row[SCHEDULE_COLUMNS.classType], '匯出檔的課程類型欄應已改成數學班').toBe('數學班');
+    expect(row[SCHEDULE_COLUMNS.hasMultiDiscount], '匯出檔的多科折扣欄應已改成是').toBe('是');
+  }
+
   await expect(page.locator('.save-status-dirty')).toBeVisible();
 }
 
