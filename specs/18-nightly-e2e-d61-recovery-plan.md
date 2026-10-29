@@ -1,10 +1,11 @@
-# 18 Issue #188 Nightly Full E2E 復原執行計畫（D61 契約落差）
+# 18 Nightly Full E2E 復原執行計畫（Issue #188、D61 契約落差）
 
-日期：2026-10-29。受測對象：`main` @ `99b6bcb5`（D61 Phase 3，#187 合併後）。
+日期：2026-10-29。受測對象：`main` @ `99b6bcb5`（D61 Phase 3，#187 合併後；此為本計畫撰寫時的 HEAD，現況見狀態行）。
 依據：[Issue #188](https://github.com/cheerc/student-billing/issues/188)、nightly run `40786271398`（schedule，2026-10-28T23:17Z）、`full-e2e-40786271398-1` 產物，以及本計畫撰寫時的 HEAD 重跑證據。
 狀態：**計畫；Phase 1 已合併（PR #191），Phase 2 進行中（PR #192），Phase 3／4 待派**。本文件只定義修復工作與驗收方式，不定義新的產品契約。
 
-> **檔號說明**：本檔原於 `plan/issue-188-nightly-e2e` 分支編為 `specs/17-nightly-e2e-d61-recovery-plan.md`，與已合併的 `specs/17-class-name-sync-plan.md`（D62，PR #190）撞號。改號為 **18** 以維持檔號唯一。
+> **檔號說明**：本計畫原編號為 `17`，因 `specs/17-class-name-sync-plan.md`（D62 班名同步，PR #190 已合併）先行佔用，改號為 **18** 以維持檔號唯一。
+> **授權來源**：本計畫不是 operator 決策條目，`specs/06-handoff-decisions.md` 沒有對應的 D 編號。Issue #188 是 nightly 自動開單（`app/github-actions`，label `nightly-e2e`），不含修復裁決；修復範圍與 Phase 順序由 Coordinator 於 2026-10-29 依該 Issue 派工決定，其中 P2 走 Excel 匯出入、P4 採 D-1 兩項選項已由 operator 確認。
 
 > 型別說明：本計畫的權威契約來源只有 `specs/09`（D61 UI 契約）、`specs/04` §8（UX106–UX109）與 `web/CLAUDE.md` §8。`specs/15`、`specs/16` 被根目錄 `CLAUDE.md` 引用，但**不存在於 `main`**（僅存在於未合併的 `plan/*` 分支，屬另一項待決落差）。本計畫不複製其內容、不補寫該兩檔；此引用落差見 §8。
 
