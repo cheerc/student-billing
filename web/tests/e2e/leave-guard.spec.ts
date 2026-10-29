@@ -2,11 +2,14 @@ import { test, expect, type Page } from '@playwright/test';
 import { ensureB2Activated, currentRunId } from './helpers/b2-roster';
 import {
   brandLink,
+  classRow,
   discardChanges,
   dirtyBar,
   editStart,
+  ensureClassTypeTab,
   keepEditing,
   leaveDialog,
+  openClassScheduleViaHome,
   openSchedule,
   scheduleHeading,
   sideLink,
@@ -59,7 +62,7 @@ test.describe('UX31 站內離開入口：dirty 時先確認', () => {
       await keepEditing(page).click();
       await expect(leaveDialog(page)).toHaveCount(0);
       expect(pathOf(page)).toBe('/settings');
-      await expect(startInput(page)).toHaveValue('15:45');
+      await expect(await startInput(page)).toHaveValue('15:45');
       await expect(dirtyBar(page)).toBeVisible();
 
       // Esc 等同繼續編輯（不離開、不丟草稿）
@@ -68,7 +71,7 @@ test.describe('UX31 站內離開入口：dirty 時先確認', () => {
       await page.keyboard.press('Escape');
       await expect(leaveDialog(page)).toHaveCount(0);
       expect(pathOf(page)).toBe('/settings');
-      await expect(startInput(page)).toHaveValue('15:45');
+      await expect(await startInput(page)).toHaveValue('15:45');
 
       // 捨棄修改：才真的離開
       await sideLink(page, t.name).click();
@@ -89,7 +92,7 @@ test.describe('UX31 站內離開入口：dirty 時先確認', () => {
 
     await keepEditing(page).click();
     await expect(leaveDialog(page)).toHaveCount(0);
-    await expect(startInput(page)).toHaveValue('15:50');
+    await expect(await startInput(page)).toHaveValue('15:50');
 
     await brandLink(page).click();
     await expect(leaveDialog(page)).toBeVisible();
@@ -114,7 +117,7 @@ test.describe('UX31 站內離開入口：dirty 時先確認', () => {
     await keepEditing(page).click();
     await expect(leaveDialog(page)).toHaveCount(0);
     expect(pathOf(page)).toBe('/settings');
-    await expect(startInput(page)).toHaveValue('15:55');
+    await expect(await startInput(page)).toHaveValue('15:55');
     await expect(dirtyBar(page)).toBeVisible();
 
     // 再按一次 Back 仍然會攔截（不是只攔第一次）
@@ -125,10 +128,8 @@ test.describe('UX31 站內離開入口：dirty 時先確認', () => {
   });
 
   test('確認視窗不累積；確認後只導覽一次；捨棄後沒有殘留的 beforeunload', async ({ page }) => {
-    await page.goto('/');
-    await sideLink(page, /課表設定/).click();
-    await expect(scheduleHeading(page)).toBeVisible({ timeout: 15000 });
-    const original = await startInput(page).inputValue();
+    await openClassScheduleViaHome(page, '兒童美語-Gino');
+    const original = await (await startInput(page)).inputValue();
     await editStart(page, '16:00');
 
     // 反覆觸發離開（連點連結、連按返回）：確認視窗始終只有一層
@@ -161,7 +162,9 @@ test.describe('UX31 站內離開入口：dirty 時先確認', () => {
     await expect(scheduleHeading(page)).toBeVisible({ timeout: 15000 });
     await expect(leaveDialog(page)).toHaveCount(0);
     await expect(dirtyBar(page)).toHaveCount(0);
-    await expect(startInput(page)).toHaveValue(original);
+    // 側欄進入的網址不帶 ?class=，Back 後頁籤回到預設安親（沒有時段欄）；先切回該班所在頁籤。
+    await ensureClassTypeTab(page, '兒童美語-Gino');
+    await expect(await startInput(page)).toHaveValue(original);
 
     // 再返回一步就是最初的首頁
     await page.goBack();
@@ -192,7 +195,8 @@ test.describe('UX31 班級編輯入口：「編輯此班課表」進出課表頁
       await expect(scheduleHeading(page)).toBeVisible({ timeout: 15000 });
       await expect(page.locator('[data-focus-class]')).toContainText(classKey);
     };
-    const classStart = () => page.locator('.schedule-table tbody tr.schedule-row').first().locator('input.input-time').first();
+    // 以「編輯此班課表」帶入的班名定位（D61 起不可用表格第一列：列序依頁籤與篩選變動）
+    const classStart = () => classRow(page, classKey).locator('input.input-time').first();
 
     await enterFromDeductions();
     const original = await classStart().inputValue();
@@ -238,7 +242,7 @@ test.describe('UX31 reload／關閉分頁：瀏覽器原生 beforeunload', () =>
     expect(d.type()).toBe('beforeunload');
     await d.dismiss();
     expect(page.isClosed()).toBe(false);
-    await expect(startInput(page)).toHaveValue('15:45');
+    await expect(await startInput(page)).toHaveValue('15:45');
     await expect(dirtyBar(page)).toBeVisible();
 
     // 重新整理：出現 beforeunload；同意離開後回到乾淨的伺服器狀態

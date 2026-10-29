@@ -1,6 +1,7 @@
 import { test, expect, Page } from '@playwright/test';
 import path from 'path';
 import fs from 'fs';
+import { classRow, startInput } from './helpers/c-batch';
 
 /**
  * R5 UX20 響應式驗收（specs/04 §8 UX20；specs/09 §6）：1440×900、1280×800、1024×768、768 寬。
@@ -176,10 +177,12 @@ test.describe('R5 UX20 響應式驗收', () => {
       await page.goto('/settings');
       await expect(page.locator('h1', { hasText: '課表設定' })).toBeVisible({ timeout: 10000 });
       await page.locator('#class-type-tab-english').click();
-      await page.locator('input.input-time').first().fill('13:30'); // 使操作列出現「有未儲存的變更」
+      await (await startInput(page)).fill('13:30'); // 使操作列出現「有未儲存的變更」
       // 等計算真的回來再量測／截圖：否則截到的是「尚未計算」的瞬間，不是使用者實際看到的課表
       await expect(page.locator('.calculating-indicator')).toHaveCount(0);
-      await expect(page.locator('.schedule-table tbody tr').nth(3).locator('[data-calc="anqin-overlap"]')).not.toHaveText('—', { timeout: 10000 });
+      await expect(
+        classRow(page, '兒童美語-Gino').locator('[data-calc="anqin-overlap"]')
+      ).not.toHaveText('—', { timeout: 10000 });
       await check('settings-schedule');
       // 3. 捲到底後，主要內容沒有互動元素被底部操作列蓋住
       await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));

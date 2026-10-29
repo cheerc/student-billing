@@ -1,5 +1,5 @@
 import { test, expect, type Locator, type Page, type Response } from '@playwright/test';
-import { keepEditing, leaveDialog, scheduleHeading, sideLink, startInput } from './helpers/c-batch';
+import { keepEditing, leaveDialog, openClassScheduleViaHome, sideLink, startInput } from './helpers/c-batch';
 import { holdCalculate } from './helpers/hold-calculate';
 
 /**
@@ -49,15 +49,13 @@ function isCalculateResponseForStartMinutes(response: Response, expected: number
 
 /** 首頁 → 側欄進課表設定（站內導覽，歷史才有上一頁）→ 改一格讓草稿 dirty。 */
 async function openDirtySchedule(page: Page): Promise<void> {
-  await page.goto('/');
-  await expect(page.locator('main')).toBeVisible();
-  await sideLink(page, /課表設定/).click();
-  await expect(scheduleHeading(page)).toBeVisible({ timeout: 15000 });
-  await startInput(page).click();
+  // 一定要走側欄（不能用 goto 深連結）：Back 案例需要 `/` 留在歷史裡。
+  await openClassScheduleViaHome(page, '兒童美語-Gino');
+  await (await startInput(page)).click();
   // 先等這次編輯產生的 calculate 回應。只檢查「確認變更」enabled 會在
   // 250ms debounce 尚未送出前就通過，讓計算在測試設定焦點後才開始並清掉焦點。
   const calculation = page.waitForResponse((response) => isCalculateResponseForStartMinutes(response, 945));
-  await startInput(page).fill('15:45');
+  await (await startInput(page)).fill('15:45');
   await expect(page.locator('.save-status-dirty')).toBeVisible();
   const calculationResponse = await calculation;
   expect(calculationResponse.ok(), '本次編輯的 calculate 請求應成功完成').toBe(true);
@@ -67,7 +65,7 @@ async function openDirtySchedule(page: Page): Promise<void> {
 
 type Focus = { name: string; focus: (page: Page) => Promise<void>; expected: string };
 const focusStarts: Focus[] = [
-  { name: '課表格子', focus: async (p) => startInput(p).focus(), expected: 'INPUT:' },
+  { name: '課表格子', focus: async (p) => (await startInput(p)).focus(), expected: 'INPUT:' },
   { name: '確認變更', focus: async (p) => opener(p).focus(), expected: 'BUTTON:確認變更' },
   { name: '取消修改', focus: async (p) => cancelEdit(p).focus(), expected: 'BUTTON:取消修改' },
 ];
@@ -109,12 +107,9 @@ test.describe('離頁確認視窗：關閉後焦點回到開啟前的位置', ()
     // 扣住 calculate 請求：回應約 60–80ms 就回來，「確認變更」disabled 只存在很短的窗口，
     // 用輪詢去接會被機器負載影響（N7）。扣住後「計算在途」是穩定、可觀察的狀態。
     const calc = await holdCalculate(page);
-    await page.goto('/');
-    await expect(page.locator('main')).toBeVisible();
-    await sideLink(page, /課表設定/).click();
-    await expect(scheduleHeading(page)).toBeVisible({ timeout: 15000 });
-    await startInput(page).click();
-    await startInput(page).fill('15:45');
+    await openClassScheduleViaHome(page, '兒童美語-Gino');
+    await (await startInput(page)).click();
+    await (await startInput(page)).fill('15:45');
     await expect(page.locator('.save-status-dirty')).toBeVisible();
     await opener(page).focus();
     await expect.poll(() => describeActive(page)).toContain('BUTTON:確認變更');

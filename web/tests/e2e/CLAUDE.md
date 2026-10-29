@@ -27,6 +27,52 @@ npm run test:e2e:isolated -- tests/e2e/issue-158-discount-explanation.spec.ts
 
 Targeted checks are fine while iterating; report them as targeted, not "full E2E PASS".
 
+## Schedule grid: always enter through the tab-aware helpers (D61 / Issue #188)
+
+D61 turned the schedule settings into **one table per class-type tab** (安親課輔班／美語班／數學班／其他班／不排課).
+The default tab is **安親課輔班, which has no time-slot columns** — `input.input-time` and
+`input.input-weekday` simply do not exist there. Any spec that touches a slot must therefore
+navigate with a helper, never by pointing at the first match on the page:
+
+```ts
+import { classRow, openClassSchedule, openClassScheduleViaHome, startInput } from './helpers/c-batch';
+
+const row = await openClassSchedule(page, '兒童美語-Gino'); // ?class= deep link + correct tab, returns first row
+const row2 = await openClassScheduleViaHome(page, '兒童美語-Gino'); // keeps `/` in history (Back / leave guard)
+const start = startInput(page); // default = 兒童美語-Gino first row (the old `tbody tr nth(3)` meaning)
+row.locator('input.input-weekday').fill('八');
+```
+
+Rules:
+
+- **Never** locate schedule rows with `">.schedule-table tbody tr').nth(n`" or with `input.input-time`/`input.input-weekday` `.first()`.
+  Row order depends on the active tab and the search/weekday filters; `.first()` on the default tab matches nothing at all.
+- Locate a class by its stable name: `classRow(page, name)` (first row) or `classRows(page, name)` (all slots).
+  If the class is not on the current tab, `ensureClassTypeTab(page, name)` clicks `#class-type-tab-*` and waits.
+- Use `openClassScheduleViaHome` whenever the test depends on browser history; `page.goto` replaces the
+  current entry, so a deep link would remove the page that `goBack()` is supposed to return to.
+- `startInput(page, className?)` checks the class row is visible **before** returning the locator, so a
+  spec parked on the wrong tab fails at the helper instead of quietly pointing at nothing.
+- **What the static gate does** — `tests/unit/e2e-conventions.test.ts` is a source-string scan only, and it
+  does exactly three things: (a) banned literals (`data-category-select`, `schedule-table-non-care`, and
+  row-order lookups `.schedule-table tbody tr'|").nth(`) must not appear, (b) a spec that touches
+  `input.input-time` / `input.input-weekday` must import a row helper and must not grab the first match with a
+  page-level locator (`page.locator('input.input-time').first()`), and (c) `startInput` keeps its
+  async/`classRow`/`toBeVisible` shape.
+- **What it does not prove**: it never runs a browser. It cannot show a helper works, and it cannot catch a
+  helper regression — mutating `startInput` back to "first slot on the page" left all 12 migrated specs green
+  (PR #191 §TDD.5, M2). (c) only guards the shape of that contract, not its behaviour; E2E is what exercises
+  the behaviour. Do not describe the gate as proving more than this.
+- Update the gate (and `e2e-conventions-exemptions.ts`) together with any new convention. Exception entries
+  are only kept while they are still needed: each one must still match its literals, or still both lack a row
+  helper *and* touch a managed input, otherwise the test demands its removal.
+
+## Isolated runner: use your own port when another session is running E2E
+
+`npm run test:e2e:isolated` defaults to port 3100 and **fails immediately** when the port is taken
+(`http://127.0.0.1:3100 is already used`). That is often another worktree's session, not a test failure.
+Pick a free port instead of killing the other run: `npm run test:e2e:isolated -- --port 3122 tests/e2e/<file>.spec.ts`.
+
 ## Isolation, security, evidence
 
 - Every spec uses `web/scripts/e2e-isolated.ts`: fresh server at `127.0.0.1:3100` + temporary SQLite under `os.tmpdir()` (not port 3000, not `data/app.sqlite`). No `--shared` for full gate.

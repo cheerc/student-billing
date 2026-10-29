@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { scheduleHeading, sideLink, startInput } from './helpers/c-batch';
+import { openClassSchedule, openClassScheduleViaHome, scheduleHeading, sideLink, startInput } from './helpers/c-batch';
 import { holdCalculate } from './helpers/hold-calculate';
 
 /**
@@ -71,9 +71,8 @@ const delta = (now: Counts, base: Counts): Counts => ({
 async function openAndEsc(page: import('@playwright/test').Page) {
   const opener = page.locator('button', { hasText: '確認變更' });
   const dialog = page.locator('dialog.impact-dialog');
-  await page.goto('/settings');
-  await expect(page.locator('h1', { hasText: '課表設定' })).toBeVisible({ timeout: 10000 });
-  await page.locator('input.input-time').first().fill('13:30');
+  await openClassSchedule(page, '兒童美語-Gino');
+  await (await startInput(page)).fill('13:30');
   await opener.click();
   await expect(dialog).toBeVisible({ timeout: 15000 });
   await expect(dialog.locator('button', { hasText: /^儲存/ })).toBeEnabled({ timeout: 15000 });
@@ -215,14 +214,12 @@ test.describe('D2d r3／F4 cleanup：所有終止路徑都不得殘留 listener'
   test('opener 在同一 document 內被移除（儲存成功後瀏覽器 Back）→ 不待 watchdog 即移除 listener', async ({ page }) => {
     await installListenerTracker(page);
     // 先有上一頁：首頁 → 側欄進課表設定（站內導覽；Back 才是同一 document 內的 client-side 導覽）
-    await page.goto('/');
-    await expect(page.locator('main')).toBeVisible();
-    await sideLink(page, /課表設定/).click();
-    await expect(scheduleHeading(page)).toBeVisible({ timeout: 15000 });
+    // 並切到該班所在頁籤（D61：預設安親頁籤沒有時段欄）。
+    await openClassScheduleViaHome(page, '兒童美語-Gino');
 
     const opener = page.locator('button', { hasText: '確認變更' });
     const dialog = page.locator('dialog.impact-dialog');
-    await startInput(page).fill('14:25');
+    await (await startInput(page)).fill('14:25');
     await opener.click();
     await expect(dialog).toBeVisible({ timeout: 15000 });
     const save = dialog.locator('button', { hasText: /^儲存/ });

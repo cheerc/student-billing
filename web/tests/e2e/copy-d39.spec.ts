@@ -2,6 +2,7 @@ import { test, expect, type Locator, type Page } from '@playwright/test';
 import {
   activateFixture,
   brokenXlsx,
+  classRow,
   duplicateCodeXlsx,
   missingHeadersXlsx,
   openSchedule,
@@ -162,7 +163,7 @@ test.describe('UX32 A 批遺留：預覽失敗在確認視窗裡白話呈現（�
   test('空白星期按「確認變更」：預覽回 400 → 白話說明；代碼與原始訊息在詳細資訊；不顯示 0 人／未改變，主按鈕不可按', async ({ page }) => {
     await activateFixture(page);
     await openSchedule(page);
-    const row = page.locator('.schedule-table tbody tr').nth(3);
+    const row = classRow(page, '兒童美語-Gino');
     await row.locator('input.input-weekday').fill('');
     await page.waitForTimeout(500);
 
@@ -191,7 +192,7 @@ test.describe('UX32 A 批遺留：預覽失敗在確認視窗裡白話呈現（�
     await page.route('**/api/v1/settings/preview', (route) =>
       route.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ error: 'SQLITE_BUSY: database is locked', code: 'SETTINGS_PREVIEW_FAILED' }) })
     );
-    await page.locator('.schedule-table tbody tr').nth(3).locator('input.input-time').first().fill('15:45');
+    await classRow(page, '兒童美語-Gino').locator('input.input-time').first().fill('15:45');
     await page.waitForTimeout(500);
     await page.locator('button', { hasText: '確認變更' }).click();
     await expect(dialogOf(page)).toBeVisible({ timeout: 15000 });
@@ -201,7 +202,7 @@ test.describe('UX32 A 批遺留：預覽失敗在確認視窗裡白話呈現（�
   test('套用時預覽已逾期：白話說明並可重新確認，PREVIEW_EXPIRED 只在詳細資訊', async ({ page }) => {
     await activateFixture(page);
     await openSchedule(page);
-    await page.locator('.schedule-table tbody tr').nth(3).locator('input.input-time').first().fill('15:45');
+    await classRow(page, '兒童美語-Gino').locator('input.input-time').first().fill('15:45');
     await page.waitForTimeout(500);
     await page.locator('button', { hasText: '確認變更' }).click();
     await expect(dialogOf(page)).toBeVisible({ timeout: 15000 });
@@ -223,11 +224,15 @@ test.describe('UX32 兩個視窗互相覆蓋（會寫入課表，放最後）', 
     const b = await context.newPage();
     const base = process.env.E2E_PORT ? `http://127.0.0.1:${process.env.E2E_PORT}` : 'http://127.0.0.1:3100';
     try {
+      // 兩個視窗都必須先切到該班所在頁籤（D61：預設安親頁籤沒有時段欄）。
+      // 用 goto 深連結而不是原本的 /settings：本案例只在乎同一個 run 的 revision，
+      // 不需要兩個視窗各自保留歷史。
       for (const p of [a, b]) {
-        await p.goto(`${base}/settings`);
+        await p.goto(`${base}/settings?class=${encodeURIComponent('兒童美語-Gino')}`);
         await expect(p.locator('h1', { hasText: '課表設定' })).toBeVisible({ timeout: 15000 });
+        await expect(classRow(p, '兒童美語-Gino')).toBeVisible({ timeout: 15000 });
       }
-      const start = (p: Page) => p.locator('.schedule-table tbody tr').nth(3).locator('input.input-time').first();
+      const start = (p: Page) => classRow(p, '兒童美語-Gino').locator('input.input-time').first();
 
       // 視窗 B 先儲存
       await start(b).fill('15:45');
