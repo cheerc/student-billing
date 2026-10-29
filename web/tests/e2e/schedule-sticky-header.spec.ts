@@ -1,4 +1,13 @@
 import { test, expect } from '@playwright/test';
+import { openClassScheduleFull } from './helpers/c-batch';
+
+/**
+ * R5-F01：課表兩層固定表頭（issue #96）。
+ *
+ * 本案例的前提是排課頁籤；安親頁籤無時段欄與垂直捲動（D61 一頁籤一張表）。
+ * 群組表頭 `.col-group-anqin`／`.col-group-tutoring` 只存在於排課表
+ * （`schedule-grid.tsx:902,905`），安親表本來就沒有，因此**不能**改成對安親表做等價斷言。
+ */
 
 const VIEWPORTS = [
   { label: '768×600', width: 768, height: 600 },
@@ -9,7 +18,9 @@ test.describe('R5-F01：課表兩層固定表頭', () => {
   for (const viewport of VIEWPORTS) {
     test(`${viewport.label} 雙向捲動後兩層表頭與左上角仍可見`, async ({ page }) => {
       await page.setViewportSize({ width: viewport.width, height: viewport.height });
-      await page.goto('/settings');
+      // 同 header-seam：`?class=` 是聚焦模式（3 列、maxTop=0），這裡需要整張排課表
+      // （52 列、maxTop=2131）才有垂直捲動與兩層群組表頭可量。
+      await openClassScheduleFull(page, '兒童美語-Gino');
       await expect(page.locator('h1', { hasText: '課表設定' })).toBeVisible({ timeout: 15000 });
 
       const container = page.locator('.schedule-table-scroll');
