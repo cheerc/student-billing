@@ -50,6 +50,7 @@
    - `specs/15-class-semantics-simplification-plan.md`（系統全面減法、單一現況留存模型與 Agent 查帳 API 收斂計畫：拆除語意面板、退役點名表 6 欄天數、單一現行規則 erp-tag-v4、移除 /history、Migration 0012/0013、收斂為 3 頁 UI + 11 條 API；授權來源為 2026-10-27 operator D60 裁決）
    - `specs/16-five-class-types-yes-no-refactor-plan.md`（五種課程類型重構、「是／否」單選統一與未填時間醒目警示計畫：五頁籤、2×2 計費解耦、其他班所見即所得扣天、1c 雙重視覺警示與 Excel 9 欄五類型契約；授權來源為 2026-10-28 operator D61 裁決）
    - `specs/17-class-name-sync-plan.md`（班名同步重構：嚴格同名比對、逐列同步／新增、不建立新別名；授權來源為 2026-10-29 operator D62 裁決）
+   - `specs/18-nightly-e2e-d61-recovery-plan.md`（Issue #188 D61 契約落差之夜間全量 E2E 復原計畫：族 A 導覽 helper、族 B 淘汰選取器、族 C 幾何前提、族 D 空白星期契約；授權來源為 2026-10-29 operator 對 Issue #188 的修復裁決）
 4. **歷史 Review 與交接記錄**：`specs/reviews/*`（僅供脈絡參考，若有數字或推論與 04 §3 或 D24 衝突，以最新正式規格為準）。
 
 第 2 層各文件各管其域：02 管計費規則、03 管資料模型與交易不變式、04 管驗收、09 管 UI 流程。09 對 01／03 的 UI 流程與設定生命週期放寬，僅限 D33/D60 授權且 09 §8 明列的範圍；02 計費規則與 03 §4 的不可變快照／交易不變式不因 09 改變。
