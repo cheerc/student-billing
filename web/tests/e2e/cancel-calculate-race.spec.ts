@@ -318,31 +318,29 @@ test('取消不放寬儲存gate：送出中仍disabled且只有一次apply', asy
   } finally { release(); }
 });
 
-test('calculate在途取消也還原aliases；不修改伺服器課表', async ({ page }) => {
+test('calculate在途取消也還原班名同步暫存；不修改伺服器課表', async ({ page }) => {
   await activateFixture(page);
   await openSchedule(page);
   await expect(overlap(page)).toBeVisible();
-  await page.getByRole('tab', { name: /班名對應/ }).click();
-  const mapping = page.locator('tr', { hasText: '國小數學-一' });
-  const target = mapping.locator('input.input-target-classname');
-  const enabled = mapping.locator('input[type="checkbox"]');
-  const original = await target.inputValue();
-  const checked = await enabled.isChecked();
+  // D62：班名同步以「整班改名暫存」計入 dirty；取消修改需把草稿還原，重新載入後伺服器課表不變
+  await page.getByRole('tab', { name: /班名同步/ }).click();
+  const row = page.locator('tr[data-mismatch-row="國小數學-一"]');
   const held = await holdCalculate(page);
   try {
-    await target.fill('國小數學-一A');
-    await enabled.setChecked(!checked);
+    await row.locator('button', { hasText: '同步到既有班級' }).click();
+    await page.locator('select[aria-label="選擇同步目標課表班級"]').selectOption({ value: '國小數學-一A' });
+    await page.locator('button', { hasText: '暫存同步' }).click();
     await expect.poll(() => held.count() > 0).toBe(true);
-    await expect(reviewButton(page)).toBeDisabled();
     await expect(cancelButton(page)).toBeEnabled();
     await cancelButton(page).click();
-    await expect(target).toHaveValue('國小數學-一A');
-    await expect(enabled).toBeChecked({ checked });
     await expect(dirtyBar(page)).toHaveCount(0);
+    // 取消後回到原狀：該列再次提供「同步到既有班級」，不再是已暫存
+    await expect(page.locator('tr[data-mismatch-row="國小數學-一"]')).toContainText('未對應課表');
+    await expect(page.locator('tr[data-mismatch-row="國小數學-一"]')).not.toContainText('已暫存');
     held.release();
     await page.reload();
-    await page.getByRole('tab', { name: /班名對應/ }).click();
-    await expect(enabled).toBeChecked({ checked });
+    await page.getByRole('tab', { name: /班名同步/ }).click();
+    await expect(page.locator('tr[data-mismatch-row="國小數學-一"]')).toContainText('未對應課表');
     await expect(dirtyBar(page)).toHaveCount(0);
   } finally { held.release(); }
 });

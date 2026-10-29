@@ -39,9 +39,12 @@ export interface ScheduleGridProps {
     classType?: ClassType | 'non_care',
     options?: { initialCategory?: 'unset'; hasMultiSubjectDiscount?: boolean; fixedFiveDays?: boolean }
   ) => void;
-  rosterOnlyClasses?: Array<{ baseName: string; students: number; tokens: number }>;
-  rosterOnlyLocked?: boolean;
-  rosterOnlyStaleMessage?: string | null;
+  syncSummary?: {
+    mismatchCount: number;
+    unmappedCount: number;
+    unmappedStudents: number;
+  } | null;
+  onGoToSync?: () => void;
   calculating: boolean;
   calculateResult: CalculatePreviewResponse | null;
   calculateInputRows?: ScheduleGridRow[] | null;
@@ -92,9 +95,8 @@ export function ScheduleGrid({
   onUpdateRow,
   onDeleteRow,
   onAddRow,
-  rosterOnlyClasses = [],
-  rosterOnlyLocked = false,
-  rosterOnlyStaleMessage = null,
+  syncSummary = null,
+  onGoToSync,
   calculating,
   calculateResult,
   calculateInputRows,
@@ -117,7 +119,6 @@ export function ScheduleGrid({
   const [search, setSearch] = useState('');
   const [weekdayFilter, setWeekdayFilter] = useState('');
   const [showAddForm, setShowAddForm] = useState(false);
-  const [pendingRosterOnlyClass, setPendingRosterOnlyClass] = useState<string | null>(null);
   const importInputRef = useRef<HTMLInputElement | null>(null);
 
   const getClassType = useCallback(
@@ -297,12 +298,6 @@ export function ScheduleGrid({
   const currentTabClassCount = tabStats[activeTypeTab].classCount;
   const currentTabRowCount = displayedTabRows.length;
 
-  const pendingRosterOnlyClassUnavailable =
-    pendingRosterOnlyClass !== null &&
-    (rosterOnlyLocked ||
-      !rosterOnlyClasses.some((item) => item.baseName === pendingRosterOnlyClass) ||
-      rows.some((row) => row.className.trim() === pendingRosterOnlyClass));
-
   const clearFocus = () => {
     setFocus(null);
     try {
@@ -316,7 +311,6 @@ export function ScheduleGrid({
 
   const handleCreateSession = (e: React.FormEvent) => {
     e.preventDefault();
-    if (pendingRosterOnlyClassUnavailable) return;
 
     const name = newClassName.trim();
     if (!name) return;
@@ -339,7 +333,6 @@ export function ScheduleGrid({
       {
         hasMultiSubjectDiscount: newHasMulti,
         fixedFiveDays: newFixedFive,
-        ...(pendingRosterOnlyClass === null ? {} : { initialCategory: 'unset' as const }),
       }
     );
 
@@ -350,21 +343,6 @@ export function ScheduleGrid({
     setNewStartTime('');
     setNewEndTime('');
     setShowAddForm(false);
-    setPendingRosterOnlyClass(null);
-  };
-
-  const handleAddRosterOnlyClass = (baseName: string) => {
-    const alreadyRepresented = rows.some((row) => row.className.trim() === baseName);
-    if (rosterOnlyLocked || alreadyRepresented || showAddForm) return;
-
-    setPendingRosterOnlyClass(baseName);
-    setNewClassName(baseName);
-    setNewTeacher('');
-    setNewWeekday('');
-    setNewStartTime('');
-    setNewEndTime('');
-    handleNewClassTypeChange(activeTypeTab);
-    setShowAddForm(true);
   };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -379,6 +357,39 @@ export function ScheduleGrid({
 
   return (
     <div className="card schedule-grid-container">
+      {/* D62 Phase 2: 單行不一致橫幅 */}
+      {syncSummary && syncSummary.mismatchCount > 0 && (
+        <div
+          className="alert alert-info sync-banner"
+          role="status"
+          data-schedule-sync-banner=""
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            padding: '10px 16px',
+            marginBottom: '16px',
+            background: 'var(--primary-bg, #eff6ff)',
+            border: '1px solid var(--primary-border, #bfdbfe)',
+            borderRadius: '6px',
+          }}
+        >
+          <span>
+            名冊有 {syncSummary.mismatchCount} 個班名與課表不一致（其中 {syncSummary.unmappedCount} 個尚未對應，影響 {syncSummary.unmappedStudents} 位學生）
+          </span>
+          {onGoToSync && (
+            <button
+              type="button"
+              className="link-button"
+              style={{ fontWeight: 600, color: 'var(--primary, #2563eb)', cursor: 'pointer', border: 'none', background: 'none' }}
+              onClick={onGoToSync}
+            >
+              前往班名同步 →
+            </button>
+          )}
+        </div>
+      )}
+
       {/* D61：5 個課程類型頁籤 */}
       <div className="schedule-type-tabs" style={{ marginBottom: '16px', overflowX: 'auto', whiteSpace: 'nowrap' }}>
         <TabList
@@ -473,7 +484,6 @@ export function ScheduleGrid({
           onClick={() => {
             setShowAddForm((prev) => {
               if (!prev) handleNewClassTypeChange(activeTypeTab);
-              else setPendingRosterOnlyClass(null);
               return !prev;
             });
           }}
@@ -481,65 +491,6 @@ export function ScheduleGrid({
           {showAddForm ? '取消新增' : '＋ 新增班級'}
         </button>
       </div>
-
-      {rosterOnlyClasses.length > 0 && (
-        <details
-          className="roster-only-schedule-section"
-          role="region"
-          aria-label="名單中尚未加入課表設定的班級"
-          data-roster-only-section=""
-        >
-          <summary style={{ cursor: 'pointer', padding: '10px 14px', fontWeight: 600 }}>
-            名單中有 {rosterOnlyClasses.length} 個班級尚未加入課表設定
-          </summary>
-          <div style={{ marginTop: '8px' }}>
-            <p className="note">
-              這些班級來自目前檢視的名單，尚未出現在課表設定中。加入後請自行選擇課程類型與適用設定。
-            </p>
-            {rosterOnlyStaleMessage && (
-              <p className="notice-warn" role="status" data-roster-only-stale="">
-                {rosterOnlyStaleMessage}最新報告完成前，不能依這份舊清單加入班級。請到「班名對應」頁重新載入。
-              </p>
-            )}
-            <div className="scroll table-scroll-container">
-              <table className="data-table roster-only-schedule-table">
-                <thead>
-                  <tr>
-                    <th>班級名稱</th>
-                    <th>學生</th>
-                    <th>報名筆數</th>
-                    <th>狀態</th>
-                    <th>操作</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {rosterOnlyClasses.map((item) => {
-                    const alreadyRepresented = rows.some((row) => row.className.trim() === item.baseName);
-                    return (
-                      <tr key={item.baseName} data-roster-only-class={item.baseName}>
-                        <td>{item.baseName}</td>
-                        <td>{item.students} 位</td>
-                        <td>{item.tokens}</td>
-                        <td>尚未加入課表設定</td>
-                        <td>
-                          <button
-                            type="button"
-                            className="btn-secondary"
-                            disabled={rosterOnlyLocked || alreadyRepresented || showAddForm}
-                            onClick={() => handleAddRosterOnlyClass(item.baseName)}
-                          >
-                            加入課表設定
-                          </button>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </details>
-      )}
 
       {importError && (
         <div className="alert alert-danger" role="alert" data-schedule-import-error="">
@@ -699,7 +650,6 @@ export function ScheduleGrid({
             <button
               type="submit"
               className="btn-primary"
-              disabled={pendingRosterOnlyClassUnavailable}
               style={{ alignSelf: 'flex-end' }}
             >
               確認新增

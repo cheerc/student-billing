@@ -52,10 +52,10 @@ test.describe('班名同步（D62 Phase 2）', () => {
     await mathRow.locator('button', { hasText: '同步到既有班級' }).click();
 
     // 展開後選取目標
-    const select = mathRow.locator('select[aria-label="選擇同步目標課表班級"]');
+    const select = page.locator('select[aria-label="選擇同步目標課表班級"]');
     await expect(select).toBeVisible();
-    await select.selectOption({ label: /國小數學-一A/ });
-    await mathRow.locator('button', { hasText: '暫存同步' }).click();
+    await select.selectOption({ value: '國小數學-一A' });
+    await page.locator('button', { hasText: '暫存同步' }).click();
 
     await expect(mathRow).toContainText('已暫存：國小數學-一A → 國小數學-一（未儲存）');
 
@@ -65,8 +65,8 @@ test.describe('班名同步（D62 Phase 2）', () => {
     await busRow.locator('button', { hasText: '新增為課表班級' }).click();
 
     // 選擇不排課
-    await busRow.locator('label', { hasText: '不排課' }).click();
-    await busRow.locator('button', { hasText: '暫存新增' }).click();
+    await page.locator('input[type="radio"][value="unscheduled"]').check();
+    await page.locator('button', { hasText: '暫存新增' }).click();
 
     await expect(busRow).toContainText('已暫存新增課表班級（未儲存）');
 

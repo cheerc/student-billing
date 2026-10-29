@@ -79,6 +79,7 @@ describe('D62 Phase 2: ClassNameSyncPanel 班名同步面板 UI 元件（RED 測
         <ClassNameSyncPanel
           report={mockReport}
           hasStudents={true}
+          defaultExpandedRow={{ erpBaseName: '乙班', mode: 'sync' }}
         />
       );
 
@@ -100,6 +101,7 @@ describe('D62 Phase 2: ClassNameSyncPanel 班名同步面板 UI 元件（RED 測
         <ClassNameSyncPanel
           report={mockReport}
           hasStudents={true}
+          defaultExpandedRow={{ erpBaseName: '丙班', mode: 'new' }}
         />
       );
 

@@ -146,9 +146,9 @@ test.describe('R5 可及性稽核（09 §6）', () => {
     await page.goto('/settings');
     await expect(page.locator('h1', { hasText: '課表設定' })).toBeVisible({ timeout: 10000 });
     await audit(page, '課表設定｜課表頁籤', findings, seen);
-    await page.locator('button', { hasText: '班名對應' }).click();
+    await page.locator('button', { hasText: '班名同步' }).click();
     await page.waitForTimeout(300);
-    await audit(page, '課表設定｜班名對應頁籤', findings, seen);
+    await audit(page, '課表設定｜班名同步頁籤', findings, seen);
 
     await page.goto('/imports');
     await audit(page, '匯入學生｜選擇檔案', findings, seen);
@@ -182,12 +182,12 @@ test.describe('R5 可及性稽核（09 §6）', () => {
     await page.locator('.deductions-table tbody tr').first().locator('button').first().click();
     await audit(page, '核對結果｜班級扣天（展開）', findings, seen);
 
-    // 有待處理班名的班名對應頁（有候選列、核取方塊與輸入框）——空 DB 的班名對應頁沒有這些控制項，審不到
+    // 有待處理班名的班名同步頁（差異表有列、下拉與按鈕）——空 DB 的班名同步頁沒有這些控制項，審不到
     await page.goto('/settings');
     await expect(page.locator('h1', { hasText: '課表設定' })).toBeVisible({ timeout: 10000 });
-    await page.locator('button[role="tab"]', { hasText: '班名對應' }).click();
-    await expect(page.locator('.mapping-table tbody tr').first()).toBeVisible({ timeout: 10000 });
-    await audit(page, '課表設定｜班名對應頁籤（有待處理班名）', findings, seen);
+    await page.locator('button[role="tab"]', { hasText: '班名同步' }).click();
+    await expect(page.locator('.sync-mismatch-table tbody tr').first()).toBeVisible({ timeout: 10000 });
+    await audit(page, '課表設定｜班名同步頁籤（有待處理班名）', findings, seen);
 
 
 
@@ -330,15 +330,15 @@ test.describe('R5 可及性稽核（09 §6）', () => {
     const tablist = page.getByRole('tablist', { name: '課表設定頁籤' });
     await expect(tablist).toHaveAttribute('aria-label', /.+/);
     const schedule = tablist.locator('[role="tab"]', { hasText: /^課表/ });
-    const mapping = tablist.locator('[role="tab"]', { hasText: '班名對應' });
+    const sync = tablist.locator('[role="tab"]', { hasText: '班名同步' });
     await expect(schedule).toHaveAttribute('aria-selected', 'true');
     await expect(page.locator(`#${await schedule.getAttribute('aria-controls')}`)).toHaveAttribute('role', 'tabpanel');
 
     await schedule.focus();
     await page.keyboard.press('ArrowRight');
-    await expect(mapping).toBeFocused();
-    await expect(mapping).toHaveAttribute('aria-selected', 'true');
-    const panel = page.locator(`#${await mapping.getAttribute('aria-controls')}`);
+    await expect(sync).toBeFocused();
+    await expect(sync).toHaveAttribute('aria-selected', 'true');
+    const panel = page.locator(`#${await sync.getAttribute('aria-controls')}`);
     await expect(panel).toHaveAttribute('role', 'tabpanel');
     await expect(panel).toBeVisible();
   });
@@ -438,33 +438,33 @@ test.describe('R5 可及性稽核（09 §6）', () => {
     await page.locator('button', { hasText: '使用這份名單' }).click();
     await expect(page.locator('.success-stage-card')).toBeVisible({ timeout: 15000 });
 
-    // 課表設定：頁籤上的待確認班名數、班名對應列的「待確認」＝琥珀
+    // 課表設定：頁籤上的不一致班名數、班名同步差異表的「未對應課表」＝琥珀（D62）
     await page.goto('/settings');
     await expect(page.locator('h1', { hasText: '課表設定' })).toBeVisible({ timeout: 10000 });
     const countPill = page.locator('button[role="tab"] .pill.warn');
     await expect(countPill).toBeVisible();
-    expect(isAmber(await rgb(countPill)), '班名對應頁籤的待確認數應為琥珀色').toBe(true);
-    await page.locator('button[role="tab"]', { hasText: '班名對應' }).click();
-    const pending = page.locator('.mapping-table .pill.warn', { hasText: '待確認' });
+    expect(isAmber(await rgb(countPill)), '班名同步頁籤的不一致數應為琥珀色').toBe(true);
+    await page.locator('button[role="tab"]', { hasText: '班名同步' }).click();
+    const pending = page.locator('.sync-mismatch-table .pill.warn', { hasText: '未對應課表' });
     await expect(pending.first()).toBeVisible();
-    expect(isAmber(await rgb(pending)), '「待確認」應為琥珀色，不是綠色（綠＝成功）').toBe(true);
-    // D1：收合的「本次名單未出現的班級」details 已被「班名比對報告」的「系統有／本次名冊無」清單取代
-    //（09 §3.3；該清單預設展開）。這裡驗證同一件事在報告清單裡仍是中性灰（資訊，不是待確認）：
-    // 以該清單的表頭列（非彩色狀態徽章）為準——它的背景不得是琥珀或綠色。
-    const systemOnlyHead = page
-      .getByRole('region', { name: '系統有／本次名冊無' })
-      .getByRole('columnheader', { name: '系統班名' });
+    expect(isAmber(await rgb(pending)), '「未對應課表」應為琥珀色，不是綠色（綠＝成功）').toBe(true);
+    // D62：舊「班名比對報告（系統有／本次名冊無）」清單已由底部收合區「課表有、本次名冊沒有的班級」取代。
+    // 這裡驗證同一件事在收合區表格表頭仍是中性灰（資訊，不是待確認）：
+    // 以該表格的表頭列（非彩色狀態徽章）為準——它的背景不得是琥珀或綠色。
+    const systemOnlyDetails = page.locator('details', { hasText: '課表有、本次名冊沒有的班級' });
+    await systemOnlyDetails.locator('summary').click(); // 收合區需展開才看得到表格
+    const systemOnlyHead = systemOnlyDetails.getByRole('columnheader', { name: '課表班名' });
     await expect(systemOnlyHead).toBeVisible();
     const unseen = await rgb(systemOnlyHead);
-    expect(isNeutral(unseen), '「系統有／本次名冊無」只是資訊，應為中性灰').toBe(true);
+    expect(isNeutral(unseen), '「課表有、本次名冊沒有的班級」只是資訊，應為中性灰').toBe(true);
     expect(isAmber(unseen), '不應為琥珀色（琥珀＝待確認）').toBe(false);
     expect(isGreen(unseen), '不應為綠色（綠＝成功）').toBe(false);
 
     // N2 補強：除了表頭，實際資料列（row / cell）同樣應為資訊呈現之中性色，不應為琥珀色或綠色
-    const systemOnlyRow = page
-      .getByRole('region', { name: '系統有／本次名冊無' })
+    const systemOnlyRow = systemOnlyDetails
+      .locator('tbody')
       .getByRole('row')
-      .nth(1);
+      .first();
     await expect(systemOnlyRow).toBeVisible();
     const cellColor = await rgb(systemOnlyRow.getByRole('cell').first());
     expect(isAmber(cellColor), '清單資料列不應為琥珀色').toBe(false);

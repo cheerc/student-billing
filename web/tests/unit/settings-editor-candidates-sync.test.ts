@@ -1,44 +1,66 @@
+import React from 'react';
 import { describe, it, expect } from 'vitest';
-import { buildDynamicCandidates, type CandidateCounts } from '@/domain/schedules/seed-manifest';
+import { renderToStaticMarkup } from 'react-dom/server';
+import { ClassNameSyncPanel } from '@/components/settings/class-name-sync-panel';
+import type { ClassNameSyncReport } from '@/application/class-name-match-report';
 
 /**
- * **characterization（非本功能的 RED）**：本檔只 import 並呼叫既有的 `buildDynamicCandidates`，
- * 純函式在 base `020e6c5` 上本來就是綠的，無法區分本 PR 與 base 的行為差異。
- * 它鎖住的是「rosterOnly → 候選清單」的形狀／計數／排序契約（單一權威來源不迴退），
- * 本功能真正的行為覆蓋與 RED 證據在 `web/tests/e2e/round3-mapping-candidates-sync.spec.ts`。
+ * #189 D62：設定頁不再從 `rosterOnly` 建立可編輯候選；班名同步直接呈現 read model 的 `mismatches`。
+ * 「名冊有、課表無完全同名」為嚴格比對狀態，舊別名只顯示現況，不代表班名已一致。
  */
-describe('N09: SettingsEditor 候選清單與班名比對報告同步（UX70／issue #55）', () => {
-  it('1. 從報告之 rosterOnly 組裝之動態候選集合與 counts 一致，且嚴格按 rawBaseName 字典序升冪排序', () => {
-    const reportRosterOnly = [
-      { baseName: '美語等班', students: 5, tokens: 7 },
-      { baseName: '交通車', students: 93, tokens: 93 },
-      { baseName: '國小國語文-小三四', students: 12, tokens: 12 },
-    ];
+describe('N09: 班名同步差異表使用嚴格同名報告（UX70／D62）', () => {
+  const report: ClassNameSyncReport = {
+    importId: 'imp_sync',
+    scope: { kind: 'latest' },
+    snapshotStatus: 'ok',
+    rosterClassCount: 4,
+    exactMatchCount: 1,
+    unmappedStudents: 7,
+    mismatches: [
+      { erpBaseName: '交通車', students: 5, tokens: 7, legacyAliasTarget: '兒童美語-Ali' },
+      { erpBaseName: '國小數學-一', students: 2, tokens: 2, legacyAliasTarget: null },
+    ],
+    systemOnly: [
+      {
+        baseName: '兒童美語-Ali',
+        active: true,
+        classType: 'english',
+        sessionCount: 2,
+        legacyAliasFrom: ['交通車'],
+      },
+    ],
+  };
 
-    const unmatched = reportRosterOnly.map((r) => r.baseName);
-    const counts: CandidateCounts = new Map(
-      reportRosterOnly.map((r) => [r.baseName, { studentCount: r.students, tokenCount: r.tokens }])
+  it('頁籤內容列出每筆 mismatches；舊別名僅標示現況，不被當作完全同名', () => {
+    const html = renderToStaticMarkup(
+      React.createElement(ClassNameSyncPanel, { report, hasStudents: true })
     );
-    const candidates = buildDynamicCandidates(unmatched, counts);
 
-    // 筆數與班名完全一致
-    expect(candidates).toHaveLength(3);
-    expect(candidates.map((c) => c.rawBaseName)).toEqual(['交通車', '國小國語文-小三四', '美語等班']);
-
-    // 人數與筆數精確對應
-    const jtc = candidates.find((c) => c.rawBaseName === '交通車')!;
-    expect(jtc.studentCount).toBe(93);
-    expect(jtc.tokenCount).toBe(93);
-    expect(jtc.suggestedTarget).toBe('');
-    expect(jtc.isValid).toBe(true);
-
-    const cn34 = candidates.find((c) => c.rawBaseName === '國小國語文-小三四')!;
-    expect(cn34.studentCount).toBe(12);
-    expect(cn34.tokenCount).toBe(12);
+    const mismatches = report.mismatches ?? [];
+    expect(html.match(/data-mismatch-row=/g)).toHaveLength(mismatches.length);
+    expect(html).toContain('交通車');
+    expect(html).toContain('經舊對應連到「兒童美語-Ali」');
+    expect(html).toContain('國小數學-一');
+    expect(html).toContain('未對應課表');
+    expect(html).toContain('不一致 2');
+    expect(html).toContain('未對應 1');
+    expect(html).not.toContain('input-target-classname');
+    expect(html).not.toContain('candidateTargets');
   });
 
-  it('2. 當 rosterOnly 為空陣列時，產出空候選陣列', () => {
-    const candidates = buildDynamicCandidates([], new Map());
-    expect(candidates).toHaveLength(0);
+  it('候選來源清單只供同步目標選擇與唯讀檢視，不將舊 alias 視為 exact match', () => {
+    const html = renderToStaticMarkup(
+      React.createElement(ClassNameSyncPanel, {
+        report,
+        hasStudents: true,
+        defaultExpandedRow: { erpBaseName: '交通車', mode: 'sync' },
+      })
+    );
+
+    expect(html).toContain('兒童美語-Ali');
+    expect(html).toContain('(舊對應)');
+    expect(html).toContain('選擇同步目標課表班級');
+    expect(html).toContain('同步到既有班級');
+    expect(html).not.toContain('建立別名');
   });
 });

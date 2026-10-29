@@ -200,7 +200,7 @@ test.describe('Imports Page E2E Test (R3 匯入頁一次完成使用名單)', ()
     await expect(table.locator('tbody tr[data-status="not-appeared"]')).toContainText('STU0477');
   });
 
-  test('跨頁一致：匯入預覽的「N 個班名待確認」＝課表設定「班名對應」頁籤的待確認數（同一份名單兩頁數字不得不同）', async ({ page }) => {
+  test('跨頁一致：匯入預覽的「N 個班名待確認」＝課表設定「班名同步」頁籤的待處理數（同一份名單兩頁數字不得不同）', async ({ page }) => {
     await page.goto('/imports');
     await page.locator('input[type="file"]').setInputFiles(path.resolve(__dirname, '../fixtures/conforming-erp-fixture.xlsx'));
     const notice = page.locator('text=/個班名待確認/').first();
@@ -213,7 +213,9 @@ test.describe('Imports Page E2E Test (R3 匯入頁一次完成使用名單)', ()
 
     await page.goto('/settings');
     await expect(page.locator('h1', { hasText: '課表設定' })).toBeVisible({ timeout: 10000 });
-    const pillText = await page.locator('button[role="tab"]', { hasText: '班名對應' }).locator('.pill.warn').innerText();
-    expect(Number(pillText), '課表設定的班名對應頁籤應顯示待確認數').toBe(shown);
+    // D62：頁籤改為「班名同步」，badge 為差異表列數（嚴格同名）。此情境使用 seed 設定、沒有任何別名，
+    // 因此「不一致列數」＝「未對應班名數」＝匯入預覽的「N 個班名待確認」，兩頁數字必須相同。
+    const pillText = await page.locator('button[role="tab"]', { hasText: '班名同步' }).locator('.pill.warn').innerText();
+    expect(Number(pillText), '課表設定的班名同步頁籤應顯示待處理數').toBe(shown);
   });
 });

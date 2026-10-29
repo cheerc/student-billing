@@ -50,6 +50,11 @@ export function persistClassAttributes(attributes: ClassAttributesForDraft): Per
 /**
  * 把手動覆寫寫進 draft 的班級（存檔／預覽都用它）。
  * specs/14 §3.10：classType 與 fixedFiveDays 隨班保存，不再有 fixedSource。
+ *
+ * #189 D62：classType 可能在這裡才被決定（新增名冊班級時，`gridRowsToClasses` 先以
+ * 「尚無設定」解析成 `other`，於是產出待補時段列）。不排課／安親課輔班依
+ * `ClassSettingSchema` 不支援時段，故類型定案後清掉 sessions／incompleteSessions；
+ * 反向升級為可排課類型時同理清空，避免留下空陣列以外的殘值。
  */
 export function applyManualAttrsToClasses<T extends { baseName: string; classType?: ClassType | 'non_care'; fixedFiveDays?: boolean }>(
   classes: T[],
@@ -62,8 +67,15 @@ export function applyManualAttrsToClasses<T extends { baseName: string; classTyp
     delete (clean as Record<string, unknown>).fixedFiveDays;
     const m = manualAttrs.get(c.baseName);
     const resolvedClassType = (m?.classType ?? c.classType) as ClassType;
+    const withClearedSessions = clean as Record<string, unknown>;
+
+    if (resolvedClassType === 'unscheduled' || resolvedClassType === 'care') {
+      withClearedSessions.sessions = [];
+      delete withClearedSessions.incompleteSessions;
+    }
+
     return {
-      ...clean,
+      ...(withClearedSessions as T),
       classType: resolvedClassType,
       ...persistClassAttributes({
         classType: resolvedClassType,

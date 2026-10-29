@@ -396,7 +396,7 @@ export function ImportsWorkflow({
             {preview.pendingClasses.length > 0 && (
               <div className="alert alert-warning" style={{ margin: '16px 20px 0' }}>
                 <strong>班級名稱提示：</strong>
-                <span>本次匯入名冊中發現 {preview.pendingClasses.length} 個班名待確認。您可以在啟用後至「課表設定 → 班名對應」建立對齊。</span>
+                <span>本次匯入名冊中發現 {preview.pendingClasses.length} 個班名待確認。您可以在啟用後至「課表設定 → 班名同步」逐列處理。</span>
               </div>
             )}
 

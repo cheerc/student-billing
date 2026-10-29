@@ -3,7 +3,8 @@ import type { ClassNameReportSummary } from '@/application/class-name-match-repo
 
 /**
  * 匯入預覽的班名比對摘要（04 §8 UX47；「使用這份名單」之前）：
- * 兩份清單的班數與影響人數，並連到課表設定「班名對應」的完整報告。完整清單不放這裡。
+ * 兩份清單的班數與影響人數，並連到課表設定的班名同步完整清單。完整清單不放這裡。
+ * 文案收斂屬 specs/17 §4 P3。
  */
 export function ClassNameReportSummaryCard({ summary }: { summary: ClassNameReportSummary }) {
   return (
