@@ -84,7 +84,7 @@
 
 - 星期為**非空的非法值**：calculate對該列回row-level`unknown_weekday`；該列顯示可聚焦的「需確認」警告與可讀原因，不顯示成0或「無重疊」。合法週六仍顯示0。
 - 星期為**空白**（或超過8字元）：原`CalculateSessionSchema.weekday`為`z.string().min(1).max(8)`（`web/src/contracts/settings.ts`），清空星期會使整個calculate回400。A採**路徑 (a)**：calculate接受空白與過長（上限64字元只擋不合理payload）的星期，回該列`unknown_weekday`與問題（空白時原因寫「沒有填星期」）；列與班級層級的狀態、問題清單由server一次算出（單一來源＝domain的`isUnknownWeekday`），畫面不另寫一套判斷。(b) 未採用（client端同源驗證會另寫一套班級層級狀態）。畫面行為：該列標「需確認」。
-- **提交仍拒絕空白星期**：preview／apply維持只收完整合法時段（`SettingsDraft`）的既有契約，不因本項UI修正而放寬。
+- **空白星期的 UI 預覽／儲存（D61 Ruling 3）**：UI 把填寫一半的時段（例如星期空白但時間完整）從 `sessions` 分流至 `incompleteSessions`；它不進計費核心，但保留於課表設定供重載後補齊。`settings/preview` 可成功，並允許儲存。對話框依 server 決定的模式呈現：有 active 名單時顯實際影響；無 active 名單時為 `settings_only`、學生影響為 null，兩種都不得假裝「0 人／未改變」。**直接 API 邊界不變**：若呼叫端把空白星期的完整時段直接放在 `sessions`，`SettingsDraftSchema` 仍拒絕；這不是 UI 分流後的 `incompleteSessions` 路徑（見 `web/tests/integration/schedule-unknown-weekday.test.ts`）。
 - **舊值立即失效**：清空星期或改成非法值後，該列先前算出的數字立即失效，顯示「—」或「需確認」，不得沿用舊數字。calculate回400或網路失敗時，同樣不得顯示為「無重疊」。
 - 驗收UX07（修訂）：非空非法值與空字串各一個瀏覽器測試，另測calculate失敗；斷言警告可聚焦、原因可讀、舊值不冒充。
 

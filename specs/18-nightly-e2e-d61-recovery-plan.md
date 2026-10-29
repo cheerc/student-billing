@@ -248,10 +248,10 @@ npm run test:e2e:isolated -- tests/e2e/schedule-sticky-header.spec.ts
 
 | 選項 | 內容 | 影響 |
 |---|---|---|
-| **D-1 改測試＋改 09（建議）** | `copy-d39` 的空白星期案例改為：預覽回 200 → 對話框仍顯示「尚未匯入學生」或實際影響、**不得**顯示「受影響 0 人／未改變」、可儲存；同時修 `specs/09:87`「提交仍拒絕空白星期」為「空白星期列轉為 `incompleteSessions`，不進計費核心、不阻擋存檔」，並同步 `specs/04` UX32 列文的機制描述 | 不改產品；與 D61 Ruling 3（先存檔）一致；`tests/integration/schedule-unknown-weekday.test.ts:218` 保留（伺服器對「偽造完整 session」仍嚴格） |
+| **D-1 改測試＋改 09（已採納）** | `copy-d39` 的空白星期案例走實際 UI 分流：要求 preview 200、`incompleteSessions` 語意、**有 active 名單時驗真實影響**（不得為 0 人／未改變），可儲存且 reload 保留；無 active 名單時才驗明確的 `settings_only`／null。`specs/09` 說明 UI 將不完整列分流到 `incompleteSessions`、不進計費核心且允許存檔；直接 API 將空白星期完整時段放入 `sessions` 仍 400；同步 `specs/04` UX32 | 不改產品；與 D61 Ruling 3（先存檔）一致；`tests/integration/schedule-unknown-weekday.test.ts:218` 僅保留並證明直接 API/schema 邊界，不是 UI splitter 路徑的同一 mutation |
 | **D-2 改產品復原 400** | 在 `settings-preview.ts` 於 `SettingsDraft` 之後再驗「不得含空白星期」 | 與 UX108「未填時間可先存檔」直接衝突，`schedule-add-placeholder-row.spec.ts:106` 會轉紅；不建議 |
 
-**建議採用 D-1**（已採納為 R-188-P4），理由：D61 的 1c 目的是「允許先存檔、以視覺警示提醒」，而 UX32 的原意是「沒有預覽就不得假裝 0 人／未改變」，兩者在 200＋`settings_only` 下都能滿足。D-2 會把已驗收的 UX108 打回去。
+**採用 D-1**（R-188-P4；Issue #188 coordinator 裁決留言），理由：D61 的 1c 目的是「允許先存檔、以視覺警示提醒」，UX32 則不得在沒有真實學生影響時假裝「0 人／未改變」。Phase 4 的 active fixture 必須實測實際影響；只有 server 回 `settings_only` 時才顯示「尚未匯入學生」與 null 影響值。D-2 會把已驗收的 UX108 打回去。
 
 **D-1 的驗收（此即 Phase 4 的驗收）**
 
@@ -261,9 +261,10 @@ npm run test:e2e:isolated -- tests/e2e/copy-d39.spec.ts
 npx vitest run tests/integration/schedule-unknown-weekday.test.ts
 ```
 
-- `copy-d39` 全 10 案綠；`schedule-unknown-weekday.test.ts` 9 案仍綠（證明伺服器契約沒有被放寬到「偽造 session」）。
-- spec 文字（09 §87、04 UX32）與測試同一 PR，避免文件與行為再次分岔。
-- Mutation：把 `splitSavableSessions` 的空白星期分支改回丟進 `sessions` → `schedule-unknown-weekday.test.ts:218` 與改寫後的 `copy-d39` 必須同時紅。
+- 針對 `copy-d39.spec.ts` 與 `schedule-unknown-weekday.test.ts` 執行 targeted checks，回報每次 runner 的**實際**案例數；不要把計畫撰寫時記錄的 10／9 當成未來固定值。
+- spec 文字（09 §3.1、04 UX32）與測試同一 PR，避免文件與行為再次分岔。
+- Mutation：在 `splitSavableSessions` 把空白星期列錯送入 `sessions` → 改寫後的 UI `copy-d39` 必須在 preview 200／`incompleteSessions`／真實影響或儲存保留斷言處紅；`schedule-unknown-weekday.test.ts:218` 應**保持綠**，因它直接將空白星期完整時段構造成 `sessions` 呼叫 API，不經 splitter。此 mutation 不能期待兩條不同資料路徑同時紅。
+- 若要另驗 direct API integration 的鑑別力，在 disposable worktree 對 `SessionSchema` 的空白星期驗證作單一 mutation；該測試應紅。不要為此變更本 PR 的產品碼。
 
 ---
 
