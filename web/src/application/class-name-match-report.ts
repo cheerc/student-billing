@@ -1,47 +1,52 @@
 /**
- * 班名比對報告（04 §8 UX44–UX47；09 §3.3、§4.1）。
+ * 班名同步報告 read model（D62 Phase 1）。
  *
- * 將名冊出現的班名與「課表設定」比對，產出兩份清單：
- *  1. 米豆奶有／系統無（rosterOnly）：名冊有，但既未列於課表設定、也沒有被別名對應到設定班。
- *     影響人數為這批名單在此班的不重複學生數。
- *  2. 系統有／本次名冊無（systemOnly）：課表設定有，但本次名冊沒有人用該班名直接報名。
- *     單純呈現目前課表設定有、但本次名單無直接報名的班級與別名覆蓋備註。
+ * 將名冊出現的班名與「課表設定」比對（嚴格完全同名一致性）：
+ *  1. exactMatchCount：名冊有、課表亦有完全同名之班名數。
+ *  2. mismatches：名冊有、課表無完全同名之班名清單，附舊別名指向目標 legacyAliasTarget。
+ *  3. systemOnly：課表有、本次名冊無直接報名之系統班級清單（同步候選目標），附 legacyAliasFrom。
+ *  4. unmappedStudents：legacyAliasTarget === null 涵蓋之去重學生數（真正影響計費者）。
  */
 
 import Database from 'better-sqlite3';
-import { SettingsDraft } from '@/contracts/settings';
-import { getLatestSettingsVersion, getSettingsVersionById, readStoredDraft, buildSeedDraft } from '@/adapters/sqlite/settings-repository';
+import { SettingsDraft, ClassType } from '@/contracts/settings';
+import {
+  getLatestSettingsVersion,
+  getSettingsVersionById,
+  readStoredDraft,
+  buildSeedDraft,
+} from '@/adapters/sqlite/settings-repository';
 import { getCalculationRun } from '@/adapters/sqlite/runs-repository';
-import { classifyErpDualTrack } from '@/domain/schedules/seed-manifest';
-
-export interface RosterOnlyClass {
-  baseName: string;
-  students: number;
-  tokens: number;
-}
-
-export interface SystemOnlyClass {
-  baseName: string;
-  /** 設定中此班是否啟用 */
-  active: boolean;
-  /** 本次名冊中被別名對到此班的米豆奶班名（名冊沒有直接以此班名報名時才會在這份清單裡出現） */
-  aliasCoveredBy: string[];
-}
+import { resolveClassAttributes } from '@/domain/classification/class-attributes';
 
 export type ClassNameReportScope = { kind: 'latest' } | { kind: 'run'; runId: string };
 
-export interface ClassNameMatchReport {
+export interface ClassNameMismatch {
+  erpBaseName: string;
+  students: number;
+  tokens: number;
+  legacyAliasTarget: string | null;
+}
+
+export interface ClassNameSyncSystemOnly {
+  baseName: string;
+  active: boolean;
+  classType: ClassType;
+  sessionCount: number;
+  legacyAliasFrom: string[];
+}
+
+export interface ClassNameSyncReport {
   importId: string;
   scope: ClassNameReportScope;
   snapshotStatus: 'ok' | 'unavailable';
-  rosterOnly: RosterOnlyClass[] | null;
-  systemOnly: SystemOnlyClass[] | null;
-  /** 已對應的名冊班名數（直接相符＋經別名對應） */
-  matchedCount: number | null;
-  /** 被別名覆蓋到的系統班數 */
-  aliasCoveredCount: number | null;
-  /** rosterOnly 涵蓋的不重複學生數 */
-  rosterOnlyStudents: number | null;
+  rosterClassCount: number | null;
+  exactMatchCount: number | null;
+  mismatches: ClassNameMismatch[] | null;
+  unmappedStudents: number | null;
+  systemOnly: ClassNameSyncSystemOnly[] | null;
+  /** Phase 1 舊 UI / E2E 相容欄位 */
+  rosterOnly?: Array<{ baseName: string; students: number; tokens: number }> | null;
 }
 
 export class ClassNameReportError extends Error {
@@ -62,7 +67,9 @@ interface BatchRow {
 }
 
 function getBatch(db: Database.Database, importId: string): BatchRow | undefined {
-  return db.prepare('SELECT id, file_name, created_at FROM import_batches WHERE id = ?').get(importId) as BatchRow | undefined;
+  return db
+    .prepare('SELECT id, file_name, created_at FROM import_batches WHERE id = ?')
+    .get(importId) as BatchRow | undefined;
 }
 
 function distinctStudentsIn(db: Database.Database, importId: string, baseNames: string[]): number {
@@ -80,7 +87,7 @@ function distinctStudentsIn(db: Database.Database, importId: string, baseNames: 
 export function getClassNameMatchReport(
   db: Database.Database,
   input: { importId: string; scope: ClassNameReportScope }
-): ClassNameMatchReport {
+): ClassNameSyncReport {
   const { importId, scope } = input;
   if (!getBatch(db, importId)) {
     throw new ClassNameReportError(404, `找不到名單批次 ${importId}`, 'IMPORT_NOT_FOUND');
@@ -92,23 +99,28 @@ export function getClassNameMatchReport(
     const run = getCalculationRun(db, scope.runId);
     if (!run) throw new ClassNameReportError(404, `找不到計算 run: ${scope.runId}`, 'RUN_NOT_FOUND');
     const ver = getSettingsVersionById(db, run.scheduleVersionId);
-    draft = run.scheduleVersionId === 'seed-v250922' ? buildSeedDraft() : (ver ? readStoredDraft(ver.contentJson) : null);
+    draft =
+      run.scheduleVersionId === 'seed-v250922'
+        ? buildSeedDraft()
+        : ver
+          ? readStoredDraft(ver.contentJson)
+          : null;
   } else {
     const latest = getLatestSettingsVersion(db);
     draft = latest ? readStoredDraft(latest.contentJson) : buildSeedDraft();
   }
 
   if (!draft) {
-    // 該 run 當時的設定快照已不存在：無法判定，不猜
     return {
       importId,
       scope,
       snapshotStatus: 'unavailable',
-      rosterOnly: null,
+      rosterClassCount: null,
+      exactMatchCount: null,
+      mismatches: null,
+      unmappedStudents: null,
       systemOnly: null,
-      matchedCount: null,
-      aliasCoveredCount: null,
-      rosterOnlyStudents: null,
+      rosterOnly: null,
     };
   }
 
@@ -118,61 +130,134 @@ export function getClassNameMatchReport(
          FROM student_enrollments WHERE import_id = ? GROUP BY base_name`
     )
     .all(importId) as Array<{ base_name: string; token_count: number; student_count: number }>;
-  const rosterStats = new Map(rosterRows.map((r) => [r.base_name, { students: Number(r.student_count), tokens: Number(r.token_count) }]));
+  const rosterStats = new Map(
+    rosterRows.map((r) => [
+      r.base_name,
+      { students: Number(r.student_count), tokens: Number(r.token_count) },
+    ])
+  );
   const rosterNames = rosterRows.map((r) => r.base_name);
 
   const scheduleClasses = draft.classes;
   const classNames = scheduleClasses.map((c) => c.baseName);
-  const { activeView } = classifyErpDualTrack(rosterNames, classNames, draft.aliases);
-
-  const rosterOnly: RosterOnlyClass[] = activeView.unmatched
-    .map((baseName) => ({ baseName, ...rosterStats.get(baseName)! }))
-    .sort((a, b) => b.students - a.students || (a.baseName < b.baseName ? -1 : a.baseName > b.baseName ? 1 : 0));
-
   const classSet = new Set(classNames);
   const rosterSet = new Set(rosterNames);
-  const activeByClass = new Map(scheduleClasses.map((c) => [c.baseName, c.active]));
 
-  const systemOnly: SystemOnlyClass[] = activeView.seedNotAppeared.map((baseName) => ({
-    baseName,
-    active: activeByClass.get(baseName) ?? true,
-    aliasCoveredBy: draft!.aliases
-      .filter((a) => a.targetBaseName === baseName && classSet.has(a.targetBaseName) && rosterSet.has(a.rawBaseName) && !classSet.has(a.rawBaseName))
-      .map((a) => a.rawBaseName)
-      .sort(),
-  }));
+  // 1. 嚴格完全同名一致性判定
+  const exactMatches = rosterNames.filter((name) => classSet.has(name));
+  const exactMatchCount = exactMatches.length;
+  const rosterClassCount = rosterNames.length;
+
+  // 2. mismatches（名冊有、課表無同名）
+  const aliasMap = new Map<string, string>();
+  for (const a of draft.aliases) {
+    aliasMap.set(a.rawBaseName.trim(), a.targetBaseName.trim());
+  }
+
+  const mismatches: ClassNameMismatch[] = rosterNames
+    .filter((name) => !classSet.has(name))
+    .map((erpBaseName) => {
+      const stats = rosterStats.get(erpBaseName) ?? { students: 0, tokens: 0 };
+      const target = aliasMap.get(erpBaseName);
+      // 舊別名指向且該目標班確實存在於課表，否則為 null
+      const legacyAliasTarget = target && classSet.has(target) ? target : null;
+      return {
+        erpBaseName,
+        students: stats.students,
+        tokens: stats.tokens,
+        legacyAliasTarget,
+      };
+    })
+    .sort((a, b) => {
+      // 未對應優先（legacyAliasTarget === null）
+      const aUnmapped = a.legacyAliasTarget === null ? 0 : 1;
+      const bUnmapped = b.legacyAliasTarget === null ? 0 : 1;
+      if (aUnmapped !== bUnmapped) return aUnmapped - bUnmapped;
+      // 學生數多者優先
+      if (b.students !== a.students) return b.students - a.students;
+      // 班名正序
+      return a.erpBaseName.localeCompare(b.erpBaseName, 'zh-TW');
+    });
+
+  // 3. unmappedStudents：計算 legacyAliasTarget === null 的列涵蓋之不重複學生數
+  const unmappedBaseNames = mismatches
+    .filter((m) => m.legacyAliasTarget === null)
+    .map((m) => m.erpBaseName);
+  const unmappedStudents = distinctStudentsIn(db, importId, unmappedBaseNames);
+
+  // 4. systemOnly：課表有、名冊無直接同名報名＝同步目標候選
+  const systemOnly: ClassNameSyncSystemOnly[] = scheduleClasses
+    .filter((c) => !rosterSet.has(c.baseName))
+    .map((c) => {
+      const resolved = resolveClassAttributes(c.baseName, c);
+      const normalizedClassType: ClassType =
+        resolved.classType === 'non_care' ? 'other' : resolved.classType;
+      const legacyAliasFrom = draft!.aliases
+        .filter(
+          (a) =>
+            a.targetBaseName === c.baseName &&
+            rosterSet.has(a.rawBaseName) &&
+            !classSet.has(a.rawBaseName)
+        )
+        .map((a) => a.rawBaseName)
+        .sort((x, y) => x.localeCompare(y, 'zh-TW'));
+
+      return {
+        baseName: c.baseName,
+        active: c.active ?? true,
+        classType: normalizedClassType,
+        sessionCount: c.sessions ? c.sessions.length : 0,
+        legacyAliasFrom,
+      };
+    });
+
+  const rosterOnly = mismatches
+    .filter((m) => m.legacyAliasTarget === null)
+    .map((m) => ({
+      baseName: m.erpBaseName,
+      students: m.students,
+      tokens: m.tokens,
+    }));
 
   return {
     importId,
     scope,
     snapshotStatus: 'ok',
-    rosterOnly,
+    rosterClassCount,
+    exactMatchCount,
+    mismatches,
+    unmappedStudents,
     systemOnly,
-    matchedCount: activeView.matchedCount,
-    aliasCoveredCount: activeView.aliasCoveredCount ?? 0,
-    rosterOnlyStudents: distinctStudentsIn(db, importId, rosterOnly.map((r) => r.baseName)),
+    rosterOnly,
   };
 }
 
-/**
- * 匯入預覽的摘要（「使用這份名單」之前顯示）：兩份清單的班數與影響人數，
- * 以及連到完整報告（課表設定「班名對應」）的路徑。完整清單留在報告，預覽只放數字。
- */
 export interface ClassNameReportSummary {
   importId: string;
+  mismatchCount: number;
+  unmappedCount: number;
+  unmappedStudents: number;
+  reportPath: string;
+  // Phase 1 舊 UI 兼容性欄位
   rosterOnlyClassCount: number;
   rosterOnlyStudentCount: number;
   systemOnlyClassCount: number;
-  /** 完整報告的站內連結 */
-  reportPath: string;
 }
 
-export function summarizeClassNameReport(report: ClassNameMatchReport): ClassNameReportSummary {
+export function summarizeClassNameReport(report: ClassNameSyncReport): ClassNameReportSummary {
+  const mismatches = report.mismatches ?? [];
+  const unmapped = mismatches.filter((m) => m.legacyAliasTarget === null);
+  const mismatchCount = mismatches.length;
+  const unmappedCount = unmapped.length;
+  const unmappedStudents = report.unmappedStudents ?? 0;
   return {
     importId: report.importId,
-    rosterOnlyClassCount: report.rosterOnly?.length ?? 0,
-    rosterOnlyStudentCount: report.rosterOnlyStudents ?? 0,
-    systemOnlyClassCount: report.systemOnly?.length ?? 0,
+    mismatchCount,
+    unmappedCount,
+    unmappedStudents,
     reportPath: `/settings?tab=mapping&import=${encodeURIComponent(report.importId)}`,
+    rosterOnlyClassCount: unmappedCount,
+    rosterOnlyStudentCount: unmappedStudents,
+    systemOnlyClassCount: report.systemOnly?.length ?? 0,
   };
 }

@@ -138,6 +138,39 @@ describe('D2b 5（Q9）: 整班改名帶走設定（含手動值與 classType）
       fixedFiveDays: false,
     });
   });
+
+  // 可達性實驗：測試對象為無 classType 之舊版草稿（或未手動修改之 seed 班級）改名。
+  // 在未修補前，當來源班不在 currentAttrs 與 baselineAttrs 時（if (!before) continue;），
+  // 改名會跳過屬性繼承，導致新班名依 fallback 解析而遺失原始 classType（如 english 變 other）。
+  it('可達性實驗：無 classType 之舊版草稿／seed 班改名，應解析來源屬性並保留，不遺失 classType', () => {
+    const out = carryAttributesOnRename(
+      [{ from: '兒童美語-Gino', to: '米豆奶美語一' }],
+      new Map(),
+      new Map()
+    );
+    expect(out.get('米豆奶美語一')).toEqual({
+      classType: 'english',
+      hasMultiSubjectDiscount: true,
+      category: 'english',
+      categorySource: 'manual',
+      fixedFiveDays: false,
+    });
+  });
+
+  it('改名後其他班之 skipDeduction 與屬性隨班保留且來源標記為 manual', () => {
+    const out = carryAttributesOnRename(
+      [{ from: '國小數學-四A', to: '米豆奶數學四A' }],
+      new Map(),
+      new Map()
+    );
+    expect(out.get('米豆奶數學四A')).toEqual({
+      classType: 'math',
+      hasMultiSubjectDiscount: true,
+      category: 'math',
+      categorySource: 'manual',
+      fixedFiveDays: false,
+    });
+  });
 });
 
 describe('D2b 5（Q9）: 同名合併且設定不同時阻擋儲存', () => {

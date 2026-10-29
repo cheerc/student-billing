@@ -4,7 +4,6 @@ import { ErpReaderError } from '@/adapters/xlsx/erp-reader';
 import { getDatabase } from '@/adapters/sqlite';
 import { saveImportBatch, getLatestReadyBatch } from '@/adapters/sqlite/import-repository';
 import { computeImportRosterChanges } from '@/application/import-roster-diff';
-import { findPendingClassNames } from '@/application/pending-classes';
 import { getClassNameMatchReport, summarizeClassNameReport } from '@/application/class-name-match-report';
 import { getCurrentActiveRun } from '@/adapters/sqlite/runs-repository';
 import { validateSameOrigin, maskSensitiveInfo } from '@/contracts/security';
@@ -71,12 +70,23 @@ export async function POST(request: Request | NextRequest) {
     // 重複上傳時 batchId 為既有批次；若它就是基準則不自我比較（baseImportId:null）。
     const rosterDiff = computeImportRosterChanges(db, saveResult.batchId, baseImportId);
 
+    // 班名比對報告（使用這份名單之前）：與課表設定「班名同步」完整報告同源同判斷
+    const classNameReport = getClassNameMatchReport(db, {
+      importId: saveResult.batchId,
+      scope: { kind: 'latest' },
+    });
+    // 待確認班名＝尚未對應到課表的班名（由同源 mismatches 投影，消除雙軌判定）
+    const pendingClasses = classNameReport.mismatches
+      ? classNameReport.mismatches
+          .filter((m) => m.legacyAliasTarget === null)
+          .map((m) => m.erpBaseName)
+          .sort((a, b) => a.localeCompare(b, 'zh-TW'))
+      : [];
+
     return NextResponse.json(
       {
         ...preview,
-        // 待確認班名＝尚未對應到課表的班名（與課表設定「班名對應」同源同判斷）；
-        // preview.pendingClasses 是檔案內全部不重複班名，數字會和課表設定頁不一致
-        pendingClasses: findPendingClassNames(db, preview.pendingClasses),
+        pendingClasses,
         /*
           #83：isDuplicate／duplicateReason 保留在回應中，但畫面不再消費。
           保留理由是本支真正的依賴：判重時 batchId 會回傳既有批次（不同於本次 previewId），
@@ -88,10 +98,7 @@ export async function POST(request: Request | NextRequest) {
         duplicateReason: saveResult.duplicateReason,
         batchId: saveResult.batchId,
         rosterDiff,
-        // 班名比對摘要（使用這份名單之前）：與課表設定「班名對應」完整報告同源同判斷
-        classNameReport: summarizeClassNameReport(
-          getClassNameMatchReport(db, { importId: saveResult.batchId, scope: { kind: 'latest' } })
-        ),
+        classNameReport: summarizeClassNameReport(classNameReport),
       },
       { status: 200 }
     );

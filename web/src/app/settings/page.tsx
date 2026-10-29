@@ -17,7 +17,8 @@ export default async function SettingsPage({
   const sp = (await searchParams) ?? {};
   const first = (v: string | string[] | undefined) => (Array.isArray(v) ? v[0] : v);
   const focusClass = first(sp.class)?.trim() || null;
-  const initialTab = first(sp.tab) === 'mapping' ? 'mapping' : 'schedule';
+  const tabParam = first(sp.tab);
+  const initialTab = (tabParam === 'mapping' || tabParam === 'sync') ? 'mapping' : 'schedule';
   const db = getDatabase();
   const active = getCurrentActiveRun(db);
   const latestBatch = getLatestReadyBatch(db);

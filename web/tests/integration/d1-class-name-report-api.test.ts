@@ -77,15 +77,17 @@ describe('GET /api/v1/settings/class-name-report', () => {
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body).toMatchObject({ importId: 'imp_new', scope: { kind: 'latest' }, snapshotStatus: 'ok' });
-    // 最新設定（setv_new，沒有別名）：一、交通車 為 米豆奶有／系統無；二A、三年級 為 系統有／本次名冊無
-    expect(body.rosterOnly).toEqual([
-      { baseName: '交通車', students: 1, tokens: 1 },
-      { baseName: '國小數學-一', students: 1, tokens: 1 },
+    // 最新設定（setv_new，沒有別名）：一、交通車 為 mismatches；二A、三年級 為 系統有／本次名冊無
+    expect(body.exactMatchCount).toBe(1);
+    expect(body.rosterClassCount).toBe(3);
+    expect(body.mismatches).toEqual([
+      { erpBaseName: '交通車', students: 1, tokens: 1, legacyAliasTarget: null },
+      { erpBaseName: '國小數學-一', students: 1, tokens: 1, legacyAliasTarget: null },
     ]);
-    expect(body.rosterOnlyStudents).toBe(2);
+    expect(body.unmappedStudents).toBe(2);
     expect(body.systemOnly).toEqual([
-      { baseName: '國小數學-二A', active: true, aliasCoveredBy: [] },
-      { baseName: '國小輔導-三年級', active: true, aliasCoveredBy: [] },
+      { baseName: '國小輔導-三年級', active: true, classType: 'care', sessionCount: 0, legacyAliasFrom: [] },
+      { baseName: '國小數學-二A', active: true, classType: 'math', sessionCount: 2, legacyAliasFrom: [] },
     ]);
     expect([...collectKeys(body)].filter((k) => /categor|類別/i.test(k))).toEqual([]);
   });
@@ -108,13 +110,23 @@ describe('GET /api/v1/settings/class-name-report', () => {
     scenario();
     const ok = await (await mod!.GET(getRequest(url('?runId=run_old')))).json();
     expect(ok).toMatchObject({ importId: 'imp_new', scope: { kind: 'run', runId: 'run_old' }, snapshotStatus: 'ok' });
-    expect(ok.rosterOnly).toEqual([{ baseName: '交通車', students: 1, tokens: 1 }]);
-    expect(ok.aliasCoveredCount).toBe(1);
+    expect(ok.exactMatchCount).toBe(1);
+    expect(ok.rosterClassCount).toBe(3);
+    expect(ok.mismatches).toEqual([
+      { erpBaseName: '交通車', students: 1, tokens: 1, legacyAliasTarget: null },
+      { erpBaseName: '國小數學-一', students: 1, tokens: 1, legacyAliasTarget: '國小數學-一A' },
+    ]);
+    expect(ok.unmappedStudents).toBe(1);
 
     const gone = await mod!.GET(getRequest(url('?runId=run_gone')));
     expect(gone.status).toBe(200);
     const goneBody = await gone.json();
-    expect(goneBody).toMatchObject({ importId: 'imp_new', snapshotStatus: 'unavailable', rosterOnly: null, systemOnly: null });
+    expect(goneBody).toMatchObject({
+      importId: 'imp_new',
+      snapshotStatus: 'unavailable',
+      mismatches: null,
+      systemOnly: null,
+    });
   });
 
   it('參數錯誤：未知 runId → 404 RUN_NOT_FOUND；未知 importId → 404 IMPORT_NOT_FOUND；runId 與 importId 指向不同名單 → 400 INVALID_QUERY', async () => {
@@ -159,10 +171,13 @@ describe('POST /api/v1/imports/preview：classNameReport 摘要（使用這份�
     expect(body.pendingClasses).toHaveLength(12); // 特徵化：既有欄位不變
     expect(body.classNameReport).toEqual({
       importId: body.batchId,
+      mismatchCount: 12,
+      unmappedCount: 12,
+      unmappedStudents: 191,
+      reportPath: `/settings?tab=mapping&import=${body.batchId}`,
       rosterOnlyClassCount: 12,
       rosterOnlyStudentCount: 191,
       systemOnlyClassCount: 7,
-      reportPath: `/settings?tab=mapping&import=${body.batchId}`,
     });
     expect([...collectKeys(body.classNameReport)].filter((k) => /categor|類別/i.test(k))).toEqual([]);
   });
@@ -182,19 +197,25 @@ describe('POST /api/v1/imports/preview：classNameReport 摘要（使用這份�
     const body = await (await previewPOST(uploadRequest())).json();
     expect(body.classNameReport).toMatchObject({
       importId: body.batchId,
-      rosterOnlyClassCount: 12,
-      rosterOnlyStudentCount: 191,
-      systemOnlyClassCount: 7,
+      mismatchCount: 12,
+      unmappedCount: 12,
+      unmappedStudents: 191,
+      reportPath: `/settings?tab=mapping&import=${body.batchId}`,
     });
   });
 
-  it('與課表設定同源同判斷：已存設定加了別名「一→一A」後，米豆奶有／系統無 少 1 班（12→11）；系統有／名冊無 仍為 7（別名不掩蓋「本次沒有直接報名」）', async () => {
+  it('與課表設定同源同判斷：已存設定加了別名「一→一A」後，嚴格同名 mismatch 仍為 12，但 unmapped 少 1 班（12→11）；系統有／名冊無 仍為 7', async () => {
     const db = ctx.db();
     const seed = buildSeedDraft();
     saveSettings(db, 'setv_a', 1, { ...seed, aliases: [{ rawBaseName: '國小數學-一', targetBaseName: '國小數學-一A' }] });
     const body = await (await previewPOST(uploadRequest())).json();
     // 手算：一（13 人）的學生同時也在其他待對應班（如交通車），所以不重複人數仍為 191
     expect(body.pendingClasses).toHaveLength(11);
-    expect(body.classNameReport).toMatchObject({ rosterOnlyClassCount: 11, rosterOnlyStudentCount: 191, systemOnlyClassCount: 7 });
+    expect(body.classNameReport).toMatchObject({
+      mismatchCount: 12,
+      unmappedCount: 11,
+      unmappedStudents: 191,
+      reportPath: `/settings?tab=mapping&import=${body.batchId}`,
+    });
   });
 });

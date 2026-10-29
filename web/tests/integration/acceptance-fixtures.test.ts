@@ -111,13 +111,13 @@ describe('T3：純合成驗收 xlsx CLI → 真產品解析與計算', () => {
           expect(db.prepare("SELECT COUNT(*) AS n FROM student_enrollments WHERE import_id = ? AND raw_token = '[團]' AND base_name = ''").get(preview.previewId)).toEqual({ n: 1 });
           const alias = manifest.alias;
           expect(db.prepare('SELECT COUNT(*) AS n FROM student_enrollments WHERE import_id = ? AND base_name = ?').get(preview.previewId, alias.rawBaseName)).toEqual({ n: 1 });
-          expect(report.rosterOnly?.some((entry) => entry.baseName === alias.rawBaseName)).toBe(true);
+          expect(report.mismatches?.find((entry) => entry.erpBaseName === alias.rawBaseName)?.legacyAliasTarget).toBeNull();
           const draft = { ...buildSeedDraft(), aliases: [alias] };
           const settingsPreview = previewSettingsChange(db, undefined, { draft, expectedRevision: revision });
           const applied = applySettingsPreview(db, { previewId: settingsPreview.previewId, expectedRevision: revision, idempotencyKey: 'round3-b-alias' });
           revision = applied.revision;
           const mapped = getClassNameMatchReport(db, { importId: preview.previewId, scope: { kind: 'latest' } });
-          expect(mapped.rosterOnly?.some((entry) => entry.baseName === alias.rawBaseName)).toBe(false);
+          expect(mapped.mismatches?.find((entry) => entry.erpBaseName === alias.rawBaseName)?.legacyAliasTarget).toBe(alias.targetBaseName);
           const calculation = executeCalculationRun(db, preview.previewId, 'run_round3_alias', { aliasMap: new Map([[alias.rawBaseName, alias.targetBaseName]]) });
           expect(calculation.results.flatMap((student) => student.issues).filter((issue: { code: string }) => issue.code === 'SCHEDULE_NOT_FOUND')).toEqual([]);
         }

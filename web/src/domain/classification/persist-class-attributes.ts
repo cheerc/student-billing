@@ -1,5 +1,6 @@
 import type { ClassType } from '@/contracts/settings';
 import type { CategorySource, ClassCategory, WritableCategorySource } from './class-category';
+import type { ClassAttributesView } from './class-attributes';
 
 /** Read-side attributes accepted by the draft writer, including legacy values that must be dropped. */
 export interface ClassAttributesForDraft {
@@ -44,4 +45,33 @@ export function persistClassAttributes(attributes: ClassAttributesForDraft): Per
     ...categoryFields,
     ...(attributes.fixedFiveDays !== undefined ? { fixedFiveDays: attributes.fixedFiveDays } : {}),
   };
+}
+
+/**
+ * 把手動覆寫寫進 draft 的班級（存檔／預覽都用它）。
+ * specs/14 §3.10：classType 與 fixedFiveDays 隨班保存，不再有 fixedSource。
+ */
+export function applyManualAttrsToClasses<T extends { baseName: string; classType?: ClassType | 'non_care'; fixedFiveDays?: boolean }>(
+  classes: T[],
+  manualAttrs: Map<string, ClassAttributesView>
+): T[] {
+  return classes.map((c) => {
+    const clean = { ...c };
+    delete (clean as Record<string, unknown>).category;
+    delete (clean as Record<string, unknown>).categorySource;
+    delete (clean as Record<string, unknown>).fixedFiveDays;
+    const m = manualAttrs.get(c.baseName);
+    const resolvedClassType = (m?.classType ?? c.classType) as ClassType;
+    return {
+      ...clean,
+      classType: resolvedClassType,
+      ...persistClassAttributes({
+        classType: resolvedClassType,
+        hasMultiSubjectDiscount: m?.hasMultiSubjectDiscount,
+        category: m?.category,
+        categorySource: m?.categorySource,
+        fixedFiveDays: resolvedClassType === 'care' ? (m?.fixedFiveDays ?? c.fixedFiveDays ?? false) : false,
+      }),
+    };
+  });
 }

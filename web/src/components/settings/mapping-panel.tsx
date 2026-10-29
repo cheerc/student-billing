@@ -3,7 +3,7 @@
 import React from 'react';
 import { DynamicCandidate } from '@/domain/schedules/seed-manifest';
 import { AliasMapping } from '@/contracts/settings';
-import type { ClassNameMatchReport } from '@/application/class-name-match-report';
+import type { AdaptedLegacyClassNameReport } from '@/components/settings-editor';
 import { ClassNameReportPanel } from '@/components/settings/class-name-report-panel';
 
 interface MappingPanelProps {
@@ -15,7 +15,7 @@ interface MappingPanelProps {
   onUpdateCandidateTarget?: (rawBaseName: string, target: string) => void;
   onToggleAlias?: (rawBaseName: string, targetBaseName: string) => void;
   /** 班名比對報告（D1）：兩份清單並排、預設展開；沒有名單或不提供時不顯示 */
-  classNameReport?: ClassNameMatchReport | null;
+  classNameReport?: AdaptedLegacyClassNameReport | null;
   /** 儲存後重新取得報告失敗的說明：有值時不顯示報告（其數字是儲存前的），改顯示這則標示 */
   classNameReportStaleMessage?: string | null;
   /**

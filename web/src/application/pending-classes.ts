@@ -1,6 +1,5 @@
 import Database from 'better-sqlite3';
 import { getLatestSettingsVersion, buildSeedDraft, readStoredDraft } from '@/adapters/sqlite/settings-repository';
-import { classifyErpDualTrack } from '@/domain/schedules/seed-manifest';
 import type { SettingsDraft } from '@/contracts/settings';
 
 /**
@@ -12,10 +11,15 @@ import type { SettingsDraft } from '@/contracts/settings';
 export function findPendingClassNames(db: Database.Database, erpBaseNames: string[]): string[] {
   const latest = getLatestSettingsVersion(db);
   const draft: SettingsDraft = latest ? readStoredDraft(latest.contentJson) : buildSeedDraft();
-  const result = classifyErpDualTrack(
-    Array.from(new Set(erpBaseNames)),
-    draft.classes.map((c) => c.baseName),
-    draft.aliases
-  );
-  return result.activeView.unmatched;
+  const classNames = new Set(draft.classes.map((c) => c.baseName));
+  const aliasMap = new Map(draft.aliases.map((a) => [a.rawBaseName.trim(), a.targetBaseName.trim()]));
+
+  const pending = new Set<string>();
+  for (const raw of erpBaseNames) {
+    if (classNames.has(raw)) continue;
+    const target = aliasMap.get(raw);
+    if (target && classNames.has(target)) continue;
+    pending.add(raw);
+  }
+  return Array.from(pending).sort((a, b) => a.localeCompare(b, 'zh-TW'));
 }
