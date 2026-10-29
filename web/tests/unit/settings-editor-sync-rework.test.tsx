@@ -88,7 +88,7 @@ afterEach(async () => {
   vi.unstubAllGlobals();
 });
 
-async function mountEditor(initialTab: 'schedule' | 'sync'): Promise<void> {
+async function mountEditor(initialTab: 'schedule' | 'sync', focusClass: string | null = null): Promise<void> {
   const draft = buildSeedDraft();
   await act(async () => {
     root.render(
@@ -100,6 +100,7 @@ async function mountEditor(initialTab: 'schedule' | 'sync'): Promise<void> {
         reportImportId="imp_rework"
         hasActiveImport={true}
         initialTab={initialTab}
+        focusClass={focusClass}
       />
     );
   });
@@ -162,6 +163,50 @@ describe('#189 D62 rework r2：班名同步 → 課表', () => {
     expect(container.querySelector('[data-focus-class-missing]')).toBeNull();
     // 預設安親頁籤沒有任何時段欄；不排課班級應落在「不排課」頁籤
     expect(container.querySelector('#class-type-panel-unscheduled')).toBeTruthy();
+  });
+
+  it('r3：顯示全部後切頁往返不復活焦點，且仍可再次由同步列進入焦點', async () => {
+    await mountEditor('sync');
+
+    await click(container.querySelector('#settings-tab-sync'));
+    const row = mismatchRow('交通車');
+    expect(row, '差異表應列出交通車').toBeTruthy();
+    await click(rowAction('交通車', '新增為課表班級'));
+    await click(rowForm('交通車')!.querySelector('input[type="radio"][value="unscheduled"]'));
+    await click(formButton('交通車', '暫存新增'));
+    await click(rowAction('交通車', '到課表填時段'));
+
+    const firstFocusBanner = container.querySelector('[data-focus-class]');
+    expect(firstFocusBanner?.textContent).toContain('交通車');
+    await click(buttonByText(firstFocusBanner!, '顯示全部班級'));
+    expect(container.querySelector('[data-focus-class]')).toBeNull();
+
+    // Grid 在頁籤切換時會卸載再掛載；明確清除後不能使用 stale focusTarget 將它復活。
+    await click(container.querySelector('#settings-tab-sync'));
+    await click(container.querySelector('#settings-tab-schedule'));
+    expect(container.querySelector('[data-focus-class]')).toBeNull();
+    expect(container.querySelector('[data-focus-class-missing]')).toBeNull();
+    expect(container.querySelectorAll('#class-type-panel-care input.input-classname').length).toBeGreaterThan(1);
+
+    // 清除是目前狀態，不是永久禁用；下一次明確選擇班名仍可重新聚焦。
+    await click(container.querySelector('#settings-tab-sync'));
+    await click(rowAction('交通車', '到課表填時段'));
+    expect(container.querySelector('[data-focus-class]')?.textContent).toContain('交通車');
+  });
+
+  it('r3：由 focusClass 深連結進入後清除，切頁往返不回退到舊的 prop 值', async () => {
+    await mountEditor('schedule', '兒童美語-Gino');
+
+    const firstFocusBanner = container.querySelector('[data-focus-class]');
+    expect(firstFocusBanner?.textContent).toContain('兒童美語-Gino');
+    await click(buttonByText(firstFocusBanner!, '顯示全部班級'));
+    expect(container.querySelector('[data-focus-class]')).toBeNull();
+
+    await click(container.querySelector('#settings-tab-sync'));
+    await click(container.querySelector('#settings-tab-schedule'));
+    expect(container.querySelector('[data-focus-class]')).toBeNull();
+    expect(container.querySelector('[data-focus-class-missing]')).toBeNull();
+    expect(container.querySelectorAll('#class-type-panel-care input.input-classname').length).toBeGreaterThan(1);
   });
 
   it('F2：按「確認變更」送出的草稿中，新增班級類別為 unset（不替使用者決定折扣）', async () => {
