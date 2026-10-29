@@ -26,11 +26,15 @@ import { classesToGridRows, gridRowsToClasses, buildSeedGridRows } from '@/contr
  */
 
 /**
- * 匯出檔的資料列數：`classesToGridRows(gridRowsToClasses(seed))`。
+ * 匯出檔的資料列數。**匯出實作**走的是 `classesToGridRows(initialDraft.classes)`
+ * （`settings-editor.tsx:247`），這裡的 `classesToGridRows(gridRowsToClasses(buildSeedGridRows()))`
+ * 只是對本 fixture 得到同一個數字的算法，不是匯出的那條路徑——實測兩者皆 89。
+ * `buildSeedDraft()` 內部也呼叫 `buildSeedGridRows()`（`settings-repository.ts:266`），
+ * 所以兩條路徑同源；若哪天有人改動其中一邊，這段註解就過期了，要重跑 #81-3。
  *
- * 本 tree 實測三者分別是 `buildSeedGridRows()` 89、`gridRowsToClasses()` 49、
- * `classesToGridRows(...)` 89 —— 來回轉換不改變列數（含「國小數學-一B」的 2 列空時段，
- * 轉換後仍是 2 列）。這個函式只給「匯出檔應該有幾列」用，不要拿它當畫面的列數（見下）。
+ * 本 tree 實測 `buildSeedGridRows()` 89、`gridRowsToClasses()` 49、`classesToGridRows(...)` 89
+ * —— 來回轉換不改變列數（含「國小數學-一B」的 2 列空時段，轉換後仍是 2 列）。
+ * 這個函式只給「匯出檔應該有幾列」用，不要拿它當畫面的列數（見下）。
  */
 function appRowCount(): number {
   const seed = buildSeedGridRows();
@@ -51,8 +55,11 @@ function seedScheduleRowCount(): number {
  * 畫面五個頁籤的時段列數加總。
  *
  * 與 `appRowCount()`（匯出檔列數）不可互相比較：安親頁籤的列數是 `displayedTabRows` 的結果
- * （`schedule-grid.tsx` 對 care／unscheduled 每班去重 1 列），匯出檔的列數則是 seed 的平鋪時段數。
- * 本 tree 兩者同為 89（seed 的 8 個安親班各只有 1 列）。
+ * （`schedule-grid.tsx` 對 care／unscheduled 每班去重 1 列），匯出檔的列數則是
+ * `classesToGridRows(initialDraft.classes)`（`settings-editor.tsx:247`：`buildSeedDraft()` 的
+ * 49 個班展開成 89 列）。兩者**來源不同**（draft classes vs seed fixture），只是本 tree 同值：
+ * 實測 `classesToGridRows(buildSeedDraft().classes)` = 89、`buildSeedGridRows()` = 89
+ * （`buildSeedDraft` 內部也用 `buildSeedGridRows()`，`settings-repository.ts:266`）。
  */
 const SCHEDULABLE_TABS: ClassTypeTab[] = ['english', 'math', 'other', 'unscheduled'];
 
