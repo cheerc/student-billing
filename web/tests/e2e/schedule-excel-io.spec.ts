@@ -1,5 +1,12 @@
 import { test, expect } from '@playwright/test';
-import { exportBuffer, readScheduleRows } from './helpers/schedule-excel';
+import { exportBuffer, importBuffer, readScheduleRows } from './helpers/schedule-excel';
+import {
+  ensureClassTypeTab,
+  multiDiscountGroup,
+  selectClassTypeTab,
+  setMultiDiscount,
+  type ClassTypeTab,
+} from './helpers/d2c-settings';
 import { classesToGridRows, gridRowsToClasses, buildSeedGridRows } from '@/contracts/settings';
 
 /**
@@ -13,22 +20,51 @@ import { classesToGridRows, gridRowsToClasses, buildSeedGridRows } from '@/contr
  * 真實瀏覽器的下載與上傳：用 Playwright 的 `download` 事件取匯出檔，再以
  * `setInputFiles` 把它原樣餵回匯入（真正的 round-trip，不手工重造檔案）。
  *
- * **每列都有可編輯的類別下拉**（#80 併入表格的結果）：同一班的多列各有一顆，值相同。
- * 因此所有「某班的類別」定位都用 `.first()` 收斂到該班第一列 —— 這是刻意的：
- * 同一班多列本來就代表同一個班屬性，改任一列都會改到同一個值。
+ * **D61 之後沒有「類別下拉」**：既有班級的類別由「是否有多科折扣」單選投影
+ * （`deriveEffectiveCategory`），其他班/不排課頁籤甚至沒有那個欄位。
+ * 因此本檔用「四A 多科折扣＝否」表達 category none，並以 `input[value="false"]` 被勾選驗證。
  */
 
 /**
- * 畫面上的時段列數。
+ * 匯出檔的資料列數：`classesToGridRows(gridRowsToClasses(seed))`。
  *
- * **不要寫死 89**：`buildSeedGridRows()` 產 89 列，但課表頁實際載入的是
- * `classesToGridRows(gridRowsToClasses(seed))` = 88 列（國小數學-一B 的 2 列空時段
- * 聚合成 1 個佔位列）。這是實測值（probes），不是推算。
+ * 本 tree 實測三者分別是 `buildSeedGridRows()` 89、`gridRowsToClasses()` 49、
+ * `classesToGridRows(...)` 89 —— 來回轉換不改變列數（含「國小數學-一B」的 2 列空時段，
+ * 轉換後仍是 2 列）。這個函式只給「匯出檔應該有幾列」用，不要拿它當畫面的列數（見下）。
  */
 function appRowCount(): number {
   const seed = buildSeedGridRows();
   const flat = classesToGridRows(gridRowsToClasses(seed));
   return flat.length > 0 ? flat.length : seed.length;
+}
+
+/**
+ * seed fixture 的定義列數（`buildSeedGridRows()` 的平鋪時段數）—— 這是**輸入 fixture**
+ * 的定義，不是被測函式的輸出，所以可作為「畫面逐頁籤加總」比對的另一端
+ * （R-192-2）。seed 改了就跟著改，這是預期行為。
+ */
+function seedScheduleRowCount(): number {
+  return buildSeedGridRows().length;
+}
+
+/**
+ * 畫面五個頁籤的時段列數加總。
+ *
+ * 與 `appRowCount()`（匯出檔列數）不可互相比較：安親頁籤的列數是 `displayedTabRows` 的結果
+ * （`schedule-grid.tsx` 對 care／unscheduled 每班去重 1 列），匯出檔的列數則是 seed 的平鋪時段數。
+ * 本 tree 兩者同為 89（seed 的 8 個安親班各只有 1 列）。
+ */
+const SCHEDULABLE_TABS: ClassTypeTab[] = ['english', 'math', 'other', 'unscheduled'];
+
+async function displayedScheduleRowCount(page: import('@playwright/test').Page): Promise<number> {
+  let total = 0;
+  await selectClassTypeTab(page, 'care');
+  total += await page.locator('tr.schedule-row').count();
+  for (const tab of SCHEDULABLE_TABS) {
+    await selectClassTypeTab(page, tab);
+    total += await page.locator('tr.schedule-row').count();
+  }
+  return total;
 }
 
 test.describe('#81：課表 Excel 全量匯出／匯入', () => {
@@ -53,9 +89,8 @@ test.describe('#81：課表 Excel 全量匯出／匯入', () => {
   });
 
   test('#81-2: 匯出檔可被重新匯入且內容一致（真正的 round-trip）', async ({ page }) => {
-    // 先改一筆：把「國小數學-四A」設成不列入折扣，讓匯出帶著這個值出去
-    // （同一班 2 列 → .first()，值是班級層級的，改任一列都一樣）
-    await page.locator('[data-category-select="國小數學-四A"]').first().selectOption('none');
+    // 先改一筆：把「國小數學-四A」設成多科折扣＝否（D61：category none 的 UI 表達）
+    await setMultiDiscount(page, '國小數學-四A', false);
 
     // 匯出
     const downloadPromise = page.waitForEvent('download');
@@ -72,15 +107,14 @@ test.describe('#81：課表 Excel 全量匯出／匯入', () => {
     await expect(page.locator('.save-status-dirty')).toBeVisible();
 
     // 匯入後使用者的指定仍在（匯入是明確指定，不被任何自動判定改回去）
-    await expect(page.locator('[data-category-select="國小數學-四A"]').first()).toHaveValue('none');
+    await ensureClassTypeTab(page, '國小數學-四A');
+    await expect(multiDiscountGroup(page, '國小數學-四A').locator('input[value="false"]')).toBeChecked();
     // #157 Ruling 4：沒有「恢復自動」按鈕
     await expect(page.locator('[data-restore-auto]')).toHaveCount(0);
 
-    // 表格仍有原本的全部時段（整批取代不是清空）；跨雙頁籤加總驗證全量筆數（Reviewer 1 要求）
-    const nonCareCount = await page.locator('table.schedule-table-non-care tr.schedule-row').count();
-    await page.locator('#class-type-tab-care').click();
-    const careCount = await page.locator('table.schedule-table-care tr.schedule-row').count();
-    expect(nonCareCount + careCount).toBe(appRowCount());
+    // 表格仍有原本的全部時段（整批取代不是清空）；逐頁籤加總驗證全量筆數（Reviewer 1 要求，D61 五頁籤）
+    // 右側是 seed fixture 的定義列數（R-192-2），不是被測函式的輸出。
+    expect(await displayedScheduleRowCount(page)).toBe(seedScheduleRowCount());
   });
 
   test('#81-3: 匯出 → 匯入 → 匯出，兩次匯出檔的**資料內容**一致（值層級冪等）', async ({ page }) => {
@@ -88,12 +122,7 @@ test.describe('#81：課表 Excel 全量匯出／匯入', () => {
     // 這裡比的是「資料」——把兩份檔案的資料列讀出來逐格對照。
     const first = await exportBuffer(page);
 
-    await page.locator('input[type="file"]').setInputFiles({
-      name: '課表.xlsx',
-      mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-      buffer: first,
-    });
-    await expect(page.locator('#toast')).toContainText('已匯入課表', { timeout: 15000 });
+    await importBuffer(page, first);
 
     const second = await exportBuffer(page);
 

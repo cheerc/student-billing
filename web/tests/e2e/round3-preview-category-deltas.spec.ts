@@ -1,6 +1,13 @@
-import { test, expect } from '@playwright/test';
+import { test, expect, type Page } from '@playwright/test';
 import ExcelJS from 'exceljs';
 import { XLSX_MIME } from './helpers/c-batch';
+import { selectClassTypeTab } from './helpers/d2c-settings';
+import {
+  SCHEDULE_COLUMNS,
+  mutateExport,
+  setRowClassType,
+  setRowMultiDiscount,
+} from './helpers/schedule-excel';
 
 /**
  * N02／R3-F01（issue #54；specs/04 §8 UX65）：
@@ -59,6 +66,45 @@ async function buildFiftyFiveStudentsWorkbook(): Promise<Buffer> {
   return Buffer.from(await wb.xlsx.writeBuffer());
 }
 
+/**
+ * 把「國小國語文-小五」由 none 改成 math。
+ *
+ * R-188-P2：D61 之後既有班級的**課程類型**沒有 UI 選單（既有列只有 YesNoRadioGroup），
+ * UI 可達的唯一路徑是 Excel 匯出入（UX106／UX109、09 §3.1）。因此這裡
+ * 匯出 → 改該班的「課程類型」欄為「數學班」→ 匯入。
+ *
+ * 為何不改「多科折扣 是→否」：那是 math→none 的反方向，95折→9折 的 expected 需重新獨立手算。
+ *
+ * 注意還必須同時把「是否有多科折扣」改成「是」：D61 的有效類別是
+ * `deriveEffectiveCategory(classType, hasMultiDiscount)` 的投影，`其他班` 匯出時該欄恆為「否」，
+ * 只改類型會得到 (math, 否) → 仍是 none，等於什麼都沒改。
+ */
+async function changeXiaowuToMathViaExcel(page: Page): Promise<void> {
+  await selectClassTypeTab(page, 'other');
+  await expect(classRowOf(page, '國小國語文-小五')).toBeVisible({ timeout: 15000 });
+
+  // 匯出 → 改兩欄 → 匯入。helper 回傳改過的列，斷言留在這裡：
+  // 若突變沒落在這個班（例如匯出格式改欄序），這裡會紅，而不是在 helper 裡紅。
+  const rows = await mutateExport(page, (exported) => {
+    setRowClassType(exported, '國小國語文-小五', '數學班');
+    setRowMultiDiscount(exported, '國小國語文-小五', true);
+  });
+  const changed = rows.filter((row) => row[SCHEDULE_COLUMNS.className]?.trim() === '國小國語文-小五');
+  expect(changed.length, '匯出檔裡應有「國小國語文-小五」的列').toBeGreaterThan(0);
+  for (const row of changed) {
+    expect(row[SCHEDULE_COLUMNS.classType], '匯出檔的課程類型欄應已改成數學班').toBe('數學班');
+    expect(row[SCHEDULE_COLUMNS.hasMultiDiscount], '匯出檔的多科折扣欄應已改成是').toBe('是');
+  }
+
+  await expect(page.locator('.save-status-dirty')).toBeVisible();
+}
+
+function classRowOf(page: Page, className: string) {
+  return page
+    .locator('tr.schedule-row', { has: page.locator(`input.input-classname[value="${className}"]`) })
+    .first();
+}
+
 test.describe('N02／R3-F01: 類別異動影響預覽科數與合計折扣明細', () => {
   test('只改類別（時段不動，天數差為 0）時，預覽呈現天數未變提示、聯集去重 2 人、科數明細（0→1, 2→3）與折扣明細（95折→9折）', async ({
     page,
@@ -85,14 +131,8 @@ test.describe('N02／R3-F01: 類別異動影響預覽科數與合計折扣明細
     await expect(page.locator('.save-status-clean')).toBeVisible();
 
     // 3. 把「國小國語文-小五」從「不列入折扣」（none）改為「數學班」（math）
-    // #80：同一班多列各有一份屬性下拉 → 收斂到第一列
-    const row = page
-      .locator('tr.schedule-row', { has: page.locator(`input.input-classname[value="國小國語文-小五"]`) })
-      .first();
-    await expect(row).toBeVisible();
-    await expect(row.locator('[data-category-select="國小國語文-小五"]')).toHaveValue('none');
-    await row.locator('[data-category-select="國小國語文-小五"]').selectOption('math');
-    await expect(page.locator('.save-status-dirty')).toBeVisible();
+    //    R-188-P2：走 Excel 匯出入（既有班級沒有課程類型 UI 選單）
+    await changeXiaowuToMathViaExcel(page);
 
     // 4. 開啟儲存確認視窗 (ImpactDialog)
     await page.locator('button', { hasText: '確認變更' }).click();
@@ -156,14 +196,8 @@ test.describe('N02／R3-F01: 類別異動影響預覽科數與合計折扣明細
     await expect(page.locator('h1', { hasText: '課表設定' })).toBeVisible({ timeout: 15000 });
     await expect(page.locator('.save-status-clean')).toBeVisible();
 
-    // 3. 修改「國小國語文-小五」為數學班
-    // #80：同一班多列各有一份屬性下拉 → 收斂到第一列
-    const row = page
-      .locator('tr.schedule-row', { has: page.locator(`input.input-classname[value="國小國語文-小五"]`) })
-      .first();
-    await expect(row).toBeVisible();
-    await row.locator('[data-category-select="國小國語文-小五"]').selectOption('math');
-    await expect(page.locator('.save-status-dirty')).toBeVisible();
+    // 3. 修改「國小國語文-小五」為數學班（R-188-P2：Excel 匯出入）
+    await changeXiaowuToMathViaExcel(page);
 
     // 4. 開啟確認視窗
     const openBtn = page.locator('button', { hasText: '確認變更' });
