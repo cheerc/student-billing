@@ -418,7 +418,9 @@ test.describe('R5 文案全頁掃描（09 §7）', () => {
     await (await startInput(page)).fill('14:50');
     await page.locator('button', { hasText: '確認變更' }).click();
     await expect(page.locator('dialog.impact-dialog [data-dialog-error]')).toBeVisible({ timeout: 15000 });
-    await scan(page, '課表設定｜確認變更視窗（空白星期，預覽失敗）', violations);
+    // 這裡是 route.fulfill 直接模擬 400 INVALID_DRAFT，並沒有真的清空星期、也不經 splitter；
+    // 標籤只描述被掃描的失敗態（伺服器拒絕無效草稿），不宣稱某個特定真實觸發條件（09 §7）。
+    await scan(page, '課表設定｜確認變更視窗（模擬草稿驗證失敗 400）', violations);
     await page.unroute('**/api/v1/settings/preview');
     await page.keyboard.press('Escape');
     await cancelEdits();

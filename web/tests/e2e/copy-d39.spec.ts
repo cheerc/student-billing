@@ -3,14 +3,16 @@ import {
   activateFixture,
   brokenXlsx,
   classRow,
+  classRows,
   duplicateCodeXlsx,
   missingHeadersXlsx,
+  openClassSchedule,
   openSchedule,
   xlsxUpload,
 } from './helpers/c-batch';
 
 /**
- * specs/04 UX32／09 §7（11 C；D39）：使用者實際會走到的四處定稿文案，加上 A 批遺留的預覽 400。
+ * specs/04 UX32／09 §7（11 C；D39）：使用者實際會走到的四處定稿文案，以及空白星期的 preview／儲存契約。
  *
  * 每個案例都走真實操作（上傳損毀檔、改課表、兩個視窗互相覆蓋…），不是只看靜態字串；
  * 工程代碼（INVALID_XLSX、INVALID_DRAFT…）只允許出現在可展開的「詳細資訊」裡，收合時看不到。
@@ -21,7 +23,6 @@ const FOOTER_TEXT = '整班重疊加總後，不足 0.3 天不扣、0.3～0.8 �
 const CORRUPT_TEXT = '無法讀取這個 Excel 檔案，請重新從米豆奶匯出後再上傳。';
 const MISSING_HEADERS_TEXT = '這個 Excel 檔案缺少必要的欄位，請確認是從米豆奶匯出的名單後再上傳。';
 const DUPLICATE_CODE_TEXT = '名單裡有重複的人員代碼（同一個人員代碼只能出現一列），請確認匯出的名單後再上傳。';
-const DRAFT_INVALID_TEXT = '課表有欄位還沒填好或格式不正確（例如星期沒有填）。請先回到課表修正，再按「確認變更」。';
 const CONFLICT_TEXT = '資料已更新（例如在另一個視窗儲存了課表）。請重新整理頁面，再重新確認變更。';
 const EXPIRED_TEXT = '預覽已逾期，請關閉視窗後重新按「確認變更」。';
 const FAILED_TEXT = '暫時無法完成，請稍後再試；您的修改還在畫面上，沒有遺失。';
@@ -158,34 +159,91 @@ test.describe('UX32 D39 (1) 課表影響預覽：單位是「人」', () => {
   });
 });
 
-test.describe('UX32 A 批遺留：預覽失敗在確認視窗裡白話呈現（不外露工程字、不假裝沒有變更）', () => {
+test.describe('UX32／D-1：空白星期成功預覽與確認視窗錯誤白話呈現', () => {
   const dialogOf = (page: Page) => page.locator('dialog.impact-dialog');
   const errorOf = (page: Page) => dialogOf(page).locator('[data-dialog-error]');
 
-  test('空白星期按「確認變更」：預覽回 400 → 白話說明；代碼與原始訊息在詳細資訊；不顯示 0 人／未改變，主按鈕不可按', async ({ page }) => {
+  test('空白星期的時段進 incompleteSessions：preview 回實際影響、可儲存並在 reload 後保留', async ({ page }) => {
+    // 此測試明確啟用匿名合成名單；保留原有「有學生」路徑，並以 Chevady 班實測有實際天數變動，
+    // 不把 `affectedStudents: 0`／「未改變」偽裝成 settings_only。該語意另由 response.mode 驗證。
     await activateFixture(page);
-    await openSchedule(page);
-    const row = classRow(page, '兒童美語-Gino');
-    await row.locator('input.input-weekday').fill('');
+    await openClassSchedule(page, '兒童美語-Chevady');
+    const row = classRow(page, '兒童美語-Chevady');
+    const weekday = row.locator('input.input-weekday');
+    const times = row.locator('input.input-time');
+    const originalWeekday = await weekday.inputValue();
+    const originalStart = await times.nth(0).inputValue();
+    const originalEnd = await times.nth(1).inputValue();
+    expect(originalWeekday).not.toBe('');
+    expect(originalStart).not.toBe('');
+    expect(originalEnd).not.toBe('');
+
+    await weekday.fill('');
     await page.waitForTimeout(500);
 
-    const previewResponse = page.waitForResponse((r) => r.url().includes('/api/v1/settings/preview'));
+    const previewRequest = page.waitForRequest(
+      (request) => request.url().includes('/api/v1/settings/preview') && request.method() === 'POST'
+    );
+    const previewResponse = page.waitForResponse(
+      (response) => response.url().includes('/api/v1/settings/preview') && response.request().method() === 'POST'
+    );
     await page.locator('button', { hasText: '確認變更' }).click();
-    expect((await previewResponse).status()).toBe(400);
+    const [request, response] = await Promise.all([previewRequest, previewResponse]);
+    expect(response.status()).toBe(200);
 
-    await expect(dialogOf(page)).toBeVisible({ timeout: 15000 });
-    await expect(errorOf(page)).toBeVisible();
-    await expect(errorOf(page)).toHaveAttribute('role', 'alert');
-    await expectPlainErrorWithDetails(errorOf(page), DRAFT_INVALID_TEXT, 'INVALID_DRAFT', ENGINEERING);
+    const requestBody = JSON.parse(request.postData() ?? '{}');
+    const changedClass = requestBody.draft.classes.find(
+      (item: { baseName: string }) => item.baseName === '兒童美語-Chevady'
+    );
+    expect(changedClass).toBeDefined();
+    const toMinutes = (value: string) => {
+      const [hours, minutes] = value.split(':').map(Number);
+      return hours * 60 + minutes;
+    };
+    expect(changedClass.incompleteSessions).toContainEqual(
+      expect.objectContaining({
+        weekday: '',
+        startMinutes: toMinutes(originalStart),
+        endMinutes: toMinutes(originalEnd),
+      })
+    );
+    expect(changedClass.sessions).not.toContainEqual(
+      expect.objectContaining({
+        weekday: '',
+        startMinutes: toMinutes(originalStart),
+        endMinutes: toMinutes(originalEnd),
+      })
+    );
 
-    // 沒有預覽結果時，不得宣稱「受影響 0 人」或「本次課表變更未改變現行學生的收費天數」
-    const shown = await visibleText(dialogOf(page));
-    expect(shown).not.toContain('未改變現行學生的收費天數');
-    expect(shown).not.toContain('受影響學生數');
-    await expect(dialogOf(page).getByRole('button', { name: /^儲存/ })).toBeDisabled();
-    // 可以回去修改
-    await dialogOf(page).getByRole('button', { name: '繼續編輯' }).click();
-    await expect(dialogOf(page)).toHaveCount(0);
+    const preview = await response.json();
+    expect(preview.mode).toBe('with_students');
+    expect(preview.affectedStudents).toBeGreaterThan(0);
+    expect(preview.dayDeltas.length).toBeGreaterThan(0);
+
+    const dialog = dialogOf(page);
+    await expect(dialog).toBeVisible({ timeout: 15000 });
+    const impactCard = dialog.locator('.metric-card', { hasText: '受影響學生數' });
+    await expect(impactCard.locator('.metric-value')).toHaveText(`${preview.affectedStudents} 人`);
+    const shown = await visibleText(dialog);
+    expect(shown).not.toContain('尚未匯入學生');
+    expect(shown).not.toContain('本次課表變更未改變現行學生的收費天數');
+
+    const save = dialog.getByRole('button', { name: '儲存並更新結果' });
+    await expect(save).toBeEnabled();
+    await save.click();
+    await expect(page.locator('#toast')).toContainText('課表已', { timeout: 30000 });
+
+    await page.reload();
+    await expect(page.locator('h1', { hasText: '課表設定' })).toBeVisible({ timeout: 15000 });
+    const persistedRows = await classRows(page, '兒童美語-Chevady').all();
+    const persistedSlots = await Promise.all(
+      persistedRows.map(async (savedRow) => ({
+        weekday: await savedRow.locator('input.input-weekday').inputValue(),
+        start: await savedRow.locator('input.input-time').nth(0).inputValue(),
+        end: await savedRow.locator('input.input-time').nth(1).inputValue(),
+      }))
+    );
+    expect(persistedSlots).toContainEqual({ weekday: '', start: originalStart, end: originalEnd });
   });
 
   test('預覽伺服器錯誤（500）：白話說明「稍後再試、修改還在」，原始錯誤在詳細資訊', async ({ page }) => {
