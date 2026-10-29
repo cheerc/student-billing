@@ -202,12 +202,20 @@ npm run test:e2e:isolated -- tests/e2e/schedule-grid-workflow.spec.ts
 
 ### Phase 3（PR-3）：C 族 4 案例（幾何前提改到排課頁籤）
 
-**分支**：`fix/issue-188-e2e-geometry-tab`
+**分支**：`fix/issue-188-phase-3-e2e-geometry-tab`（實際使用；本計畫初稿寫的 `fix/issue-188-e2e-geometry-tab` 不是實際分支名）
 **審查等級**：`single`
 
-- `schedule-header-seam.spec.ts:124-170`：在 `page.goto` 之後以 `openClassSchedule(page,'兒童美語-Gino')` 進入排課表（才有兩層表頭與可垂直捲動的 52 列）。`scrollTableToEnd` 與 `measureSeam` 不變；`>200` 的垂直捲動前提在排課表成立（實測 `maxTop=2131`）。
+- `schedule-header-seam.spec.ts:124-170`：把 `page.goto('/settings')` 換成 `openClassScheduleFull(page,'兒童美語-Gino')`，進入**整張**排課表（兩層表頭 ＋ 可垂直捲動的 52 列，實測 `maxTop=2131`）。`scrollTableToEnd` 與 `measureSeam` 不變；`>200` 的垂直捲動前提在排課表成立。
 - `schedule-sticky-header.spec.ts:10-120`：同樣先切到排課表；`.col-group-anqin`／`.col-group-tutoring`（`schedule-grid.tsx:902,905`）與安親窗口標題定位因此可解析。**不得**改成對安親表做等價斷言——安親表本來就沒有這些群組表頭，也沒有垂直捲動。
 - 兩個檔的檔頭註解補一行「本案例的前提是排課頁籤；安親頁籤無時段欄與垂直捲動」。
+
+> **本段原句修正（Phase 3 實作時發現，出口是 PR #195）**：本計畫初稿寫的是「以 `openClassSchedule(page,'兒童美語-Gino')` 進入排課表（才有兩層表頭與可垂直捲動的 52 列）」。那是**錯的**，而 `openClassScheduleFull` 才是對的入口，原因如下（不是措辭問題，是行為差異）：
+>
+> - `openClassSchedule` 走 `?class=` 深連結（`web/tests/e2e/helpers/c-batch.ts:67-72`）。`settings/page.tsx` 把它讀成 `focusClass`（`src/app/settings/page.tsx:19` 起）並傳進 `SettingsEditor`／`ScheduleGrid`。`focusActive` 時 `filteredRows` 只留該班的列（`src/components/settings/schedule-grid.tsx:216-225`），畫面因此是**聚焦模式**。
+> - 實測（1440×900、`兒童美語-Gino`）：`?class=` 深連結 → 3 列、`maxTop=0`、聚焦橫幅「只顯示班級「兒童美語-Gino」的全部時段（3 個時段）」；`openClassScheduleFull` → 52 列、`maxTop=2131`、無聚焦橫幅。
+> - 所以照初稿字面寫，4 案仍紅（`maxTop`／垂直捲動前提 `Expected: > 200, Received: 0`）；而 `openClassScheduleFull`（`c-batch.ts:86-95`：不帶深連結、只切頁籤）才會出現 52 列。兩種入口都實跑驗證過。
+>
+> **這兩檔對 seed 的依賴**：`52 列`／`maxTop=2131` 是 `兒童美語-Gino` 在 seed 下的排課表規模。seed 若縮水到垂直捲動不足 200px，案例會以同一個「應可垂直捲動」訊息紅——這是**預期**的失敗（前提不再成立時不該假綠），不是 flake。要調整門檻必須先改本行與產品前提，不可在 spec 內放寬。
 
 **驗收**
 
@@ -218,7 +226,7 @@ npm run test:e2e:isolated -- tests/e2e/schedule-sticky-header.spec.ts
 ```
 
 - 期望 4 案全綠；接縫帶 `leakedPixels === 0`、兩列相接前提 `<=1px` 不得放寬。
-- Mutation：把 `openClassSchedule` 換回 `page.goto('/settings')` → 4 案必須重新紅。
+- Mutation：把 `openClassScheduleFull` 換回 `page.goto('/settings')` → 4 案必須重新紅（實測：`Expected: > 200, Received: 0`）。
 
 ---
 

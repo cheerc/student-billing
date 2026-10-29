@@ -26,11 +26,24 @@ import { classesToGridRows, gridRowsToClasses, buildSeedGridRows } from '@/contr
  */
 
 /**
- * 匯出檔的資料列數：`classesToGridRows(gridRowsToClasses(seed))`。
+ * `appRowCount()`：對 **seed fixture** 求值得到的列數
+ * （`classesToGridRows(gridRowsToClasses(buildSeedGridRows()))`，本 tree 89）。
  *
- * 本 tree 實測三者分別是 `buildSeedGridRows()` 89、`gridRowsToClasses()` 49、
- * `classesToGridRows(...)` 89 —— 來回轉換不改變列數（含「國小數學-一B」的 2 列空時段，
- * 轉換後仍是 2 列）。這個函式只給「匯出檔應該有幾列」用，不要拿它當畫面的列數（見下）。
+ * ⚠️ 這**不是**「實際匯出的列數」。匯出的 payload 是元件內的 `rows` state
+ * （`settings-editor.tsx:752-768`）；`rows` 的**初始值**才來自
+ * `classesToGridRows(initialDraft.classes)`（`:246-252`），之後會被 5 個 `setRows` 改寫：
+ * 改列 `:669`、刪列 `:687`、加列 `:705`、匯入整批取代 `:828`（#81-2／#81-3 走的正是這條）、
+ * 還原 `:853`。所以 `#81-3` 的 `toBe(appRowCount())` 只在「未經編輯的 seed 起點」成立；
+ * 真正的冪等保證是緊接的 `toEqual(readScheduleRows(first))`，前者對「第二份匯出有沒有
+ * 跟著 rows 走」鑑別力很弱（N1）。
+ *
+ * 本 tree 兩者同值，但那只成立在**初始值**這一層：`rows` 的初始值由 `buildSeedDraft()` 產生，
+ * 而它內部同樣呼叫 `buildSeedGridRows()`（`settings-repository.ts:266`）。seed fixture 的
+ * 89 列／49 班由 `tests/unit/settings-grid-model.test.ts:100-101` 守住；一旦 rows 被編輯，
+ * 匯出內容就不再對應 seed 的這 89 列。
+ *
+ * 本 tree 實測 `buildSeedGridRows()` 89、`gridRowsToClasses()` 49、`classesToGridRows(...)` 89
+ * —— 來回轉換不改變列數（含「國小數學-一B」的 2 列空時段，轉換後仍是 2 列）。
  */
 function appRowCount(): number {
   const seed = buildSeedGridRows();
@@ -50,9 +63,11 @@ function seedScheduleRowCount(): number {
 /**
  * 畫面五個頁籤的時段列數加總。
  *
- * 與 `appRowCount()`（匯出檔列數）不可互相比較：安親頁籤的列數是 `displayedTabRows` 的結果
- * （`schedule-grid.tsx` 對 care／unscheduled 每班去重 1 列），匯出檔的列數則是 seed 的平鋪時段數。
- * 本 tree 兩者同為 89（seed 的 8 個安親班各只有 1 列）。
+ * 與 `seedScheduleRowCount()` 比對，不與匯出檔的列數比：安親頁籤的列數是 `displayedTabRows`
+ * 的結果（`schedule-grid.tsx` 對 care／unscheduled 每班去重 1 列），右側是 seed fixture
+ * 的定義列數。兩者是「畫面 vs fixture」，本 tree 同為 89（seed 的 8 個安親班各只有 1 列）。
+ * （匯出檔實際列數取決於 `rows` state，見 `appRowCount()` 的說明——不要拿 `appRowCount()`
+ * 當這條斷言的另一端。）
  */
 const SCHEDULABLE_TABS: ClassTypeTab[] = ['english', 'math', 'other', 'unscheduled'];
 
