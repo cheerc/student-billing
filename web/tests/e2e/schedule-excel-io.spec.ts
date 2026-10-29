@@ -50,10 +50,9 @@ function seedScheduleRowCount(): number {
 /**
  * 畫面五個頁籤的時段列數加總。
  *
- * 與 `appRowCount()`（匯出檔列數）不可互相比較：安親頁籤每班只顯示 1 列
- * （`schedule-grid.tsx` 的 `displayedTabRows` 對 care／unscheduled 去重），
- * 而匯出檔對每個安親班仍是一列（seed 的 care 班本來就只有一列）。兩者本 tree 都是 89，
- * 但那是 fixture 的巧合，不是同一條規則推出來的。
+ * 與 `appRowCount()`（匯出檔列數）不可互相比較：安親頁籤的列數是 `displayedTabRows` 的結果
+ * （`schedule-grid.tsx` 對 care／unscheduled 每班去重 1 列），匯出檔的列數則是 seed 的平鋪時段數。
+ * 本 tree 兩者同為 89（seed 的 8 個安親班各只有 1 列）。
  */
 const SCHEDULABLE_TABS: ClassTypeTab[] = ['english', 'math', 'other', 'unscheduled'];
 
