@@ -1,6 +1,6 @@
 # 17 班名同步（Class Name Sync）重構計畫
 
-> 狀態：**計畫草稿（Plan）**，待 Coordinator／Operator 核可；尚未實作。
+> 狀態：**計畫（Plan）**；Operator 已於 2026-10-29 裁決 Q1–Q4（§6）；尚未實作。
 > 依據：2026-10-29 Operator 於 planner session 的直接需求（原文摘要見 §1.1）。
 > 基準：`origin/main` @ `99b6bcb`（D61 Phase 3 已合併）。
 > 本檔是**執行計畫**，不定義計費規則；契約變更於各 Phase 同步寫入 06（新決策列）、09 §3.3、04 §8。
@@ -42,7 +42,7 @@
 
 **In scope**
 - 新 read model：以**名稱完全相同**判定一致；經別名才連上的視為「不一致（有舊對應）」。
-- 單一「班名同步」頁籤（取代「班名對應」）：一張差異表，每列兩個動作——［同步到既有班級］／［新增為課表班級］，支援勾選批次同步「有舊對應建議」的列。
+- 單一「班名同步」頁籤（取代「班名對應」）：一張差異表，每列兩個動作——［同步到既有班級］／［新增為課表班級］；**逐列由使用者檢視、選擇、確認，不提供一鍵全部合併**（Operator Q1 裁決）。
 - 同步＝草稿中把系統班整班改名為米豆奶班名＋清理相關別名；經既有影響預覽與儲存交易落地。
 - 移除重複呈現 A、B、C；D、E 收斂為一行摘要＋連結至「班名同步」。
 - 修正改名時屬性搬移的潛在缺口（見 §5 R2），並以測試鎖定「同步不改變計費結果」。
@@ -52,8 +52,10 @@
 - 不直接寫入／修改米豆奶或名冊資料；不以米豆奶覆蓋系統任何欄位（D17、需求 5）。
 - 不做模糊比對或自動建議（D32-C、CLAUDE.md 別名政策）；唯一的預選來源是**使用者過去建立的別名**（人類決定，非推測）。
 - 不改計費規則（02）、不改 run 快照與 11 條 API 的路由清單（D60-6）。
-- 不移除計算端別名支援、不寫 migration 刪除既有 alias 資料（見 §6 Q1）。
-- 不新增「以既有班級為範本複製時段」功能（見 §6 Q3）。
+- 不移除計算端別名支援、不處理舊資料、不寫任何 data migration（Operator Q2 裁決）。
+- 不新增「以既有班級為範本複製時段」功能（Operator Q3 裁決）。
+- 不提供「略過／隱藏／暫時對應」：使用者不處理的列就一直留在清單（Operator Q1 裁決）。
+- 不提供批次／一鍵全部同步（Operator Q1 裁決）。
 
 ---
 
@@ -79,7 +81,6 @@
 
 | 欄 | 內容 |
 |---|---|
-| ☐ | 只有「有舊對應」的列可勾（批次同步用） |
 | 米豆奶班名 | 名冊原文 baseName，粗體 |
 | 學生 | `N 位（M 筆）` |
 | 現況 | `pill warn`「未對應課表」（計費會出 `CLASS_NOT_MAPPED`）／`pill`「經舊對應連到「X」」（計費已正確，只是名稱不同） |
@@ -99,7 +100,9 @@
 - 排課類型自動建立一列「星期未定、時間未填」→ 觸發既有 1c 待補時間警示（UX108），允許先存檔。
 - 暫存後列上提供「到課表填時段 →」（切到課表頁籤並以 `focusClass` 定位）。
 
-**批次**：勾選後出現動作列「同步已勾選的 N 個班名到其舊對應」；只適用有舊對應的列（其目標已由人過去決定），仍經 ImpactDialog。
+**不處理就保留**：沒有略過、隱藏或「不需要」按鈕。例如「交通車」若從未加入課表（可能本來就不需要），它每次都會留在差異表，等使用者哪天選擇同步或新增。差異表是每次依名冊與已儲存課表重新計算的結果，不保存「已略過」狀態。
+
+**不提供批次**：每一列都要使用者逐一檢視、選目標、按［暫存同步］，再經 ImpactDialog 確認；沒有一鍵全部合併。
 
 **ImpactDialog**：新增「班名同步」區塊列出本次 `X → Y` 改名與新增班級（由 `classLifecycle.renames/news` 推得，純前端）。
 
@@ -169,7 +172,8 @@ stageClassNameSync(
 2. `pending-classes.ts`／`imports/preview/route.ts`：匯入預覽的「待確認」改用同一 read model 的 `mismatches`（消除兩條判定路徑）；`pendingClasses` 回應欄位的去留——先 `grep` 03 §API 與所有 consumer，若僅 `imports-workflow.tsx` 使用，在 P3 移除 UI 時一併移除，P1 先保持值語意不變（Ruling R-5）。
 3. 新增 `domain/schedules/class-name-sync.ts`（§3.2）。
 4. 修補 `carryAttributesOnRename`：`from` 不在 `manualAttrs`／baseline map 時目前直接 `continue`（`class-attributes.ts:249-250`），新名會以 `resolveClassAttributes(to)` 重新解析而**遺失課程類型**。改為以 `resolveClassAttributes(from, 已儲存設定)` 作為來源後再搬移（實作者先寫 RED 確認可達性：以 baseline 中無 classType 的已存班改名；若證實不可達，於 PR 記錄實驗並改為守門測試，不改碼）。
-5. 06 新增決策列（建議編號 D62，**待 Operator 確認文字**）記錄 §1.1 需求與 R-1～R-6 Ruling；03 §5.2.4 報告契約改寫。
+5. 06 新增 **D62**（Operator 已同意編號），記錄 §1.1 需求、§6 的 Q1–Q3 裁決與 R-1～R-6 Ruling；03 §5.2.4 報告契約改寫。
+6. 根目錄 `CLAUDE.md`（見 §4.1 的 C1、C2）。
 
 **測試（RED 先行；預期值依規格手算，不得取函式輸出當 golden）**
 - `tests/integration/d1-class-name-match-report.test.ts`（改寫或新增 `class-name-sync-report.test.ts`）：
@@ -200,20 +204,22 @@ npm run typecheck && npm run lint
 3. `app/settings/page.tsx`：`?tab=sync`；`?tab=mapping` 視為 `sync`（舊連結相容）；移除 `classifyErpDualTrack`／`candidates` 的 SSR 計算。
 4. `schedule-grid.tsx`：刪除 roster-only `<details>` 表與 `pendingRosterOnlyClass` 路徑，改為 §2.1 單行橫幅（`onGoToSync` callback）。
 5. `impact-dialog.tsx`：新增「班名同步」區塊（renames／news）。
-6. 09 §3.3 改寫為「班名同步」；04 §8 改寫 UX46、UX70、UX95、UX109 並新增 UX110～（同步／新增／批次／橫幅／舊連結相容），刪除不再成立的「待確認米豆奶班名」敘述（以 `grep -rn "待確認米豆奶班名\|班名對應" specs CLAUDE.md` 反向掃描，見 memory「PR 廢除行為時要反向掃描全 repo」）。
+6. 09 §3.3 改寫為「班名同步」；04 §8 改寫 UX46、UX70、UX95、UX109 並新增 UX110～（同步／新增／未處理列持續保留／橫幅／舊連結相容），刪除不再成立的「待確認米豆奶班名」敘述（以 `grep -rn "待確認米豆奶班名\|班名對應" specs CLAUDE.md` 反向掃描，見 memory「PR 廢除行為時要反向掃描全 repo」）。
 
 **測試（RED 先行）**
 - Unit（`tests/unit/class-name-sync-panel.test.tsx` 或沿用 `settings-schedule-grid-ui.test.ts` 的 render 方式）：
-  - 報告含 乙(legacy X)、丙(null) → 兩列；乙列可勾、丙列不可勾；乙的同步下拉預選 X 並標「（舊對應）」，丙的下拉為空。
+  - 報告含 乙(legacy X)、丙(null) → 兩列（無勾選框）；乙的同步下拉預選 X 並標「（舊對應）」，丙的下拉為空。
   - 選 X 暫存 → 列顯示「已暫存：X → 乙」、isDirty=true、X 從其他列候選消失；［復原］→ 回原狀且非 dirty。
   - 丁→X 也存在 → 確認區顯示丁的警示文字。
   - ［新增為課表班級］選「不排課」→ rows 新增一班、名稱=丙、無時段；選「美語班」→ 一列星期未定、1c 警示類別成立。
   - 報告刷新中 → 所有動作 disabled。
+  - 未處理的列（例：交通車）在儲存其他列的同步後、重新載入後仍留在差異表；畫面上不存在略過／隱藏／全部同步類控制項。
 - 改寫：`tests/unit/settings-editor-candidates-sync.test.ts`、`tests/unit/settings-ux-dirty-candidates.test.ts`、`tests/unit/settings-schedule-grid-ui.test.ts`（roster-only 段落改為橫幅）。
 - E2E（目標檔，`npm run test:e2e:isolated -- <file>` 逐檔）：
   - 新 `tests/e2e/class-name-sync.spec.ts`：上傳合成名冊 → 班名同步頁看到不一致 → 同步乙到 X → 確認變更 → ImpactDialog 列出「X → 乙」→ 儲存 → 重載後乙不在差異表、課表有「乙」班且時段同 X、核對結果頁乙的學生天數與同步前相同。
   - 同檔：新增「交通車」為不排課 → 儲存 → 退出差異表、核對結果無 `CLASS_NOT_MAPPED`（取代 UX109 舊旅程）。
   - 同檔：`/settings?tab=mapping` 開到班名同步頁籤。
+  - 同檔：只同步乙、不處理丙 → 儲存並重載 → 丙仍在差異表。
   - 改寫或刪除：`class-name-report.spec.ts`、`issue-157-pr2-roster-settings.spec.ts`、`round3-mapping-candidates-sync.spec.ts`、`report-refresh-recovery.spec.ts`；檢查並更新選擇器：`a11y.spec.ts`、`responsive.spec.ts`、`copy-scan.spec.ts`、`copy-d39.spec.ts`、`d2b-class-category.spec.ts`、`settings-preview-apply.spec.ts`、`cancel-calculate-race.spec.ts`、`recovery-ui.spec.ts`（以 `grep -ln "班名對應\|tab=mapping\|mapping-table\|roster-only\|class-name-report" tests/e2e` 為準）。刪除／新增 spec 前先讀 `web/tests/e2e/CLAUDE.md`。
 
 **驗證命令**
@@ -231,9 +237,22 @@ npm run test:e2e:isolated -- tests/e2e/class-name-sync.spec.ts
 **交付**
 1. `imports-workflow.tsx`：刪除「本次匯入名冊中發現 N 個班名待確認…」alert；`class-name-report-summary.tsx` 改為單卡「名冊有 N 個班名與課表不一致（其中 M 個尚未對應，影響 K 位學生）」＋「前往班名同步 →」。`pendingClasses` 欄位依 P1 Ruling 處理。
 2. `active-run-view.tsx:687` 連結改 `/settings?tab=sync`、文字「前往班名同步」；`lib/issue-copy.ts:23,27` 文案改用「班名同步」。
-3. 04 UX47 改寫；`copy-scan`／`copy-d39` 的禁用詞或期望文案同步。CLAUDE.md 若有「班名對應」使用者面詞彙（目前 §1 提「別名映射 (Alias) 維護」），依 project-docs-maintain 更新一句。
+3. 04 UX47 改寫；`copy-scan`／`copy-d39` 的禁用詞或期望文案同步。
+4. 根目錄 `CLAUDE.md`（見 §4.1 的 C3）。
 
 **測試**：`tests/e2e/imports.spec.ts`（摘要卡數字：依合成 fixture **手動盤點**後填入，不得由函式輸出反推；現 UX47 錨點為 12 班／191 位為舊「別名算已對應」口徑，嚴格同名後需重新盤點）、`copy-scan.spec.ts`、`copy-d39.spec.ts`；unit：`issue-copy` 若有測試一併。
+
+### 4.1 根目錄 `CLAUDE.md` 變更（Operator 要求列入計畫）
+
+> 以 `grep -n "alias\|別名\|班名對應\|班名比對\|D01–D6" CLAUDE.md` 為準（2026-10-29 @ `99b6bcb` 只命中第 17、38 行）。實作時再反向掃描一次，新命中處一併處理。
+
+| # | Phase | 位置 | 變更 |
+|---|---|---|---|
+| C1 | P1 | §2 第 1 層（第 38 行） | `D01–D61` → `D01–D62`，並在列舉末尾加「D62 班名同步：以米豆奶班名為準、逐列人工合併或新增」 |
+| C2 | P1 | §2 第 3 層「執行計畫」清單 | 新增一條 `specs/17-class-name-sync-plan.md`（班名同步重構：嚴格同名比對、逐列同步／新增、不建立新別名；授權來源為 2026-10-29 operator D62 裁決） |
+| C3 | P3 | §1 P1 核心功能（第 17 行） | 「別名映射 (Alias) 維護」改為「班名同步（以米豆奶班名為準，逐列合併至既有班級或新增為課表班級）」；說明既有別名仍由計算端讀取、UI 不再建立新別名 |
+
+驗證：`grep -n "D01–D62\|17-class-name-sync-plan\|班名同步" CLAUDE.md` 各至少命中一次；`grep -n "別名映射" CLAUDE.md` 在 P3 後無命中。
 
 ---
 
@@ -243,11 +262,11 @@ npm run test:e2e:isolated -- tests/e2e/class-name-sync.spec.ts
 |---|---|---|
 | R1 | 同步改名改變計費（班名是計費鍵，`run_class_categories` 以名冊班名為 key） | P1 計費不變式整合測試（逐學生比對）；ImpactDialog 照實顯示受影響學生 |
 | R2 | 改名時屬性遺失（`carryAttributesOnRename` 的 `continue` 分支）或觸發依班名的 seed 預設（`billing-calculator.ts:144`、`contracts/settings.ts:259`、`schedule-grid.tsx:130`） | P1 第 4 項 RED 測試；儲存後時段必帶明確 `skipDeduction` |
-| R3 | 全部舊別名班一次變「不一致」，使用者面對大量列 | 摘要分「未對應（影響計費）」與「有舊對應（僅名稱）」；批次同步舊對應；未對應排前 |
+| R3 | 全部舊別名班一次變「不一致」，使用者面對大量列 | 摘要分「未對應（影響計費）」與「有舊對應（僅名稱）」；有舊對應的列預選舊目標以減少操作，但仍逐列確認（不提供批次，Q1 裁決）；未對應排前 |
 | R4 | 刪別名導致其他米豆奶班名 Z 失去對應 | 確認區事前警示；ImpactDialog 事後顯示 |
 | R5 | 米豆奶誤植被同步進課表 | 同步永遠需人工選目標＋兩段確認；不做自動／模糊建議；同步前可［復原］，儲存後可再改名（既有改名流程） |
 | R6 | 舊連結 `?tab=mapping` 失效 | 相容映射＋E2E |
-| R7 | 報告過期仍可操作 | 沿用 UX46 鎖定序列，差異表與批次列都鎖 |
+| R7 | 報告過期仍可操作 | 沿用 UX46 鎖定序列，差異表所有動作都鎖 |
 | R8 | 11 條 API 契約漂移 | 路徑與查詢參數不變，只改回應形狀；03 同步更新 |
 
 Rollback：每個 Phase 獨立 squash commit，可單獨 revert；無 migration、無資料寫入格式變更（草稿 `classes`／`aliases` 結構不變）。
@@ -265,8 +284,9 @@ Rollback：每個 Phase 獨立 squash commit，可單獨 revert；無 migration�
 - R-6：P1 須讓舊 UI 仍綠；做不到則 P1+P2 合併並說明 — 避免 main 出現壞掉的中間態。
 - R-7：計畫檔編號 17 — CLAUDE.md 引用的 `specs/15-*`、`specs/16-*` 在 `origin/main` 不存在（`git ls-files specs` 僅有 14），為避免撞號保留 15／16。此缺檔另行回報，不在本計畫修。
 
-**待 Operator 決定（不擋 P1；擋對應項目）**
-- Q1：UI 不再提供「建立新別名」。米豆奶班名若確定誤植、但又不想把課表改成錯字時，目前只剩「維持不一致（計費會 CLASS_NOT_MAPPED）」。是否需要保留「暫時對應（不改名）」逃生口？**預設：不保留**（需求 4 明說合併後必須是米豆奶班名）。
-- Q2：所有舊別名同步完後，是否另案移除計算端別名支援與資料（migration）？**預設：另案，本計畫不做。**
-- Q3：「新增為課表班級」是否需要「以既有班級為範本複製時段」？**預設：不做**，先觀察使用量。
-- Q4：06 新決策列編號與措辭（建議 D62）由 Operator 確認。
+**Operator 裁決（2026-10-29）**
+- Q1（不建立新別名；誤植怎麼辦）：**使用者不執行合併即可**。合併是使用者逐一檢視、選擇班級、按下合併，不是一個按鈕全部合併；不合併的班名每次都會留在清單中，等待合併或建立到課表（例：交通車可能根本不需要加入，就一直留著）。→ 不提供暫時對應、略過、隱藏或批次同步。
+- Q2：**不需處理舊資料，也不做 data migration。** 計算端別名支援維持現狀。
+- Q3：**不做**範本複製時段。
+- Q4：**同意** 06 新增 D62。
+- 另：`CLAUDE.md` 若需修改，必須列入本計畫（見 §4.1）。
