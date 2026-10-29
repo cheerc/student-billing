@@ -27,6 +27,40 @@ npm run test:e2e:isolated -- tests/e2e/issue-158-discount-explanation.spec.ts
 
 Targeted checks are fine while iterating; report them as targeted, not "full E2E PASS".
 
+## Schedule grid: always enter through the tab-aware helpers (D61 / Issue #188)
+
+D61 turned the schedule settings into **one table per class-type tab** (安親課輔班／美語班／數學班／其他班／不排課).
+The default tab is **安親課輔班, which has no time-slot columns** — `input.input-time` and
+`input.input-weekday` simply do not exist there. Any spec that touches a slot must therefore
+navigate with a helper, never by pointing at the first match on the page:
+
+```ts
+import { classRow, openClassSchedule, openClassScheduleViaHome, startInput } from './helpers/c-batch';
+
+const row = await openClassSchedule(page, '兒童美語-Gino'); // ?class= deep link + correct tab, returns first row
+const row2 = await openClassScheduleViaHome(page, '兒童美語-Gino'); // keeps `/` in history (Back / leave guard)
+const start = startInput(page); // default = 兒童美語-Gino first row (the old `tbody tr nth(3)` meaning)
+row.locator('input.input-weekday').fill('八');
+```
+
+Rules:
+
+- **Never** locate schedule rows with `">.schedule-table tbody tr').nth(n`" or with `input.input-time`/`input.input-weekday` `.first()`.
+  Row order depends on the active tab and the search/weekday filters; `.first()` on the default tab matches nothing at all.
+- Locate a class by its stable name: `classRow(page, name)` (first row) or `classRows(page, name)` (all slots).
+  If the class is not on the current tab, `ensureClassTypeTab(page, name)` clicks `#class-type-tab-*` and waits.
+- Use `openClassScheduleViaHome` whenever the test depends on browser history; `page.goto` replaces the
+  current entry, so a deep link would remove the page that `goBack()` is supposed to return to.
+- `tests/unit/e2e-conventions.test.ts` enforces these rules statically (49-spec inventory, no obsolete literals,
+  slot-touching specs must import a row helper). Update it together with any new convention.
+- Removed selectors: `data-category-select` was replaced by `YesNoRadioGroup`; `schedule-table-non-care` no longer exists.
+
+## Isolated runner: use your own port when another session is running E2E
+
+`npm run test:e2e:isolated` defaults to port 3100 and **fails immediately** when the port is taken
+(`http://127.0.0.1:3100 is already used`). That is often another worktree's session, not a test failure.
+Pick a free port instead of killing the other run: `npm run test:e2e:isolated -- --port 3122 tests/e2e/<file>.spec.ts`.
+
 ## Isolation, security, evidence
 
 - Every spec uses `web/scripts/e2e-isolated.ts`: fresh server at `127.0.0.1:3100` + temporary SQLite under `os.tmpdir()` (not port 3000, not `data/app.sqlite`). No `--shared` for full gate.

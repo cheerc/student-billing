@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { classRow, openClassSchedule } from './helpers/c-batch';
 
 /**
  * UX08（specs/04 §8）：改時段後，舊回應晚到 → 最新一次請求的結果才可顯示，不被晚到的舊回應覆蓋。
@@ -13,10 +14,7 @@ import { test, expect } from '@playwright/test';
  *   課輔重疊 16:50−16:30 = 20 分，不受起始時間影響。
  */
 test('UX08: 舊的 calculate 回應晚到，畫面仍採用最新請求的結果', async ({ page }) => {
-  await page.goto('/settings');
-  await expect(page.locator('h1', { hasText: '課表設定' })).toBeVisible({ timeout: 10000 });
-
-  const row = page.locator('.schedule-table tbody tr').nth(3); // 兒童美語-Gino 週一 15:20–16:50
+  const row = await openClassSchedule(page, '兒童美語-Gino');
   // 以欄位意義定位，不用 td 索引（#80 前段插入兩欄後，舊 nth(5) 會指到 col-time）
   const overlapAnqin = row.locator('[data-calc="anqin-overlap"]');
   await expect(overlapAnqin).toHaveText(/40/); // 初始結果（seed 課表）

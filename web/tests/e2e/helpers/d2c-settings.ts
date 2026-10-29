@@ -1,4 +1,4 @@
-import { expect, type Page } from '@playwright/test';
+import { expect, type Locator, type Page } from '@playwright/test';
 import { buildSeedDraft } from '../../../src/adapters/sqlite/settings-repository';
 
 /** 只透過正式 preview／apply 與 revision CAS 還原合成課表，不讀寫 DB 檔。 */
@@ -73,3 +73,35 @@ export function classRows(page: import('@playwright/test').Page, className: stri
     has: page.locator(`input.input-classname[value="${className}"]`),
   });
 }
+
+/**
+ * 依 `?class=` 深連結已經選好的類型頁籤，確認目標班列可見；若目前頁籤不含該班
+ * （例如側欄進入後停在預設安親頁籤，或先前步驟切走了），改點對應的
+ * `#class-type-tab-*` 再等待。頁籤鍵與 `CLASS_TYPE_ORDER` 同名（care／english／math／other／unscheduled）。
+ *
+ * 回傳該班**第一列**。找不到時錯誤訊息會同時指出班名與嘗試過的頁籤，
+ * 避免「停在安親頁籤 → 0 列」被誤讀成資料不見了。
+ */
+export async function ensureClassTypeTab(page: Page, className: string): Promise<Locator> {
+  const row = classRow(page, className);
+  if (await row.count()) {
+    await expect(row).toBeVisible({ timeout: 15000 });
+    return row;
+  }
+  const attempted: string[] = [];
+  for (const type of CLASS_TYPE_TABS) {
+    const tab = page.locator(`#class-type-tab-${type}`);
+    attempted.push(type);
+    await tab.click();
+    if (await row.count()) {
+      await expect(row).toBeVisible({ timeout: 15000 });
+      return row;
+    }
+  }
+  throw new Error(
+    `找不到班級「${className}」的排課列（已嘗試頁籤：${attempted.join('／')}）。` +
+      `請確認班名拼字與 seed（tests/e2e/helpers/c-batch.ts 的 startInput 預設值）。`
+  );
+}
+
+const CLASS_TYPE_TABS = ['care', 'english', 'math', 'other', 'unscheduled'] as const;

@@ -103,6 +103,9 @@ test.describe('Issue #157 PR-2：從課表頁設定 roster-only 班級', () => {
 
     // Exercise the submit handler too: a scripted submit must not bypass the disabled control.
     await form.evaluate((element: HTMLFormElement) => element.requestSubmit());
-    await expect(page.locator(`[data-category-select="${ROSTER_ONLY_CLASS}"]`)).toHaveCount(0);
+    // 尚未建立班級 → 不應出現在任何頁籤的排課列（D61 起類別欄是 YesNoRadioGroup，無 select 可查）
+    await expect(
+      page.locator('tr.schedule-row', { has: page.locator(`input.input-classname[value="${ROSTER_ONLY_CLASS}"]`) })
+    ).toHaveCount(0);
   });
 });

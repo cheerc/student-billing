@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { classRow, openClassSchedule } from './helpers/c-batch';
 
 /**
  * UX09（specs/04 §8）：「草稿可取消，確認才提交」。
@@ -6,25 +7,29 @@ import { test, expect } from '@playwright/test';
  * 重新整理後仍是原值＝沒有提交任何設定（提交只發生在「確認變更 → 儲存」之後）。
  * （改散同班名／刪列／停班的提示與後果由 tests/unit/settings-grid-rename-delete.test.ts、
  *   settings-schedule-grid-ui.test.ts 涵蓋。）
+ *
+ * 列定位經 `openClassSchedule`／`classRow`：D61 起預設安親頁籤沒有時段欄，
+ * `?class=兒童美語-Gino` 會自動選到 english 頁籤並高亮該班。
  */
-test('UX09: 取消修改 → 草稿還原且沒有提交；重新整理後仍是原值', async ({ page }) => {
-  await page.goto('/settings');
-  await expect(page.locator('h1', { hasText: '課表設定' })).toBeVisible({ timeout: 10000 });
+const CLASS = '兒童美語-Gino';
+const start = (page: import('@playwright/test').Page) => classRow(page, CLASS).locator('input.input-time').first();
 
-  const start = () => page.locator('.schedule-table tbody tr').nth(3).locator('input.input-time').first();
-  const original = await start().inputValue();
+test('UX09: 取消修改 → 草稿還原且沒有提交；重新整理後仍是原值', async ({ page }) => {
+  await openClassSchedule(page, CLASS);
+
+  const original = await start(page).inputValue();
   expect(original).toMatch(/^\d{2}:\d{2}$/);
 
-  await start().fill('15:45');
+  await start(page).fill('15:45');
   await expect(page.locator('.save-status-dirty')).toBeVisible();
 
   await page.locator('button', { hasText: '取消修改' }).click();
-  await expect(start()).toHaveValue(original);
+  await expect(start(page)).toHaveValue(original);
   await expect(page.locator('.save-status-dirty')).toHaveCount(0);
   await expect(page.getByText('課表已為最新儲存狀態')).toBeVisible();
 
-  // 沒有提交：重新載入後仍是原值
+  // 沒有提交：重新載入後仍是原值（深連結保留 ?class=，重新載入後仍停在 english 頁籤）
   await page.reload();
   await expect(page.locator('h1', { hasText: '課表設定' })).toBeVisible({ timeout: 10000 });
-  await expect(start()).toHaveValue(original);
+  await expect(start(page)).toHaveValue(original);
 });

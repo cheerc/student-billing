@@ -1,6 +1,7 @@
 import { test, expect, Page } from '@playwright/test';
 import path from 'path';
 import { openFilter, applyFilter } from './helpers/header-filter';
+import { openClassSchedule, startInput } from './helpers/c-batch';
 
 /**
  * R5 可及性稽核（specs/09 §6；specs/04 UX16）。
@@ -240,9 +241,8 @@ test.describe('R5 可及性稽核（09 §6）', () => {
   });
 
   test('確認變更視窗（native dialog）：Tab 不逸出、Esc 關閉並回到「確認變更」按鈕', async ({ page }) => {
-    await page.goto('/settings');
-    await expect(page.locator('h1', { hasText: '課表設定' })).toBeVisible({ timeout: 10000 });
-    await page.locator('input.input-time').first().fill('13:30');
+    await openClassSchedule(page, '兒童美語-Gino');
+    await startInput(page).fill('13:30');
     const opener = page.locator('button', { hasText: '確認變更' });
     await opener.click();
 

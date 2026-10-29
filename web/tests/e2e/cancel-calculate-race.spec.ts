@@ -1,10 +1,14 @@
 import { test, expect, type Page, type Route } from '@playwright/test';
 import {
   activateFixture,
+  calcCell,
+  classRow,
   dirtyBar,
+  ensureClassTypeTab,
   keepEditing,
   leaveDialog,
   openSchedule,
+  openClassScheduleViaHome,
   sideLink,
   startInput,
 } from './helpers/c-batch';
@@ -28,8 +32,9 @@ type ProbeWindow = Window & { __cancelRace: Barrier };
 
 const cancelButton = (page: Page) => page.getByRole('button', { name: '取消修改', exact: true });
 const reviewButton = (page: Page) => page.getByRole('button', { name: '確認變更', exact: true });
-// 以欄位意義定位，不用 td 索引（#80 前段插入兩欄後，舊 nth(5) 會指到 col-time）
-const overlap = (page: Page) => page.locator('.schedule-table tbody tr').nth(3).locator('[data-calc="anqin-overlap"]');
+// 以欄位意義定位，不用 td 索引（#80 前段插入兩欄後，舊 nth(5) 會指到 col-time）；
+// 列本身以班名定位（D61 起 tbody 列序依頁籤與篩選而變）。
+const overlap = (page: Page) => calcCell(page, '兒童美語-Gino', 'anqin-overlap');
 
 async function installBarrier(page: Page) {
   await page.evaluate(() => {
@@ -125,8 +130,8 @@ async function holdCalculate(page: Page) {
 }
 
 async function enterFromHome(page: Page) {
-  await page.goto('/');
-  await sideLink(page, /課表設定/).click();
+  // 保留 `/` 作為上一頁：Back／關頁清理的歷史語意靠這一步，因此不能用 goto 深連結。
+  await openClassScheduleViaHome(page, '兒童美語-Gino');
   await expect(startInput(page)).toBeVisible();
   await expect(overlap(page)).toHaveText(/40/); // seed 15:20 → 安親重疊40分，獨立手算
   await installBarrier(page);
@@ -140,6 +145,9 @@ async function expectCleanHistoryAndClose(page: Page) {
   await expect(leaveDialog(page)).toHaveCount(0);
   await page.goBack();
   await expect.poll(() => new URL(page.url()).pathname).toBe('/settings');
+  // 側欄導覽的網址不帶 ?class=，Back 後頁籤回到預設（安親，沒有時段欄）；
+  // 這裡的斷言是「草稿已還原」，不是「停在哪個頁籤」，所以先切回該班所在頁籤。
+  await ensureClassTypeTab(page, '兒童美語-Gino');
   await expect(startInput(page)).toHaveValue('15:20');
   await expect(dirtyBar(page)).toHaveCount(0);
   await page.goBack();
@@ -201,7 +209,7 @@ test('calculate已在途仍可取消；baseline與dirty還原，舊回應不能�
 
 test('完整F1前置：calculate在pointerdown/up間啟動，一次原生取消仍還原baseline／dirty0', async ({ page }) => {
   await enterFromHome(page);
-  const row = page.locator('.schedule-table tbody tr').nth(3);
+  const row = classRow(page, '兒童美語-Gino');
   await row.locator('input.input-weekday').fill('八');
   await expect(page.locator('[data-unknown-weekday-notice]')).toBeVisible();
   await page.locator('main').innerText();

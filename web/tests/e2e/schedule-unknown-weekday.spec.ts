@@ -1,4 +1,5 @@
 import { test, expect, type Page, type Locator } from '@playwright/test';
+import { calcCell, openClassScheduleFull } from './helpers/c-batch';
 
 /**
  * 04 §8 UX07（修訂）／09 §3.1（11 §3 A；F01）：瀏覽器實際操作。
@@ -13,6 +14,9 @@ import { test, expect, type Page, type Locator } from '@playwright/test';
  * #80 往表格前段插入「列入多科折扣」「天數固定 5 天」兩欄後，舊的 `nth(5)` 會默默
  * 指到 `col-time`（當時的失敗訊息正是 Expected "40" / Received "—"）。索引式的欄位
  * 假設是同一個脆點的兩次實例：欄位一增就壞，而且不會有人立刻注意到。
+ *
+ * D61 起列也不可用 `tbody nth(n)`：一頁籤一張表，預設安親頁籤沒有時段欄。
+ * 列一律經 `openClassScheduleFull`（切到該班頁籤、不進聚焦模式）。
  */
 
 const CALC_URL = '**/api/v1/settings/calculate';
@@ -28,11 +32,14 @@ type CalcColumn = (typeof CALC_COLUMNS)[number];
 /** 以欄位意義（非索引）取得某一列的計算欄儲存格。 */
 type CalcCell = (name: CalcColumn) => Locator;
 
+const CLASS = '兒童美語-Gino';
+/** 同頁籤的穩定鄰班（seed 存在、屬於 english 頁籤），用來證明「其他列不受影響」。 */
+const NEIGHBOR_CLASS = '兒童美語-Archy';
+
 async function openSchedule(page: Page): Promise<{ row: Locator; cell: CalcCell }> {
-  await page.goto('/settings');
-  await expect(page.locator('h1', { hasText: '課表設定' })).toBeVisible({ timeout: 10000 });
-  const row = page.locator('.schedule-table tbody tr').nth(3); // 兒童美語-Gino 週一 15:20–16:50
-  const cell: CalcCell = (name) => row.locator(`[data-calc="${name}"]`);
+  // 需要整張表（同頁籤鄰班也用得到），因此不用 ?class= 的聚焦模式。
+  const row = await openClassScheduleFull(page, CLASS);
+  const cell: CalcCell = (name) => calcCell(page, CLASS, name);
   await expect(cell('anqin-overlap')).toHaveText('40', { timeout: 10000 }); // 初始結果（seed 課表）
   await expect(cell('tutoring-overlap')).toHaveText('20');
   return { row, cell };
@@ -120,11 +127,9 @@ test.describe('UX07（修訂）：未知／空白星期與 calculate 失敗不�
     await badge.focus();
     await expect(page.getByRole('tooltip')).toContainText('沒有填星期');
     await expect(page.locator('[data-unknown-weekday-notice]')).toContainText('沒有填星期');
-    // 其他列不受影響：上一列（Gino 之前的列）仍是完整結果，畫面沒有整片變「—」
+    // 其他列不受影響：同頁籤的鄰班仍是完整結果，畫面沒有整片變「—」
     await expect(page.locator('[data-calculate-error]')).toHaveCount(0);
-    await expect(
-      page.locator('.schedule-table tbody tr').nth(4).locator('[data-calc="anqin-overlap"]')
-    ).not.toHaveText('—');
+    await expect(calcCell(page, NEIGHBOR_CLASS, 'anqin-overlap')).not.toHaveText('—');
   });
 
   test('(3) calculate 失敗（500／連線中斷）：顯示失敗說明、各欄「—」，不是 0／「無重疊」也不沿用舊值；恢復後自動重算', async ({ page }) => {

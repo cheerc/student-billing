@@ -1,7 +1,7 @@
 import { test, expect, type Page, type Route } from '@playwright/test';
 import fs from 'fs';
 import JSZip from 'jszip';
-import { FIXTURE, xlsxUpload } from './helpers/c-batch';
+import { FIXTURE, ensureClassTypeTab, xlsxUpload } from './helpers/c-batch';
 
 /**
  * N09／R3-F02（issue #55；specs/04 §8 UX70／UX46）：
@@ -90,8 +90,10 @@ test.describe('N09／R3-F02: 儲存後候選表、標題、頁籤與報告同步
 
     // 6. 切換至「課表」頁籤，整班改名使剛建立的別名失效
     await page.locator('button[role="tab"]', { hasText: '課表' }).click();
-    await page.locator('#class-type-tab-other').click();
     await expect(page.locator('.schedule-table')).toBeVisible();
+    // D61 起一頁籤一張表：改名目標「國小國語文-小三小四」是 other 班，
+    // 必須先切到 other 頁籤讓該列實際渲染，否則改名永遠不會發生。
+    await ensureClassTypeTab(page, '國小國語文-小三小四');
     await renameWholeClass(page, '國小國語文-小三小四', 'R3國文班驗收');
     await expect(page.locator('.save-status-dirty')).toBeVisible();
 
@@ -259,10 +261,9 @@ test.describe('N09／R3-F02: 儲存後候選表、標題、頁籤與報告同步
     await expect(row).toBeVisible();
     await row.locator('input.input-target-classname').fill('兒童美語-Gino');
 
-    // 切到課表頁改時段並儲存
+    // 切到課表頁改時段並儲存（頁籤預設停在安親，commit 的班必須是排課頁籤的班）
     await page.locator('button[role="tab"]', { hasText: '課表' }).click();
-    await page.locator('#class-type-tab-english').click();
-    const startTimeInput = page.locator('input.input-time').first();
+    const startTimeInput = (await ensureClassTypeTab(page, '兒童美語-Gino')).locator('input.input-time').first();
     await startTimeInput.fill('09:30');
     await expect(page.locator('.save-status-dirty')).toBeVisible();
 

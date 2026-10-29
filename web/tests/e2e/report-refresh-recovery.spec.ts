@@ -1,5 +1,5 @@
 import { test, expect, type Page, type Route } from '@playwright/test';
-import { FIXTURE } from './helpers/c-batch';
+import { FIXTURE, ensureClassTypeTab } from './helpers/c-batch';
 
 /**
  * 課表儲存後「班名比對報告」取得失敗的最短恢復路徑（operator 裁決 d-20261002162913018695-69；specs/04 UX46）。
@@ -154,8 +154,9 @@ async function applyAlias(page: Page, raw: string, target: string) {
  */
 async function applyScheduleTimeChange(page: Page, minute: string) {
   await page.locator('button[role="tab"]', { hasText: '課表' }).click();
-  await page.locator('#class-type-tab-english').click();
-  const start = page.locator('input.input-time').first();
+  // D61：預設安親頁籤沒有時段欄，先切到該班所在頁籤（整張表，不進聚焦模式）。
+  const row = await ensureClassTypeTab(page, '兒童美語-Gino');
+  const start = row.locator('input.input-time').first();
   await start.fill(`09:${minute}`);
   await expect(page.locator('.save-status-dirty')).toBeVisible();
   await confirmAndSave(page);
