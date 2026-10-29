@@ -1,5 +1,5 @@
 /**
- * D61 Phase 1（issue #184；specs/16 §4.1 場景 4）：舊版 `settings_versions` 相容讀取、run 快照與名單異動明細。
+ * D61 Phase 1（issue #184；specs/06 D61）：舊版 `settings_versions` 相容讀取、run 快照與名單異動明細。
  *
  * ── 零突變的鑑別設計（獨立手算）──
  *  舊制（`12206ac` 以前）`category='none'` 的班從不進入扣天公式。本檔放一個舊制 `non_care`＋`none` 的虛構班
