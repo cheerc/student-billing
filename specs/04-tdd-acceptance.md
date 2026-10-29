@@ -260,7 +260,7 @@ Playwright 最小完整旅程：
 |UX24|開課表頁；送出careWindows與ruleSet不同的draft|畫面無窗口輸入／調整入口，顯示值＝ruleSet（窗口固定，D33）；calculate回應windows＝ruleSet；server對不同careWindows回400 INVALID_DRAFT|component/API|
 |UX25|表頭▾輸入「數學」→全選搜尋結果→確定；再加一欄；取消；移除chip；清除全部；鍵盤全程操作；768×600開面板；選班後開其他欄；快速切換已套用條件|值宇宙涵蓋整個run（含後頁獨有值），不受limit／cursor限制；每欄計數依其他欄已套用篩選（含選班、q、特殊值），排除本欄，等於將本欄替換為該單值後的人數，同生多班／同班多token去重。server回0人值，UI隱藏未勾選0人、已勾選0人仍可取消且不被prune。統計mismatchCount與所選範圍tierMismatch=true同源、issuesCount與範圍內hasIssues=true同源，noCourseTotal仍全批、classScopeTotal仍只按選班。options只在已套用條件變動刷新，abort／sequence拒絕晚到舊回應；適用率context保留單班／未選班／未配置三分支。同欄OR跨欄AND；取消不改條件；三種空狀態分開；面板不被裁切、確定鈕可見、Esc回焦點|unit/integration/E2E|
 |UX26|班級只有課輔側重疊；一側未知|狀態不為「無重疊」；未知不被另一側掩蓋|component/E2E|
-|UX27|班級扣天展開→編輯此班課表；直接開`/?view=deductions`；重新整理／返回|課表定位該班全部時段；頁籤依網址；返回不丟頁籤|E2E|
+|UX27|班級扣天展開→編輯此班課表；直接開`/?view=deductions`；重新整理／返回；課表顯示全部後切設定頁籤再返回；焦點清除後再次明確聚焦|課表首次依`focusClass`定位該班全部時段；清除後即使課表重掛載仍顯示全部、不回退到舊焦點；再次明確聚焦可定位；結果頁頁籤依網址，返回不丟頁籤|unit/E2E：`settings-editor-sync-rework.test.tsx`|
 |UX28|恰選一班／選兩班／未選班|恰一班顯示本班適用折扣並與基本率並列（兩者不同的合成案例值正確）；多班與未選班不出現「本班」與本班率|component/E2E|
 |UX29|名冊含[03 §5.1](03-architecture-api.md)無課程各案例|人數＝點擊後名單；不含只有寫功課／交通車／有離班token／解析失敗者；另有issue者仍計入需確認；匯入預覽同數|integration/E2E|
 |UX30|合成fixture 477人，資料載入穩定後，學生總表未篩選|1440×900：完整可見資料列≥10列；768×600：完整可見資料列≥4列（計數方式：列的上下緣都在表格可視區內；門檻經operator 2026-09-30確認）|E2E|

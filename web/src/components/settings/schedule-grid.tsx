@@ -50,6 +50,7 @@ export interface ScheduleGridProps {
   calculateInputRows?: ScheduleGridRow[] | null;
   calculateError?: string | null;
   focusClass?: string | null;
+  onClearFocus?: () => void;
   initialClassTypeTab?: ClassType | 'non_care';
   classAttributes?: Map<string, ClassAttributesView>;
   onSelectCategory?: (className: string, category: any) => void;
@@ -102,6 +103,7 @@ export function ScheduleGrid({
   calculateInputRows,
   calculateError = null,
   focusClass = null,
+  onClearFocus,
   initialClassTypeTab = 'care',
   classAttributes,
   onSelectCategory,
@@ -300,6 +302,7 @@ export function ScheduleGrid({
 
   const clearFocus = () => {
     setFocus(null);
+    onClearFocus?.();
     try {
       const url = new URL(window.location.href);
       url.searchParams.delete('class');

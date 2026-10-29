@@ -203,11 +203,21 @@ export default function SettingsEditor({
   // 追蹤名冊新增班級暫存操作：Set<erpBaseName>
   const [stagedNewClasses, setStagedNewClasses] = useState<Set<string>>(new Set());
   /**
-   * D62 Phase 2：「到課表填時段 →」帶入的班名（specs/17 §2.2）。
-   * 與 props 的 `focusClass`（網址 `?class=` 的深連結）分開存放，避免暫存操作覆寫深連結語意；
-   * 傳給 ScheduleGrid 的是 `focusTarget ?? focusClass`，由它切到該班類型頁籤並只顯示該班。
+   * 課表焦點的生命週期（specs/09 §3.1、specs/17 §2.2）：
+   * - initial：沿用網址 `?class=` 傳入的初始焦點；
+   * - focused：使用者在班名同步列明確選擇的班；
+   * - cleared：使用者按「顯示全部班級」後不再沿用初始 `focusClass`。
+   * `cleared` 必須與 initial 區分，否則課表頁籤卸載／重掛載時會由舊 prop 復活焦點。
    */
-  const [focusTarget, setFocusTarget] = useState<string | null>(null);
+  const [scheduleFocus, setScheduleFocus] = useState<
+    { kind: 'initial' } | { kind: 'focused'; className: string } | { kind: 'cleared' }
+  >({ kind: 'initial' });
+  const scheduleFocusClass =
+    scheduleFocus.kind === 'initial'
+      ? focusClass
+      : scheduleFocus.kind === 'focused'
+        ? scheduleFocus.className
+        : null;
 
   // 初始化平鋪排課時段列（對齊 S 表 89 筆）
   const initialRows = useMemo(() => {
@@ -1055,7 +1065,8 @@ export default function SettingsEditor({
             calculateResult={calculateResult}
             calculateInputRows={calculateInputRows}
             calculateError={calculateError}
-            focusClass={focusTarget ?? focusClass}
+            focusClass={scheduleFocusClass}
+            onClearFocus={() => setScheduleFocus({ kind: 'cleared' })}
             classAttributes={currentAttrs}
             onSelectCategory={handleSelectCategory}
             onToggleMultiDiscount={handleToggleMultiDiscount}
@@ -1082,7 +1093,7 @@ export default function SettingsEditor({
             onStageNewClass={handleStageNewClass}
             onUndoStaged={handleUndoStaged}
             onGoToSchedule={(className) => {
-              setFocusTarget(className);
+              setScheduleFocus({ kind: 'focused', className });
               setActiveTab('schedule');
             }}
             reportStaleMessage={reportStaleError}
