@@ -138,6 +138,36 @@ describe('D2b 5（Q9）: 整班改名帶走設定（含手動值與 classType）
       fixedFiveDays: false,
     });
   });
+
+  it('可達性實驗：改名來源班不在 currentAttrs 與 baselineAttrs（如未手動修改的 seed 班），改名應解析來源屬性並保留，不遺失 classType', () => {
+    const out = carryAttributesOnRename(
+      [{ from: '國小美語-一', to: '米豆奶美語一' }],
+      new Map(),
+      new Map()
+    );
+    expect(out.get('米豆奶美語一')).toEqual({
+      classType: 'english',
+      hasMultiSubjectDiscount: true,
+      category: 'english',
+      categorySource: 'manual',
+      fixedFiveDays: false,
+    });
+  });
+
+  it('改名後其他班之 skipDeduction 與屬性隨班保留且來源標記為 manual', () => {
+    const out = carryAttributesOnRename(
+      [{ from: '國小數學-四A', to: '米豆奶數學四A' }],
+      new Map(),
+      new Map()
+    );
+    expect(out.get('米豆奶數學四A')).toEqual({
+      classType: 'math',
+      hasMultiSubjectDiscount: true,
+      category: 'math',
+      categorySource: 'manual',
+      fixedFiveDays: false,
+    });
+  });
 });
 
 describe('D2b 5（Q9）: 同名合併且設定不同時阻擋儲存', () => {
