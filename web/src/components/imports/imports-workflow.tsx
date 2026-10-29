@@ -46,7 +46,7 @@ type PreviewWithDiff = ImportPreviewResult & {
    * 啟用必須用這個 id，否則會以不存在的批次呼叫 activate 而失敗。
    */
   batchId?: string;
-  /** 班名比對摘要（D1；04 §8 UX47）：兩份清單的班數與影響人數，連到課表設定的完整報告。 */
+  /** 班名同步摘要（P3／04 UX47）：嚴格同名差異、尚未對應數與受影響去重學生數。 */
   classNameReport?: ClassNameReportSummary;
 };
 
@@ -392,15 +392,7 @@ export function ImportsWorkflow({
               </div>
             )}
 
-            {/* 未知班名提示 */}
-            {preview.pendingClasses.length > 0 && (
-              <div className="alert alert-warning" style={{ margin: '16px 20px 0' }}>
-                <strong>班級名稱提示：</strong>
-                <span>本次匯入名冊中發現 {preview.pendingClasses.length} 個班名待確認。您可以在啟用後至「課表設定 → 班名同步」逐列處理。</span>
-              </div>
-            )}
-
-            {/* 班名比對摘要：使用這份名單之前先看到兩份清單的班數與影響人數，可連到完整報告（D1） */}
+            {/* pendingClasses 仍是 03 §5.2.4 的預覽 API 欄位；UI 只呈現這張摘要卡，不重複顯示警示。 */}
             {preview.classNameReport && <ClassNameReportSummaryCard summary={preview.classNameReport} />}
 
             {/* 學生名單表格與篩選操作 */}

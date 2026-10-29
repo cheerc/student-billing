@@ -24,7 +24,7 @@ const ISSUE_MESSAGES: Record<string, string> = {
   DUPLICATE_SUBJECT_ENROLLMENT: '同一類別的課程重複報名了，請到米豆奶確認學生的課程設定。',
   STAFF_FAMILY_NO_DISCOUNT: '標籤有「員工家屬」，但沒有標明特殊折扣、兄弟姊妹或園內生優惠，請核對開單金額。',
   CONFLICTING_NOTE_SOURCE: '備註提到的折扣和標籤欄位不一致，系統以標籤為準，請核對備註。',
-  CLASS_NOT_MAPPED: '班名未對應課表，請確認米豆奶班名或系統班級名稱。',
+  CLASS_NOT_MAPPED: '班名未對應課表，請到「課表設定 → 班名同步」確認米豆奶班名或系統班級名稱。',
   SCHEDULE_EMPTY: '這個班的課表還沒有填任何時段，請到課表設定補上。',
   SCHEDULE_INCOMPLETE: '這個班的課表時段不完整（缺班名、星期或起訖時間），請到課表設定補齊。',
   UNKNOWN_WEEKDAY: '課表裡有時段的星期沒有填或無法識別，該時段的衝堂一律當作 0，請把星期改成「一」到「日」。',

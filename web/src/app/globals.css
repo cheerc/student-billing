@@ -2617,9 +2617,8 @@ select {
   margin-bottom: 4px;
 }
 
-.class-name-report-summary ul {
+.class-name-report-summary-copy {
   margin: 0 0 8px;
-  padding-left: 20px;
 }
 
 .class-name-report-summary-link {

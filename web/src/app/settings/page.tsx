@@ -25,7 +25,7 @@ export default async function SettingsPage({
   const latestBatch = getLatestReadyBatch(db);
   const importId = active.activeImportId ?? latestBatch?.id ?? null;
   const hasActiveImport = Boolean(active.activeImportId);
-  // 班名同步要檢視的名單：預設＝現行名單（無則最新一批）；網址 ?import= 指定另一批（匯入預覽「完整班名比對報告」連結，
+  // 班名同步要檢視的名單：預設＝現行名單（無則最新一批）；網址 ?import= 指定另一批（匯入預覽的「前往班名同步」連結，
   // 名單尚未啟用也能看）。只影響班名同步的統計與報告；儲存設定仍以現行名單為準（editor 的 importId 不變）。
   const requestedImportId = first(sp.import)?.trim() || null;
   const requestedBatchExists = requestedImportId

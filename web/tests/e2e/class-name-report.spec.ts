@@ -8,14 +8,13 @@ import { resetSeedSettings } from './helpers/d2c-settings';
  * D1 班名比對報告（specs/11 §3 D1、04 §8 UX44–UX47；operator ruling d-20260930112930661160-25 Q12-b）
  * 於 #189 D62 Phase 2 改寫：完整報告併入「班名同步」差異表（specs/09 §3.3）。
  * 使用者實際操作驗證：
- *   1. 匯入預覽在「使用這份名單」之前，仍顯示兩份清單的班數與影響人數，並連到同步頁；
- *   2. 同步頁以單一差異表呈現「名冊有、課表沒有完全同名」的班級，底部收合區列出
- *      「課表有、本次名冊沒有的班級」與其課程類型／時段數／舊別名來源；
+ *   1. 匯入預覽在「使用這份名單」之前只顯示一張 N/M/K 班名同步摘要卡，且沒有重複的 pendingClasses 警示；
+ *   2. 摘要連到完整班名同步差異表，底部收合區列出「課表有、本次名冊沒有的班級」與其課程類型／時段數／舊別名來源；
  *   3. 儲存後同頁差異表即時刷新（F3），已同步的列立即消失。
  * 全部使用合成 fixture（不含真實名單）；每個 spec 檔用全新隔離 DB（npm run test:e2e:isolated）。
  *
- * fixture 事實（I19 錨點與手動盤點）：ERP 班名 54＝已對應 42＋米豆奶有／系統無 12；seed 49 班中 7 個本次未出現；
- * 12 個待對應班涵蓋 191 位不重複學生（交通車 93 人）；未出現的 7 個 seed 班含「國小數學-一A」「國小輔導-四年級」。
+ * fixture 事實與獨立盤點方法在 imports.spec.ts：原始合成工作表 477 列、fresh seed 49 班且無 alias；
+ * 54 個不同名冊 baseName 中 42 個 exact、12 個 mismatch，12 個未對應班涵蓋 191 位不重複人員代碼。
  */
 
 const summaryOf = (page: Page) => page.getByRole('region', { name: '班名同步摘要' });
@@ -83,7 +82,7 @@ async function reportApi(page: Page, importId?: string) {
 }
 
 test.describe('班名比對報告（D1，D62 併入「班名同步」）', () => {
-  test('匯入預覽：使用這份名單之前先看到兩份清單的班數與影響人數，並連到班名同步；同步頁差異表與收合清單呈現同一批事實', async ({
+  test('匯入預覽：使用這份名單之前顯示單一卡片 N/M/K 並連到班名同步；同步頁呈現同一批事實', async ({
     page,
   }) => {
     await page.goto('/imports');
@@ -104,10 +103,7 @@ test.describe('班名比對報告（D1，D62 併入「班名同步」）', () =>
       ([s, b]) => Boolean((s as Node).compareDocumentPosition(b as Node) & Node.DOCUMENT_POSITION_FOLLOWING),
       [await summary.elementHandle(), await useBtn.elementHandle()] as const
     );
-    expect(summaryBeforeButton, '班名比對摘要要出現在「使用這份名單」之前').toBe(true);
-
-    // 既有的「N 個班名待確認」提示不變（跨頁一致 E2E 依賴它）
-    await expect(page.locator('text=/12\\s*個班名待確認/').first()).toBeVisible();
+    expect(summaryBeforeButton, '班名同步摘要要出現在「使用這份名單」之前').toBe(true);
 
     // 連到完整清單（尚未啟用的這批名單也能看；D62 路由改為 ?tab=sync）
     const link = summary.getByRole('link', { name: '前往班名同步 →' });
@@ -147,7 +143,7 @@ test.describe('班名比對報告（D1，D62 併入「班名同步」）', () =>
     await expect(syncSummaryOf(page)).not.toContainText('類別');
   });
 
-  test('名冊班名比對：啟用名單後再上傳另一份名單，摘要與同步頁能正確呈現系統有／本次名冊無之設定班級', async ({
+  test('名冊班名比對：摘要只呈現 N/M/K，完整同步頁保留系統有／本次名冊無之設定班級', async ({
     page,
   }) => {
     // 先把變體（STU0001 多報「國小輔導-四年級」）當成目前使用的名單
@@ -164,9 +160,9 @@ test.describe('班名比對報告（D1，D62 併入「班名同步」）', () =>
 
     const summary = summaryOf(page);
     await expect(summary).toBeVisible();
-    await expect(summary).toContainText('7 個班');
+    await expect(summary).toContainText('名冊有 12 個班名與課表不一致（其中 12 個尚未對應，影響 191 位學生）');
 
-    await summary.getByRole('link', { name: /完整班名比對報告/ }).click();
+    await summary.getByRole('link', { name: '前往班名同步 →' }).click();
     const details = systemOnlyOf(page);
     await expect(details).toBeVisible({ timeout: 15000 });
     await details.locator('summary').click();
@@ -208,7 +204,7 @@ test.describe('班名比對報告（D1，D62 併入「班名同步」）', () =>
     // 再上傳變體（STU0001 多報 seed 班「國小輔導-四年級」）當作尚未啟用的預覽批次 B，取其完整報告連結
     await page.goto('/imports');
     await page.locator('input[type="file"]').setInputFiles(xlsxUpload('variant-roster.xlsx', await buildPreviousRoster()));
-    const link = summaryOf(page).getByRole('link', { name: /完整班名比對報告/ });
+    const link = summaryOf(page).getByRole('link', { name: '前往班名同步 →' });
     await expect(link).toBeVisible({ timeout: 15000 });
     const href = (await link.getAttribute('href'))!;
     const importB = new URL(href, 'http://local.test').searchParams.get('import')!;
