@@ -1,7 +1,20 @@
 import { describe, it, expect } from 'vitest';
 import { useGlobalTempDb, saveSyntheticBatch, activateBatch, makeStudent, saveSettings } from '../helpers/d1-test-kit';
 import { buildSeedDraft } from '@/adapters/sqlite/settings-repository';
-import { classesToGridRows, type ScheduleGridRow, type AliasMapping } from '@/contracts/settings';
+import {
+  classesToGridRows,
+  gridRowsToClasses,
+  type ScheduleGridRow,
+  type AliasMapping,
+  type SettingsDraft,
+} from '@/contracts/settings';
+import {
+  detectClassLifecycle,
+  carryAttributesOnRename,
+  resolveClassAttributes,
+  type ClassAttributesView,
+} from '@/domain/classification/class-attributes';
+import { applyManualAttrsToClasses } from '@/domain/classification/persist-class-attributes';
 import { executeCalculationRun, resolveLatestSavedSettings } from '@/application/calculate-run';
 import { previewSettingsChange } from '@/application/settings-preview';
 import { applySettingsPreview } from '@/application/apply-settings';
@@ -91,32 +104,21 @@ describe('班名同步計費不變式整合測試 (Billing Invariance)', () => {
 
     expect(syncResult.orphanedAliasRaws).toEqual(['丁班']);
 
-    // 走正式的 settings preview -> apply 流程生成 Run B
-    // 將 syncResult 轉回 draft
-    const updatedDraft = {
+    // 走正式的生命週期與轉換管線從 syncResult.rows 產出 Run B 的 draft（非手寫寫死）
+    const lifecycle = detectClassLifecycle(initialRows, syncResult.rows);
+    expect(lifecycle.renames).toEqual([{ from: 'X班', to: '乙班' }]);
+
+    const manualAttrs = new Map<string, ClassAttributesView>();
+    for (const c of initialDraft.classes) {
+      manualAttrs.set(c.baseName, resolveClassAttributes(c.baseName, c));
+    }
+    const carriedAttrs = carryAttributesOnRename(lifecycle.renames, manualAttrs, new Map());
+    const convertedClasses = gridRowsToClasses(syncResult.rows, initialDraft.classes);
+    const updatedClasses = applyManualAttrsToClasses(convertedClasses, carriedAttrs);
+
+    const updatedDraft: SettingsDraft = {
       ...initialDraft,
-      classes: [
-        ...seed.classes.filter((c) => c.baseName === '國小輔導-三年級'),
-        {
-          baseName: '乙班',
-          teacher: '陳老師',
-          active: true,
-          classType: 'english' as const,
-          hasMultiSubjectDiscount: true,
-          category: 'english' as const,
-          categorySource: 'manual' as const,
-          sessions: [
-            {
-              weekday: '1',
-              startTime: '16:30',
-              endTime: '18:00',
-              startMinutes: 990,
-              endMinutes: 1080,
-              skipDeduction: false,
-            },
-          ],
-        },
-      ],
+      classes: updatedClasses,
       aliases: syncResult.aliases,
     };
 

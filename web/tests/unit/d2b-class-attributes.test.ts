@@ -139,7 +139,10 @@ describe('D2b 5（Q9）: 整班改名帶走設定（含手動值與 classType）
     });
   });
 
-  it('可達性實驗：改名來源班不在 currentAttrs 與 baselineAttrs（如未手動修改的 seed 班），改名應解析來源屬性並保留，不遺失 classType', () => {
+  // 可達性實驗：測試對象為無 classType 之舊版草稿（或未手動修改之 seed 班級）改名。
+  // 在未修補前，當來源班不在 currentAttrs 與 baselineAttrs 時（if (!before) continue;），
+  // 改名會跳過屬性繼承，導致新班名依 fallback 解析而遺失原始 classType（如 english 變 other）。
+  it('可達性實驗：無 classType 之舊版草稿／seed 班改名，應解析來源屬性並保留，不遺失 classType', () => {
     const out = carryAttributesOnRename(
       [{ from: '兒童美語-Gino', to: '米豆奶美語一' }],
       new Map(),

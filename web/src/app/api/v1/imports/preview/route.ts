@@ -4,7 +4,6 @@ import { ErpReaderError } from '@/adapters/xlsx/erp-reader';
 import { getDatabase } from '@/adapters/sqlite';
 import { saveImportBatch, getLatestReadyBatch } from '@/adapters/sqlite/import-repository';
 import { computeImportRosterChanges } from '@/application/import-roster-diff';
-import { findPendingClassNames } from '@/application/pending-classes';
 import { getClassNameMatchReport, summarizeClassNameReport } from '@/application/class-name-match-report';
 import { getCurrentActiveRun } from '@/adapters/sqlite/runs-repository';
 import { validateSameOrigin, maskSensitiveInfo } from '@/contracts/security';

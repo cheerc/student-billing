@@ -47,18 +47,22 @@ export function adaptSyncReportToLegacyUI(
   return {
     snapshotStatus: 'ok',
     rosterOnly:
-      report.mismatches?.map((m) => ({
-        baseName: m.erpBaseName,
-        students: m.students,
-        tokens: m.tokens,
-      })) ?? [],
+      report.mismatches
+        ?.filter((m) => m.legacyAliasTarget === null)
+        .map((m) => ({
+          baseName: m.erpBaseName,
+          students: m.students,
+          tokens: m.tokens,
+        })) ?? [],
     systemOnly:
       report.systemOnly?.map((s) => ({
         baseName: s.baseName,
         active: s.active,
         aliasCoveredBy: s.legacyAliasFrom,
       })) ?? [],
-    matchedCount: report.exactMatchCount,
+    matchedCount:
+      (report.exactMatchCount ?? 0) +
+      (report.mismatches?.filter((m) => m.legacyAliasTarget !== null).length ?? 0),
     rosterOnlyStudents: report.unmappedStudents,
   };
 }
@@ -78,7 +82,7 @@ import {
   CATEGORY_LABELS,
   type ClassAttributesView,
 } from '@/domain/classification/class-attributes';
-import { persistClassAttributes } from '@/domain/classification/persist-class-attributes';
+import { persistClassAttributes, applyManualAttrsToClasses } from '@/domain/classification/persist-class-attributes';
 import type { ClassCategory, WritableCategorySource } from '@/domain/classification/class-category';
 import { deriveEffectiveCategory } from '@/domain/classification/class-category';
 import { TabList, tabPanelProps } from '@/components/ui/tabs';
@@ -147,35 +151,6 @@ function toClassAttributeSetting(a: ClassAttributesView & { className?: string }
     categorySource: a.categorySource,
     fixedFiveDays: a.fixedFiveDays,
   };
-}
-
-/**
- * 把手動覆寫寫進 draft 的班級（存檔／預覽都用它）。
- * specs/14 §3.10：classType 與 fixedFiveDays 隨班保存，不再有 fixedSource。
- */
-function applyManualAttrsToClasses<T extends { baseName: string; classType?: ClassType | 'non_care'; fixedFiveDays?: boolean }>(
-  classes: T[],
-  manualAttrs: Map<string, ClassAttributesView>
-): T[] {
-  return classes.map((c) => {
-    const clean = { ...c };
-    delete (clean as Record<string, unknown>).category;
-    delete (clean as Record<string, unknown>).categorySource;
-    delete (clean as Record<string, unknown>).fixedFiveDays;
-    const m = manualAttrs.get(c.baseName);
-    const resolvedClassType = (m?.classType ?? c.classType) as ClassType;
-    return {
-      ...clean,
-      classType: resolvedClassType,
-      ...persistClassAttributes({
-        classType: resolvedClassType,
-        hasMultiSubjectDiscount: m?.hasMultiSubjectDiscount,
-        category: m?.category,
-        categorySource: m?.categorySource,
-        fixedFiveDays: resolvedClassType === 'care' ? (m?.fixedFiveDays ?? c.fixedFiveDays ?? false) : false,
-      }),
-    };
-  });
 }
 
 /** 兩份「班名 → 手動屬性」是否逐欄不同（dirty 的一部分）。 */

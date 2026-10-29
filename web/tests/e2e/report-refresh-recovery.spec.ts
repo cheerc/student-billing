@@ -154,6 +154,7 @@ async function applyAlias(page: Page, raw: string, target: string) {
  */
 async function applyScheduleTimeChange(page: Page, minute: string) {
   await page.locator('button[role="tab"]', { hasText: '課表' }).click();
+  await page.locator('#class-type-tab-english').click();
   const start = page.locator('input.input-time').first();
   await start.fill(`09:${minute}`);
   await expect(page.locator('.save-status-dirty')).toBeVisible();

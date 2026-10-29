@@ -90,6 +90,7 @@ test.describe('N09／R3-F02: 儲存後候選表、標題、頁籤與報告同步
 
     // 6. 切換至「課表」頁籤，整班改名使剛建立的別名失效
     await page.locator('button[role="tab"]', { hasText: '課表' }).click();
+    await page.locator('#class-type-tab-other').click();
     await expect(page.locator('.schedule-table')).toBeVisible();
     await renameWholeClass(page, '國小國語文-小三小四', 'R3國文班驗收');
     await expect(page.locator('.save-status-dirty')).toBeVisible();
@@ -260,6 +261,7 @@ test.describe('N09／R3-F02: 儲存後候選表、標題、頁籤與報告同步
 
     // 切到課表頁改時段並儲存
     await page.locator('button[role="tab"]', { hasText: '課表' }).click();
+    await page.locator('#class-type-tab-english').click();
     const startTimeInput = page.locator('input.input-time').first();
     await startTimeInput.fill('09:30');
     await expect(page.locator('.save-status-dirty')).toBeVisible();

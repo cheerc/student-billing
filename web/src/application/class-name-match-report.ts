@@ -45,6 +45,8 @@ export interface ClassNameSyncReport {
   mismatches: ClassNameMismatch[] | null;
   unmappedStudents: number | null;
   systemOnly: ClassNameSyncSystemOnly[] | null;
+  /** Phase 1 舊 UI / E2E 相容欄位 */
+  rosterOnly?: Array<{ baseName: string; students: number; tokens: number }> | null;
 }
 
 export class ClassNameReportError extends Error {
@@ -118,6 +120,7 @@ export function getClassNameMatchReport(
       mismatches: null,
       unmappedStudents: null,
       systemOnly: null,
+      rosterOnly: null,
     };
   }
 
@@ -208,6 +211,14 @@ export function getClassNameMatchReport(
       };
     });
 
+  const rosterOnly = mismatches
+    .filter((m) => m.legacyAliasTarget === null)
+    .map((m) => ({
+      baseName: m.erpBaseName,
+      students: m.students,
+      tokens: m.tokens,
+    }));
+
   return {
     importId,
     scope,
@@ -217,6 +228,7 @@ export function getClassNameMatchReport(
     mismatches,
     unmappedStudents,
     systemOnly,
+    rosterOnly,
   };
 }
 
@@ -243,8 +255,8 @@ export function summarizeClassNameReport(report: ClassNameSyncReport): ClassName
     mismatchCount,
     unmappedCount,
     unmappedStudents,
-    reportPath: `/settings?tab=sync&import=${encodeURIComponent(report.importId)}`,
-    rosterOnlyClassCount: mismatchCount,
+    reportPath: `/settings?tab=mapping&import=${encodeURIComponent(report.importId)}`,
+    rosterOnlyClassCount: unmappedCount,
     rosterOnlyStudentCount: unmappedStudents,
     systemOnlyClassCount: report.systemOnly?.length ?? 0,
   };
