@@ -66,10 +66,11 @@ test.describe('#189 D62：「班名同步」新增名單班級並持久化設定
     const runResponse = await page.request.get(`/api/v1/runs/${encodeURIComponent(runId)}`);
     expect(runResponse.ok()).toBe(true);
     const run = await runResponse.json();
+    // UX95／specs/17 §2.2：新增只問課程類型，折扣類別維持 unset（系統不得替使用者決定類別）。
     expect(run.classCategories).toContainEqual(
       expect.objectContaining({
         base_name: ROSTER_ONLY_CLASS,
-        category: 'math',
+        category: 'unset',
         fixed_five_days: 0,
       })
     );
