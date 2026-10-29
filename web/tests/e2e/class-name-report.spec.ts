@@ -18,7 +18,7 @@ import { resetSeedSettings } from './helpers/d2c-settings';
  * 12 個待對應班涵蓋 191 位不重複學生（交通車 93 人）；未出現的 7 個 seed 班含「國小數學-一A」「國小輔導-四年級」。
  */
 
-const summaryOf = (page: Page) => page.getByRole('region', { name: '班名比對摘要' });
+const summaryOf = (page: Page) => page.getByRole('region', { name: '班名同步摘要' });
 const panelOf = (page: Page) => page.locator('[data-class-name-sync-panel]');
 const syncSummaryOf = (page: Page) => page.locator('.sync-summary-card');
 const systemOnlyOf = (page: Page) =>
@@ -90,14 +90,13 @@ test.describe('班名比對報告（D1，D62 併入「班名同步」）', () =>
     await page.locator('input[type="file"]').setInputFiles(FIXTURE);
     await expect(page.locator('.stats-grid')).toBeVisible({ timeout: 15000 });
 
-    // 摘要在「使用這份名單」按鈕之前（DOM 順序），且不用展開就看得到
+    // 單一卡片在「使用這份名單」之前（DOM 順序），且不用展開就看得到。
+    // 數字的獨立盤點與資料來源見 imports.spec.ts 的 fixture inventory 註記。
     const summary = summaryOf(page);
     await expect(summary).toBeVisible();
-    await expect(summary).toContainText('米豆奶有／系統無');
-    await expect(summary).toContainText('12 個班');
-    await expect(summary).toContainText('191 位學生');
-    await expect(summary).toContainText('系統有／本次名冊無');
-    await expect(summary).toContainText('7 個班');
+    await expect(summary).toContainText('名冊有 12 個班名與課表不一致（其中 12 個尚未對應，影響 191 位學生）');
+    await expect(page.locator('.class-name-report-summary')).toHaveCount(1);
+    await expect(page.getByText(/本次匯入名冊中發現 .*個班名待確認/)).toHaveCount(0);
 
     const useBtn = page.locator('button', { hasText: '使用這份名單' });
     await expect(useBtn).toBeVisible();
@@ -111,7 +110,7 @@ test.describe('班名比對報告（D1，D62 併入「班名同步」）', () =>
     await expect(page.locator('text=/12\\s*個班名待確認/').first()).toBeVisible();
 
     // 連到完整清單（尚未啟用的這批名單也能看；D62 路由改為 ?tab=sync）
-    const link = summary.getByRole('link', { name: /完整班名比對報告/ });
+    const link = summary.getByRole('link', { name: '前往班名同步 →' });
     await expect(link).toBeVisible();
     await expect(link).toHaveAttribute('href', /^\/settings\?tab=sync&import=.+/);
     await link.click();

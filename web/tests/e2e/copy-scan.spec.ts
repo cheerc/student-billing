@@ -227,6 +227,11 @@ test.describe('R5 文案全頁掃描（09 §7）', () => {
     await page.goto('/imports');
     await page.locator('input[type="file"]').setInputFiles(FIXTURE);
     await expect(page.locator('.stats-grid')).toBeVisible({ timeout: 15000 });
+    const importSummary = page.getByRole('region', { name: '班名同步摘要' });
+    await expect(importSummary).toBeVisible();
+    await expect(importSummary.getByRole('link', { name: '前往班名同步 →' })).toBeVisible();
+    await expect(page.locator('.class-name-report-summary')).toHaveCount(1);
+    await expect(page.getByText(/本次匯入名冊中發現 .*個班名待確認/)).toHaveCount(0);
     await scan(page, '匯入學生｜確認名單（預覽）', violations);
 
 
@@ -300,7 +305,12 @@ test.describe('R5 文案全頁掃描（09 §7）', () => {
     await page.keyboard.press('Escape');
 
     await applyFilter(page, '所屬班級', { pick: ['國小數學-一'] });
-    await expect(page.locator('.notice-warn')).toBeVisible();
+    const unmappedNotice = page.locator('.notice-warn', { hasText: '待設定班級提示' });
+    await expect(unmappedNotice).toBeVisible();
+    await expect(unmappedNotice.getByRole('link', { name: '前往班名同步' })).toHaveAttribute(
+      'href',
+      '/settings?tab=sync'
+    );
     await scan(page, '核對結果｜已套用篩選條件與待設定班級提示', violations);
     await page.getByRole('button', { name: '清除全部' }).click();
 
