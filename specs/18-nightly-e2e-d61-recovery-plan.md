@@ -164,7 +164,7 @@ done
 
 **分支**：`fix/issue-188-e2e-obsolete-selectors`
 **前置**：Phase 1 的 helper（單獨開發時可先 cherry-pick，或由同一位實作者接續）。
-**審查等級**：`single`；但 §3.2 的 Ruling 需 coord 先同意。
+**審查等級**：`single`（R-188-P2 已裁決，見 [Issue #188 留言](https://github.com/cheerc/student-billing/issues/188#issuecomment-6498485036)）。
 
 **逐檔做法**
 
@@ -222,11 +222,11 @@ npm run test:e2e:isolated -- tests/e2e/schedule-sticky-header.spec.ts
 
 ---
 
-### Phase 4（PR-4）：D 族 1 案例（契約裁決後才動）
+### Phase 4（PR-4）：D 族 1 案例（R-188-P4 已裁決為 D-1）
 
-**分支**：`fix/issue-188-e2e-blank-weekday-contract`（若裁決為「改測試」）
-**前置**：coord／operator 對 §3.4 裁決回覆。**未回覆前此 Phase blocked，不得猜。**
-**審查等級**：`dual`（若改產品驗證行為，涉及設定預覽契約）；若只改測試與 spec 文字則 `single`。
+**分支**：`fix/issue-188-e2e-blank-weekday-contract`
+**前置**：無，R-188-P4 已裁決（[Issue #188 留言](https://github.com/cheerc/student-billing/issues/188#issuecomment-6498485036)）。
+**審查等級**：`single`（D-1 只改測試與 spec 文字，不改產品驗證行為；若日後改採 D-2 涉及 `settings-preview.ts` 則升為 `dual`）。
 
 **現況事實**
 
@@ -236,16 +236,16 @@ npm run test:e2e:isolated -- tests/e2e/schedule-sticky-header.spec.ts
 - 反證：`tests/integration/schedule-unknown-weekday.test.ts:218` 仍斷言 400 且**目前綠**——因為它直接構造「星期欄空白、時間完整」的 `sessions`（不經 grid 的 `splitSavableSessions`）。這證明「契約只被 UI 的組裝路徑繞過」，不是伺服器完全放寬。
 - 另一面：UX108 的「先存檔」正是靠這條路徑（`schedule-add-placeholder-row.spec.ts:106` 的 reload 測試在 CI 與本機皆綠）。
 
-**兩種互斥選項，必須由 coord／operator 選一**
+**兩種互斥選項（R-188-P4 裁決採 D-1；D-2 保留為歷史對照）**
 
 | 選項 | 內容 | 影響 |
 |---|---|---|
 | **D-1 改測試＋改 09（建議）** | `copy-d39` 的空白星期案例改為：預覽回 200 → 對話框仍顯示「尚未匯入學生」或實際影響、**不得**顯示「受影響 0 人／未改變」、可儲存；同時修 `specs/09:87`「提交仍拒絕空白星期」為「空白星期列轉為 `incompleteSessions`，不進計費核心、不阻擋存檔」，並同步 `specs/04` UX32 列文的機制描述 | 不改產品；與 D61 Ruling 3（先存檔）一致；`tests/integration/schedule-unknown-weekday.test.ts:218` 保留（伺服器對「偽造完整 session」仍嚴格） |
 | **D-2 改產品復原 400** | 在 `settings-preview.ts` 於 `SettingsDraft` 之後再驗「不得含空白星期」 | 與 UX108「未填時間可先存檔」直接衝突，`schedule-add-placeholder-row.spec.ts:106` 會轉紅；不建議 |
 
-**建議採用 D-1**，理由：D61 的 1c 目的是「允許先存檔、以視覺警示提醒」，而 UX32 的原意是「沒有預覽就不得假裝 0 人／未改變」，兩者在 200＋`settings_only` 下都能滿足。D-2 會把已驗收的 UX108 打回去。
+**建議採用 D-1**（已採納為 R-188-P4），理由：D61 的 1c 目的是「允許先存檔、以視覺警示提醒」，而 UX32 的原意是「沒有預覽就不得假裝 0 人／未改變」，兩者在 200＋`settings_only` 下都能滿足。D-2 會把已驗收的 UX108 打回去。
 
-**若採用 D-1 的驗收**
+**D-1 的驗收（此即 Phase 4 的驗收）**
 
 ```bash
 cd web
@@ -313,7 +313,7 @@ npm run test:e2e:isolated -- tests/e2e/<本 Phase 的檔>
 | 幾何斷言對版面敏感 | 表頭接縫／sticky 依賴 `border-collapse`（已知 #99） | 本 Phase 只改「進哪個頁籤」，不改 `<=1px`／`leakedPixels === 0` 門檻 |
 | `?class=` 深度連結 | 依 `specs/09:60`「`?class=` 自動切至目標類型頁籤」；已有 E2E 覆蓋（`leave-confirm` 的入口矩陣） | helper 先斷言「目標班列可見」，失敗時錯誤訊息要指出班名與頁籤 |
 | CI 較慢 | nightly 上 focus 案例多為 15s／30s timeout；本機單獨重跑可在 6 秒內取得 409 | 不以加 timeout 修；先修入口。若修完仍偶發，另開 issue 記錄實際耗時（不得默默放寬） |
-| 文件引用落差 | ~~根 `CLAUDE.md` §2 引用 `specs/15`、`specs/16`，但兩檔不在 `main`~~ | 已由 operator 2026-10-29 裁決「移除引用」，Coordinator 處理中；本計畫不再提及那兩檔（§8） |
+| 文件引用落差 | ~~根 `CLAUDE.md` §2 引用 `specs/15`、`specs/16`，但兩檔不在 `main`~~ | 已由 Coordinator 於同批文件變更中移除引用（依 operator 指示，非 D 決策條目）；本計畫不再提及那兩檔（§8）。原始碼註解中的殘留另列 §8 |
 
 ---
 
@@ -326,7 +326,7 @@ npm run test:e2e:isolated -- tests/e2e/<本 Phase 的檔>
 
 **待決**
 
-1. **`specs/15`／`specs/16` 引用落差**：已由 operator 2026-10-29 裁決「移除引用」；Coordinator 於同一批文件變更中處理（根 `CLAUDE.md` §2 與 `specs/README.md` 的條目移除）。
+1. **`specs/15`／`specs/16` 引用落差**：文件層（`CLAUDE.md` §2、`specs/README.md`、`specs/14`、`specs/06` D60／D61 尾句）已由 Coordinator 依 operator 指示於同批變更中移除。**原始碼註解仍有 5 處殘留**（`grep -rn "specs/1[56]" web/src web/tests` 實測 5 命中，於檔案：`web/src/adapters/xlsx/schedule-table-io.ts:364`、`web/src/application/activate-import.ts:137`、`web/tests/unit/d61-five-class-types-billing.test.ts:2`、`web/tests/integration/d61-legacy-draft-and-snapshot.test.ts:2`、`web/tests/e2e/schedule-class-type-tabs.spec.ts:4`），待另案清理。
 2. **最終驗證形式**：新的 scheduled nightly，或 coord 核准的 `workflow_dispatch`（需在報告中標明差異）。
 
 **本計畫未做的事（避免誤讀）**
