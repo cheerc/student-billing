@@ -67,6 +67,25 @@ Rules:
   are only kept while they are still needed: each one must still match its literals, or still both lack a row
   helper *and* touch a managed input, otherwise the test demands its removal.
 
+## Changing a class's category (D61): radio for existing classes, Excel for class type
+
+There is **no** category `<select>` any more (`[data-category-select]` is banned by the static gate).
+An existing class's effective category is the projection of its **class type + 「是否有多科折扣」**:
+
+| want | how |
+|---|---|
+| `math` / `english` / `care` → `none` | `setMultiDiscount(page, name, false)` |
+| `none` → `math` / `english` / `care` | `setMultiDiscount(page, name, true)` |
+| `other` → `math` (change the **class type**) | Excel round-trip only: `mutateExport(page, (rows) => { setRowClassType(...); setRowMultiDiscount(...) })` |
+
+- `其他班` and `不排課` tabs have **no** multi-discount column at all (09 §3.1), so their category is
+  always `none`; only the Excel path can move them out of those tabs (UX106/UX109, R-188-P2).
+- When changing an `other` class to a schedulable type via Excel you must also set 「是否有多科折扣」
+  to 是 — `other` exports it as 否, and `deriveEffectiveCategory(math, false)` is still `none`.
+- Helpers: `selectClassTypeTab(page, type)` (park on a tab, e.g. to read `.count-summary`) and
+  `ensureClassTypeTab(page, name)` (find a class wherever it lives). `setMultiDiscount` calls
+  `ensureClassTypeTab` itself, so it works from the default care tab.
+
 ## Isolated runner: use your own port when another session is running E2E
 
 `npm run test:e2e:isolated` defaults to port 3100 and **fails immediately** when the port is taken

@@ -105,3 +105,51 @@ export async function ensureClassTypeTab(page: Page, className: string): Promise
 }
 
 const CLASS_TYPE_TABS = ['care', 'english', 'math', 'other', 'unscheduled'] as const;
+
+export type ClassTypeTab = (typeof CLASS_TYPE_TABS)[number];
+
+/**
+ * 切到指定類型頁籤（`#class-type-tab-*`），並等到該頁籤真的被選取。
+ * 需要「停在某個頁籤」而不是「找到某班」時使用（例如讀取該頁籤的數量摘要）。
+ */
+export async function selectClassTypeTab(page: Page, type: ClassTypeTab): Promise<void> {
+  const tab = page.locator(`#class-type-tab-${type}`);
+  await tab.click();
+  await expect(tab).toHaveAttribute('aria-selected', 'true', { timeout: 15000 });
+}
+
+/**
+ * 課表頁「是否有多科折扣」的 YesNoRadioGroup（D61 單選統一，取代舊的五態下拉選單）。
+ *
+ * 頁籤語意（`schedule-grid.tsx`）：
+ * - 安親課輔班／美語班／數學班：每班第一列有一組單選（同班其餘列顯示靜態「↳ 同本班」）；
+ * - 其他班：**整欄不存在**（09 §3.1 的欄位徹底分離），因此那裡的類別恆為 none；
+ * - 不排課：同樣沒有此欄。
+ *
+ * 單選的 `<input>` 是 `opacity: 0` 的隱藏框，點擊要用可見的 `label.yes-option`／`label.no-option`。
+ */
+export function multiDiscountGroup(page: Page, className: string): Locator {
+  return page.locator(`div[role="radiogroup"][aria-label="${className} 的是否有多科折扣"]`).first();
+}
+
+/**
+ * 把某班的「是否有多科折扣」設成是／否 —— 也就是 D61 之後改變**既有**班級類別（category）的唯一 UI 路徑。
+ *
+ * 對照表（`deriveEffectiveCategory`）：是→該班類型本身（care／english／math），否→none。
+ * 「其他班」沒有這個控制項，其類別恆為 none；要改它的課程類型得走 Excel 匯入（UX106／UX109）。
+ */
+export async function setMultiDiscount(page: Page, className: string, yes: boolean): Promise<void> {
+  // 先切到該班所在的頁籤（預設是安親頁籤，數學／美語班的列根本不存在）
+  await ensureClassTypeTab(page, className);
+  const group = multiDiscountGroup(page, className);
+  await expect(
+    group,
+    `找不到「${className}」的多科折扣單選。其他班／不排課頁籤沒有這個欄位（09 §3.1）；` +
+      `要改它們的課程類型請走 Excel 匯入。`
+  ).toBeVisible({ timeout: 15000 });
+  await group.locator(yes ? 'label.yes-option' : 'label.no-option').click();
+  await expect(
+    group.locator(`input[value="${yes ? 'true' : 'false'}"]`),
+    `點擊後「${className}」的多科折扣應為${yes ? '是' : '否'}`
+  ).toBeChecked();
+}
