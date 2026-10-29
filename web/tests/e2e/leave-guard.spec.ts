@@ -62,7 +62,7 @@ test.describe('UX31 站內離開入口：dirty 時先確認', () => {
       await keepEditing(page).click();
       await expect(leaveDialog(page)).toHaveCount(0);
       expect(pathOf(page)).toBe('/settings');
-      await expect(startInput(page)).toHaveValue('15:45');
+      await expect(await startInput(page)).toHaveValue('15:45');
       await expect(dirtyBar(page)).toBeVisible();
 
       // Esc 等同繼續編輯（不離開、不丟草稿）
@@ -71,7 +71,7 @@ test.describe('UX31 站內離開入口：dirty 時先確認', () => {
       await page.keyboard.press('Escape');
       await expect(leaveDialog(page)).toHaveCount(0);
       expect(pathOf(page)).toBe('/settings');
-      await expect(startInput(page)).toHaveValue('15:45');
+      await expect(await startInput(page)).toHaveValue('15:45');
 
       // 捨棄修改：才真的離開
       await sideLink(page, t.name).click();
@@ -92,7 +92,7 @@ test.describe('UX31 站內離開入口：dirty 時先確認', () => {
 
     await keepEditing(page).click();
     await expect(leaveDialog(page)).toHaveCount(0);
-    await expect(startInput(page)).toHaveValue('15:50');
+    await expect(await startInput(page)).toHaveValue('15:50');
 
     await brandLink(page).click();
     await expect(leaveDialog(page)).toBeVisible();
@@ -117,7 +117,7 @@ test.describe('UX31 站內離開入口：dirty 時先確認', () => {
     await keepEditing(page).click();
     await expect(leaveDialog(page)).toHaveCount(0);
     expect(pathOf(page)).toBe('/settings');
-    await expect(startInput(page)).toHaveValue('15:55');
+    await expect(await startInput(page)).toHaveValue('15:55');
     await expect(dirtyBar(page)).toBeVisible();
 
     // 再按一次 Back 仍然會攔截（不是只攔第一次）
@@ -129,7 +129,7 @@ test.describe('UX31 站內離開入口：dirty 時先確認', () => {
 
   test('確認視窗不累積；確認後只導覽一次；捨棄後沒有殘留的 beforeunload', async ({ page }) => {
     await openClassScheduleViaHome(page, '兒童美語-Gino');
-    const original = await startInput(page).inputValue();
+    const original = await (await startInput(page)).inputValue();
     await editStart(page, '16:00');
 
     // 反覆觸發離開（連點連結、連按返回）：確認視窗始終只有一層
@@ -164,7 +164,7 @@ test.describe('UX31 站內離開入口：dirty 時先確認', () => {
     await expect(dirtyBar(page)).toHaveCount(0);
     // 側欄進入的網址不帶 ?class=，Back 後頁籤回到預設安親（沒有時段欄）；先切回該班所在頁籤。
     await ensureClassTypeTab(page, '兒童美語-Gino');
-    await expect(startInput(page)).toHaveValue(original);
+    await expect(await startInput(page)).toHaveValue(original);
 
     // 再返回一步就是最初的首頁
     await page.goBack();
@@ -242,7 +242,7 @@ test.describe('UX31 reload／關閉分頁：瀏覽器原生 beforeunload', () =>
     expect(d.type()).toBe('beforeunload');
     await d.dismiss();
     expect(page.isClosed()).toBe(false);
-    await expect(startInput(page)).toHaveValue('15:45');
+    await expect(await startInput(page)).toHaveValue('15:45');
     await expect(dirtyBar(page)).toBeVisible();
 
     // 重新整理：出現 beforeunload；同意離開後回到乾淨的伺服器狀態

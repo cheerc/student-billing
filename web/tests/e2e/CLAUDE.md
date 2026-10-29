@@ -51,9 +51,21 @@ Rules:
   If the class is not on the current tab, `ensureClassTypeTab(page, name)` clicks `#class-type-tab-*` and waits.
 - Use `openClassScheduleViaHome` whenever the test depends on browser history; `page.goto` replaces the
   current entry, so a deep link would remove the page that `goBack()` is supposed to return to.
-- `tests/unit/e2e-conventions.test.ts` enforces these rules statically (49-spec inventory, no obsolete literals,
-  slot-touching specs must import a row helper). Update it together with any new convention.
-- Removed selectors: `data-category-select` was replaced by `YesNoRadioGroup`; `schedule-table-non-care` no longer exists.
+- `startInput(page, className?)` checks the class row is visible **before** returning the locator, so a
+  spec parked on the wrong tab fails at the helper instead of quietly pointing at nothing.
+- **What the static gate does** — `tests/unit/e2e-conventions.test.ts` is a source-string scan only, and it
+  does exactly three things: (a) banned literals (`data-category-select`, `schedule-table-non-care`, and
+  row-order lookups `.schedule-table tbody tr'|").nth(`) must not appear, (b) a spec that touches
+  `input.input-time` / `input.input-weekday` must import a row helper and must not grab the first match with a
+  page-level locator (`page.locator('input.input-time').first()`), and (c) `startInput` keeps its
+  async/`classRow`/`toBeVisible` shape.
+- **What it does not prove**: it never runs a browser. It cannot show a helper works, and it cannot catch a
+  helper regression — mutating `startInput` back to "first slot on the page" left all 12 migrated specs green
+  (PR #191 §TDD.5, M2). (c) only guards the shape of that contract, not its behaviour; E2E is what exercises
+  the behaviour. Do not describe the gate as proving more than this.
+- Update the gate (and `e2e-conventions-exemptions.ts`) together with any new convention. Exception entries
+  are only kept while they are still needed: each one must still match its literals, or still both lack a row
+  helper *and* touch a managed input, otherwise the test demands its removal.
 
 ## Isolated runner: use your own port when another session is running E2E
 

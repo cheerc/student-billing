@@ -22,7 +22,7 @@ async function openAndEsc(page: import('@playwright/test').Page) {
   const dialog = page.locator('dialog.impact-dialog');
 
   await openClassSchedule(page, '兒童美語-Gino');
-  await startInput(page).fill('13:30');
+  await (await startInput(page)).fill('13:30');
   await opener.click();
   await expect(dialog).toBeVisible({ timeout: 15000 });
   await expect(dialog.locator('button', { hasText: /^儲存/ })).toBeEnabled({ timeout: 15000 });
@@ -134,7 +134,7 @@ test.describe('D2d r3／F4 負向：不得搶走使用者已主動安排的焦�
     await page.clock.runFor(400);
 
     // ★ 開啟離頁確認視窗（第二個 modal），其焦點在 dialog 內
-    await startInput(page).fill('14:00');
+    await (await startInput(page)).fill('14:00');
     await page.getByRole('link', { name: /匯入學生/ }).click();
     const leaveDialog = page.locator('dialog.leave-dialog');
     await expect(leaveDialog).toBeVisible({ timeout: 15000 });

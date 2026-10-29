@@ -169,7 +169,7 @@ test.describe('R5 文案全頁掃描（09 §7）', () => {
     // 前一段刻意停在數學頁籤看「待補時間」徽章；要編輯 Gino 必須先切回其頁籤
     // （D61：每頁籤只渲染自己的班，`input.input-time` 不會跨頁籤存在）。
     await page.locator('#class-type-tab-english').click();
-    await startInput(page).fill('14:20');
+    await (await startInput(page)).fill('14:20');
     await sideLink(page, /匯入學生/).click();
     const leave = page.getByRole('dialog', { name: '有尚未儲存的課表修改' });
     await expect(leave).toBeVisible({ timeout: 10000 });
@@ -183,7 +183,7 @@ test.describe('R5 文案全頁掃描（09 §7）', () => {
     await page.locator('button', { hasText: /^課表/ }).first().click();
 
     await page.locator('#class-type-tab-english').click();
-    await startInput(page).fill('13:30');
+    await (await startInput(page)).fill('13:30');
     await page.locator('button', { hasText: '確認變更' }).click();
     await expect(page.locator('dialog.impact-dialog')).toBeVisible({ timeout: 15000 });
     await scan(page, '課表設定｜確認變更視窗（只有課表）', violations);
@@ -404,7 +404,7 @@ test.describe('R5 文案全頁掃描（09 §7）', () => {
       })
     );
     await ensureEnglishTab();
-    await startInput(page).fill('14:50');
+    await (await startInput(page)).fill('14:50');
     await page.locator('button', { hasText: '確認變更' }).click();
     await expect(page.locator('dialog.impact-dialog [data-dialog-error]')).toBeVisible({ timeout: 15000 });
     await scan(page, '課表設定｜確認變更視窗（空白星期，預覽失敗）', violations);

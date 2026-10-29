@@ -177,7 +177,7 @@ test.describe('R5 UX20 響應式驗收', () => {
       await page.goto('/settings');
       await expect(page.locator('h1', { hasText: '課表設定' })).toBeVisible({ timeout: 10000 });
       await page.locator('#class-type-tab-english').click();
-      await startInput(page).fill('13:30'); // 使操作列出現「有未儲存的變更」
+      await (await startInput(page)).fill('13:30'); // 使操作列出現「有未儲存的變更」
       // 等計算真的回來再量測／截圖：否則截到的是「尚未計算」的瞬間，不是使用者實際看到的課表
       await expect(page.locator('.calculating-indicator')).toHaveCount(0);
       await expect(

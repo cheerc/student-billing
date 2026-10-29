@@ -35,9 +35,21 @@ export const brandLink = (page: Page): Locator => page.locator('aside.side .bran
  * 「`.schedule-table tbody tr` 的 nth(3)」；改名或移除 seed 時，這一個常數是唯一需要改的地方。
  * 直接寫 `page.locator('input.input-time').first()` **不保證**指向同一列——D61 起一頁籤一張表，
  * 預設安親頁籤根本沒有時段欄。
+ *
+ * 契約（R-191-3 首選）：回傳前先斷言**該班列**可見。spec 停在錯頁籤、或班名拼錯時，
+ * 這裡會直接失敗，而不是安靜地回一個永遠不會 resolve 的 locator。
+ * 誠實界線：這道斷言本身**不是** Phase 1 的鑑別力來源——12 檔改用的 spec 都已先停在正確頁籤，
+ * 所以整個 helper 改成「全表第一個時段」時它們仍全綠（PR #191 §TDD.5 的 M2）。
+ * 它保住的是錯誤訊息與「錯頁籤就失敗」的形狀，`e2e-conventions.test.ts` 另外靜態守住這個形狀。
  */
-export const startInput = (page: Page, className = '兒童美語-Gino'): Locator =>
-  classRow(page, className).locator('input.input-time').first();
+export async function startInput(page: Page, className = '兒童美語-Gino'): Promise<Locator> {
+  const row = classRow(page, className);
+  await expect(
+    row,
+    `startInput 找不到班「${className}」的排課列；請確認目前頁籤與班名（見 openClassSchedule／ensureClassTypeTab）。`
+  ).toBeVisible({ timeout: 15000 });
+  return row.locator('input.input-time').first();
+}
 
 /** 某班第一列的重疊／扣除計算欄（以 `data-calc` 意義定位，不用 td 索引）。 */
 export const calcCell = (page: Page, className: string, column: string): Locator =>
@@ -94,7 +106,7 @@ export async function editStart(page: Page, value = '15:45', input?: Locator): P
       await englishTab.click();
     }
   }
-  const target = input ?? startInput(page);
+  const target = input ?? (await startInput(page));
   await target.click();
   await target.fill(value);
   await expect(dirtyBar(page)).toBeVisible();

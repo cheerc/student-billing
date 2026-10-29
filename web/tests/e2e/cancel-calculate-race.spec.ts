@@ -132,7 +132,7 @@ async function holdCalculate(page: Page) {
 async function enterFromHome(page: Page) {
   // 保留 `/` 作為上一頁：Back／關頁清理的歷史語意靠這一步，因此不能用 goto 深連結。
   await openClassScheduleViaHome(page, '兒童美語-Gino');
-  await expect(startInput(page)).toBeVisible();
+  await expect(await startInput(page)).toBeVisible();
   await expect(overlap(page)).toHaveText(/40/); // seed 15:20 → 安親重疊40分，獨立手算
   await installBarrier(page);
 }
@@ -148,7 +148,7 @@ async function expectCleanHistoryAndClose(page: Page) {
   // 側欄導覽的網址不帶 ?class=，Back 後頁籤回到預設（安親，沒有時段欄）；
   // 這裡的斷言是「草稿已還原」，不是「停在哪個頁籤」，所以先切回該班所在頁籤。
   await ensureClassTypeTab(page, '兒童美語-Gino');
-  await expect(startInput(page)).toHaveValue('15:20');
+  await expect(await startInput(page)).toHaveValue('15:20');
   await expect(dirtyBar(page)).toHaveCount(0);
   await page.goBack();
   await expect.poll(() => new URL(page.url()).pathname).toBe('/');
@@ -184,13 +184,13 @@ test('calculate已在途仍可取消；baseline與dirty還原，舊回應不能�
   await expect(cancelButton(page)).toBeDisabled(); // 無dirty不開放取消
   const held = await holdCalculate(page);
   try {
-    await startInput(page).fill('14:20');
+    await (await startInput(page)).fill('14:20');
     await expect.poll(held.count).toBe(1);
     await expect(reviewButton(page)).toBeDisabled(); // 只解除取消，不解除確認gate
     await expect(cancelButton(page)).toBeEnabled();
     await holdDebounce(page); // 讓取消後baseline的新請求暫不開始，刻意保留舊requestKey為latest
     await cancelButton(page).click();
-    await expect(startInput(page)).toHaveValue('15:20');
+    await expect(await startInput(page)).toHaveValue('15:20');
     await expect(dirtyBar(page)).toHaveCount(0);
     await waitReady(page);
     const delivered = page.waitForResponse(r => r.url().includes('/settings/calculate'));
@@ -198,7 +198,7 @@ test('calculate已在途仍可取消；baseline與dirty還原，舊回應不能�
     await (await delivered).finished();
     await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
     await expect(overlap(page)).not.toHaveText(/100/); // 舊14:20→100分不可當15:20的結果
-    await expect(startInput(page)).toHaveValue('15:20');
+    await expect(await startInput(page)).toHaveValue('15:20');
     await expect(dirtyBar(page)).toHaveCount(0);
     await held.dispose();
     expect(await releaseDebounce(page)).toBe(1);
@@ -219,20 +219,20 @@ test('完整F1前置：calculate在pointerdown/up間啟動，一次原生取消�
   await cancelButton(page).click();
   await expect(dirtyBar(page)).toHaveCount(0);
   await page.route('**/api/v1/settings/calculate', r => r.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ error: 'SQLITE_ERROR: internal failure' }) }));
-  await startInput(page).fill('14:10');
+  await (await startInput(page)).fill('14:10');
   await expect(page.locator('[data-calculate-error]')).toBeVisible();
   await page.locator('main').innerText();
   await page.unroute('**/api/v1/settings/calculate');
   await cancelButton(page).click();
   await expect(dirtyBar(page)).toHaveCount(0);
   await holdDebounce(page);
-  await startInput(page).fill('14:20');
+  await (await startInput(page)).fill('14:20');
   await sideLink(page, /匯入學生/).click();
   await expect(leaveDialog(page)).toBeVisible();
   await leaveDialog(page).innerText();
   await keepEditing(page).click();
   await expect(leaveDialog(page)).toHaveCount(0);
-  await expect(startInput(page)).toHaveValue('14:20');
+  await expect(await startInput(page)).toHaveValue('14:20');
   await waitReady(page);
   const held = await holdCalculate(page);
   try {
@@ -247,7 +247,7 @@ test('完整F1前置：calculate在pointerdown/up間啟動，一次原生取消�
     await expect(reviewButton(page)).toBeDisabled();
     await page.mouse.up();
     await expect(dirtyBar(page)).toHaveCount(0); // RED應是取消契約的Expected0/Received1，而非actionability假紅
-    await expect(startInput(page)).toHaveValue('15:20');
+    await expect(await startInput(page)).toHaveValue('15:20');
     const events = await page.evaluate(() => (window as unknown as ProbeWindow).__cancelRace.events);
     const lastDown = events.findLastIndex(e => e.kind === 'pointerdown');
     expect(events.slice(lastDown).filter(e => e.kind === 'click')).toHaveLength(1);
@@ -259,10 +259,10 @@ test('完整F1前置：calculate在pointerdown/up間啟動，一次原生取消�
 test('timer barrier尊重clearTimeout：重新編輯與取消不得釋放已取消callback', async ({ page }) => {
   await enterFromHome(page);
   await holdDebounce(page);
-  await startInput(page).fill('14:20');
+  await (await startInput(page)).fill('14:20');
   await waitReady(page);
   const firstReady = await page.evaluate(() => (window as unknown as ProbeWindow).__cancelRace.events.findLast(e => e.kind === 'timer-ready')!.id);
-  await startInput(page).fill('14:30');
+  await (await startInput(page)).fill('14:30');
   await waitReady(page);
   const held = await holdCalculate(page);
   try {
@@ -274,7 +274,7 @@ test('timer barrier尊重clearTimeout：重新編輯與取消不得釋放已取�
     held.release();
     await expect(reviewButton(page)).toBeEnabled();
     await holdDebounce(page);
-    await startInput(page).fill('14:40');
+    await (await startInput(page)).fill('14:40');
     await waitReady(page);
     const cancelledId = await page.evaluate(() => (window as unknown as ProbeWindow).__cancelRace.events.findLast(e => e.kind === 'timer-ready')!.id);
     await cancelButton(page).click();
@@ -291,7 +291,7 @@ test('timer barrier尊重clearTimeout：重新編輯與取消不得釋放已取�
 
 test('取消不放寬儲存gate：送出中仍disabled且只有一次apply', async ({ page }) => {
   await openSchedule(page);
-  await startInput(page).fill('15:45');
+  await (await startInput(page)).fill('15:45');
   await expect(reviewButton(page)).toBeEnabled();
   await reviewButton(page).click();
   const dialog = page.locator('dialog.impact-dialog');

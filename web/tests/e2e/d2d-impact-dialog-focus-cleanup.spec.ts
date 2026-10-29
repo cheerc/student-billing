@@ -72,7 +72,7 @@ async function openAndEsc(page: import('@playwright/test').Page) {
   const opener = page.locator('button', { hasText: '確認變更' });
   const dialog = page.locator('dialog.impact-dialog');
   await openClassSchedule(page, '兒童美語-Gino');
-  await startInput(page).fill('13:30');
+  await (await startInput(page)).fill('13:30');
   await opener.click();
   await expect(dialog).toBeVisible({ timeout: 15000 });
   await expect(dialog.locator('button', { hasText: /^儲存/ })).toBeEnabled({ timeout: 15000 });
@@ -219,7 +219,7 @@ test.describe('D2d r3／F4 cleanup：所有終止路徑都不得殘留 listener'
 
     const opener = page.locator('button', { hasText: '確認變更' });
     const dialog = page.locator('dialog.impact-dialog');
-    await startInput(page).fill('14:25');
+    await (await startInput(page)).fill('14:25');
     await opener.click();
     await expect(dialog).toBeVisible({ timeout: 15000 });
     const save = dialog.locator('button', { hasText: /^儲存/ });

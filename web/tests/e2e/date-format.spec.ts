@@ -21,8 +21,8 @@ const NOT_LOCALE = /\b(?:AM|PM)\b|\d{1,2}\/\d{1,2}\/\d{2,4}/;
 test.describe('UX33 日期時間格式', () => {
   test('課表儲存時間：儲存後立即顯示新時間（台北時間、YYYY-MM-DD HH:mm）；重新整理後仍是同格式', async ({ page }) => {
     await openSchedule(page);
-    await startInput(page).click();
-    await startInput(page).fill('15:45');
+    await (await startInput(page)).click();
+    await (await startInput(page)).fill('15:45');
     await page.waitForTimeout(500);
     await page.locator('button', { hasText: '確認變更' }).click();
     const impact = page.locator('dialog.impact-dialog');

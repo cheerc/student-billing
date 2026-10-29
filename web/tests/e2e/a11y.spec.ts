@@ -242,7 +242,7 @@ test.describe('R5 可及性稽核（09 §6）', () => {
 
   test('確認變更視窗（native dialog）：Tab 不逸出、Esc 關閉並回到「確認變更」按鈕', async ({ page }) => {
     await openClassSchedule(page, '兒童美語-Gino');
-    await startInput(page).fill('13:30');
+    await (await startInput(page)).fill('13:30');
     const opener = page.locator('button', { hasText: '確認變更' });
     await opener.click();
 
