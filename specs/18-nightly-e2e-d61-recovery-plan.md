@@ -5,9 +5,9 @@
 狀態：**計畫；Phase 1 已合併（PR #191），Phase 2 進行中（PR #192），Phase 3／4 待派**。本文件只定義修復工作與驗收方式，不定義新的產品契約。
 
 > **檔號說明**：本計畫原編號為 `17`，因 `specs/17-class-name-sync-plan.md`（D62 班名同步，PR #190 已合併）先行佔用，改號為 **18** 以維持檔號唯一。
-> **授權來源**：本計畫不是 operator 決策條目，`specs/06-handoff-decisions.md` 沒有對應的 D 編號。Issue #188 是 nightly 自動開單（`app/github-actions`，label `nightly-e2e`），不含修復裁決；修復範圍與 Phase 順序由 Coordinator 於 2026-10-29 依該 Issue 派工決定，其中 P2 走 Excel 匯出入、P4 採 D-1 兩項選項已由 operator 確認。
+> **授權來源**：本計畫不是 operator 決策條目，`specs/06-handoff-decisions.md` 沒有對應的 D 編號，Issue #188 是 nightly 自動開單（`app/github-actions`，label `nightly-e2e`），本身不含修復裁決。修復範圍與 Phase 順序由 Coordinator 於 2026-10-29 依該 Issue 派工決定；其中兩項選項裁決（R-188-P2、R-188-P4）記錄於 [Issue #188 的 Coordinator 裁決留言](https://github.com/cheerc/student-billing/issues/188#issuecomment-6498485036)，為可回查來源。
 
-> 型別說明：本計畫的權威契約來源只有 `specs/09`（D61 UI 契約）、`specs/04` §8（UX106–UX109）與 `web/CLAUDE.md` §8。`specs/15`、`specs/16` 被根目錄 `CLAUDE.md` 引用，但**不存在於 `main`**（僅存在於未合併的 `plan/*` 分支，屬另一項待決落差）。本計畫不複製其內容、不補寫該兩檔；此引用落差見 §8。
+> 型別說明：本計畫的權威契約來源只有 `specs/09`（D61 UI 契約）、`specs/04` §8（UX106–UX109）與 `web/CLAUDE.md` §8。
 
 ---
 
@@ -178,10 +178,10 @@ done
 | `schedule-grid-workflow.spec.ts:27,33` | `.count-summary` 含「時段」、第一個 `input.input-time` | 依 `specs/09:67` 改成「安親頁籤顯示 `共 8 個班級`（不含時段）」＋切到排課頁籤後斷言 `{N} 個班級 · {M} 個時段`；編輯改用 helper（Gino 列） |
 | `round3-mapping-candidates-sync.spec.ts:92`（改名目標在 `other` 頁籤） | 切回「課表」後直接 `renameWholeClass` | 改名後以 `ensureClassTypeTab(page,'R3國文班驗收')` 切到 `other` 頁籤再驗證（改名目標 `國小國語文-小五` 為 `other`） |
 
-**§3.2 Ruling（需 coord 同意後才動工）**
+**§3.2 Ruling（已裁決：R-188-P2，見 [Issue #188 裁決留言](https://github.com/cheerc/student-billing/issues/188#issuecomment-6498485036)）**
 
 `Ruling: round3-preview 改走 Excel 匯出入變更課程類型，而非在 UI 新增「變更既有班級類型」功能。`
-理由：D61 只提供「新增班級時選類型」（`schedule-grid.tsx:582-597` 為新增表單；既有列只有 YesNoRadioGroup，沒有類型選單），`specs/16`（未合併分支）第 3 與 4 點也只新增新班表單與 Excel 9 欄契約。要讓「既有 `other` 班變成 `math`」在 UI 可達，等於新增一個未驗收的產品功能。Excel 匯出入是 D61 明列的正式路徑（`specs/04` UX106/UX109、`specs/09:70`「類別變更…進完整影響預覽」），且不改變原本的手算 expected。
+理由：D61 只提供「新增班級時選類型」（`schedule-grid.tsx:582-597` 為新增表單；既有列只有 YesNoRadioGroup，沒有類型選單），既有列的類型在 UI 不可改。要讓「既有 `other` 班變成 `math`」在 UI 可達，等於新增一個未驗收的產品功能。Excel 匯出入是 D61 明列的正式路徑（`specs/04` UX106/UX109、`specs/09:70`「類別變更…進完整影響預覽」），且不改變原本的手算 expected。
 替代方案（若 coord 認為不可）：把該案例改成「多科折扣 是→否」的類別變更（`math` → `none`），但 95折→9折 的 expected 需重新獨立手算與改 fixture，工作量與風險都更高。
 
 **驗收（Phase 2 單獨）**
@@ -313,18 +313,21 @@ npm run test:e2e:isolated -- tests/e2e/<本 Phase 的檔>
 | 幾何斷言對版面敏感 | 表頭接縫／sticky 依賴 `border-collapse`（已知 #99） | 本 Phase 只改「進哪個頁籤」，不改 `<=1px`／`leakedPixels === 0` 門檻 |
 | `?class=` 深度連結 | 依 `specs/09:60`「`?class=` 自動切至目標類型頁籤」；已有 E2E 覆蓋（`leave-confirm` 的入口矩陣） | helper 先斷言「目標班列可見」，失敗時錯誤訊息要指出班名與頁籤 |
 | CI 較慢 | nightly 上 focus 案例多為 15s／30s timeout；本機單獨重跑可在 6 秒內取得 409 | 不以加 timeout 修；先修入口。若修完仍偶發，另開 issue 記錄實際耗時（不得默默放寬） |
-| 文件引用落差 | 根 `CLAUDE.md` §2 引用 `specs/15`、`specs/16`，但兩檔不在 `main` | 不動本計畫範圍；建議 coord 另開 issue 決定「補檔或移除引用」（§8） |
+| 文件引用落差 | ~~根 `CLAUDE.md` §2 引用 `specs/15`、`specs/16`，但兩檔不在 `main`~~ | 已由 operator 2026-10-29 裁決「移除引用」，Coordinator 處理中；本計畫不再提及那兩檔（§8） |
 
 ---
 
 ## 8. 交付狀態與待決事項
 
-**待決（回覆後才動工）**
+**已裁決**
 
-1. **P4 契約**：D-1（改測試＋改 09/04，建議）或 D-2（改產品復原 400）。未決前 P4 blocked。
-2. **P2 Ruling**：`round3-preview` 以 Excel 匯出入變更課程類型（建議），或改寫成多科折扣變更並重新手算。
-3. **`specs/15`／`specs/16` 引用落差**：是否另開 issue（不在本計畫內處理）。
-4. **最終驗證形式**：新的 scheduled nightly，或 coord 核准的 `workflow_dispatch`（需在報告中標明差異）。
+1. **P2 Ruling → 採 Excel 匯出入**：已裁決為 R-188-P2（[Issue #188 裁決留言](https://github.com/cheerc/student-billing/issues/188#issuecomment-6498485036)），並附條件「若只改類型無法達成原 expected，實作者須回報而非自行重算」。Phase 2 已依此實作（PR #192）。
+2. **P4 契約 → 採 D-1**：已裁決為 R-188-P4，同一則留言。改測試期望為 200 並同步修 `specs/09:87`／`04 UX32`，保留 `schedule-unknown-weekday.test.ts` 的 400 契約。
+
+**待決**
+
+1. **`specs/15`／`specs/16` 引用落差**：已由 operator 2026-10-29 裁決「移除引用」；Coordinator 於同一批文件變更中處理（根 `CLAUDE.md` §2 與 `specs/README.md` 的條目移除）。
+2. **最終驗證形式**：新的 scheduled nightly，或 coord 核准的 `workflow_dispatch`（需在報告中標明差異）。
 
 **本計畫未做的事（避免誤讀）**
 

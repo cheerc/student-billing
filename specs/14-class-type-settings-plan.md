@@ -5,13 +5,13 @@
 > - 「是否有多科折扣」、「天數固定 5 天」、「不計扣天」全面統一為 YesNoRadioGroup「是／否」單選，廢除舊五態下拉與核取方塊；
 > - 2×2 計費解耦：多科折扣選「否」不影響衝堂扣天；其他班時段所見即所得扣天（預設不計扣天＝是）；
 > - 1c 未填時間雙重視覺警示（頁籤待補計數、.row-incomplete 琥珀底與左側色條、.input-missing 色框、待補時間徽章）；
-> - 詳細規範與決策記錄見 [06 D61](06-handoff-decisions.md) 與 [16](16-five-class-types-yes-no-refactor-plan.md)。
+> - 詳細規範與決策記錄見 [06 D61](06-handoff-decisions.md)。
 
 > **Issue #177 current status (D60 Simplification):** All Phase 1–4 simplifications are implemented:
 > - ClassSemanticsPanel and legacy semantic migration suggestions table are completely removed.
 > - Attendance day columns are retired; only anqinDays and tutoringDays are computed and displayed.
 > - Single current rule set (`erp-tag-v4`) is enforced; legacy calculation models and compatibility museum are dropped.
-> - Single current state retention model in SQLite is enforced via Migration 0013 and automatic write cleanup; `/history` route is removed; system converges to 3 UI pages + 11 API routes. See [06 D60](06-handoff-decisions.md) and [15](15-class-semantics-simplification-plan.md).
+> - Single current state retention model in SQLite is enforced via Migration 0013 and automatic write cleanup; `/history` route is removed; system converges to 3 UI pages + 11 API routes. See [06 D60](06-handoff-decisions.md).
 
 > **Issue #159 current status (PR-1 and PR-2):** New Runs and current calculation previews use only `erp-tag-v4`. Active old Runs require an explicit v4 upgrade; upgrade before reads persisted results and after calculates v4. Old Run outputs/snapshots are not recalculated or backfilled. Compatibility formulas and `ruleSetCapabilities` references below describe historical design only. New runs do not invoke compat/shadow-v2 or write comparison snapshots; comparison GET returns 404, while existing diagnostic schema/data and raw issues remain. See [03 §5.5–5.6](03-architecture-api.md), [04 UX98/UX99](04-tdd-acceptance.md), and [06 D56–D57](06-handoff-decisions.md).
 

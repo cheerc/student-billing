@@ -47,8 +47,6 @@
    - `specs/11-ui-acceptance-fix-plan.md`（第一次人工驗收修正 PR-0、A、S、B1、B2、C、D 分批；決策 D34–D39 在 06，驗收列 UX25 起在 04 §8，本檔不定義規則）
    - `specs/12-round2-acceptance-fix-plan.md`（第二次人工驗收修正 R2-F01／R2-F02 與驗收工具 T1／T2／T3；驗收列 UX74 起在 04 §8，工具指令在該檔 §4，本檔不定義規則）
    - `specs/14-class-type-settings-plan.md`（課程類型分類與課表設定重構規格與拆分計畫：依課程類型分頁、固定 5 天旗標與課程學費折扣解耦；授權來源為 2026-10-18 operator 裁決，實作時同步更新 02／03／04／09，拆分見該檔 §6）
-   - `specs/15-class-semantics-simplification-plan.md`（系統全面減法、單一現況留存模型與 Agent 查帳 API 收斂計畫：拆除語意面板、退役點名表 6 欄天數、單一現行規則 erp-tag-v4、移除 /history、Migration 0012/0013、收斂為 3 頁 UI + 11 條 API；授權來源為 2026-10-27 operator D60 裁決）
-   - `specs/16-five-class-types-yes-no-refactor-plan.md`（五種課程類型重構、「是／否」單選統一與未填時間醒目警示計畫：五頁籤、2×2 計費解耦、其他班所見即所得扣天、1c 雙重視覺警示與 Excel 9 欄五類型契約；授權來源為 2026-10-28 operator D61 裁決）
    - `specs/17-class-name-sync-plan.md`（班名同步重構：嚴格同名比對、逐列同步／新增、不建立新別名；授權來源為 2026-10-29 operator D62 裁決）
    - `specs/18-nightly-e2e-d61-recovery-plan.md`（Issue #188 D61 契約落差之夜間全量 E2E 復原計畫：族 A 導覽 helper、族 B 淘汰選取器、族 C 幾何前提、族 D 空白星期契約；由 coordinator 依 Issue #188 派工，非獨立 D 決策條目）
 4. **歷史 Review 與交接記錄**：`specs/reviews/*`（僅供脈絡參考，若有數字或推論與 04 §3 或 D24 衝突，以最新正式規格為準）。

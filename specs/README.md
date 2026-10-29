@@ -40,8 +40,6 @@ UI 重設（先課表 → 匯入 → 核對）R0–R5 已交付並合併，驗�
 12. [第二次人工驗收修正 Plan](./12-round2-acceptance-fix-plan.md)：第二輪兩項 FAIL 的修正來源、驗收列 UX74–UX77，以及隔離驗收環境／故障注入代理／合成測試檔三項工具的指令與限制。
 13. [P1 最終複核與修正](./reviews/p1-final-verification-20260923.md)：最新契約修正、驗證範圍與啟動條件；較早review保留歷史原文。
 14. [課程類型分類與課表設定重構 Plan](./14-class-type-settings-plan.md)：課表設定改為依課程類型的分頁籤（安親課輔班／非安親課輔班）；固定 5 天旗標與課程學費折扣解耦。
-15. [系統全面減法、單一現況收斂與 Agent 查帳 API 整理 Plan](./15-class-semantics-simplification-plan.md)：D60 決策落實，拆除 #148 語意面板、退役 6 欄點名表天數、單一現行規則 erp-tag-v4、單一現況留存模型（移除 /history）、收斂為 3 頁 UI + 11 條 API。
-16. [五種課程類型重構、「是／否」單選統一與未填時間醒目警示 Plan](./16-five-class-types-yes-no-refactor-plan.md)：D61 決策落實，課程類型擴充收斂為 5 種、布林設定全面統一為 YesNoRadioGroup 單選、2×2 計費解耦、其他班所見即所得扣天、1c 未填時間雙重視覺警示、Excel 9 欄五類型匯出入契約。
 17. [班名同步重構 Plan](./17-class-name-sync-plan.md)：D62 決策落實，名冊班名與課表班名改採嚴格同名比對，差異一次一列由使用者選擇合併或新增，不建立新別名、不提供批次同步。
 18. [夜間全量 E2E 復原 Plan](./18-nightly-e2e-d61-recovery-plan.md)：Issue #188 的 D61 契約落差修復，族 A 導覽 helper、族 B 淘汰選取器、族 C 幾何前提、族 D 空白星期契約，並以「失敗集合」而非重跑綠燈驗收。
 
