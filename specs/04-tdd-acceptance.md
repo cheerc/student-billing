@@ -265,7 +265,7 @@ Playwright 最小完整旅程：
 |UX29|名冊含[03 §5.1](03-architecture-api.md)無課程各案例|人數＝點擊後名單；不含只有寫功課／交通車／有離班token／解析失敗者；另有issue者仍計入需確認；匯入預覽同數|integration/E2E|
 |UX30|合成fixture 477人，資料載入穩定後，學生總表未篩選|1440×900：完整可見資料列≥10列；768×600：完整可見資料列≥4列（計數方式：列的上下緣都在表格可視區內；門檻經operator 2026-09-30確認）|E2E|
 |UX31|課表修改後：點側欄、品牌連結、班級編輯入口、瀏覽器Back；計算在途取消／pointerdown與up間啟動計算取消；儲存成功後離開；未修改離開；修改後reload|dirty各入口皆確認（繼續編輯保留草稿／捨棄後離開）；唯讀計算在途不阻擋取消，取消即時還原baseline、dirty歸零、守衛與歷史清理；儲存成功與未修改不打擾；reload觸發原生提醒|E2E|
-|UX32|有active時確認課表變更；上傳損毀檔；課表頁尾；問題類型選項|D39四處文案；主畫面無mismatch／D24／INVALID_XLSX／英文issue code|E2E|
+|UX32|有active時確認課表變更；空白星期經 UI 分流後預覽與儲存；上傳損毀檔；課表頁尾；問題類型選項|D39四處文案；空白星期列成為 `incompleteSessions`（不進計費核心），preview 200 並保留實際影響（有 active 名單）或明示 `settings_only`／null（無 active 名單），可儲存且 reload 保留；直接 API 把空白星期完整時段放在 `sessions` 仍 400；主畫面無 mismatch／D24／INVALID_XLSX／英文 issue code|E2E + integration|
 |UX33|匯入時間、課表儲存時間、核對橫幅|同一格式`YYYY-MM-DD HH:mm`（Asia/Taipei）|component/E2E|
 |UX34（D1 歷史基準；PR-2 由 UX98 取代）|原 D1 對照：v1、v2、compat 逐版重算|本列保留 8961c03 的歷史 golden 與特徵化記錄，不再要求產品 calculator 執行舊版；PR-2 current v4 output 逐學生 digest 對 exact PR-1 base `99de0e7f23c57d3129bcf9c93d69db5f7069d078`，見 `d1-v4-current-golden.json`。舊 direct-calculator golden 仍固定且不重生|regression|
 |UX35（歷史版本語意；PR-2 由 UX99 取代）|歷史版本的 weekday／class-category 呈現|v1/v2/v3/v4 metadata 與已保存快照由 read-only 歷史讀取測試驗證；不執行 v1/v2/v3 calculator，也不保留 calculation capability map|unit|
