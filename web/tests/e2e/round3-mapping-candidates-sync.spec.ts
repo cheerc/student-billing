@@ -138,9 +138,9 @@ test.describe('N09／R3-F02：儲存後差異表、摘要列與頁籤即時同�
     // 上傳未啟用名單 B
     await page.goto('/imports');
     await page.locator('input[type="file"]').setInputFiles(xlsxUpload('variant-roster.xlsx', await buildVariantRoster()));
-    const summary = page.getByRole('region', { name: '班名比對摘要' });
+    const summary = page.getByRole('region', { name: '班名同步摘要' });
     await expect(summary).toBeVisible({ timeout: 15000 });
-    const link = summary.getByRole('link', { name: /完整班名比對報告/ });
+    const link = summary.getByRole('link', { name: '前往班名同步 →' });
     await expect(link).toBeVisible();
     const href = (await link.getAttribute('href'))!;
     const importB = new URL(href, 'http://local.test').searchParams.get('import')!;

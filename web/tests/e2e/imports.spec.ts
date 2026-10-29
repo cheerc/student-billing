@@ -200,22 +200,34 @@ test.describe('Imports Page E2E Test (R3 匯入頁一次完成使用名單)', ()
     await expect(table.locator('tbody tr[data-status="not-appeared"]')).toContainText('STU0477');
   });
 
-  test('跨頁一致：匯入預覽的「N 個班名待確認」＝課表設定「班名同步」頁籤的待處理數（同一份名單兩頁數字不得不同）', async ({ page }) => {
+  test('匯入預覽只顯示單一班名同步摘要，N/M/K 與課表 badge 對齊', async ({ page }) => {
     await page.goto('/imports');
     await page.locator('input[type="file"]').setInputFiles(path.resolve(__dirname, '../fixtures/conforming-erp-fixture.xlsx'));
-    const notice = page.locator('text=/個班名待確認/').first();
-    await expect(notice).toBeVisible({ timeout: 15000 });
-    const shown = Number(/(\d+)\s*個班名待確認/.exec((await notice.innerText()) ?? '')?.[1]);
-    expect(Number.isInteger(shown) && shown > 0, '預覽應顯示大於 0 的待確認班名數').toBe(true);
+    const summary = page.getByRole('region', { name: '班名同步摘要' });
+    await expect(summary).toBeVisible({ timeout: 15000 });
+
+    /**
+     * 獨立合成 fixture 盤點（不讀 `getClassNameMatchReport`／summary API 的輸出作 expected）：
+     * `conforming-erp-fixture.xlsx` 第 2–478 列共 477 位；逐列將「所屬班級」欄依換行拆成報名，
+     * 依 token 語法取 base name，再與 fresh seed 的 49 個班名做完全相同字串比對。fresh seed 無 alias：
+     * 54 個不同名冊班名中 42 個完全同名、12 個不一致；12 個皆未對應；含任一不一致班名的不同人員代碼 191 位。
+     * 對應規則手算：N=54−42=12，M=12（alias 集合空），K=符合上述 roster-row predicate 的 distinct personCode=191。
+     */
+    await expect(summary).toContainText('名冊有 12 個班名與課表不一致（其中 12 個尚未對應，影響 191 位學生）');
+    await expect(summary.getByRole('link', { name: '前往班名同步 →' })).toHaveAttribute(
+      'href',
+      /^\/settings\?tab=sync&import=.+/
+    );
+    await expect(page.locator('.class-name-report-summary')).toHaveCount(1);
+    await expect(page.getByText(/本次匯入名冊中發現 .*個班名待確認/)).toHaveCount(0);
 
     await page.locator('button', { hasText: '使用這份名單' }).click();
     await expect(page.locator('.success-stage-card')).toBeVisible({ timeout: 15000 });
 
     await page.goto('/settings');
     await expect(page.locator('h1', { hasText: '課表設定' })).toBeVisible({ timeout: 10000 });
-    // D62：頁籤改為「班名同步」，badge 為差異表列數（嚴格同名）。此情境使用 seed 設定、沒有任何別名，
-    // 因此「不一致列數」＝「未對應班名數」＝匯入預覽的「N 個班名待確認」，兩頁數字必須相同。
+    // fresh seed 沒有 alias，預覽的 12 個 mismatch 等於班名同步 badge 的差異列數。
     const pillText = await page.locator('button[role="tab"]', { hasText: '班名同步' }).locator('.pill.warn').innerText();
-    expect(Number(pillText), '課表設定的班名同步頁籤應顯示待處理數').toBe(shown);
+    expect(Number(pillText), '課表設定的班名同步頁籤應顯示 12 個不一致班名').toBe(12);
   });
 });

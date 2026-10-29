@@ -111,6 +111,7 @@ test.describe('UX32 D39 (4) 問題類型：只顯示中文名稱，代碼在明�
     const warning = drawer.locator('.alert-warning').first();
     const text = await visibleText(warning);
     expect(text).toContain('班名未對應課表');
+    expect(text).toContain('班名同步');
     expect(text, `抽屜待確認事項不得外露代碼或工程詞：${text}`).not.toMatch(/CLASS_NOT_MAPPED|\[[A-Z_]+\]|fallback|種子|alias/i);
 
     // 技術資訊預設收合；展開後才看得到問題代碼

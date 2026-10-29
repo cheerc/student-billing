@@ -253,11 +253,23 @@ describe('R3 匯入頁工作流程與 UI 元件（RED 測試）', () => {
 
   describe('確認名單階段：頁內「使用這份名單」直接啟用', () => {
 
-    it('預覽階段顯示名冊統計、核對基準日與主按鈕「使用這份名單」', () => {
+    it('預覽階段顯示單一班名同步摘要、不重複提示，並保留略過資料列提醒', () => {
       const html = renderToStaticMarkup(
         React.createElement(ImportsWorkflow, {
           initialStage: 'preview',
-          initialPreview: mockPreview,
+          initialPreview: {
+            ...mockPreview,
+            classNameReport: {
+              importId: 'imp_mock_123',
+              mismatchCount: 2,
+              unmappedCount: 1,
+              unmappedStudents: 2,
+              reportPath: '/settings?tab=sync&import=imp_mock_123',
+              rosterOnlyClassCount: 1,
+              rosterOnlyStudentCount: 2,
+              systemOnlyClassCount: 0,
+            },
+          },
           currentRevision: 0,
           lastScheduleSavedAt: '2026-09-29T10:00:00.000Z',
         })
@@ -272,8 +284,14 @@ describe('R3 匯入頁工作流程與 UI 元件（RED 測試）', () => {
       expect(html).toContain('只看無課程的學生');
       expect(html).not.toContain('477');
 
-      // 未知班名提示
-      expect(html).toContain('1 個班名待確認');
+      // 班名資訊只以一張摘要卡呈現；計數由 summary read model 的三個欄位各自提供。
+      expect(html).toContain('aria-label="班名同步摘要"');
+      expect(html).toContain('名冊有 2 個班名與課表不一致（其中 1 個尚未對應，影響 2 位學生）');
+      expect(html).toContain('前往班名同步 →');
+      expect(html).toContain('href="/settings?tab=sync&amp;import=imp_mock_123"');
+      expect(html).not.toContain('個班名待確認');
+      expect(html).toContain('匯入注意事項：');
+      expect(html).toContain('第 4 列未填寫人員代碼，已略過。');
 
       // 核對基準日與主按鈕
       expect(html).toContain('核對基準日');
