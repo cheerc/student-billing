@@ -20,7 +20,7 @@ export const ISSUE_LABELS: Record<string, string> = {
 export const UNKNOWN_ISSUE_LABEL = '其他待確認事項';
 
 const ISSUE_MESSAGES: Record<string, string> = {
-  SCHEDULE_NOT_FOUND: '報名的班級在課表裡找不到，這位學生的天數暫時當作 0 天扣除，請到課表設定新增該班，或在「班名對應」設定對應的班名。',
+  SCHEDULE_NOT_FOUND: '報名的班級在課表裡找不到，這位學生的天數暫時當作 0 天扣除，請到課表設定新增該班，或在「課表設定 → 班名同步」把名冊班名同步到既有班級。',
   DUPLICATE_SUBJECT_ENROLLMENT: '同一類別的課程重複報名了，請到米豆奶確認學生的課程設定。',
   STAFF_FAMILY_NO_DISCOUNT: '標籤有「員工家屬」，但沒有標明特殊折扣、兄弟姊妹或園內生優惠，請核對開單金額。',
   CONFLICTING_NOTE_SOURCE: '備註提到的折扣和標籤欄位不一致，系統以標籤為準，請核對備註。',

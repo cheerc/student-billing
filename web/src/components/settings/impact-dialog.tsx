@@ -58,11 +58,17 @@ export interface SettingsPreviewData {
   }> | null;
 }
 
+export interface SyncImpactSummary {
+  renames: Array<{ from: string; to: string }>;
+  news: Array<{ name: string; classType?: string }>;
+}
+
 interface ImpactDialogProps {
   isOpen: boolean;
   mode: 'settings_only' | 'with_students';
   preview: SettingsPreviewData | null;
   splitWarnings: SplitClassWarning[];
+  syncSummary?: SyncImpactSummary | null;
   onClose: () => void;
   onApply: () => void;
   applying: boolean;
@@ -77,6 +83,7 @@ export function ImpactDialog({
   mode,
   preview,
   splitWarnings,
+  syncSummary = null,
   onClose,
   onApply,
   applying,
@@ -169,6 +176,37 @@ export function ImpactDialog({
                 </li>
               ))}
             </ul>
+          </div>
+        )}
+
+        {/* D62 Phase 2: 班名同步與新增變更 */}
+        {syncSummary && (syncSummary.renames.length > 0 || syncSummary.news.length > 0) && (
+          <div className="alert alert-info sync-impact-summary" role="region" aria-label="班名同步與新增變更" data-sync-impact-summary="" style={{ marginBottom: '16px' }}>
+            <strong style={{ display: 'block', marginBottom: '6px' }}>📋 班名同步與新增變更：</strong>
+            {syncSummary.renames.length > 0 && (
+              <div style={{ marginBottom: syncSummary.news.length > 0 ? '6px' : '0' }}>
+                <span style={{ fontWeight: 600 }}>整班同步改名：</span>
+                <ul style={{ margin: '4px 0 0', paddingLeft: '20px' }}>
+                  {syncSummary.renames.map((r) => (
+                    <li key={`${r.from}-${r.to}`}>
+                      課表班級「{r.from}」同步改名為米豆奶班名「{r.to}」（沿用原時段、課程類型與折扣）
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            {syncSummary.news.length > 0 && (
+              <div>
+                <span style={{ fontWeight: 600 }}>新增課表班級：</span>
+                <ul style={{ margin: '4px 0 0', paddingLeft: '20px' }}>
+                  {syncSummary.news.map((n) => (
+                    <li key={n.name}>
+                      新增「{n.name}」{n.classType ? `（課程類型：${n.classType}）` : ''}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
           </div>
         )}
 

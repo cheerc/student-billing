@@ -142,10 +142,11 @@ test.describe('D2b & D61：班級五類型、是否有多科折扣與固定 5 �
       await page.goto('/settings');
       await expect(page.locator('h1', { hasText: '課表設定' })).toBeVisible({ timeout: 15000 });
 
-      await page.locator('button', { hasText: '班名對應' }).click();
-      await expect(page.locator('.mapping-table')).toBeVisible({ timeout: 10000 });
+      // D62：舊「班名對應」已改為「班名同步」；別名不再是建立對應的 UI，差異表不再有「已對應」語意
+      await page.locator('button[role="tab"]', { hasText: '班名同步' }).click();
+      await expect(page.locator('[data-class-name-sync-panel]')).toBeVisible({ timeout: 10000 });
       await expect(page.locator('.pill', { hasText: '已對應' })).toHaveCount(0);
-      await page.locator('button', { hasText: '課表' }).click();
+      await page.locator('button[role="tab"]', { hasText: /^課表/ }).click();
       await expect(page.locator('table.schedule-table')).toBeVisible();
     });
 
@@ -184,12 +185,10 @@ test.describe('D2b & D61：班級五類型、是否有多科折扣與固定 5 �
     });
 
     test('R2-2: 別名不再產生「類別將改由系統班決定」的提示', async ({ page }) => {
-      await page.locator('button', { hasText: '班名對應' }).click();
-      await expect(page.locator('.mapping-table')).toBeVisible({ timeout: 10000 });
-
-      const row = page.locator('tr', { hasText: '國小輔導-四年級A' });
-      await expect(row).toBeVisible();
-      await expect(row).not.toContainText('類別將改由系統班決定');
+      await page.locator('button[role="tab"]', { hasText: '班名同步' }).click();
+      const panel = page.locator('[data-class-name-sync-panel]');
+      await expect(panel).toBeVisible({ timeout: 10000 });
+      await expect(panel).not.toContainText('類別將改由系統班決定');
     });
   });
 });

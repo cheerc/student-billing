@@ -12,7 +12,7 @@ import { applicableRateForClass } from '@/application/applicable-rate';
 import * as ruleSet from '@/domain/billing/rule-set';
 import * as tokenParser from '@/domain/students/token-parser';
 import * as classNameReport from '@/application/class-name-match-report';
-import { ClassNameReportPanel } from '@/components/settings/class-name-report-panel';
+import { ClassNameSyncPanel } from '@/components/settings/class-name-sync-panel';
 
 const webRoot = path.resolve(__dirname, '../..');
 
@@ -108,18 +108,27 @@ describe('Issue #177 Phase 3: previous-roster provenance archaeology is gone', (
     expect(mod.resolvePreviousRosterImportId).toBeUndefined();
   });
 
-  it('class-name report panel shows system-only classes without any previous-roster column or note', () => {
+  it('class name sync panel shows system-only classes without any previous-roster column or note', () => {
     const html = renderToStaticMarkup(
-      React.createElement(ClassNameReportPanel, {
+      React.createElement(ClassNameSyncPanel, {
+        hasStudents: true,
         report: {
           importId: 'imp_1',
           scope: { kind: 'latest' },
           snapshotStatus: 'ok',
-          rosterOnly: [],
-          systemOnly: [{ baseName: '國小數學-二A', active: true, aliasCoveredBy: [] }],
-          matchedCount: 3,
-          aliasCoveredCount: 0,
-          rosterOnlyStudents: 0,
+          rosterClassCount: 3,
+          exactMatchCount: 3,
+          mismatches: [],
+          unmappedStudents: 0,
+          systemOnly: [
+            {
+              baseName: '國小數學-二A',
+              active: true,
+              classType: 'math',
+              sessionCount: 2,
+              legacyAliasFrom: [],
+            },
+          ],
         },
       } as never)
     );

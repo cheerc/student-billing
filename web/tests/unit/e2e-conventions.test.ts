@@ -30,7 +30,8 @@ import { VISIBILITY_EXEMPTIONS } from './e2e-conventions-exemptions';
 
 const E2E_DIR = path.resolve(__dirname, '../e2e');
 const FULL_E2E = path.resolve(__dirname, '../../scripts/e2e-full.mjs');
-const SPEC_COUNT = 49;
+/** #189 D62 新增 class-name-sync.spec.ts（50）；每次增刪 spec 都要同步更新，守門才會發現漏掃。 */
+const SPEC_COUNT = 50;
 
 /** 已由 D61 淘汰的選取器與「以列序定位排課列」的寫法：全 repo 不應再有 spec 依賴。 */
 const OBSOLETE_LITERALS: Array<{ pattern: RegExp; why: string }> = [
@@ -94,7 +95,7 @@ const knownSpecs = new Set(specFiles);
 const exemptionRows = Object.entries(VISIBILITY_EXEMPTIONS);
 
 describe('E2E 慣例：排課列一律經 helper，不以列序或淘汰選取器定位', () => {
-  it('spec 盤點仍為 49 檔（與 scripts/e2e-full.mjs 的動態掃描一致）', () => {
+  it('spec 盤點仍為 50 檔（與 scripts/e2e-full.mjs 的動態掃描一致）', () => {
     expect(specFiles).toHaveLength(SPEC_COUNT);
     // 守門若不是掃到真的目錄會空轉，先確定 full runner 掃的是同一個目錄
     expect(fs.readFileSync(FULL_E2E, 'utf-8')).toContain("tests/e2e");

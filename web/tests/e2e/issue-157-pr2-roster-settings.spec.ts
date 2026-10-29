@@ -1,53 +1,61 @@
 import { test, expect } from '@playwright/test';
-import { activateFixture, editStart } from './helpers/c-batch';
+import { activateFixture, editStart, ensureClassTypeTab, openSchedule } from './helpers/c-batch';
 import { reloadSettings, resetSeedSettings, saveSettings } from './helpers/d2c-settings';
 
 const ROSTER_ONLY_CLASS = '國小數學-一';
 
-test.describe('Issue #157 PR-2：從課表頁設定 roster-only 班級', () => {
+/**
+ * #189 D62 Phase 2：名單未對應班級改由「班名同步」處理（取代課表頁 roster-only 表與班名對應候選表）。
+ * 保留 #157 PR-2 的核心不變式：新增後明確設定類別、儲存重載後解除未對應警告、不得新增 alias。
+ */
+test.describe('#189 D62：「班名同步」新增名單班級並持久化設定', () => {
   test.beforeEach(async ({ page }) => {
     await activateFixture(page);
     await resetSeedSettings(page);
-    await page.goto('/settings');
+    await page.goto('/settings?tab=sync');
     await expect(page.locator('h1', { hasText: '課表設定' })).toBeVisible({ timeout: 15000 });
+    await expect(page.locator('[data-class-name-sync-panel]')).toBeVisible({ timeout: 15000 });
   });
 
-  test('直接加入名單中的新班、明確設定類別、儲存重載後解除未對應警告', async ({ page }) => {
+  test('新增名單班級為數學班、儲存重載後退出差異表且解除未對應警告', async ({ page }) => {
     const reportBeforeResponse = await page.request.get('/api/v1/settings/class-name-report');
     expect(reportBeforeResponse.ok()).toBe(true);
     const aliasCoveredCountBefore = (await reportBeforeResponse.json()).aliasCoveredCount as number;
 
-    const rosterOnly = page.getByRole('region', { name: '名單中尚未加入課表設定的班級' });
-    await expect(rosterOnly).toBeVisible();
-    await rosterOnly.locator('summary').click();
-    const rosterRow = rosterOnly.locator(`[data-roster-only-class="${ROSTER_ONLY_CLASS}"]`);
-    await expect(rosterRow).toContainText('尚未加入課表設定');
+    const row = page.locator(`tr[data-mismatch-row="${ROSTER_ONLY_CLASS}"]`);
+    await expect(row).toBeVisible();
+    await expect(row).toContainText('未對應課表');
 
-    await rosterRow.getByRole('button', { name: '加入課表設定' }).click();
-    const form = page.getByRole('form', { name: '新增班級表單' });
-    await expect(form).toBeVisible();
-    const className = form.locator('input[type="text"]').first();
-    await expect(className).toHaveValue(ROSTER_ONLY_CLASS);
+    await row.getByRole('button', { name: '新增為課表班級' }).click();
+    // 班名唯讀＝米豆奶班名
+    await expect(page.locator('[data-class-name-sync-panel] input[type="text"]')).toHaveValue(ROSTER_ONLY_CLASS);
+    // D61：五種類型單選，選「數學班」
+    await page.locator('input[type="radio"][value="math"]').check();
+    await page.getByRole('button', { name: '暫存新增' }).click();
 
-    // D61：新增表單直接選擇「數學班」，支援五種類型精確建立
-    await form.getByLabel('新增班級課程類型').selectOption('math');
-    await form.getByRole('button', { name: '確認新增' }).click();
-
+    await expect(row).toContainText('已暫存新增課表班級（未儲存）');
     await expect(page.locator('.save-status-dirty')).toBeVisible();
 
     await saveSettings(page);
     await reloadSettings(page);
 
-    await page.locator('#class-type-tab-math').click();
-    await expect(
-      page.locator('table.schedule-table-math tr.schedule-row', {
-        has: page.locator(`input[value="${ROSTER_ONLY_CLASS}"]`),
-      })
-    ).toBeVisible();
-    await expect(
-      page.getByRole('region', { name: '名單中尚未加入課表設定的班級' })
-        .locator(`[data-roster-only-class="${ROSTER_ONLY_CLASS}"]`)
-    ).toHaveCount(0);
+    await page.goto('/settings?tab=sync');
+    await expect(page.locator('[data-class-name-sync-panel]')).toBeVisible({ timeout: 15000 });
+    // 已新增的班名與課表完全同名 → 退出差異表
+    await expect(page.locator(`tr[data-mismatch-row="${ROSTER_ONLY_CLASS}"]`)).toHaveCount(0);
+
+    // UX95：重載後該班真的成為課表班級（出現在數學班頁籤，且是使用者選定的類型）
+    await page.getByRole('tab', { name: /^課表/ }).click();
+    await ensureClassTypeTab(page, ROSTER_ONLY_CLASS);
+    const classInputs = page.locator('table.schedule-table-math input.input-classname');
+    const names = await classInputs.evaluateAll((els) =>
+      els.map((el) => (el as HTMLInputElement).value)
+    );
+    expect(names, '重載後數學班頁籤應含新班級').toContain(ROSTER_ONLY_CLASS);
+
+    const reportAfterResponse = await page.request.get('/api/v1/settings/class-name-report');
+    expect(reportAfterResponse.ok()).toBe(true);
+    expect((await reportAfterResponse.json()).aliasCoveredCount).toBe(aliasCoveredCountBefore);
 
     const current = await page.request.get('/api/v1/runs/current');
     expect(current.ok()).toBe(true);
@@ -58,10 +66,11 @@ test.describe('Issue #157 PR-2：從課表頁設定 roster-only 班級', () => {
     const runResponse = await page.request.get(`/api/v1/runs/${encodeURIComponent(runId)}`);
     expect(runResponse.ok()).toBe(true);
     const run = await runResponse.json();
+    // UX95／specs/17 §2.2：新增只問課程類型，折扣類別維持 unset（系統不得替使用者決定類別）。
     expect(run.classCategories).toContainEqual(
       expect.objectContaining({
         base_name: ROSTER_ONLY_CLASS,
-        category: 'math',
+        category: 'unset',
         fixed_five_days: 0,
       })
     );
@@ -73,39 +82,30 @@ test.describe('Issue #157 PR-2：從課表頁設定 roster-only 班級', () => {
     const studentsData = await studentsResponse.json();
     const students = (studentsData.items || []) as Array<{ issues?: Array<{ code: string; message: string }> }>;
     const issues = students.flatMap((s) => s.issues || []);
-    expect(issues.filter((issue) => issue.code === 'CLASS_NOT_MAPPED' && issue.message.includes(`「${ROSTER_ONLY_CLASS}」`))).toHaveLength(0);
-
-    const reportAfterResponse = await page.request.get('/api/v1/settings/class-name-report');
-    expect(reportAfterResponse.ok()).toBe(true);
-    expect((await reportAfterResponse.json()).aliasCoveredCount).toBe(aliasCoveredCountBefore);
+    expect(
+      issues.filter(
+        (issue) => issue.code === 'CLASS_NOT_MAPPED' && issue.message.includes(`「${ROSTER_ONLY_CLASS}」`)
+      )
+    ).toHaveLength(0);
   });
 
-  test('報告在待新增表單開啟後過期時，不能提交舊清單中的班級', async ({ page }) => {
+  test('報告刷新失敗後差異表鎖定，不能依過期清單暫存同步或新增', async ({ page }) => {
+    await openSchedule(page);
     await editStart(page);
-    const rosterOnly = page.getByRole('region', { name: '名單中尚未加入課表設定的班級' });
-    await rosterOnly.locator('summary').click();
-    const rosterRow = rosterOnly.locator(`[data-roster-only-class="${ROSTER_ONLY_CLASS}"]`);
-    await rosterRow.getByRole('button', { name: '加入課表設定' }).click();
 
-    const form = page.getByRole('form', { name: '新增班級表單' });
-    await expect(form).toBeVisible();
-    await expect(form.getByRole('button', { name: '確認新增' })).toBeEnabled();
-
-    // Save the unrelated edit while the roster-only form remains open.
     await page.route('**/api/v1/settings/class-name-report**', (route) =>
       route.fulfill({ status: 503, contentType: 'application/json', body: '{"error":"unavailable"}' })
     );
     await saveSettings(page);
 
-    await expect(page.locator('[data-roster-only-stale]')).toBeVisible({ timeout: 10000 });
-    await expect(form).toBeVisible();
-    await expect(form.getByRole('button', { name: '確認新增' })).toBeDisabled();
+    // 儲存發生在課表頁；切到「班名同步」才看得到報告復原狀態（鎖定只涵蓋差異表）
+    await page.getByRole('tab', { name: /班名同步/ }).click();
 
-    // Exercise the submit handler too: a scripted submit must not bypass the disabled control.
-    await form.evaluate((element: HTMLFormElement) => element.requestSubmit());
-    // 尚未建立班級 → 不應出現在任何頁籤的排課列（D61 起類別欄是 YesNoRadioGroup，無 select 可查）
-    await expect(
-      page.locator('tr.schedule-row', { has: page.locator(`input.input-classname[value="${ROSTER_ONLY_CLASS}"]`) })
-    ).toHaveCount(0);
+    // UX46：重試用盡 → 顯示復原提示；舊報告內容收起，復原按鈕保持可用。
+    await expect(page.locator('[data-report-stale]')).toBeVisible({ timeout: 15000 });
+    await expect(page.locator('[data-report-body-hidden]')).toBeVisible();
+    await expect(page.locator('[data-report-locked="true"]')).toBeVisible();
+    await expect(page.locator('[data-report-stale] button', { hasText: '重新載入' })).toBeEnabled();
+    await expect(page.locator(`tr[data-mismatch-row="${ROSTER_ONLY_CLASS}"]`)).toHaveCount(0);
   });
 });

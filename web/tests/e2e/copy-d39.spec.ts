@@ -120,20 +120,21 @@ test.describe('UX32 D39 (4) 問題類型：只顯示中文名稱，代碼在明�
   });
 });
 
-async function openMapping(page: Page): Promise<void> {
+async function openSync(page: Page): Promise<void> {
   await page.goto('/settings');
   await expect(page.locator('h1', { hasText: '課表設定' })).toBeVisible({ timeout: 15000 });
-  await page.locator('button', { hasText: '班名對應' }).click();
-  await expect(page.locator('.mapping-table')).toBeVisible({ timeout: 10000 });
+  await page.locator('button[role="tab"]', { hasText: '班名同步' }).click();
+  await expect(page.locator('[data-class-name-sync-panel]')).toBeVisible({ timeout: 10000 });
 }
 
 test.describe('UX32 D39 (1) 課表影響預覽：單位是「人」', () => {
   test('有現行資料時：「系統計算天數與米豆奶入班天數不符：N 人 → M 人」，數字取自實際預覽；沒有 mismatch／筆', async ({ page }) => {
     await activateFixture(page);
-    await openMapping(page);
-    const row = page.locator('tr', { hasText: '國小數學-一' });
-    await row.locator('input.input-target-classname').fill('國小數學-一A');
-    await row.locator('input[type="checkbox"]').check();
+    await openSync(page);
+    const row = page.locator('tr[data-mismatch-row="國小數學-一"]');
+    await row.locator('button', { hasText: '同步到既有班級' }).click();
+    await page.locator('select[aria-label="選擇同步目標課表班級"]').selectOption({ value: '國小數學-一A' });
+    await page.locator('button', { hasText: '暫存同步' }).click();
 
     const previewResponse = page.waitForResponse((r) => r.url().includes('/api/v1/settings/preview') && r.request().method() === 'POST');
     await page.locator('button', { hasText: '確認變更' }).click();

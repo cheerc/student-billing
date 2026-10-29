@@ -174,7 +174,7 @@ describe('POST /api/v1/imports/preview：classNameReport 摘要（使用這份�
       mismatchCount: 12,
       unmappedCount: 12,
       unmappedStudents: 191,
-      reportPath: `/settings?tab=mapping&import=${body.batchId}`,
+      reportPath: `/settings?tab=sync&import=${body.batchId}`,
       rosterOnlyClassCount: 12,
       rosterOnlyStudentCount: 191,
       systemOnlyClassCount: 7,
@@ -200,7 +200,7 @@ describe('POST /api/v1/imports/preview：classNameReport 摘要（使用這份�
       mismatchCount: 12,
       unmappedCount: 12,
       unmappedStudents: 191,
-      reportPath: `/settings?tab=mapping&import=${body.batchId}`,
+      reportPath: `/settings?tab=sync&import=${body.batchId}`,
     });
   });
 
@@ -215,7 +215,7 @@ describe('POST /api/v1/imports/preview：classNameReport 摘要（使用這份�
       mismatchCount: 12,
       unmappedCount: 11,
       unmappedStudents: 191,
-      reportPath: `/settings?tab=mapping&import=${body.batchId}`,
+      reportPath: `/settings?tab=sync&import=${body.batchId}`,
     });
   });
 });

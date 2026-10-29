@@ -83,7 +83,7 @@ describe('ClassNameSyncReport read model（嚴格完全同名一致性，D62）'
       mismatchCount: 2,
       unmappedCount: 1,
       unmappedStudents: 1,
-      reportPath: '/settings?tab=mapping&import=imp_test',
+      reportPath: '/settings?tab=sync&import=imp_test',
     });
   });
 
@@ -156,7 +156,6 @@ describe('ClassNameSyncReport read model（嚴格完全同名一致性，D62）'
       mismatches: null,
       unmappedStudents: null,
       systemOnly: null,
-      rosterOnly: null,
     });
   });
 });

@@ -684,7 +684,7 @@ export default function ActiveRunView({
                 <span>
                   <strong>待設定班級提示：</strong>班級{unmappedSelected.map((c) => `「${c}」`).join('、')}還沒有對應的課表班級，扣天無法計算。
                 </span>
-                <a href="/settings" className="btn-secondary">前往課表設定，確認班名對應</a>
+                <a href="/settings?tab=sync" className="btn-secondary">前往課表設定的「班名同步」處理</a>
               </div>
             )}
 
