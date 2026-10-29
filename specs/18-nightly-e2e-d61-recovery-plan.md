@@ -248,10 +248,10 @@ npm run test:e2e:isolated -- tests/e2e/schedule-sticky-header.spec.ts
 
 | 選項 | 內容 | 影響 |
 |---|---|---|
-| **D-1 改測試＋改 09（已採納）** | `copy-d39` 的空白星期案例走實際 UI 分流：要求 preview 200、`incompleteSessions` 語意、**有 active 名單時驗真實影響**（不得為 0 人／未改變），可儲存且 reload 保留；無 active 名單時才驗明確的 `settings_only`／null。`specs/09` 說明 UI 將不完整列分流到 `incompleteSessions`、不進計費核心且允許存檔；直接 API 將空白星期完整時段放入 `sessions` 仍 400；同步 `specs/04` UX32 | 不改產品；與 D61 Ruling 3（先存檔）一致；`tests/integration/schedule-unknown-weekday.test.ts:218` 僅保留並證明直接 API/schema 邊界，不是 UI splitter 路徑的同一 mutation |
+| **D-1 改測試＋改 09（已採納）** | `copy-d39` 的空白星期案例走實際 UI 分流：要求 preview 200、`incompleteSessions` 語意、**有 active 名單時驗真實影響**（不得為 0 人／未改變），可儲存且 reload 保留；無 active 名單時才驗明確的 `settings_only`／null。`specs/09` 說明 UI 將不完整列分流到 `incompleteSessions`、不進計費核心且允許存檔；直接 API 將空白星期完整時段放入 `sessions` 仍 400；同步 `specs/04` UX32 | 不改產品；與 D61 第 4 點（1c：允許未填時間先存檔、以視覺警示提醒）方向一致，但該點不是空白星期預覽／儲存的明文授權；本選項的授權來源是 R-188-P4 裁決留言。`tests/integration/schedule-unknown-weekday.test.ts:218` 僅保留並證明直接 API/schema 邊界，不是 UI splitter 路徑的同一 mutation |
 | **D-2 改產品復原 400** | 在 `settings-preview.ts` 於 `SettingsDraft` 之後再驗「不得含空白星期」 | 與 UX108「未填時間可先存檔」直接衝突，`schedule-add-placeholder-row.spec.ts:106` 會轉紅；不建議 |
 
-**採用 D-1**（R-188-P4；Issue #188 coordinator 裁決留言），理由：D61 的 1c 目的是「允許先存檔、以視覺警示提醒」，UX32 則不得在沒有真實學生影響時假裝「0 人／未改變」。Phase 4 的 active fixture 必須實測實際影響；只有 server 回 `settings_only` 時才顯示「尚未匯入學生」與 null 影響值。D-2 會把已驗收的 UX108 打回去。
+**採用 D-1**（R-188-P4；[Issue #188 裁決留言](https://github.com/cheerc/student-billing/issues/188#issuecomment-6498485036)），理由：D61 第 4 點（1c）的目的是「允許未填時間先存檔、以視覺警示提醒」，UX32 則不得在沒有真實學生影響時假裝「0 人／未改變」。**授權界線**：D61 的原文明確要求的是「未填時間可先存檔」與雙重視覺警示，**沒有**明文寫「空白星期 ⇒ preview 200」；空白星期的預覽／儲存契約授權在 R-188-P4 這則裁決留言本身。Phase 4 的 active fixture 必須實測實際影響；只有 server 回 `settings_only` 時才顯示「尚未匯入學生」與 null 影響值。D-2 會把已驗收的 UX108 打回去。
 
 **D-1 的驗收（此即 Phase 4 的驗收）**
 
@@ -263,8 +263,21 @@ npx vitest run tests/integration/schedule-unknown-weekday.test.ts
 
 - 針對 `copy-d39.spec.ts` 與 `schedule-unknown-weekday.test.ts` 執行 targeted checks，回報每次 runner 的**實際**案例數；不要把計畫撰寫時記錄的 10／9 當成未來固定值。
 - spec 文字（09 §3.1、04 UX32）與測試同一 PR，避免文件與行為再次分岔。
-- Mutation：在 `splitSavableSessions` 把空白星期列錯送入 `sessions` → 改寫後的 UI `copy-d39` 必須在 preview 200／`incompleteSessions`／真實影響或儲存保留斷言處紅；`schedule-unknown-weekday.test.ts:218` 應**保持綠**，因它直接將空白星期完整時段構造成 `sessions` 呼叫 API，不經 splitter。此 mutation 不能期待兩條不同資料路徑同時紅。
+- Mutation（已實測，見下「Mutation 邊界」）：在 `splitSavableSessions` 把空白星期列錯送入 `sessions` → 改寫後的 UI `copy-d39` 必須在 preview 200／`incompleteSessions`／真實影響或儲存保留斷言處紅；`schedule-unknown-weekday.test.ts:218` 應**保持綠**，因它直接將空白星期完整時段構造成 `sessions` 呼叫 API，不經 splitter。此 mutation 不能期待兩條不同資料路徑同時紅。
 - 若要另驗 direct API integration 的鑑別力，在 disposable worktree 對 `SessionSchema` 的空白星期驗證作單一 mutation；該測試應紅。不要為此變更本 PR 的產品碼。
+
+**Mutation 邊界（PR #198 r2 實測；先前「9 綠」與 reviewer「8 綠 1 紅」的差異已釐清）**
+
+這份 integration 檔有 9 案：7 案走 `calculate` 路徑，另 2 案屬「提交端契約不放寬」describe（`SettingsDraftSchema` unit 斷言 1 案、`POST /settings/preview` 直接 API 1 案）。不同 mutation 的實際結果：
+
+| Mutation | 精確替換 | 結果 |
+|---|---|---|
+| M-1：只改 splitter 的存檔判定 | `isSavableCompleteSession` 的 `isSavableWeekday(s.weekday) && isCompleteTimeRange(s)` → `isCompleteTimeRange(s)`（`settings.ts:131`） | integration **9 綠**（這個 predicate 只被 `splitSavableSessions` 使用；`SettingsDraftSchema` 與直接 API 都不經它） |
+| M-2：M-1 ＋ 放寬存檔契約星期 | 再將 `SavedWeekdaySchema` 的 `z.string().min(1).max(8)` → `z.string().max(8)`（`settings.ts:79`） | integration **8 綠 1 紅**：`SettingsDraftSchema 拒絕空白星期與超過 8 字元的星期` 紅 |
+| M-3：直接 API 單獨 mutation | 只將 `SavedWeekdaySchema` 的 `min(1)` 拿掉（保留 `max(8)`） | integration **8 綠 1 紅**：`POST /settings/preview：帶空白星期的完整時段列 → 400` 紅（schema unit 案的長度斷言仍綠） |
+| M-C：只改長度上限 | 只將 `max(8)` → `max(12)`（保留 `min(1)`） | integration **8 綠 1 紅**：`SettingsDraftSchema 拒絕空白星期與超過 8 字元的星期` 紅（空白星期仍被 `min(1)` 拒絕，故直接 API 案綠） |
+
+結論：**這兩個提交端案例是各自獨立的斷言**，不是「整份 integration 獨立於 splitter」——M-1 讓整份 9 案全綠是因為它根本沒碰到 schema；一旦 mutation 跨進共用 `SavedWeekdaySchema`，受影響的是該 schema 的那一案（M-2、M-C 紅的是 unit 斷言，M-3 紅的是直接 API 案）。三個 mutation 後產品檔皆已還原（`git diff --quiet -- web/src/contracts/settings.ts` 為真）。
 
 ---
 
