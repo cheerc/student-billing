@@ -1,9 +1,24 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import DetailDrawer from '@/components/detail-drawer';
 import { issueMessage } from '@/lib/issue-copy';
 import type { StudentCalculationItem } from '@/application/query-students';
+
+const { injectedClassNotMappedMessage } = vi.hoisted(() => ({
+  injectedClassNotMappedMessage: '測試注入指引：請到課表設定 → 班名同步確認（動態來源 #201）',
+}));
+
+// 動態替換 source 的輸出：若抽屜只是手動複製目前字串，測試仍會失敗；
+// 只有實際透過 issueMessage() 取得 CLASS_NOT_MAPPED 指引時才會顯示此哨兵文案。
+vi.mock('@/lib/issue-copy', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/issue-copy')>();
+  return {
+    ...actual,
+    issueMessage: (issue: { code: string }) =>
+      issue.code === 'CLASS_NOT_MAPPED' ? injectedClassNotMappedMessage : actual.issueMessage(issue),
+  };
+});
 
 /**
  * Issue #201：同一個 `CLASS_NOT_MAPPED` 的「下一步指示」在結果頁問題清單與明細抽屜
