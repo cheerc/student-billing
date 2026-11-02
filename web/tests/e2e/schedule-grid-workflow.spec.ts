@@ -1,6 +1,7 @@
 import { test, expect } from '@playwright/test';
-import { ensureClassTypeTab, selectClassTypeTab } from './helpers/d2c-settings';
-import { openClassSchedule } from './helpers/c-batch';
+import { ensureClassTypeTab, selectClassTypeTab, resetSeedSettings } from './helpers/d2c-settings';
+import { activateFixture, classRows, openClassSchedule } from './helpers/c-batch';
+import { buildSeedGridRows } from '../../src/contracts/settings';
 
 /**
  * 04 §8 UX01／UX05–08／UX24：
@@ -92,5 +93,110 @@ test.describe('R2 展示一：空 DB 先課表後匯入排課工作流程 E2E', 
     await expect(search).toHaveValue('');
     await expect(page.locator('[data-focus-class]')).toHaveCount(0);
     await expect(page.locator('table.schedule-table-math tr.schedule-row')).toHaveCount(24);
+  });
+
+  test('UX115: focused row identity survives rename and primary-tab remount', async ({ page }) => {
+    const firstFocusedRow = await openClassSchedule(page, '國小數學-四A');
+    const focusedRows = page.locator('table.schedule-table-math tbody tr.schedule-row');
+    await expect(focusedRows).toHaveCount(2);
+
+    await firstFocusedRow.locator('input.input-classname').fill('國小數學-四B');
+    await expect(focusedRows).toHaveCount(2);
+    await expect(page.locator('[data-focus-class]')).toContainText('2 個時段');
+    await expect(page.locator('#class-type-tab-math')).toHaveAttribute('aria-selected', 'true');
+
+    await page.locator('#settings-tab-sync').click();
+    await page.locator('#settings-tab-schedule').click();
+    await expect(page.locator('#class-type-tab-math')).toHaveAttribute('aria-selected', 'true');
+    await expect(focusedRows).toHaveCount(2);
+    await expect(page.locator('[data-focus-class]')).toContainText('2 個時段');
+    await expect.poll(async () =>
+      focusedRows.locator('input.input-classname').evaluateAll((inputs) => inputs.map((input) => (input as HTMLInputElement).value))
+    ).toEqual(['國小數學-四B', '國小數學-四A']);
+
+    await page.getByRole('button', { name: '顯示全部班級' }).click();
+    await expect(page.locator('[data-focus-class]')).toHaveCount(0);
+    await expect(page.locator('table.schedule-table-math tbody tr.schedule-row')).toHaveCount(24);
+  });
+
+  test('UX115: focus identity handles added/deleted rows and a successful whole-draft Excel replacement', async ({ page }) => {
+    const className = '國小數學-四A';
+    await openClassSchedule(page, className);
+
+    await page.getByRole('button', { name: '＋ 新增班級' }).click();
+    const addForm = page.getByRole('form', { name: '新增班級表單' });
+    await addForm.getByLabel('新增班級名稱').fill(className);
+    await addForm.getByRole('button', { name: '確認新增' }).click();
+    await expect(classRows(page, className)).toHaveCount(3);
+    await expect(page.locator('[data-focus-class]')).toContainText('3 個時段');
+
+    const deleteRows = page.getByRole('button', { name: `刪除時段 ${className}` });
+    await expect(deleteRows).toHaveCount(3);
+    for (let remaining = 3; remaining > 0; remaining -= 1) {
+      await deleteRows.first().click();
+      await expect(deleteRows).toHaveCount(remaining - 1);
+    }
+    await expect(page.locator('[data-focus-class]')).toHaveCount(0);
+    await expect(page.locator('[data-focus-class-missing]')).toBeVisible();
+
+    const importedRows = buildSeedGridRows()
+      .filter((row) => row.className === className)
+      .map((row, index) => ({ ...row, rowId: `synthetic-import-${index + 1}` }));
+    await page.route('**/api/v1/settings/schedule-table', async (route) => {
+      if (route.request().method() !== 'POST') {
+        await route.continue();
+        return;
+      }
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          rows: importedRows,
+          classAttrs: [{
+            className,
+            classType: 'math',
+            hasMultiSubjectDiscount: true,
+            category: 'math',
+            categorySource: 'manual',
+            fixedFiveDays: false,
+          }],
+        }),
+      });
+    });
+    await page.getByLabel('選擇課表 Excel 檔案').setInputFiles({
+      name: 'synthetic-schedule.xlsx',
+      mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      buffer: Buffer.from('synthetic schedule replacement'),
+    });
+    await expect(page.locator('#toast')).toContainText('已匯入課表');
+    await expect(classRows(page, className)).toHaveCount(2);
+    await expect(page.locator('[data-focus-class]')).toContainText('2 個時段');
+  });
+
+  test('UX115: an explicit sync destination replaces prior focus identity and clear removes it', async ({ page }) => {
+    await activateFixture(page);
+    await resetSeedSettings(page);
+    await openClassSchedule(page, '國小數學-四A');
+    await expect(page.locator('[data-focus-class]')).toContainText('國小數學-四A');
+
+    await page.locator('#settings-tab-sync').click();
+    const trafficRow = page.locator('tr[data-mismatch-row="交通車"]');
+    await expect(trafficRow).toBeVisible();
+    await trafficRow.getByRole('button', { name: '新增為課表班級' }).click();
+    await page.locator('input[type="radio"][value="unscheduled"]').check();
+    await page.getByRole('button', { name: '暫存新增' }).click();
+    await expect(trafficRow).toContainText('已暫存新增課表班級');
+
+    await trafficRow.getByRole('button', { name: '到課表填時段 →' }).click();
+    await expect(page.locator('#class-type-tab-unscheduled')).toHaveAttribute('aria-selected', 'true');
+    await expect(page.locator('[data-focus-class]')).toContainText('交通車');
+    await expect(page.locator('table.schedule-table-unscheduled tbody tr.schedule-row')).toHaveCount(1);
+    await expect.poll(async () =>
+      page.locator('table.schedule-table-unscheduled input.input-classname').evaluateAll((inputs) => inputs.map((input) => (input as HTMLInputElement).value))
+    ).toEqual(['交通車']);
+
+    await page.getByRole('button', { name: '顯示全部班級' }).click();
+    await expect(page.locator('[data-focus-class]')).toHaveCount(0);
+    await expect(page.locator('table.schedule-table-unscheduled tbody tr.schedule-row')).toHaveCount(1);
   });
 });
