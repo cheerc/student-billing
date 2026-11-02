@@ -104,6 +104,9 @@ test.describe('R2 展示一：空 DB 先課表後匯入排課工作流程 E2E', 
     await expect(focusedRows).toHaveCount(2);
     await expect(page.locator('[data-focus-class]')).toContainText('2 個時段');
     await expect(page.locator('#class-type-tab-math')).toHaveAttribute('aria-selected', 'true');
+    await expect(
+      focusedRows.getByRole('radiogroup', { name: '國小數學-四B 的是否有多科折扣' })
+    ).toBeVisible();
 
     await page.locator('#settings-tab-sync').click();
     await page.locator('#settings-tab-schedule').click();
@@ -179,6 +182,69 @@ test.describe('R2 展示一：空 DB 先課表後匯入排課工作流程 E2E', 
     await openClassSchedule(page, '國小數學-四A');
     await expect(page.locator('[data-focus-class]')).toContainText('國小數學-四A');
 
+    const replacementRows = [
+      ...buildSeedGridRows()
+        .filter((row) => row.className === '國小數學-四A')
+        .map((row, index) => ({ ...row, rowId: `async-import-math-${index + 1}` })),
+      {
+        rowId: 'async-import-traffic-1',
+        className: '交通車',
+        teacher: null,
+        weekday: '',
+        startTime: '',
+        endTime: '',
+        startMinutes: null,
+        endMinutes: null,
+        active: true,
+        skipDeduction: false,
+      },
+    ];
+    let resumeImport: () => void = () => {};
+    const importGate = new Promise<void>((resolve) => {
+      resumeImport = resolve;
+    });
+    await page.route('**/api/v1/settings/schedule-table', async (route) => {
+      if (route.request().method() !== 'POST') {
+        await route.continue();
+        return;
+      }
+      await importGate;
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          rows: replacementRows,
+          classAttrs: [
+            {
+              className: '國小數學-四A',
+              classType: 'math',
+              hasMultiSubjectDiscount: true,
+              category: 'math',
+              categorySource: 'manual',
+              fixedFiveDays: false,
+            },
+            {
+              className: '交通車',
+              classType: 'unscheduled',
+              hasMultiSubjectDiscount: false,
+              category: 'none',
+              categorySource: 'manual',
+              fixedFiveDays: false,
+            },
+          ],
+        }),
+      });
+    });
+    const importRequest = page.waitForRequest((request) =>
+      request.url().endsWith('/api/v1/settings/schedule-table') && request.method() === 'POST'
+    );
+    await page.getByLabel('選擇課表 Excel 檔案').setInputFiles({
+      name: 'synthetic-schedule.xlsx',
+      mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      buffer: Buffer.from('synthetic schedule replacement'),
+    });
+    await importRequest;
+
     await page.locator('#settings-tab-sync').click();
     const trafficRow = page.locator('tr[data-mismatch-row="交通車"]');
     await expect(trafficRow).toBeVisible();
@@ -189,6 +255,14 @@ test.describe('R2 展示一：空 DB 先課表後匯入排課工作流程 E2E', 
 
     await trafficRow.getByRole('button', { name: '到課表填時段 →' }).click();
     await expect(page.locator('#class-type-tab-unscheduled')).toHaveAttribute('aria-selected', 'true');
+    await expect(page.locator('[data-focus-class]')).toContainText('交通車');
+    await expect(page.locator('table.schedule-table-unscheduled tbody tr.schedule-row')).toHaveCount(1);
+    await expect.poll(async () =>
+      page.locator('table.schedule-table-unscheduled input.input-classname').evaluateAll((inputs) => inputs.map((input) => (input as HTMLInputElement).value))
+    ).toEqual(['交通車']);
+
+    resumeImport();
+    await expect(page.locator('#toast')).toContainText('已匯入課表');
     await expect(page.locator('[data-focus-class]')).toContainText('交通車');
     await expect(page.locator('table.schedule-table-unscheduled tbody tr.schedule-row')).toHaveCount(1);
     await expect.poll(async () =>
