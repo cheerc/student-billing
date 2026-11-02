@@ -17,7 +17,6 @@ import { ScheduleGrid } from '@/components/settings/schedule-grid';
 import { CARE_WINDOWS_VIEW } from '@/application/schedule-preview';
 import type { ScheduleGridRow } from '@/contracts/settings';
 import type { ClassAttributesView } from '@/domain/classification/class-attributes';
-import type { ClassCategory } from '@/domain/classification/class-category';
 
 /** 三列 fixture：完整列、未知星期列、只有班名的佔位列（#82 的形狀）。 */
 const ROWS: ScheduleGridRow[] = [
@@ -199,7 +198,8 @@ describe('#82 & D61 1c：新增時段僅班名必填與未填時間雙重警示'
   it('星期可留空：編輯列是文字輸入且以 placeholder「未定」提示留空', () => {
     const html = render();
     expect(html).toMatch(/<input[^>]*class="input-weekday[^"]*"[^>]*placeholder="未定"/);
-    expect(html).toContain('＋ 新增班級');
+    // 新增按鈕已由 SettingsEditor 主頁籤工具區持有，不在獨立 Grid 重複渲染。
+    expect(html).not.toContain('＋ 新增班級');
   });
 
   it('D61 1c：未填時間排課列渲染醒目待補時間徽章（取代舊 #82 低調破折號）', () => {
@@ -272,29 +272,25 @@ describe('#82 & D61 1c：新增時段僅班名必填與未填時間雙重警示'
   });
 });
 
-describe('#81：Excel 匯出／匯入工具列（單純一鍵）', () => {
-  it('只出現「匯出 Excel」與「匯入 Excel」兩顆按鈕，沒有任何欄位挑選對話框的痕跡', () => {
-    const html = render({ onExportExcel: () => {}, onImportExcel: () => {} });
-    expect(html).toContain('匯出 Excel');
-    expect(html).toContain('匯入 Excel');
-    for (const forbidden of ['選擇欄位', '勾選匯出', '欄位挑選', '部分匯出']) {
+describe('#81：Excel 工具由設定頁主頁籤管理', () => {
+  it('ScheduleGrid 不重複渲染匯入／匯出按鈕或檔案選取器', () => {
+    const html = render();
+    expect(html).not.toContain('匯出 Excel');
+    expect(html).not.toContain('匯入 Excel');
+    expect(html).not.toContain('data-schedule-export');
+    expect(html).not.toContain('data-schedule-import');
+    expect(html).not.toContain('type="file"');
+  });
+
+  it('獨立 Grid 不建立檔案選取器或欄位挑選 UI', () => {
+    const html = render();
+    for (const forbidden of ['選擇欄位', '勾選匯出', '欄位挑選', '部分匯出', 'type="file"', '.xlsx']) {
       expect(html).not.toContain(forbidden);
     }
   });
 
-  it('檔案選取器接受 .xlsx 且不跳出任何選項 UI', () => {
-    const html = render({ onExportExcel: () => {}, onImportExcel: () => {} });
-    expect(html).toContain('type="file"');
-    expect(html).toContain('.xlsx');
-    // 以 display:none 移出可及性樹；可及控制項是［匯入 Excel］按鈕本身
-    expect(html).toContain('display:none');
-    expect(html).not.toContain('visually-hidden-input');
-  });
-
   it('匯入失敗：role=alert 顯示白話錯誤，並明說「沒有套用任何資料」', () => {
     const html = render({
-      onExportExcel: () => {},
-      onImportExcel: () => {},
       importError: '這個 Excel 的欄位標題不符合課表格式，缺少：結束時間。',
     });
     expect(html).toContain('role="alert"');
@@ -303,33 +299,17 @@ describe('#81：Excel 匯出／匯入工具列（單純一鍵）', () => {
     expect(html).toContain('沒有套用任何資料');
   });
 
-  it('未提供匯入匯出處理器時不渲染那兩顆按鈕（元件可獨立使用）', () => {
+  it('沒有匯入錯誤時不渲染錯誤通知', () => {
     const html = render();
-    expect(html).not.toContain('匯出 Excel');
-    expect(html).not.toContain('data-schedule-export');
+    expect(html).not.toContain('data-schedule-import-error');
   });
 
-  it('傳入匯出／匯入處理器時，把 classAttributes 的有效值一併交給上層（不重算）', () => {
-    const seen: Array<[string, ClassCategory]> = [];
-    const seenFixed: Array<[string, boolean]> = [];
-    renderToStaticMarkup(
-      React.createElement(ScheduleGrid, {
-        rows: ROWS,
-        onUpdateRow: () => {},
-        onDeleteRow: () => {},
-        onAddRow: () => {},
-        calculating: false,
-        calculateResult: null,
-        classAttributes: ATTRS,
-        onSelectCategory: (n: string, c: ClassCategory) => seen.push([n, c]),
-        onToggleFixedFiveDays: (n: string, f: boolean) => seenFixed.push([n, f]),
-          onExportExcel: () => {},
-        onImportExcel: () => {},
-      })
-    );
-    // 靜態渲染不會觸發事件；此處只確認 handler 已接上（未拋 TypeError＝呼叫鏈完整）
-    expect(seen).toEqual([]);
-    expect(seenFixed).toEqual([]);
+  it('受控課程類型與搜尋決定 Grid 顯示頁籤與資料列', () => {
+    const html = render({ selectedClassType: 'math', search: '國小數學-一A', initialClassTypeTab: 'english' });
+    expect(html).toContain('id="class-type-tab-math" aria-selected="true"');
+    expect(html).toContain('class="schedule-table schedule-table-math"');
+    expect(html).toContain('value="國小數學-一A"');
+    expect(html).not.toContain('兒童美語-Gino');
   });
 });
 
