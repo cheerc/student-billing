@@ -1,9 +1,67 @@
-import { test, expect } from '@playwright/test';
+import { test, expect, type Locator, type Page, type Response, type Route } from '@playwright/test';
 import path from 'path';
 import { openFilter, applyFilter } from './helpers/header-filter';
 
 /** conforming-erp-fixture 的值（09 §7：筆數只在測試/fixture，不進產品文案；未對應名冊班不納入假級距比對）。 */
 const FIXTURE_TIER_MISMATCH = 4;
+
+type StudentResponseKind = 'list' | 'options';
+
+function matchesStudentResponse(
+  response: Response,
+  kind: StudentResponseKind,
+  filters: Record<string, string>,
+  absentFilters: string[] = []
+): boolean {
+  const url = new URL(response.url());
+  if (!url.pathname.endsWith('/students')) return false;
+  if (kind === 'options' ? url.searchParams.get('options') !== 'true' : url.searchParams.has('options')) return false;
+  if (Object.entries(filters).some(([key, value]) => !url.searchParams.getAll(key).includes(value))) return false;
+  return absentFilters.every((key) => !url.searchParams.has(key));
+}
+
+function holdStudentResponse(
+  page: Page,
+  kind: StudentResponseKind,
+  filters: Record<string, string>
+): Promise<{ intercepted: Promise<void>; release: () => void; remove: () => Promise<void> }> {
+  let releaseGate!: () => void;
+  let resolveIntercepted!: () => void;
+  const gate = new Promise<void>((resolve) => { releaseGate = resolve; });
+  const intercepted = new Promise<void>((resolve) => { resolveIntercepted = resolve; });
+  const pattern = /\/api\/v1\/runs\/[^/]+\/students(?:\?.*)?$/;
+  const handler = async (route: Route) => {
+    const url = new URL(route.request().url());
+    const isOptions = url.searchParams.get('options') === 'true';
+    const matches = url.pathname.endsWith('/students')
+      && (kind === 'options' ? isOptions : !isOptions)
+      && Object.entries(filters).every(([key, value]) => url.searchParams.getAll(key).includes(value));
+    if (!matches) {
+      await route.continue();
+      return;
+    }
+    const upstream = await route.fetch();
+    resolveIntercepted();
+    await gate;
+    await route.fulfill({ response: upstream });
+  };
+  return page.route(pattern, handler).then(() => ({
+    intercepted,
+    release: releaseGate,
+    remove: () => page.unroute(pattern, handler),
+  }));
+}
+
+type IssueFacetOption = { value: string; count: number };
+
+function visibleIssueOptionCount(options: IssueFacetOption[]): number {
+  return options.filter((option) => option.count !== 0 && option.value !== '~blank').length;
+}
+
+async function expectRenderedIssueOptionCount(panel: Locator, expected: number): Promise<void> {
+  const options = panel.locator('[data-filter-section="issueCode"] [data-filter-option]:not([data-filter-option="(空白)"])');
+  await expect.poll(() => options.count()).toBe(expected);
+}
 
 /**
  * R4 重寫（specs/10 §4：不得悄悄刪檔，舊 spec → 新 UX 對照列於 PR body）。
@@ -204,46 +262,131 @@ test.describe('R4 重寫：核對結果頁 E2E 驗收（學生總表 12 欄 + �
 
   test('UX12: 級距差異篩選＝fixture 的 4 筆，列內容與抽屜可查；吻合＋待確認含「班名未對應課表」（中文名稱，代碼不外露）', async ({ page }) => {
     await ensureActivated(page);
+    const initialOptionsResponse = page.waitForResponse((response) =>
+      matchesStudentResponse(response, 'options', {}, ['tierMismatch', 'issueCode'])
+    );
     await page.goto('/');
+    expect((await initialOptionsResponse).ok()).toBe(true);
     await expect(page.locator('.results-page[data-hydrated="true"]')).toBeVisible({ timeout: 15000 });
 
     const counts = page.locator('.counts-line');
     const table = page.locator('.results-table');
-
-    // 舊版 toHaveCount(5) ＋「級距差異」列內容，恢復（選項標籤不含筆數，筆數由結果決定）
-    await applyFilter(page, '需確認', { pick: ['天數不同'] });
-
     const rows = table.locator('tbody tr');
-    await expect(rows).toHaveCount(FIXTURE_TIER_MISMATCH);
-    await expect(counts.locator('[data-count="matched"]')).toHaveText(String(FIXTURE_TIER_MISMATCH));
-    await expect(counts.locator('[data-count="mismatch"]')).toHaveText(String(FIXTURE_TIER_MISMATCH));
-    for (let i = 0; i < FIXTURE_TIER_MISMATCH; i++) {
-      await expect(rows.nth(i)).toContainText('天數不同');
+
+    // 控制列表先完成、對應 facets 延後：重現原 Full 中 count + live nth 的縮減窗口。
+    const heldFacets = await holdStudentResponse(page, 'options', { tierMismatch: 'true' });
+    const mismatchListResponse = page.waitForResponse((response) =>
+      matchesStudentResponse(response, 'list', { tierMismatch: 'true' })
+    );
+    const mismatchFacetResponse = page.waitForResponse((response) =>
+      matchesStudentResponse(response, 'options', { tierMismatch: 'true' })
+    );
+    try {
+      // 舊版 toHaveCount(5) ＋「級距差異」列內容，恢復（選項標籤不含筆數，筆數由結果決定）
+      await applyFilter(page, '需確認', { pick: ['天數不同'] });
+      const listResponse = await mismatchListResponse;
+      expect(new URL(listResponse.url()).searchParams.getAll('tierMismatch')).toEqual(['true']);
+      await expect(rows).toHaveCount(FIXTURE_TIER_MISMATCH);
+      await heldFacets.intercepted;
+
+      await expect(counts.locator('[data-count="matched"]')).toHaveText(String(FIXTURE_TIER_MISMATCH));
+      await expect(counts.locator('[data-count="mismatch"]')).toHaveText(String(FIXTURE_TIER_MISMATCH));
+      for (let i = 0; i < FIXTURE_TIER_MISMATCH; i++) {
+        await expect(rows.nth(i)).toContainText('天數不同');
+      }
+
+      // 明細抽屜：米豆奶登記級距比對與「級距差異」標示（UX16 Esc 可關）
+      await rows.first().click();
+      const drawer = page.locator('[role="dialog"]');
+      await expect(drawer).toBeVisible();
+      await expect(drawer).toContainText('米豆奶登記級距比對');
+      await expect(drawer).toContainText('級距差異');
+      await page.keyboard.press('Escape');
+      await expect(drawer).toHaveCount(0);
+
+      // Facet response is now complete for the applied mismatch filter. Reopen the
+      // panel only after its matching options have reached the DOM.
+      heldFacets.release();
+      const mismatchFacets = await mismatchFacetResponse;
+      expect(new URL(mismatchFacets.url()).searchParams.getAll('tierMismatch')).toEqual(['true']);
+      const mismatchOptions = (await mismatchFacets.json() as { options: { issueCode: IssueFacetOption[] } }).options.issueCode;
+      const p = await openFilter(page, '需確認');
+      await expectRenderedIssueOptionCount(p, visibleIssueOptionCount(mismatchOptions));
+      await p.locator('[data-filter-section="tierMismatch"] [data-filter-option="天數不同"] input[type="checkbox"]').uncheck();
+      await p.locator('[data-filter-section="tierMismatch"] [data-filter-option="天數吻合"] input[type="checkbox"]').check();
+
+      // Facets are per-field: issueCode options must be fetched with the newly
+      // applied tierMismatch=false condition before choosing an issue.
+      const heldMatchList = await holdStudentResponse(page, 'list', { tierMismatch: 'false' });
+      const matchListResponse = page.waitForResponse((response) =>
+        matchesStudentResponse(response, 'list', { tierMismatch: 'false' }, ['issueCode'])
+      );
+      const matchFacetResponse = page.waitForResponse((response) =>
+        matchesStudentResponse(response, 'options', { tierMismatch: 'false' }, ['issueCode'])
+      );
+      try {
+        await p.getByRole('button', { name: '確定', exact: true }).click();
+        await expect(p).toHaveCount(0);
+
+        // The matching facet response arrives while the list response is held.
+        const matchFacets = await matchFacetResponse;
+        expect(new URL(matchFacets.url()).searchParams.getAll('tierMismatch')).toEqual(['false']);
+        const matchOptions = (await matchFacets.json() as { options: { issueCode: IssueFacetOption[] } }).options.issueCode;
+        const classNotMapped = matchOptions.find((option) => option.value === 'CLASS_NOT_MAPPED');
+        const classNotMappedCount = classNotMapped?.count ?? 0;
+        expect(classNotMappedCount).toBeGreaterThan(0);
+        await heldMatchList.intercepted;
+        heldMatchList.release();
+
+        const matchList = await matchListResponse;
+        expect(new URL(matchList.url()).searchParams.getAll('tierMismatch')).toEqual(['false']);
+        await expect(rows.first()).toBeVisible();
+
+        const issuePanel = await openFilter(page, '需確認');
+        await expectRenderedIssueOptionCount(issuePanel, visibleIssueOptionCount(matchOptions));
+        const classNotMappedOption = issuePanel.locator(
+          '[data-filter-section="issueCode"] [data-filter-option="班名未對應課表"]'
+        );
+        await expect(classNotMappedOption).toBeVisible();
+        await expect(classNotMappedOption.locator('[data-filter-count]')).toHaveText(String(classNotMappedCount));
+        const issueLabels = await issuePanel
+          .locator('[data-filter-section="issueCode"] [data-filter-option]:not([data-filter-option="(空白)"])')
+          .evaluateAll((els) => els.map((el) => el.getAttribute('data-filter-option')).filter((label): label is string => label !== null));
+        expect(issueLabels).toContain('班名未對應課表');
+        for (const label of issueLabels) {
+          await issuePanel
+            .locator(`[data-filter-section="issueCode"] [data-filter-option=${JSON.stringify(label)}] input[type="checkbox"]`)
+            .check();
+        }
+
+        const finalListResponse = page.waitForResponse((response) =>
+          matchesStudentResponse(response, 'list', {
+            tierMismatch: 'false',
+            issueCode: 'CLASS_NOT_MAPPED',
+          })
+        );
+        await issuePanel.getByRole('button', { name: '確定', exact: true }).click();
+        await expect(issuePanel).toHaveCount(0);
+        const finalList = await finalListResponse;
+        const finalParams = new URL(finalList.url()).searchParams;
+        expect(finalParams.getAll('tierMismatch')).toEqual(['false']);
+        expect(finalParams.getAll('issueCode')).toContain('CLASS_NOT_MAPPED');
+        expect(finalParams.getAll('issueCode')).toHaveLength(issueLabels.length);
+        await expect(rows.first()).toBeVisible();
+
+        // 問題類型只顯示中文名稱（D39 (4)）：同一列仍看得到中文名稱，英文代碼不出現在主畫面。
+        // #157 Ruling 3：未對應課表的班一律 CLASS_NOT_MAPPED（中文「班名未對應課表」），
+        // 不再是「缺排課」（SCHEDULE_NOT_FOUND／「排課缺漏」）——fixture 學生報的班
+        // 根本不在課表設定內，說「缺排課」並不準確。
+        await expect(table.locator('tbody')).toContainText('班名未對應課表');
+        await expect(table.locator('tbody')).not.toContainText('CLASS_NOT_MAPPED', { useInnerText: true });
+      } finally {
+        heldMatchList.release();
+        await heldMatchList.remove();
+      }
+    } finally {
+      heldFacets.release();
+      await heldFacets.remove();
     }
-
-    // 明細抽屜：米豆奶登記級距比對與「級距差異」標示（UX16 Esc 可關）
-    await rows.first().click();
-    const drawer = page.locator('[role="dialog"]');
-    await expect(drawer).toBeVisible();
-    await expect(drawer).toContainText('米豆奶登記級距比對');
-    await expect(drawer).toContainText('級距差異');
-    await page.keyboard.press('Escape');
-    await expect(drawer).toHaveCount(0);
-
-    // 級距吻合 ＋ 有待確認事項 → 列表存在缺排課學生（舊版步驟 7，恢復）
-    const p = await openFilter(page, '需確認');
-    await p.locator('[data-filter-section="tierMismatch"] [data-filter-option="天數不同"] input[type="checkbox"]').uncheck();
-    await p.locator('[data-filter-section="tierMismatch"] [data-filter-option="天數吻合"] input[type="checkbox"]').check();
-    const issueOptions = p.locator('[data-filter-section="issueCode"] [data-filter-option]:not([data-filter-option="(空白)"]) input[type="checkbox"]');
-    const issueOptionCount = await issueOptions.count();
-    for (let i = 0; i < issueOptionCount; i++) await issueOptions.nth(i).check();
-    await p.getByRole('button', { name: '確定', exact: true }).click();
-    await expect(rows.first()).toBeVisible();
-    // 問題類型只顯示中文名稱（D39 (4)）：同一列仍看得到中文名稱，英文代碼不出現在主畫面。
-    // #157 Ruling 3：未對應課表的班一律 CLASS_NOT_MAPPED（中文「班名未對應課表」），
-    // 不再是「缺排課」（SCHEDULE_NOT_FOUND／「排課缺漏」）——fixture 學生報的班
-    // 根本不在課表設定內，說「缺排課」並不準確。
-    await expect(table.locator('tbody')).toContainText('班名未對應課表');
-    await expect(table.locator('tbody')).not.toContainText('CLASS_NOT_MAPPED', { useInnerText: true });
   });
 });
