@@ -3,8 +3,8 @@ import { ensureClassTypeTab, selectClassTypeTab } from './helpers/d2c-settings';
 
 /**
  * 04 §8 UX01／UX05–08／UX24：
- * 空 DB 先課表後匯入工作流程：
- * 進入設定頁（不阻擋）→ 平鋪網格 → 唯讀照顧窗口 → 編輯時段 → 確認變更 → 儲存課表 (settings_only)。
+ * 空 DB 先課表後匯入工作流程（#203：不顯示窗口摘要列或重複同步橫幅）：
+ * 進入設定頁（不阻擋）→ 課程類型頁籤 → 搜尋／篩選工具列 → 平鋪網格 → 編輯時段 → 確認變更 → 儲存課表 (settings_only)。
  *
  * D61（09 §3.1）起課表是「一頁籤一張表」，預設頁籤是**安親課輔班**：
  *  - 安親頁籤沒有時段欄，數量摘要只有 `共 N 個班級`；
@@ -12,20 +12,18 @@ import { ensureClassTypeTab, selectClassTypeTab } from './helpers/d2c-settings';
  * 因此「編輯時段」必須先切到排課頁籤，並以班名定位該列（見 helpers）。
  */
 test.describe('R2 展示一：空 DB 先課表後匯入排課工作流程 E2E', () => {
-  test('UX01/UX24: 空 DB 進入 /settings → 平鋪網格與唯讀窗口 → 編輯時段 → 確認變更 → 儲存課表 (settings_only)', async ({
+  test('UX01/UX24: 空 DB 進入 /settings → 無窗口摘要列／同步橫幅 → 編輯時段 → 確認變更 → 儲存課表 (settings_only)', async ({
     page,
   }) => {
     // 1. 空 DB 狀態下直接存取 /settings（UX01：解除先匯入名單之阻擋）
     await page.goto('/settings');
     await expect(page.locator('h1', { hasText: '課表設定' })).toBeVisible({ timeout: 10000 });
 
-    // 2. 驗證唯讀照顧窗口摘要（UX24：安親 13:00–16:00、課輔 16:30–19:30，無編輯輸入框）
-    const winBar = page.locator('.windows-bar');
-    await expect(winBar).toBeVisible();
-    await expect(winBar).toContainText('安親窗口');
-    await expect(winBar).toContainText('13:00–16:00');
-    await expect(winBar).toContainText('課輔窗口');
-    await expect(winBar).toContainText('16:30–19:30');
+    // 2. #203／UX24：固定窗口仍是計算依據，但不在課表頁重複顯示摘要列；
+    //    班名同步入口留在上層頁籤，空 DB 時不出現 ScheduleGrid 橫幅。
+    await expect(page.locator('.windows-bar')).toHaveCount(0);
+    await expect(page.locator('[data-schedule-sync-banner]')).toHaveCount(0);
+    await expect(page.locator('#settings-tab-sync')).toContainText('班名同步');
 
     // 3. 安親頁籤（預設）：平鋪網格正常載入，摘要只有班級數、不含時段（09 §3.1）
     //    8 個安親班（seed-manifest.ts 的 SEED_CLASS_TYPES），每班只列 1 列

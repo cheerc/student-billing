@@ -7,7 +7,6 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { createDatabase } from '@/adapters/sqlite/db';
 import { runMigrations } from '@/adapters/sqlite/migrator';
 import SettingsPage from '@/app/settings/page';
-import { WindowSummary } from '@/components/settings/window-summary';
 import { ScheduleGrid } from '@/components/settings/schedule-grid';
 import { ImpactDialog } from '@/components/settings/impact-dialog';
 import { ClassNameSyncPanel } from '@/components/settings/class-name-sync-panel';
@@ -51,25 +50,16 @@ describe('R2 UI 元件與排課工作流程（RED 測試）', () => {
       expect(html).not.toContain('尚無可設定的名單批次');
       expect(html).not.toContain('請先上傳 ERP 學生名單後再維護課程');
 
-      // 應包含課表設定頁面標題與預設課表頁籤
+      // 應包含課表設定頁面標題與預設課表／班名同步頁籤
       expect(html).toContain('課表設定');
       expect(html).toContain('課表');
       expect(html).toContain('班名同步');
-    });
-  });
 
-  describe('UX24：WindowSummary 唯讀照顧窗口摘要', () => {
-    it('顯示安親 13:00–16:00 與課輔 16:30–19:30 窗口，無輸入框或調整按鈕（D33 窗口固定）', () => {
-      const html = renderToStaticMarkup(React.createElement(WindowSummary));
-
-      expect(html).toContain('安親');
-      expect(html).toContain('13:00–16:00');
-      expect(html).toContain('課輔');
-      expect(html).toContain('16:30–19:30');
-
-      // 嚴格唯讀：不可有任何 input 或「調整時段」編輯入口
-      expect(html).not.toContain('<input');
-      expect(html).not.toContain('調整時段');
+      // #203：窗口仍由 ruleSet 提供計算使用，但不在課表頁重複顯示摘要列；
+      // 班名同步入口留在上層頁籤，不在 ScheduleGrid 另顯示橫幅。
+      expect(html).not.toContain('照顧時段窗口摘要');
+      expect(html).not.toContain('class="windows-bar"');
+      expect(html).not.toContain('data-schedule-sync-banner');
     });
   });
 

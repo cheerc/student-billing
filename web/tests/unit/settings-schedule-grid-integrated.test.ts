@@ -556,7 +556,9 @@ describe('specs/14 & Issue #155 & D61：5 頁籤與簡化操作（移除切換�
 
     it('UX108：美語班頁籤標籤包含待補計數提示（待補 1）', () => {
       const html = render({ rows: d61Rows, classAttributes: d61Attrs, initialClassTypeTab: 'english' });
-      expect(html).toMatch(/美語班\s*\(\d+\s*·\s*待補\s*1\)/);
+      const tabMarkup = html.match(/<button[^>]*id="class-type-tab-english"[^>]*>(.*?)<\/button>/)?.[1] ?? '';
+      const tabText = tabMarkup.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+      expect(tabText).toMatch(/^美語班 \(\d+ · 待補 1\)$/);
     });
 
     it('UX106：處於 [安親課輔班] 或 [不排課] 頁籤時，工具列自動隱藏課表星期篩選', () => {

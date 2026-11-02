@@ -37,6 +37,16 @@ test.describe('班名同步（D62 Phase 2）', () => {
     const panel = page.locator('[data-class-name-sync-panel]');
     await expect(panel).toBeVisible();
 
+    // #203：保留上層同步頁籤的不一致徽章，但課表卡片不重複顯示橫幅／窗口摘要。
+    const syncTab = page.locator('#settings-tab-sync');
+    await expect(syncTab.locator('.pill.warn')).toBeVisible();
+    await page.locator('#settings-tab-schedule').click();
+    await expect(page.locator('.windows-bar')).toHaveCount(0);
+    await expect(page.locator('[data-schedule-sync-banner]')).toHaveCount(0);
+    await expect(syncTab.locator('.pill.warn')).toBeVisible();
+    await syncTab.click();
+    await expect(panel).toBeVisible();
+
     // 驗證摘要資訊
     await expect(panel).toContainText('不一致');
 

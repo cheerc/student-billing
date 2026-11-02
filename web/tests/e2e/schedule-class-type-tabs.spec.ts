@@ -54,6 +54,99 @@ test.describe('D61 UX106: 課表設定 5 頁籤與簡化操作 E2E 驗收', () =
     await expect(careRows).toHaveCount(8);
   });
 
+  test('Issue #203: 課程頁籤局部內縮、窄螢幕局部橫捲且鍵盤焦點可見', async ({ page }, testInfo) => {
+    const readGeometry = () =>
+      page.evaluate(() => {
+        const card = document.querySelector<HTMLElement>('.schedule-grid-container');
+        const scroller = document.querySelector<HTMLElement>('.schedule-type-tabs');
+        const tablist = scroller?.querySelector<HTMLElement>('[role="tablist"]');
+        const toolbar = document.querySelector<HTMLElement>('.schedule-grid-container .toolbar');
+        const tableScroll = document.querySelector<HTMLElement>('.schedule-grid-container .schedule-table-scroll');
+        const careTab = document.querySelector<HTMLElement>('#class-type-tab-care');
+        const careLabel = careTab?.querySelector<HTMLElement>('.schedule-type-tab-label');
+        const careCount = careTab?.querySelector<HTMLElement>('.schedule-type-tab-count');
+        if (!card || !scroller || !tablist || !toolbar || !tableScroll || !careTab) {
+          throw new Error('Issue #203 geometry frame is missing');
+        }
+        const cardRect = card.getBoundingClientRect();
+        const scrollerRect = scroller.getBoundingClientRect();
+        const toolbarRect = toolbar.getBoundingClientRect();
+        const tableRect = tableScroll.getBoundingClientRect();
+        return {
+          leftInset: scrollerRect.left - cardRect.left,
+          rightInset: cardRect.right - scrollerRect.right,
+          toolbarLeft: toolbarRect.left - cardRect.left,
+          tableLeft: tableRect.left - cardRect.left,
+          scrollWidth: scroller.scrollWidth,
+          clientWidth: scroller.clientWidth,
+          pageWidth: document.documentElement.scrollWidth,
+          viewportWidth: window.innerWidth,
+          tabPaddingLeft: getComputedStyle(careTab).paddingLeft,
+          tabPaddingRight: getComputedStyle(careTab).paddingRight,
+          labelWeight: careLabel ? Number(getComputedStyle(careLabel).fontWeight) : null,
+          countWeight: careCount ? Number(getComputedStyle(careCount).fontWeight) : null,
+          countColor: careCount ? getComputedStyle(careCount).color : null,
+        };
+      });
+
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.reload();
+    const desktop = await readGeometry();
+    expect(Math.round(desktop.leftInset)).toBe(20);
+    expect(Math.round(desktop.rightInset)).toBe(20);
+    expect(Math.round(desktop.toolbarLeft)).toBe(Math.round(desktop.tableLeft));
+    expect(desktop.tabPaddingLeft).toBe('12px');
+    expect(desktop.tabPaddingRight).toBe('12px');
+    expect(desktop.labelWeight ?? 0).toBeGreaterThan(desktop.countWeight ?? 0);
+    expect(desktop.countColor).toBe('rgb(100, 116, 139)');
+    expect(desktop.pageWidth).toBeLessThanOrEqual(desktop.viewportWidth);
+
+    if (process.env.ISSUE_203_SCREENSHOTS === '1') {
+      await page.screenshot({ path: testInfo.outputPath('issue-203-desktop.png') });
+    }
+
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.reload();
+    const mobile = await readGeometry();
+    expect(Math.round(mobile.leftInset)).toBe(16);
+    expect(Math.round(mobile.rightInset)).toBe(16);
+    expect(Math.round(mobile.toolbarLeft)).toBe(Math.round(mobile.tableLeft));
+    expect(mobile.scrollWidth).toBeGreaterThan(mobile.clientWidth);
+    expect(mobile.pageWidth).toBeLessThanOrEqual(mobile.viewportWidth);
+
+    if (process.env.ISSUE_203_SCREENSHOTS === '1') {
+      await page.screenshot({ path: testInfo.outputPath('issue-203-mobile.png') });
+    }
+
+    await page.locator('#class-type-tab-care').focus();
+    await page.keyboard.press('End');
+    const unscheduledTab = page.locator('#class-type-tab-unscheduled');
+    await expect(unscheduledTab).toHaveAttribute('aria-selected', 'true');
+    const endFocus = await page.evaluate(() => {
+      const scroller = document.querySelector<HTMLElement>('.schedule-type-tabs');
+      const focused = document.activeElement as HTMLElement | null;
+      if (!scroller || !focused) return { visible: false, reason: 'missing scroll region or focused tab' };
+      const viewport = scroller.getBoundingClientRect();
+      const target = focused.getBoundingClientRect();
+      const outline = getComputedStyle(focused);
+      return {
+        visible: target.left >= viewport.left && target.right <= viewport.right && outline.outlineStyle !== 'none',
+        focusedId: focused.id,
+        targetLeft: target.left,
+        targetRight: target.right,
+        viewportLeft: viewport.left,
+        viewportRight: viewport.right,
+        outlineStyle: outline.outlineStyle,
+        outlineWidth: outline.outlineWidth,
+        scrollLeft: scroller.scrollLeft,
+      };
+    });
+    expect(endFocus.visible, JSON.stringify(endFocus)).toBe(true);
+
+    await page.keyboard.press('Home');
+    await expect(page.locator('#class-type-tab-care')).toHaveAttribute('aria-selected', 'true');
+  });
+
   test('UX106: 各頁籤欄位徹底分離，排他性嚴格成立', async ({ page }) => {
     // 1. [安親課輔班] 頁籤（6 欄）
     const careThead = page.locator('table.schedule-table-care thead');
