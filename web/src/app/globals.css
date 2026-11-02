@@ -592,7 +592,7 @@ body {
 
 /* 課程類型頁籤只在本卡片內縮與橫向捲動，不影響共用頁籤或整頁寬度。 */
 .schedule-type-tabs {
-  margin: 0 19px 16px;
+  margin: 0 19px 8px;
   overflow-x: auto;
   overflow-y: hidden;
   white-space: nowrap;
@@ -602,6 +602,7 @@ body {
 .schedule-type-tabs .tabs {
   width: max-content;
   min-width: 100%;
+  margin-bottom: 0;
 }
 
 .schedule-type-tabs .tabs button {
