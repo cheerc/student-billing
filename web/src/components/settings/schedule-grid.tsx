@@ -44,6 +44,8 @@ export interface ScheduleGridProps {
   calculateInputRows?: ScheduleGridRow[] | null;
   calculateError?: string | null;
   focusClass?: string | null;
+  /** Stable row identity captured by SettingsEditor when the focus target is selected. */
+  focusedRowIds?: ReadonlySet<string>;
   onClearFocus?: () => void;
   initialClassTypeTab?: ClassType | 'non_care';
   selectedClassType?: ClassType;
@@ -97,6 +99,7 @@ export function ScheduleGrid({
   calculateInputRows,
   calculateError = null,
   focusClass = null,
+  focusedRowIds,
   onClearFocus,
   initialClassTypeTab = 'care',
   classAttributes,
@@ -113,10 +116,11 @@ export function ScheduleGrid({
   const focusIsControlled = focusClass !== undefined;
   const [localFocus, setLocalFocus] = useState<string | null>(focusClass ?? null);
   const focus = focusIsControlled ? focusClass ?? null : localFocus;
-  const focusRowIds = useMemo<Set<string>>(
+  const locallyMatchedFocusRowIds = useMemo<Set<string>>(
     () => new Set(focus ? rows.filter((r) => r.className.trim() === focus).map((r) => r.rowId) : []),
     [focus, rows]
   );
+  const focusRowIds = focusedRowIds ?? locallyMatchedFocusRowIds;
   const [weekdayFilter, setWeekdayFilter] = useState('');
 
   const getClassType = useCallback(
@@ -227,13 +231,13 @@ export function ScheduleGrid({
   // 篩選時段列
   const filteredRows = useMemo(() => {
     return rows.filter((r) => {
-      if (focusActive) return focusRowIds.has(r.rowId) || r.className.trim() === focus;
+      if (focusActive) return focusRowIds.has(r.rowId);
       const matchSearch = search.trim() === '' || r.className.includes(search.trim());
       // care 與 unscheduled 不受星期篩選影響
       const matchWeekday = !isSchedulableTab || weekdayFilter === '' || r.weekday === weekdayFilter;
       return matchSearch && matchWeekday;
     });
-  }, [rows, search, weekdayFilter, focusActive, focus, focusRowIds, isSchedulableTab]);
+  }, [rows, search, weekdayFilter, focusActive, focusRowIds, isSchedulableTab]);
 
   // 判斷單列是否未填時間（待補 1c）
   const isRowIncomplete = useCallback((r: ScheduleGridRow) => {

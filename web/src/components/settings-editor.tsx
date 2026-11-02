@@ -88,6 +88,15 @@ const CALCULATE_FAILED_MESSAGE = '無法計算重疊與扣除天數，請稍後�
  */
 const REPORT_REFRESH_FAILED_MESSAGE = '無法取得最新的班名比對報告。';
 
+function rowIdsForFocus(rows: ScheduleGridRow[], className: string | null): Set<string> {
+  const target = className?.trim();
+  return new Set(
+    target
+      ? rows.filter((row) => row.className.trim() === target).map((row) => row.rowId)
+      : []
+  );
+}
+
 /**
  * 自動重試間隔（毫秒）：第一次失敗後約 1s、第二次失敗後約 3s，之後交給使用者按鈕。
  * 測試可縮短（prop 注入）；單元測試以 0 等待，E2E 用真實間隔（總計 4s，不改用真 sleep 拉長）。
@@ -244,9 +253,34 @@ export default function SettingsEditor({
       : scheduleFocus.kind === 'focused'
         ? scheduleFocus.className
         : null;
+  const scheduleFocusClassRef = useRef(scheduleFocusClass);
+  useEffect(() => {
+    if (scheduleFocus.kind === 'initial') {
+      scheduleFocusClassRef.current = focusClass;
+    }
+  }, [focusClass, scheduleFocus.kind]);
+
+  // 初始化平鋪排課時段列（對齊 S 表 89 筆）
+  const initialRows = useMemo(() => {
+    const fromClasses = classesToGridRows(initialDraft.classes);
+    if (fromClasses.length > 0) return fromClasses;
+    return buildSeedGridRows();
+  }, [initialDraft]);
+
+  const [rows, setRows] = useState<ScheduleGridRow[]>(initialRows);
+  // A focus tracks the row identities captured when the target is chosen. Row names can change
+  // during editing, so membership must not be re-derived from the mutable className on each render.
+  const [scheduleFocusRowIds, setScheduleFocusRowIds] = useState<Set<string>>(() =>
+    rowIdsForFocus(initialRows, scheduleFocusClass)
+  );
+  const [selectedClassType, setSelectedClassType] = useState<ClassType>(() =>
+    initialScheduleClassType(initialRows, initialDraft.classes, focusClass)
+  );
 
   const clearScheduleFocus = useCallback(() => {
+    scheduleFocusClassRef.current = null;
     setScheduleFocus({ kind: 'cleared' });
+    setScheduleFocusRowIds(new Set());
     try {
       const url = new URL(window.location.href);
       url.searchParams.delete('class');
@@ -260,18 +294,6 @@ export default function SettingsEditor({
     setScheduleSearch(value);
     if (value.trim() && scheduleFocusClass !== null) clearScheduleFocus();
   }, [scheduleFocusClass, clearScheduleFocus]);
-
-  // 初始化平鋪排課時段列（對齊 S 表 89 筆）
-  const initialRows = useMemo(() => {
-    const fromClasses = classesToGridRows(initialDraft.classes);
-    if (fromClasses.length > 0) return fromClasses;
-    return buildSeedGridRows();
-  }, [initialDraft]);
-
-  const [rows, setRows] = useState<ScheduleGridRow[]>(initialRows);
-  const [selectedClassType, setSelectedClassType] = useState<ClassType>(() =>
-    initialScheduleClassType(initialRows, initialDraft.classes, focusClass)
-  );
 
   /**
    * 手動指定的班級屬性（類別／固定 5 天）以「班名 → 四個欄位」存放。
@@ -450,6 +472,15 @@ export default function SettingsEditor({
       // 美語／數學班時會被系統自動套上多科折扣（10000 → 9500），違反 D17「不得替使用者陳述決定」。
       const hasMulti = supportsMultiSubjectDiscount(resolvedType);
       setRows(res.rows);
+      if (scheduleFocusClass?.trim() === erpBaseName.trim()) {
+        setScheduleFocusRowIds((current) => {
+          const next = new Set(current);
+          for (const row of res.rows) {
+            if (row.className.trim() === erpBaseName.trim()) next.add(row.rowId);
+          }
+          return next;
+        });
+      }
       setManualAttrs((prev) => {
         const next = new Map(prev);
         next.set(erpBaseName, {
@@ -466,7 +497,7 @@ export default function SettingsEditor({
     } catch (err: any) {
       showToast(err.message || '暫存新增失敗');
     }
-  }, [rows, showToast]);
+  }, [rows, scheduleFocusClass, showToast]);
 
   /** D62 Phase 2: 班名同步 — 復原單列暫存 */
   const handleUndoStaged = useCallback((erpBaseName: string) => {
@@ -492,6 +523,14 @@ export default function SettingsEditor({
       showToast(`已復原「${erpBaseName}」的同步暫存`);
     } else if (stagedNewClasses.has(erpBaseName)) {
       setRows((prev) => prev.filter((r) => r.className.trim() !== erpBaseName));
+      const stagedRowIds = new Set(
+        rows.filter((row) => row.className.trim() === erpBaseName).map((row) => row.rowId)
+      );
+      setScheduleFocusRowIds((current) => {
+        const next = new Set(current);
+        for (const rowId of stagedRowIds) next.delete(rowId);
+        return next;
+      });
       setManualAttrs((prev) => {
         const next = new Map(prev);
         next.delete(erpBaseName);
@@ -504,7 +543,7 @@ export default function SettingsEditor({
       });
       showToast(`已復原「${erpBaseName}」的新增暫存`);
     }
-  }, [stagedRenames, stagedNewClasses, baseline.aliases, showToast]);
+  }, [stagedRenames, stagedNewClasses, baseline.aliases, rows, showToast]);
 
   // 班級改散警告 (D28)
   const splitWarnings = useMemo(() => {
@@ -761,6 +800,12 @@ export default function SettingsEditor({
   // 刪除時段列
   const handleDeleteRow = (rowId: string) => {
     setRows((prev) => prev.filter((r) => r.rowId !== rowId));
+    setScheduleFocusRowIds((current) => {
+      if (!current.has(rowId)) return current;
+      const next = new Set(current);
+      next.delete(rowId);
+      return next;
+    });
     setPreview(null);
   };
 
@@ -779,6 +824,9 @@ export default function SettingsEditor({
       endMinutes: endMin,
     };
     setRows((prev) => [...prev, newRow]);
+    if (scheduleFocusClass?.trim() === newRow.className.trim()) {
+      setScheduleFocusRowIds((current) => new Set(current).add(newRow.rowId));
+    }
     if (classType) {
       const resolvedType: ClassType = classType === 'non_care' ? 'other' : classType;
       const className = row.className.trim();
@@ -902,6 +950,9 @@ export default function SettingsEditor({
       }>;
       const importedClasses = gridRowsToClasses(importedRows, draft.classes);
       setRows(importedRows);
+      // The user can change the focus while the request is in flight; bind the replacement rows
+      // to the target active when the import completes, not the target captured at request start.
+      setScheduleFocusRowIds(rowIdsForFocus(importedRows, scheduleFocusClassRef.current));
       setDraft((prev) => ({ ...prev, classes: importedClasses }));
       const nextAttrs = new Map<string, ClassAttributesView>();
       for (const a of importedAttrs) {
@@ -927,6 +978,7 @@ export default function SettingsEditor({
   // 還原到 baseline（取消修改與離頁時「捨棄修改」共用）
   const resetDraft = () => {
     setRows(baseline.rows);
+    setScheduleFocusRowIds(rowIdsForFocus(baseline.rows, scheduleFocusClass));
     setDraft((prev) => ({
       ...prev,
       aliases: baseline.aliases,
@@ -1152,6 +1204,7 @@ export default function SettingsEditor({
             calculateInputRows={calculateInputRows}
             calculateError={calculateError}
             focusClass={scheduleFocusClass}
+            focusedRowIds={scheduleFocusRowIds}
             onClearFocus={clearScheduleFocus}
             selectedClassType={selectedClassType}
             onSelectClassType={setSelectedClassType}
@@ -1181,9 +1234,11 @@ export default function SettingsEditor({
             onStageNewClass={handleStageNewClass}
             onUndoStaged={handleUndoStaged}
             onGoToSchedule={(className) => {
+              scheduleFocusClassRef.current = className;
               setScheduleSearch('');
               setSelectedClassType(scheduleClassTypeForName(className, draft.classes, currentAttrs));
               setScheduleFocus({ kind: 'focused', className });
+              setScheduleFocusRowIds(rowIdsForFocus(rows, className));
               setActiveTab('schedule');
             }}
             reportStaleMessage={reportStaleError}
