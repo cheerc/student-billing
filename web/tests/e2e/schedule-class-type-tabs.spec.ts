@@ -54,7 +54,7 @@ test.describe('D61 UX106: 課表設定 5 頁籤與簡化操作 E2E 驗收', () =
     await expect(careRows).toHaveCount(8);
   });
 
-  test('Issue #203: 課程頁籤局部內縮、窄螢幕局部橫捲且鍵盤焦點可見', async ({ page }, testInfo) => {
+  test('Issue #203/#205: 課程頁籤幾何、工具列間距、窄螢幕局部橫捲與鍵盤焦點可見', async ({ page }, testInfo) => {
     const readGeometry = () =>
       page.evaluate(() => {
         const card = document.querySelector<HTMLElement>('.schedule-grid-container');
@@ -70,6 +70,7 @@ test.describe('D61 UX106: 課表設定 5 頁籤與簡化操作 E2E 驗收', () =
         }
         const cardRect = card.getBoundingClientRect();
         const scrollerRect = scroller.getBoundingClientRect();
+        const tablistRect = tablist.getBoundingClientRect();
         const toolbarRect = toolbar.getBoundingClientRect();
         const tableRect = tableScroll.getBoundingClientRect();
         return {
@@ -77,6 +78,7 @@ test.describe('D61 UX106: 課表設定 5 頁籤與簡化操作 E2E 驗收', () =
           rightInset: cardRect.right - scrollerRect.right,
           toolbarLeft: toolbarRect.left - cardRect.left,
           tableLeft: tableRect.left - cardRect.left,
+          tabToolbarGap: toolbarRect.top - tablistRect.bottom,
           scrollWidth: scroller.scrollWidth,
           clientWidth: scroller.clientWidth,
           pageWidth: document.documentElement.scrollWidth,
@@ -145,6 +147,8 @@ test.describe('D61 UX106: 課表設定 5 頁籤與簡化操作 E2E 驗收', () =
 
     await page.keyboard.press('Home');
     await expect(page.locator('#class-type-tab-care')).toHaveAttribute('aria-selected', 'true');
+
+    expect({ desktop: desktop.tabToolbarGap, mobile: mobile.tabToolbarGap }).toEqual({ desktop: 8, mobile: 8 });
   });
 
   test('UX106: 各頁籤欄位徹底分離，排他性嚴格成立', async ({ page }) => {
