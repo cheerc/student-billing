@@ -230,4 +230,43 @@ test.describe('Imports Page E2E Test (R3 匯入頁一次完成使用名單)', ()
     const pillText = await page.locator('button[role="tab"]', { hasText: '班名同步' }).locator('.pill.warn').innerText();
     expect(Number(pillText), '課表設定的班名同步頁籤應顯示 12 個不一致班名').toBe(12);
   });
+
+  test('PR-1 footer CSS stays scoped to schedule grid', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto('/imports');
+    await page.locator('input[type="file"]').setInputFiles(path.resolve(__dirname, '../fixtures/conforming-erp-fixture.xlsx'));
+    await expect(page.locator('.stats-grid')).toBeVisible({ timeout: 15000 });
+
+    const importFooter = page.locator('.tablefoot');
+    const importFooterGeometry = await importFooter.evaluate((footer) => {
+      const dateControl = footer.querySelector('label');
+      const activateButton = footer.querySelector('button');
+      if (!dateControl || !activateButton) throw new Error('import activation footer controls are missing');
+      const dateRect = dateControl.getBoundingClientRect();
+      const buttonRect = activateButton.getBoundingClientRect();
+      return {
+        direction: getComputedStyle(footer).flexDirection,
+        centerDelta: Math.abs((dateRect.top + dateRect.bottom) / 2 - (buttonRect.top + buttonRect.bottom) / 2),
+      };
+    });
+    expect(importFooterGeometry.direction).toBe('row');
+    expect(importFooterGeometry.centerDelta).toBeLessThanOrEqual(2);
+
+    await page.goto('/settings');
+    await expect(page.locator('h1', { hasText: '課表設定' })).toBeVisible({ timeout: 15000 });
+    const scheduleFooter = page.locator('.schedule-grid-container .tablefoot');
+    await expect(scheduleFooter).toBeVisible();
+    const scheduleFooterGeometry = await scheduleFooter.evaluate((footer) => {
+      const summary = footer.querySelector('.schedule-count-summary');
+      const rule = footer.querySelector(':scope > .note');
+      if (!summary || !rule) throw new Error('schedule footer summary or D39 rule is missing');
+      return {
+        direction: getComputedStyle(footer).flexDirection,
+        summaryTop: summary.getBoundingClientRect().top,
+        ruleTop: rule.getBoundingClientRect().top,
+      };
+    });
+    expect(scheduleFooterGeometry.direction).toBe('column');
+    expect(scheduleFooterGeometry.summaryTop).toBeLessThan(scheduleFooterGeometry.ruleTop);
+  });
 });
