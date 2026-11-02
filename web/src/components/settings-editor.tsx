@@ -16,6 +16,7 @@ import {
   isSettingsDirty,
   supportsMultiSubjectDiscount,
   CLASS_TYPE_LABELS,
+  CLASS_TYPE_ORDER,
   type ClassAttributeSetting,
   type ClassType,
 } from '@/contracts/settings';
@@ -128,6 +129,29 @@ function mapsDiffer(
   return false;
 }
 
+function scheduleClassTypeForName(
+  className: string,
+  classes: ClassSetting[],
+  attributes?: ReadonlyMap<string, ClassAttributesView>
+): ClassType {
+  const normalizedName = className.trim();
+  const saved = classes.find((item) => item.baseName.trim() === normalizedName);
+  const classType = (attributes?.get(normalizedName) ?? resolveClassAttributes(normalizedName, saved)).classType;
+  return classType === 'non_care' ? 'other' : classType;
+}
+
+function initialScheduleClassType(
+  rows: ScheduleGridRow[],
+  classes: ClassSetting[],
+  focusClass: string | null
+): ClassType {
+  if (focusClass) return scheduleClassTypeForName(focusClass, classes);
+
+  const rowTypes = new Set(rows.map((row) => scheduleClassTypeForName(row.className, classes)));
+  if (rowTypes.has('care')) return 'care';
+  return CLASS_TYPE_ORDER.find((type) => rowTypes.has(type)) ?? 'care';
+}
+
 /**
  * 重新取得報告的單次嘗試與重試遞迴（模組層函式，不在 component scope，因此可安全地自我遞迴）。
  *
@@ -195,6 +219,9 @@ export default function SettingsEditor({
   const [activeTab, setActiveTab] = useState<'schedule' | 'sync'>(() =>
     initialTab === 'mapping' || initialTab === 'sync' ? 'sync' : 'schedule'
   );
+  const [scheduleSearch, setScheduleSearch] = useState('');
+  const [isAddClassFormOpen, setIsAddClassFormOpen] = useState(false);
+  const scheduleImportInputRef = useRef<HTMLInputElement | null>(null);
   const [draft, setDraft] = useState<SettingsDraft>(initialDraft);
 
   // 追蹤班名同步暫存操作：erpBaseName -> systemBaseName (改名)
@@ -218,6 +245,22 @@ export default function SettingsEditor({
         ? scheduleFocus.className
         : null;
 
+  const clearScheduleFocus = useCallback(() => {
+    setScheduleFocus({ kind: 'cleared' });
+    try {
+      const url = new URL(window.location.href);
+      url.searchParams.delete('class');
+      window.history.replaceState({}, '', url.toString());
+    } catch {
+      // 容錯
+    }
+  }, []);
+
+  const handleScheduleSearchChange = useCallback((value: string) => {
+    setScheduleSearch(value);
+    if (value.trim() && scheduleFocusClass !== null) clearScheduleFocus();
+  }, [scheduleFocusClass, clearScheduleFocus]);
+
   // 初始化平鋪排課時段列（對齊 S 表 89 筆）
   const initialRows = useMemo(() => {
     const fromClasses = classesToGridRows(initialDraft.classes);
@@ -226,6 +269,9 @@ export default function SettingsEditor({
   }, [initialDraft]);
 
   const [rows, setRows] = useState<ScheduleGridRow[]>(initialRows);
+  const [selectedClassType, setSelectedClassType] = useState<ClassType>(() =>
+    initialScheduleClassType(initialRows, initialDraft.classes, focusClass)
+  );
 
   /**
    * 手動指定的班級屬性（類別／固定 5 天）以「班名 → 四個欄位」存放。
@@ -1014,36 +1060,82 @@ export default function SettingsEditor({
 
   return (
     <div className="settings-workflow-root">
-      {/* 頁面標題與快速導引 */}
-      <header className="page-header" style={{ marginBottom: '20px' }}>
-        <div>
-          <h1 style={{ fontSize: '24px', fontWeight: 700, margin: '0 0 6px' }}>課表設定</h1>
-          <p className="note" style={{ margin: 0 }}>
-            設定各班上課時段與老師，即時預覽與安親、課輔窗口的重疊與扣除天數。
-          </p>
-        </div>
+      {/* 頁面標題保留，移除重複說明以收緊首屏。 */}
+      <header className="page-header" style={{ marginBottom: '12px' }}>
+        <h1 style={{ fontSize: '24px', fontWeight: 700, margin: 0 }}>課表設定</h1>
       </header>
 
-      {/* 頁籤切換（09 §6：鍵盤可操作） */}
-      <TabList
-        label="課表設定頁籤"
-        idPrefix="settings"
-        selected={activeTab}
-        onSelect={(k) => setActiveTab(k as 'schedule' | 'sync')}
-        tabs={[
-          { key: 'schedule', label: '課表' },
-          {
-            key: 'sync',
-            label: (
-              <>
-                班名同步 {(syncSummary?.mismatchCount ?? 0) > 0 && (
-                  <span className="pill warn">{syncSummary!.mismatchCount}</span>
-                )}
-              </>
-            ),
-          },
-        ]}
-      />
+      {/* 主頁籤與課表工具同列；工具是 tablist 的 sibling，切至班名同步時卸載。 */}
+      <div className="settings-main-tabs-row">
+        <TabList
+          label="課表設定頁籤"
+          idPrefix="settings"
+          selected={activeTab}
+          onSelect={(k) => setActiveTab(k as 'schedule' | 'sync')}
+          tabs={[
+            { key: 'schedule', label: '課表' },
+            {
+              key: 'sync',
+              label: (
+                <>
+                  班名同步 {(syncSummary?.mismatchCount ?? 0) > 0 && (
+                    <span className="pill warn">{syncSummary!.mismatchCount}</span>
+                  )}
+                </>
+              ),
+            },
+          ]}
+        />
+        {activeTab === 'schedule' && (
+          <div className="schedule-actions" data-schedule-actions="">
+            <input
+              type="text"
+              className="search"
+              placeholder="搜尋班級名稱..."
+              aria-label="搜尋課表班級"
+              value={scheduleSearch}
+              onChange={(event) => handleScheduleSearchChange(event.target.value)}
+            />
+            <button
+              type="button"
+              className="btn-secondary"
+              onClick={() => scheduleImportInputRef.current?.click()}
+              disabled={scheduleTransferBusy}
+              data-schedule-import=""
+            >
+              匯入 Excel
+            </button>
+            <button
+              type="button"
+              className="btn-secondary"
+              onClick={handleExportExcel}
+              disabled={scheduleTransferBusy}
+              data-schedule-export=""
+            >
+              {scheduleTransferBusy ? '處理中...' : '匯出 Excel'}
+            </button>
+            <button
+              type="button"
+              className={isAddClassFormOpen ? 'btn-secondary' : 'btn-primary'}
+              onClick={() => setIsAddClassFormOpen((open) => !open)}
+            >
+              {isAddClassFormOpen ? '取消新增' : '＋ 新增班級'}
+            </button>
+            <input
+              ref={scheduleImportInputRef}
+              type="file"
+              accept=".xlsx"
+              style={{ display: 'none' }}
+              aria-label="選擇課表 Excel 檔案"
+              onChange={(event) => {
+                const file = event.currentTarget.files?.[0];
+                if (file) void handleImportExcel(file);
+                event.currentTarget.value = '';
+              }}
+            />
+          </div>
+        )}
+      </div>
 
       {/* 頁籤內容一：課表平鋪排課主畫面 */}
       {activeTab === 'schedule' && (
@@ -1060,15 +1152,17 @@ export default function SettingsEditor({
             calculateInputRows={calculateInputRows}
             calculateError={calculateError}
             focusClass={scheduleFocusClass}
-            onClearFocus={() => setScheduleFocus({ kind: 'cleared' })}
+            onClearFocus={clearScheduleFocus}
+            selectedClassType={selectedClassType}
+            onSelectClassType={setSelectedClassType}
+            search={scheduleSearch}
+            showAddForm={isAddClassFormOpen}
+            onShowAddFormChange={setIsAddClassFormOpen}
             classAttributes={currentAttrs}
             onSelectCategory={handleSelectCategory}
             onToggleMultiDiscount={handleToggleMultiDiscount}
             onToggleFixedFiveDays={handleToggleFixedFiveDays}
-            onExportExcel={handleExportExcel}
-            onImportExcel={handleImportExcel}
             importError={scheduleImportError}
-            transferBusy={scheduleTransferBusy}
           />
         </section>
       )}
@@ -1087,6 +1181,8 @@ export default function SettingsEditor({
             onStageNewClass={handleStageNewClass}
             onUndoStaged={handleUndoStaged}
             onGoToSchedule={(className) => {
+              setScheduleSearch('');
+              setSelectedClassType(scheduleClassTypeForName(className, draft.classes, currentAttrs));
               setScheduleFocus({ kind: 'focused', className });
               setActiveTab('schedule');
             }}

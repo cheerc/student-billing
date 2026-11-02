@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useMemo, useRef, useCallback } from 'react';
+import React, { useState, useMemo, useCallback } from 'react';
 import {
   ScheduleGridRow,
   type ClassType,
@@ -46,14 +46,16 @@ export interface ScheduleGridProps {
   focusClass?: string | null;
   onClearFocus?: () => void;
   initialClassTypeTab?: ClassType | 'non_care';
+  selectedClassType?: ClassType;
+  onSelectClassType?: (classType: ClassType) => void;
+  search?: string;
+  showAddForm?: boolean;
+  onShowAddFormChange?: (open: boolean) => void;
   classAttributes?: Map<string, ClassAttributesView>;
   onSelectCategory?: (className: string, category: any) => void;
   onToggleMultiDiscount?: (className: string, hasMulti: boolean) => void;
   onToggleFixedFiveDays?: (className: string, fixed: boolean) => void;
-  onExportExcel?: () => void;
-  onImportExcel?: (file: File) => void;
   importError?: string | null;
-  transferBusy?: boolean;
 }
 
 function rowCalcSignature(r: ScheduleGridRow): string {
@@ -101,19 +103,21 @@ export function ScheduleGrid({
   onSelectCategory,
   onToggleMultiDiscount,
   onToggleFixedFiveDays,
-  onExportExcel,
-  onImportExcel,
+  selectedClassType,
+  onSelectClassType,
+  search = '',
+  showAddForm = false,
+  onShowAddFormChange,
   importError = null,
-  transferBusy = false,
 }: ScheduleGridProps) {
-  const [focus, setFocus] = useState<string | null>(focusClass);
-  const [focusRowIds] = useState<Set<string>>(
-    () => new Set(focusClass ? rows.filter((r) => r.className.trim() === focusClass).map((r) => r.rowId) : [])
+  const focusIsControlled = focusClass !== undefined;
+  const [localFocus, setLocalFocus] = useState<string | null>(focusClass ?? null);
+  const focus = focusIsControlled ? focusClass ?? null : localFocus;
+  const focusRowIds = useMemo<Set<string>>(
+    () => new Set(focus ? rows.filter((r) => r.className.trim() === focus).map((r) => r.rowId) : []),
+    [focus, rows]
   );
-  const [search, setSearch] = useState('');
   const [weekdayFilter, setWeekdayFilter] = useState('');
-  const [showAddForm, setShowAddForm] = useState(false);
-  const importInputRef = useRef<HTMLInputElement | null>(null);
 
   const getClassType = useCallback(
     (className: string): ClassType => {
@@ -150,25 +154,32 @@ export function ScheduleGrid({
     return 'care';
   }, [focusClass, getClassType, initialClassTypeTab, rows]);
 
-  const [activeTypeTab, setActiveTypeTab] = useState<ClassType>(initialTab);
-
-  // 新增班級表單狀態
-  const [newClassType, setNewClassType] = useState<ClassType>(activeTypeTab);
+  // 生產頁面傳入受控選取值；本地狀態僅供獨立 ScheduleGrid 渲染測試使用。
+  const [localActiveTypeTab, setLocalActiveTypeTab] = useState<ClassType>(initialTab);
+  const activeTypeTab = selectedClassType ?? localActiveTypeTab;
   const [newClassName, setNewClassName] = useState('');
   const [newTeacher, setNewTeacher] = useState('');
   const [newWeekday, setNewWeekday] = useState('');
   const [newStartTime, setNewStartTime] = useState('');
   const [newEndTime, setNewEndTime] = useState('');
-  const [newHasMulti, setNewHasMulti] = useState(true);
+  const [newHasMulti, setNewHasMulti] = useState(() =>
+    supportsMultiSubjectDiscount(selectedClassType ?? initialTab)
+  );
   const [newFixedFive, setNewFixedFive] = useState(false);
-  const [newSkipDeduction, setNewSkipDeduction] = useState(false);
+  const [newSkipDeduction, setNewSkipDeduction] = useState(() =>
+    defaultSkipDeductionForClassType(selectedClassType ?? initialTab)
+  );
 
-  // 切換新增班級類型時重設預設值
-  const handleNewClassTypeChange = (type: ClassType) => {
-    setNewClassType(type);
+  const resetNewClassTypeDefaults = useCallback((type: ClassType) => {
     setNewHasMulti(supportsMultiSubjectDiscount(type));
     setNewFixedFive(false);
     setNewSkipDeduction(defaultSkipDeductionForClassType(type));
+  }, []);
+
+  const handleSelectType = (type: ClassType) => {
+    setLocalActiveTypeTab(type);
+    onSelectClassType?.(type);
+    resetNewClassTypeDefaults(type);
   };
 
   const resultMap = useMemo(() => {
@@ -253,14 +264,14 @@ export function ScheduleGrid({
     return matching;
   }, [filteredRows, getClassType, activeTypeTab, isSchedulableTab]);
 
-  // 各頁籤統計（班級數與待補時段數）
+  // 各頁籤統計使用全量 rows；搜尋／星期篩選只影響「目前顯示」摘要。
   const tabStats = useMemo(() => {
-    const stats: Record<ClassType, { classCount: number; incompleteCount: number }> = {
-      care: { classCount: 0, incompleteCount: 0 },
-      english: { classCount: 0, incompleteCount: 0 },
-      math: { classCount: 0, incompleteCount: 0 },
-      other: { classCount: 0, incompleteCount: 0 },
-      unscheduled: { classCount: 0, incompleteCount: 0 },
+    const stats: Record<ClassType, { classCount: number; rowCount: number; incompleteCount: number }> = {
+      care: { classCount: 0, rowCount: 0, incompleteCount: 0 },
+      english: { classCount: 0, rowCount: 0, incompleteCount: 0 },
+      math: { classCount: 0, rowCount: 0, incompleteCount: 0 },
+      other: { classCount: 0, rowCount: 0, incompleteCount: 0 },
+      unscheduled: { classCount: 0, rowCount: 0, incompleteCount: 0 },
     };
 
     const classSets: Record<ClassType, Set<string>> = {
@@ -274,9 +285,8 @@ export function ScheduleGrid({
     for (const r of rows) {
       const type = getClassType(r.className);
       const name = r.className.trim();
-      if (name) {
-        classSets[type].add(name);
-      }
+      stats[type].rowCount += 1;
+      if (name) classSets[type].add(name);
       if (isSchedulableClassType(type) && isRowIncomplete(r)) {
         stats[type].incompleteCount += 1;
       }
@@ -290,18 +300,16 @@ export function ScheduleGrid({
   }, [rows, getClassType, isRowIncomplete]);
 
   const currentTabClassCount = tabStats[activeTypeTab].classCount;
-  const currentTabRowCount = displayedTabRows.length;
+  const currentTabRowCount = tabStats[activeTypeTab].rowCount;
+  const displayedTabClassCount = new Set(
+    displayedTabRows.map((row) => row.className.trim()).filter(Boolean)
+  ).size;
+  const hasSearchFilter = search.trim() !== '';
+  const hasWeekdayFilter = isSchedulableTab && weekdayFilter !== '';
 
   const clearFocus = () => {
-    setFocus(null);
+    if (!focusIsControlled) setLocalFocus(null);
     onClearFocus?.();
-    try {
-      const url = new URL(window.location.href);
-      url.searchParams.delete('class');
-      window.history.replaceState({}, '', url.toString());
-    } catch {
-      // 容錯
-    }
   };
 
   const handleCreateSession = (e: React.FormEvent) => {
@@ -310,7 +318,7 @@ export function ScheduleGrid({
     const name = newClassName.trim();
     if (!name) return;
 
-    const isSchedulable = isSchedulableClassType(newClassType);
+    const isSchedulable = isSchedulableClassType(activeTypeTab);
 
     onAddRow(
       {
@@ -324,139 +332,72 @@ export function ScheduleGrid({
         active: true,
         skipDeduction: !isSchedulable ? false : newSkipDeduction,
       },
-      newClassType,
+      activeTypeTab,
       {
         hasMultiSubjectDiscount: newHasMulti,
         fixedFiveDays: newFixedFive,
       }
     );
 
-    setActiveTypeTab(newClassType);
     setNewClassName('');
     setNewTeacher('');
     setNewWeekday('');
     setNewStartTime('');
     setNewEndTime('');
-    setShowAddForm(false);
-  };
-
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file && onImportExcel) {
-      onImportExcel(file);
-    }
-    if (e.target) {
-      e.target.value = '';
-    }
+    onShowAddFormChange?.(false);
   };
 
   return (
     <div className="card schedule-grid-container">
-      {/* D61：5 個課程類型頁籤 */}
-      <div className="schedule-type-tabs">
-        <TabList
-          label="課程類型頁籤"
-          idPrefix="class-type"
-          tabs={CLASS_TYPE_ORDER.map((type) => {
-            const { classCount, incompleteCount } = tabStats[type];
-            const incompleteLabel =
-              isSchedulableClassType(type) && incompleteCount > 0
-                ? ` · 待補 ${incompleteCount}`
-                : '';
-            return {
-              key: type,
-              label: (
-                <>
-                  <span className="schedule-type-tab-label">{CLASS_TYPE_LABELS[type]}</span>{' '}
-                  <span className="schedule-type-tab-count">({classCount}{incompleteLabel})</span>
-                </>
-              ),
-            };
-          })}
-          selected={activeTypeTab}
-          onSelect={(key) => setActiveTypeTab(key as ClassType)}
-        />
-      </div>
+      {/* D61：5 個課程類型頁籤與條件篩選同列 */}
+      <div className="schedule-type-controls">
+        <div className="schedule-type-tabs">
+          <TabList
+            label="課程類型頁籤"
+            idPrefix="class-type"
+            tabs={CLASS_TYPE_ORDER.map((type) => {
+              const { classCount, incompleteCount } = tabStats[type];
+              const incompleteLabel =
+                isSchedulableClassType(type) && incompleteCount > 0
+                  ? ` · 待補 ${incompleteCount}`
+                  : '';
+              return {
+                key: type,
+                label: (
+                  <>
+                    <span className="schedule-type-tab-label">{CLASS_TYPE_LABELS[type]}</span>{' '}
+                    <span className="schedule-type-tab-count">({classCount}{incompleteLabel})</span>
+                  </>
+                ),
+              };
+            })}
+            selected={activeTypeTab}
+            onSelect={(key) => handleSelectType(key as ClassType)}
+          />
+        </div>
 
-      {/* 搜尋與篩選工具列 */}
-      <div className="toolbar">
-        <input
-          type="text"
-          className="search"
-          placeholder="搜尋班級名稱..."
-          aria-label="搜尋課表班級"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-        />
-
-        {/* 條件式收斂：僅在排課類型顯示星期篩選下拉 */}
+        {/* 類型頁籤右側的條件式星期篩選；不進入 tablist。 */}
         {isSchedulableTab && (
           <select
             id="schedule-weekday-filter"
+            className="schedule-weekday-filter"
             aria-label="課表星期篩選"
             value={weekdayFilter}
-            onChange={(e) => setWeekdayFilter(e.target.value)}
+            onChange={(event) => setWeekdayFilter(event.target.value)}
           >
             <option value="">全部星期</option>
-            {WEEKDAY_OPTIONS.filter((o) => o.value !== '').map((o) => (
-              <option key={o.value} value={o.value}>
-                {o.label}
+            {WEEKDAY_OPTIONS.filter((option) => option.value !== '').map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
               </option>
             ))}
           </select>
         )}
-
-        <span className="note count-summary">
-          {isSchedulableTab
-            ? `共 ${currentTabClassCount} 個班級 · ${currentTabRowCount} 個時段`
-            : `共 ${currentTabClassCount} 個班級`}
-          {calculating && <span className="calculating-indicator"> · 計算中...</span>}
-        </span>
-
-        {/* Excel 匯出／匯入按鈕 */}
-        {onExportExcel && onImportExcel && (
-          <div className="transfer-actions">
-            <button
-              type="button"
-              className="btn-secondary"
-              onClick={onExportExcel}
-              disabled={transferBusy}
-              data-schedule-export=""
-            >
-              {transferBusy ? '處理中...' : '匯出 Excel'}
-            </button>
-            <button
-              type="button"
-              className="btn-secondary"
-              onClick={() => importInputRef.current?.click()}
-              disabled={transferBusy}
-              data-schedule-import=""
-            >
-              匯入 Excel
-            </button>
-            <input
-              ref={importInputRef}
-              type="file"
-              accept=".xlsx"
-              style={{ display: 'none' }}
-              aria-label="選擇課表 Excel 檔案"
-              onChange={handleFileChange}
-            />
-          </div>
+        {calculating && (
+          <span className="calculating-indicator" role="status" aria-live="polite">
+            計算中...
+          </span>
         )}
-
-        <button
-          type="button"
-          className="btn-primary end"
-          onClick={() => {
-            setShowAddForm((prev) => {
-              if (!prev) handleNewClassTypeChange(activeTypeTab);
-              return !prev;
-            });
-          }}
-        >
-          {showAddForm ? '取消新增' : '＋ 新增班級'}
-        </button>
       </div>
 
       {importError && (
@@ -502,8 +443,8 @@ export function ScheduleGrid({
             <label>
               <span>課程類型 *</span>
               <select
-                value={newClassType}
-                onChange={(e) => handleNewClassTypeChange(e.target.value as ClassType)}
+                value={activeTypeTab}
+                onChange={(e) => handleSelectType(e.target.value as ClassType)}
                 aria-label="新增班級課程類型"
               >
                 {CLASS_TYPE_ORDER.map((type) => (
@@ -536,7 +477,7 @@ export function ScheduleGrid({
             </label>
 
             {/* 是否有多科折扣：僅 care, english, math 出現 */}
-            {supportsMultiSubjectDiscount(newClassType) && (
+            {supportsMultiSubjectDiscount(activeTypeTab) && (
               <label>
                 <span>是否有多科折扣</span>
                 <YesNoRadioGroup
@@ -549,7 +490,7 @@ export function ScheduleGrid({
             )}
 
             {/* 天數固定 5 天：僅 care 出現 */}
-            {newClassType === 'care' && (
+            {activeTypeTab === 'care' && (
               <label>
                 <span>天數固定 5 天</span>
                 <YesNoRadioGroup
@@ -562,7 +503,7 @@ export function ScheduleGrid({
             )}
 
             {/* 不計扣天：僅 english, math, other 出現 */}
-            {isSchedulableClassType(newClassType) && (
+            {isSchedulableClassType(activeTypeTab) && (
               <label>
                 <span>不計扣天</span>
                 <YesNoRadioGroup
@@ -575,7 +516,7 @@ export function ScheduleGrid({
             )}
 
             {/* 星期與起訖時間：僅排課類型出現 */}
-            {isSchedulableClassType(newClassType) && (
+            {isSchedulableClassType(activeTypeTab) && (
               <>
                 <label>
                   <span>星期</span>
@@ -1061,8 +1002,26 @@ export function ScheduleGrid({
         )}
       </div>
 
-      {/* D39 (2) 課表頁尾白話取整規則 */}
+      {/* 全量／篩選統計在表格捲動區外，並保留 D39 白話規則。 */}
       <div className="tablefoot">
+        <div className="schedule-count-summary" aria-live="polite">
+          <span className="note count-summary">
+            {isSchedulableTab
+              ? `共 ${currentTabClassCount} 個班級 · ${currentTabRowCount} 個時段`
+              : `共 ${currentTabClassCount} 個班級`}
+          </span>
+          {focusActive ? (
+            <span className="note count-filter-summary">
+              目前只顯示「{focus}」班{isSchedulableTab ? ` · ${displayedTabRows.length} 個時段` : ''}
+            </span>
+          ) : (hasSearchFilter || hasWeekdayFilter) ? (
+            <span className="note count-filter-summary">
+              {isSchedulableTab
+                ? `目前顯示 ${displayedTabClassCount} 個班級 · ${displayedTabRows.length} 個時段`
+                : `目前顯示 ${displayedTabClassCount} 個班級`}
+            </span>
+          ) : null}
+        </div>
         <span className="note">
           整班重疊加總後，不足 0.3 天不扣、0.3～0.8 天扣半天、0.8 天以上扣 1 天。
         </span>
