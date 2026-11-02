@@ -1,4 +1,4 @@
-import { test, expect, type Page, type Response, type Route } from '@playwright/test';
+import { test, expect, type Locator, type Page, type Response, type Route } from '@playwright/test';
 import path from 'path';
 import { openFilter, applyFilter } from './helpers/header-filter';
 
@@ -52,12 +52,15 @@ function holdStudentResponse(
   }));
 }
 
-function waitForStudentResponse(page: Page, kind: StudentResponseKind): Promise<Response> {
-  return page.waitForResponse((response) => {
-    const url = new URL(response.url());
-    return url.pathname.endsWith('/students')
-      && (kind === 'options' ? url.searchParams.get('options') === 'true' : !url.searchParams.has('options'));
-  });
+type IssueFacetOption = { value: string; count: number };
+
+function visibleIssueOptionCount(options: IssueFacetOption[]): number {
+  return options.filter((option) => option.count !== 0 && option.value !== '~blank').length;
+}
+
+async function expectRenderedIssueOptionCount(panel: Locator, expected: number): Promise<void> {
+  const options = panel.locator('[data-filter-section="issueCode"] [data-filter-option]:not([data-filter-option="(空白)"])');
+  await expect.poll(() => options.count()).toBe(expected);
 }
 
 /**
@@ -263,7 +266,7 @@ test.describe('R4 重寫：核對結果頁 E2E 驗收（學生總表 12 欄 + �
       matchesStudentResponse(response, 'options', {}, ['tierMismatch', 'issueCode'])
     );
     await page.goto('/');
-    await initialOptionsResponse;
+    expect((await initialOptionsResponse).ok()).toBe(true);
     await expect(page.locator('.results-page[data-hydrated="true"]')).toBeVisible({ timeout: 15000 });
 
     const counts = page.locator('.counts-line');
@@ -272,7 +275,9 @@ test.describe('R4 重寫：核對結果頁 E2E 驗收（學生總表 12 欄 + �
 
     // 控制列表先完成、對應 facets 延後：重現原 Full 中 count + live nth 的縮減窗口。
     const heldFacets = await holdStudentResponse(page, 'options', { tierMismatch: 'true' });
-    const mismatchListResponse = waitForStudentResponse(page, 'list');
+    const mismatchListResponse = page.waitForResponse((response) =>
+      matchesStudentResponse(response, 'list', { tierMismatch: 'true' })
+    );
     const mismatchFacetResponse = page.waitForResponse((response) =>
       matchesStudentResponse(response, 'options', { tierMismatch: 'true' })
     );
@@ -299,46 +304,89 @@ test.describe('R4 重寫：核對結果頁 E2E 驗收（學生總表 12 欄 + �
       await page.keyboard.press('Escape');
       await expect(drawer).toHaveCount(0);
 
+      // Facet response is now complete for the applied mismatch filter. Reopen the
+      // panel only after its matching options have reached the DOM.
+      heldFacets.release();
+      const mismatchFacets = await mismatchFacetResponse;
+      expect(new URL(mismatchFacets.url()).searchParams.getAll('tierMismatch')).toEqual(['true']);
+      const mismatchOptions = (await mismatchFacets.json() as { options: { issueCode: IssueFacetOption[] } }).options.issueCode;
       const p = await openFilter(page, '需確認');
+      await expectRenderedIssueOptionCount(p, visibleIssueOptionCount(mismatchOptions));
       await p.locator('[data-filter-section="tierMismatch"] [data-filter-option="天數不同"] input[type="checkbox"]').uncheck();
       await p.locator('[data-filter-section="tierMismatch"] [data-filter-option="天數吻合"] input[type="checkbox"]').check();
-      const issueOptions = p.locator('[data-filter-section="issueCode"] [data-filter-option]:not([data-filter-option="(空白)"]) input[type="checkbox"]');
-      const staleOptionCount = await issueOptions.count();
 
-      // Run the legacy indexed-selection procedure against the four-value snapshot.
-      for (let i = 0; i < 2; i++) await issueOptions.nth(i).check();
-      heldFacets.release();
-      const response = await mismatchFacetResponse;
-      expect(new URL(response.url()).searchParams.getAll('tierMismatch')).toEqual(['true']);
-      await expect.poll(() => issueOptions.count()).toBeLessThan(staleOptionCount);
-      const currentIssueOptionCount = await issueOptions.count();
-      expect(staleOptionCount).toBe(4);
-      expect(currentIssueOptionCount).toBeLessThan(staleOptionCount);
-      // Guard the next actual legacy iteration so the regression fails immediately
-      // on the missing third option instead of waiting for Playwright's timeout.
-      for (let i = 2; i < staleOptionCount; i++) {
-        expect(await issueOptions.nth(i).count()).toBe(1);
-        await issueOptions.nth(i).check();
+      // Facets are per-field: issueCode options must be fetched with the newly
+      // applied tierMismatch=false condition before choosing an issue.
+      const heldMatchList = await holdStudentResponse(page, 'list', { tierMismatch: 'false' });
+      const matchListResponse = page.waitForResponse((response) =>
+        matchesStudentResponse(response, 'list', { tierMismatch: 'false' }, ['issueCode'])
+      );
+      const matchFacetResponse = page.waitForResponse((response) =>
+        matchesStudentResponse(response, 'options', { tierMismatch: 'false' }, ['issueCode'])
+      );
+      try {
+        await p.getByRole('button', { name: '確定', exact: true }).click();
+        await expect(p).toHaveCount(0);
+
+        // The matching facet response arrives while the list response is held.
+        const matchFacets = await matchFacetResponse;
+        expect(new URL(matchFacets.url()).searchParams.getAll('tierMismatch')).toEqual(['false']);
+        const matchOptions = (await matchFacets.json() as { options: { issueCode: IssueFacetOption[] } }).options.issueCode;
+        const classNotMapped = matchOptions.find((option) => option.value === 'CLASS_NOT_MAPPED');
+        const classNotMappedCount = classNotMapped?.count ?? 0;
+        expect(classNotMappedCount).toBeGreaterThan(0);
+        await heldMatchList.intercepted;
+        heldMatchList.release();
+
+        const matchList = await matchListResponse;
+        expect(new URL(matchList.url()).searchParams.getAll('tierMismatch')).toEqual(['false']);
+        await expect(rows.first()).toBeVisible();
+
+        const issuePanel = await openFilter(page, '需確認');
+        await expectRenderedIssueOptionCount(issuePanel, visibleIssueOptionCount(matchOptions));
+        const classNotMappedOption = issuePanel.locator(
+          '[data-filter-section="issueCode"] [data-filter-option="班名未對應課表"]'
+        );
+        await expect(classNotMappedOption).toBeVisible();
+        await expect(classNotMappedOption.locator('[data-filter-count]')).toHaveText(String(classNotMappedCount));
+        const issueLabels = await issuePanel
+          .locator('[data-filter-section="issueCode"] [data-filter-option]:not([data-filter-option="(空白)"])')
+          .evaluateAll((els) => els.map((el) => el.getAttribute('data-filter-option')).filter((label): label is string => label !== null));
+        expect(issueLabels).toContain('班名未對應課表');
+        for (const label of issueLabels) {
+          await issuePanel
+            .locator(`[data-filter-section="issueCode"] [data-filter-option=${JSON.stringify(label)}] input[type="checkbox"]`)
+            .check();
+        }
+
+        const finalListResponse = page.waitForResponse((response) =>
+          matchesStudentResponse(response, 'list', {
+            tierMismatch: 'false',
+            issueCode: 'CLASS_NOT_MAPPED',
+          })
+        );
+        await issuePanel.getByRole('button', { name: '確定', exact: true }).click();
+        await expect(issuePanel).toHaveCount(0);
+        const finalList = await finalListResponse;
+        const finalParams = new URL(finalList.url()).searchParams;
+        expect(finalParams.getAll('tierMismatch')).toEqual(['false']);
+        expect(finalParams.getAll('issueCode')).toContain('CLASS_NOT_MAPPED');
+        expect(finalParams.getAll('issueCode')).toHaveLength(issueLabels.length);
+        await expect(rows.first()).toBeVisible();
+
+        // 問題類型只顯示中文名稱（D39 (4)）：同一列仍看得到中文名稱，英文代碼不出現在主畫面。
+        // #157 Ruling 3：未對應課表的班一律 CLASS_NOT_MAPPED（中文「班名未對應課表」），
+        // 不再是「缺排課」（SCHEDULE_NOT_FOUND／「排課缺漏」）——fixture 學生報的班
+        // 根本不在課表設定內，說「缺排課」並不準確。
+        await expect(table.locator('tbody')).toContainText('班名未對應課表');
+        await expect(table.locator('tbody')).not.toContainText('CLASS_NOT_MAPPED', { useInnerText: true });
+      } finally {
+        heldMatchList.release();
+        await heldMatchList.remove();
       }
     } finally {
       heldFacets.release();
       await heldFacets.remove();
     }
-
-    // 級距吻合 ＋ 有待確認事項 → 列表存在缺排課學生（舊版步驟 7，恢復）
-    const p = await openFilter(page, '需確認');
-    await p.locator('[data-filter-section="tierMismatch"] [data-filter-option="天數不同"] input[type="checkbox"]').uncheck();
-    await p.locator('[data-filter-section="tierMismatch"] [data-filter-option="天數吻合"] input[type="checkbox"]').check();
-    const issueOptions = p.locator('[data-filter-section="issueCode"] [data-filter-option]:not([data-filter-option="(空白)"]) input[type="checkbox"]');
-    const issueOptionCount = await issueOptions.count();
-    for (let i = 0; i < issueOptionCount; i++) await issueOptions.nth(i).check();
-    await p.getByRole('button', { name: '確定', exact: true }).click();
-    await expect(rows.first()).toBeVisible();
-    // 問題類型只顯示中文名稱（D39 (4)）：同一列仍看得到中文名稱，英文代碼不出現在主畫面。
-    // #157 Ruling 3：未對應課表的班一律 CLASS_NOT_MAPPED（中文「班名未對應課表」），
-    // 不再是「缺排課」（SCHEDULE_NOT_FOUND／「排課缺漏」）——fixture 學生報的班
-    // 根本不在課表設定內，說「缺排課」並不準確。
-    await expect(table.locator('tbody')).toContainText('班名未對應課表');
-    await expect(table.locator('tbody')).not.toContainText('CLASS_NOT_MAPPED', { useInnerText: true });
   });
 });
