@@ -181,12 +181,13 @@ describe('#189 D62 rework r2：班名同步 → 課表', () => {
     await click(buttonByText(firstFocusBanner!, '顯示全部班級'));
     expect(container.querySelector('[data-focus-class]')).toBeNull();
 
-    // Grid 在頁籤切換時會卸載再掛載；明確清除後不能使用 stale focusTarget 將它復活。
+    // Grid 在頁籤切換時卸載再掛載；明確清除後焦點不復活，所選類型仍由父層保留。
     await click(container.querySelector('#settings-tab-sync'));
     await click(container.querySelector('#settings-tab-schedule'));
     expect(container.querySelector('[data-focus-class]')).toBeNull();
     expect(container.querySelector('[data-focus-class-missing]')).toBeNull();
-    expect(container.querySelectorAll('#class-type-panel-care input.input-classname').length).toBeGreaterThan(1);
+    expect(container.querySelector('#class-type-tab-unscheduled')?.getAttribute('aria-selected')).toBe('true');
+    expect(container.querySelectorAll('#class-type-panel-unscheduled input.input-classname').length).toBeGreaterThan(0);
 
     // 清除是目前狀態，不是永久禁用；下一次明確選擇班名仍可重新聚焦。
     await click(container.querySelector('#settings-tab-sync'));
@@ -206,7 +207,8 @@ describe('#189 D62 rework r2：班名同步 → 課表', () => {
     await click(container.querySelector('#settings-tab-schedule'));
     expect(container.querySelector('[data-focus-class]')).toBeNull();
     expect(container.querySelector('[data-focus-class-missing]')).toBeNull();
-    expect(container.querySelectorAll('#class-type-panel-care input.input-classname').length).toBeGreaterThan(1);
+    expect(container.querySelector('#class-type-tab-english')?.getAttribute('aria-selected')).toBe('true');
+    expect(container.querySelectorAll('#class-type-panel-english input.input-classname').length).toBeGreaterThan(1);
   });
 
   it('F2：按「確認變更」送出的草稿中，新增班級類別為 unset（不替使用者決定折扣）', async () => {
