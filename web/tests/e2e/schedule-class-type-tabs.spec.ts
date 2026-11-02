@@ -80,6 +80,7 @@ test.describe('D61 UX106: 課表設定 5 頁籤與簡化操作 E2E 驗收', () =
         return {
           leftInset: controlRowRect.left - cardRect.left,
           rightInset: cardRect.right - controlRowRect.right,
+          tableTop: tableRect.top,
           tabTableGap: tableRect.top - controlRowRect.bottom,
           scrollWidth: scroller.scrollWidth,
           clientWidth: scroller.clientWidth,
@@ -115,7 +116,6 @@ test.describe('D61 UX106: 課表設定 5 頁籤與簡化操作 E2E 驗收', () =
       body: Buffer.from(JSON.stringify({ desktop, mobile }, null, 2)),
       contentType: 'application/json',
     });
-
     expect(desktop.subtitleCount).toBe(0);
     expect(mobile.subtitleCount).toBe(0);
     expect(desktop.gridToolbarCount).toBe(0);
