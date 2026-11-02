@@ -6,12 +6,12 @@ import { ImpactDialog } from '@/components/settings/impact-dialog';
 import { buildSeedGridRows } from '@/contracts/settings';
 
 /**
- * D62 Phase 2：課表頁單行不一致橫幅與 ImpactDialog「班名同步」區塊。
+ * #203：課表頁不再重複顯示班名不一致橫幅；ImpactDialog 的班名同步區塊仍保留。
  * 舊 roster-only 表與 pendingRosterOnlyClass 路徑已移除（specs/17 §4 P2）。
  */
 
 describe('#203：ScheduleGrid 不重複顯示班名不一致橫幅', () => {
-  it('即使存在差異摘要，課表卡片也不另顯示橫幅或同步按鈕', () => {
+  it('課表卡片不輸出班名同步差異橫幅', () => {
     const html = renderToStaticMarkup(
       React.createElement(ScheduleGrid, {
         rows: buildSeedGridRows(),
@@ -20,8 +20,6 @@ describe('#203：ScheduleGrid 不重複顯示班名不一致橫幅', () => {
         onAddRow: () => {},
         calculating: false,
         calculateResult: null,
-        syncSummary: { mismatchCount: 12, unmappedCount: 11, unmappedStudents: 191 },
-        onGoToSync: () => {},
       })
     );
 
@@ -39,8 +37,6 @@ describe('#203：ScheduleGrid 不重複顯示班名不一致橫幅', () => {
         onAddRow: () => {},
         calculating: false,
         calculateResult: null,
-        syncSummary: { mismatchCount: 1, unmappedCount: 1, unmappedStudents: 3 },
-        onGoToSync: () => {},
       })
     );
 
@@ -48,33 +44,6 @@ describe('#203：ScheduleGrid 不重複顯示班名不一致橫幅', () => {
     expect(html).not.toContain('data-roster-only-class');
     expect(html).not.toContain('加入課表設定');
     expect(html).not.toContain('名單中有');
-  });
-
-  it('不一致為 0 或不提供摘要時不顯示橫幅', () => {
-    const zero = renderToStaticMarkup(
-      React.createElement(ScheduleGrid, {
-        rows: buildSeedGridRows(),
-        onUpdateRow: () => {},
-        onDeleteRow: () => {},
-        onAddRow: () => {},
-        calculating: false,
-        calculateResult: null,
-        syncSummary: { mismatchCount: 0, unmappedCount: 0, unmappedStudents: 0 },
-      })
-    );
-    const none = renderToStaticMarkup(
-      React.createElement(ScheduleGrid, {
-        rows: buildSeedGridRows(),
-        onUpdateRow: () => {},
-        onDeleteRow: () => {},
-        onAddRow: () => {},
-        calculating: false,
-        calculateResult: null,
-      })
-    );
-
-    expect(zero).not.toContain('data-schedule-sync-banner');
-    expect(none).not.toContain('data-schedule-sync-banner');
   });
 });
 

@@ -102,7 +102,7 @@ test.describe('D61 UX106: 課表設定 5 頁籤與簡化操作 E2E 驗收', () =
     expect(desktop.pageWidth).toBeLessThanOrEqual(desktop.viewportWidth);
 
     if (process.env.ISSUE_203_SCREENSHOTS === '1') {
-      await page.screenshot({ path: testInfo.outputPath('issue-203-desktop.png'), fullPage: true });
+      await page.screenshot({ path: testInfo.outputPath('issue-203-desktop.png') });
     }
 
     await page.setViewportSize({ width: 390, height: 844 });
@@ -115,22 +115,33 @@ test.describe('D61 UX106: 課表設定 5 頁籤與簡化操作 E2E 驗收', () =
     expect(mobile.pageWidth).toBeLessThanOrEqual(mobile.viewportWidth);
 
     if (process.env.ISSUE_203_SCREENSHOTS === '1') {
-      await page.screenshot({ path: testInfo.outputPath('issue-203-mobile.png'), fullPage: true });
+      await page.screenshot({ path: testInfo.outputPath('issue-203-mobile.png') });
     }
 
     await page.locator('#class-type-tab-care').focus();
     await page.keyboard.press('End');
     const unscheduledTab = page.locator('#class-type-tab-unscheduled');
     await expect(unscheduledTab).toHaveAttribute('aria-selected', 'true');
-    const endFocusVisible = await page.evaluate(() => {
+    const endFocus = await page.evaluate(() => {
       const scroller = document.querySelector<HTMLElement>('.schedule-type-tabs');
       const focused = document.activeElement as HTMLElement | null;
-      if (!scroller || !focused) return false;
+      if (!scroller || !focused) return { visible: false, reason: 'missing scroll region or focused tab' };
       const viewport = scroller.getBoundingClientRect();
       const target = focused.getBoundingClientRect();
-      return target.left >= viewport.left && target.right <= viewport.right && getComputedStyle(focused).outlineStyle !== 'none';
+      const outline = getComputedStyle(focused);
+      return {
+        visible: target.left >= viewport.left && target.right <= viewport.right && outline.outlineStyle !== 'none',
+        focusedId: focused.id,
+        targetLeft: target.left,
+        targetRight: target.right,
+        viewportLeft: viewport.left,
+        viewportRight: viewport.right,
+        outlineStyle: outline.outlineStyle,
+        outlineWidth: outline.outlineWidth,
+        scrollLeft: scroller.scrollLeft,
+      };
     });
-    expect(endFocusVisible).toBe(true);
+    expect(endFocus.visible, JSON.stringify(endFocus)).toBe(true);
 
     await page.keyboard.press('Home');
     await expect(page.locator('#class-type-tab-care')).toHaveAttribute('aria-selected', 'true');

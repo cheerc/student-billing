@@ -582,68 +582,44 @@ body {
   border-bottom: 2px solid var(--primary-color);
 }
 
-/* Windows Bar (唯讀窗口) */
-.windows-bar {
-  display: flex;
-  align-items: center;
-  gap: 24px;
-  padding: 14px 20px;
-  margin-bottom: 20px;
-  background: #ffffff;
-  border: 1px solid var(--border-color);
-  border-radius: 10px;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
-}
-
-.window-item {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 13px;
-}
-
-.window-title {
-  font-weight: 600;
-  color: var(--text-primary);
-}
-
-.window-days {
-  color: var(--text-muted);
-  font-size: 12px;
-}
-
-.window-time {
-  font-size: 14px;
-  color: var(--text-primary);
-}
-
-.window-dot {
-  display: inline-block;
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-}
-
-.dot-anqin {
-  background-color: var(--primary-color);
-}
-
-.dot-tutoring {
-  background-color: #0d9488;
-}
-
-.window-hint {
-  margin-left: auto;
-  font-size: 12px;
-  color: var(--text-muted);
-}
-
 /* Schedule Grid */
 .schedule-grid-container {
   background: #ffffff;
   border: 1px solid var(--border-color);
   border-radius: 10px;
   overflow: hidden;
+}
+
+/* 課程類型頁籤只在本卡片內縮與橫向捲動，不影響共用頁籤或整頁寬度。 */
+.schedule-type-tabs {
+  margin: 0 19px 16px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  white-space: nowrap;
+  scroll-padding-inline: 4px;
+}
+
+.schedule-type-tabs .tabs {
+  width: max-content;
+  min-width: 100%;
+}
+
+.schedule-type-tabs .tabs button {
+  padding-inline: 12px;
+}
+
+.schedule-type-tabs .tabs button:focus-visible {
+  outline: 2px solid var(--primary-color);
+  outline-offset: 1px;
+}
+
+.schedule-type-tab-label {
+  font-weight: 600;
+}
+
+.schedule-type-tab-count {
+  color: var(--text-muted);
+  font-weight: 400;
 }
 
 .toolbar {
@@ -1338,13 +1314,8 @@ dialog.impact-dialog::backdrop {
   .main {
     padding: 16px;
   }
-  .windows-bar {
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 12px;
-  }
-  .window-hint {
-    margin-left: 0;
+  .schedule-type-tabs {
+    margin-inline: 15px;
   }
 }
 

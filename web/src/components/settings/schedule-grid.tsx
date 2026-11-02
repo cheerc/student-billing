@@ -39,12 +39,6 @@ export interface ScheduleGridProps {
     classType?: ClassType | 'non_care',
     options?: { initialCategory?: 'unset'; hasMultiSubjectDiscount?: boolean; fixedFiveDays?: boolean }
   ) => void;
-  syncSummary?: {
-    mismatchCount: number;
-    unmappedCount: number;
-    unmappedStudents: number;
-  } | null;
-  onGoToSync?: () => void;
   calculating: boolean;
   calculateResult: CalculatePreviewResponse | null;
   calculateInputRows?: ScheduleGridRow[] | null;
@@ -96,8 +90,6 @@ export function ScheduleGrid({
   onUpdateRow,
   onDeleteRow,
   onAddRow,
-  syncSummary = null,
-  onGoToSync,
   calculating,
   calculateResult,
   calculateInputRows,
@@ -360,41 +352,8 @@ export function ScheduleGrid({
 
   return (
     <div className="card schedule-grid-container">
-      {/* D62 Phase 2: 單行不一致橫幅 */}
-      {syncSummary && syncSummary.mismatchCount > 0 && (
-        <div
-          className="alert alert-info sync-banner"
-          role="status"
-          data-schedule-sync-banner=""
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            padding: '10px 16px',
-            marginBottom: '16px',
-            background: 'var(--primary-bg, #eff6ff)',
-            border: '1px solid var(--primary-border, #bfdbfe)',
-            borderRadius: '6px',
-          }}
-        >
-          <span>
-            名冊有 {syncSummary.mismatchCount} 個班名與課表不一致（其中 {syncSummary.unmappedCount} 個尚未對應，影響 {syncSummary.unmappedStudents} 位學生）
-          </span>
-          {onGoToSync && (
-            <button
-              type="button"
-              className="link-button"
-              style={{ fontWeight: 600, color: 'var(--primary, #2563eb)', cursor: 'pointer', border: 'none', background: 'none' }}
-              onClick={onGoToSync}
-            >
-              前往班名同步 →
-            </button>
-          )}
-        </div>
-      )}
-
       {/* D61：5 個課程類型頁籤 */}
-      <div className="schedule-type-tabs" style={{ marginBottom: '16px', overflowX: 'auto', whiteSpace: 'nowrap' }}>
+      <div className="schedule-type-tabs">
         <TabList
           label="課程類型頁籤"
           idPrefix="class-type"
@@ -406,7 +365,12 @@ export function ScheduleGrid({
                 : '';
             return {
               key: type,
-              label: `${CLASS_TYPE_LABELS[type]} (${classCount}${incompleteLabel})`,
+              label: (
+                <>
+                  <span className="schedule-type-tab-label">{CLASS_TYPE_LABELS[type]}</span>{' '}
+                  <span className="schedule-type-tab-count">({classCount}{incompleteLabel})</span>
+                </>
+              ),
             };
           })}
           selected={activeTypeTab}

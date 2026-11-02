@@ -22,7 +22,6 @@ import {
 import { CalculatePreviewResponse } from '@/application/schedule-preview';
 import type { ClassNameSyncReport } from '@/application/class-name-match-report';
 import { stageClassNameSync, stageNewClassFromRoster } from '@/domain/schedules/class-name-sync';
-import { WindowSummary } from '@/components/settings/window-summary';
 import { ScheduleGrid } from '@/components/settings/schedule-grid';
 import { ImpactDialog, SettingsPreviewData } from '@/components/settings/impact-dialog';
 import { LeaveConfirmDialog } from '@/components/settings/leave-confirm-dialog';
@@ -1049,9 +1048,6 @@ export default function SettingsEditor({
       {/* 頁籤內容一：課表平鋪排課主畫面 */}
       {activeTab === 'schedule' && (
         <section aria-label="排課時段設定" {...tabPanelProps('settings', 'schedule')}>
-          {/* 唯讀照顧窗口摘要 */}
-          <WindowSummary />
-
           {/* #80：折扣類別與固定 5 天已併入下方「89 筆平鋪時段表格」，同一列一次完成（不再有獨立的屬性卡片） */}
           {/* 89 筆平鋪時段表格（含班級屬性欄、Excel 匯出入工具列） */}
           <ScheduleGrid
@@ -1059,8 +1055,6 @@ export default function SettingsEditor({
             onUpdateRow={handleUpdateRow}
             onDeleteRow={handleDeleteRow}
             onAddRow={handleAddRow}
-            syncSummary={syncSummary}
-            onGoToSync={() => setActiveTab('sync')}
             calculating={calculating}
             calculateResult={calculateResult}
             calculateInputRows={calculateInputRows}

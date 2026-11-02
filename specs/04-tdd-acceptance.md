@@ -257,7 +257,7 @@ Playwright 最小完整旅程：
 |UX21|歷史／空篩選／loading／失敗|唯讀、來源日期清楚；可清filter，不能假成功|E2E|
 |UX22|已apply設定（自訂時段＋班名對應）→匯入新批次→activate；另帶不同的client scheduleVersionId|先RED（現況run用seed-v250922、不套班名對應）；GREEN：run.scheduleVersionId＝最新已儲存設定id，逐堂／班級／學生天數與對應皆採該設定，client scheduleVersionId被忽略；尚無已儲存設定時仍為seed-v250922|integration/E2E|
 |UX23|刪光某班全部時段／清空所有列時間／移除整班|逐堂預覽、班級扣天、學生run三者一致：無時段→不扣天＋issue（schedule_empty），不在該版本→schedule_not_found＋issue，皆不退回seed（先RED）|unit/integration|
-|UX24|開課表頁；送出careWindows與ruleSet不同的draft|畫面無窗口輸入／調整入口，顯示值＝ruleSet（窗口固定，D33）；calculate回應windows＝ruleSet；server對不同careWindows回400 INVALID_DRAFT|component/API|
+|UX24（展示依 Issue #203 收斂；計算契約不變）|開課表頁；送出careWindows與ruleSet不同的draft|課表頁不顯示獨立窗口摘要列，亦無窗口輸入／調整入口；表格窗口欄與calculate回應windows仍由固定ruleSet提供（D33）；server對不同careWindows回400 INVALID_DRAFT|component/API|
 |UX25|表頭▾輸入「數學」→全選搜尋結果→確定；再加一欄；取消；移除chip；清除全部；鍵盤全程操作；768×600開面板；選班後開其他欄；快速切換已套用條件|值宇宙涵蓋整個run（含後頁獨有值），不受limit／cursor限制；每欄計數依其他欄已套用篩選（含選班、q、特殊值），排除本欄，等於將本欄替換為該單值後的人數，同生多班／同班多token去重。server回0人值，UI隱藏未勾選0人、已勾選0人仍可取消且不被prune。統計mismatchCount與所選範圍tierMismatch=true同源、issuesCount與範圍內hasIssues=true同源，noCourseTotal仍全批、classScopeTotal仍只按選班。options只在已套用條件變動刷新，abort／sequence拒絕晚到舊回應；適用率context保留單班／未選班／未配置三分支。同欄OR跨欄AND；取消不改條件；三種空狀態分開；面板不被裁切、確定鈕可見、Esc回焦點|unit/integration/E2E|
 |UX26|班級只有課輔側重疊；一側未知|狀態不為「無重疊」；未知不被另一側掩蓋|component/E2E|
 |UX27|班級扣天展開→編輯此班課表；直接開`/?view=deductions`；重新整理／返回；課表顯示全部後切設定頁籤再返回；焦點清除後再次明確聚焦|課表首次依`focusClass`定位該班全部時段；清除後即使課表重掛載仍顯示全部、不回退到舊焦點；再次明確聚焦可定位；結果頁頁籤依網址，返回不丟頁籤|unit/E2E：`settings-editor-sync-rework.test.tsx`|
@@ -347,4 +347,4 @@ Playwright 最小完整旅程：
 |UX111（#189 D62 新增）|同步暫存與復原只改草稿|選目標後［暫存同步］→列顯示「已暫存：X → Y（未儲存）」、`isDirty` 為 true、該目標班從其他列候選消失；［復原］→回到原狀且非 dirty；真正寫入仍需［確認變更］→ImpactDialog。測試：`class-name-sync-panel.test.tsx`、`class-name-sync.spec.ts`|unit/E2E|
 |UX112（#189 D62 新增）|新增為課表班級|班名唯讀＝米豆奶班名；五種課程類型單選（D61 順序）；暫存後新增一列，排課類型星期／時間留空並觸發 1c 待補警示；提供「到課表填時段 →」。測試：`class-name-sync-panel.test.tsx`|unit|
 |UX113（#189 D62 新增）|未處理列持續保留且無批次／略過控制項（Operator Q1）|只同步其中一列並儲存、重新載入後，未處理列（例：交通車）仍留在差異表；畫面上不存在「全部同步／批次同步／一鍵合併／略過／隱藏」控制項。測試：`class-name-sync-panel.test.tsx`、`class-name-sync.spec.ts`|unit/E2E|
-|UX114（#189 D62 新增）|課表頁單行橫幅與舊連結相容|課表頁頂端單行「名冊有 N 個班名與課表不一致（其中 M 個尚未對應，影響 K 位學生）前往班名同步 →」；不一致為 0 時不顯示；原 roster-only `<details>` 表與「加入課表設定」按鈕已移除；`/settings?tab=mapping` 相容開到班名同步頁籤。測試：`class-name-sync-banner-impact.test.tsx`、`class-name-sync.spec.ts`|unit/E2E|
+|UX114（#189 D62 新增；課表橫幅展示由 Operator 2026-11-02 核准方向／Issue #203 取代）|課表頂端資訊精簡、上層班名同步入口保留、類型頁籤幾何與鍵盤操作|課表頁不顯示窗口摘要列或 ScheduleGrid 班名不一致橫幅／其同步按鈕；班名同步頁籤及其不一致數量徽章、差異列表、匯入預覽摘要卡與 `/settings?tab=mapping` 相容行為保留。五個課程類型頁籤保持固定順序與 0 班頁籤；桌面距卡片左右 20px、窄螢幕 16px、按鈕左右 padding 12px；班名視覺層級高於數量／待補數；窄螢幕只有頁籤容器橫捲、整頁不溢位；Arrow／Home／End、ARIA 與可見焦點保留；不改共用 `.tabs`。測試：`settings-schedule-grid-ui.test.ts`、`class-name-sync-banner-impact.test.tsx`、`class-name-sync.spec.ts`、`schedule-class-type-tabs.spec.ts`、`schedule-grid-workflow.spec.ts`|unit/E2E/視覺|

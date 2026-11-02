@@ -67,9 +67,8 @@
 
 ```
 課表設定
- ├─ [課表]（預設）— 頂端若有不一致：單行橫幅
- │     「名冊有 N 個班名與課表不一致（其中 M 個尚未對應，影響 K 位學生）  前往班名同步 →」
- └─ [班名同步 (N)]
+ ├─ [課表]（預設）— 不顯示窗口摘要列或課表卡片內重複的班名不一致橫幅（Issue #203）
+ └─ [班名同步 (N)]（保留上層不一致數量徽章）
        ├─ 摘要列：名冊 X 個班名 · 一致 Y · 不一致 N（未對應 M，影響 K 位學生）
        ├─ 差異表（主體，一張）
        └─ 「課表有、本次名冊沒有的班級 (S)」<details> 預設收合（參考用；也是同步目標來源）
@@ -202,7 +201,7 @@ npm run typecheck && npm run lint
 1. 新元件 `web/src/components/settings/class-name-sync-panel.tsx`（§2.2）；刪除 `class-name-report-panel.tsx`、`mapping-panel.tsx`（及其 CSS：`globals.css` 中 `.class-name-report*`、`.mapping-*` 未再使用者）。
 2. `settings-editor.tsx`：頁籤 `'mapping'` → `'sync'`，標籤「班名同步 (N)」；移除 `candidateTargets`／`handleToggleAlias`／`handleUpdateCandidateTarget`／`candidates`（`buildDynamicCandidates` 若再無 consumer，一併移除並刪 `tests/unit/dynamic-candidates.test.ts`）；新增 `handleStageSync`／`handleStageNewClass`／`handleUndoStaged` 呼叫 P1 純函式；報告刷新序列保留並改鎖定差異表。
 3. `app/settings/page.tsx`：`?tab=sync`；`?tab=mapping` 視為 `sync`（舊連結相容）；移除 `classifyErpDualTrack`／`candidates` 的 SSR 計算。
-4. `schedule-grid.tsx`：刪除 roster-only `<details>` 表與 `pendingRosterOnlyClass` 路徑，改為 §2.1 單行橫幅（`onGoToSync` callback）。
+4. `schedule-grid.tsx`：刪除 roster-only `<details>` 表與 `pendingRosterOnlyClass` 路徑；當時的 P2 實作另加入單行班名不一致橫幅（`onGoToSync` callback）。該橫幅展示已由 Operator 2026-11-02 核准方向（Issue #203）取代：目前不在課表卡片重複顯示，班名差異與入口仍由上層同步頁籤／徽章及班名同步頁承載。
 5. `impact-dialog.tsx`：新增「班名同步」區塊（renames／news）。
 6. 09 §3.3 改寫為「班名同步」；04 §8 改寫 UX46、UX70、UX95、UX109 並新增 UX110～（同步／新增／未處理列持續保留／橫幅／舊連結相容），刪除不再成立的「待確認米豆奶班名」敘述（以 `grep -rn "待確認米豆奶班名\|班名對應" specs CLAUDE.md` 反向掃描，見 memory「PR 廢除行為時要反向掃描全 repo」）。
 
