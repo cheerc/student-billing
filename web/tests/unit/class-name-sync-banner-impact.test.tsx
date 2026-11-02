@@ -10,8 +10,8 @@ import { buildSeedGridRows } from '@/contracts/settings';
  * 舊 roster-only 表與 pendingRosterOnlyClass 路徑已移除（specs/17 §4 P2）。
  */
 
-describe('D62 Phase 2：ScheduleGrid 班名不一致橫幅', () => {
-  it('顯示「名冊有 N 個班名與課表不一致（其中 M 個尚未對應，影響 K 位學生）前往班名同步 →」', () => {
+describe('#203：ScheduleGrid 不重複顯示班名不一致橫幅', () => {
+  it('即使存在差異摘要，課表卡片也不另顯示橫幅或同步按鈕', () => {
     const html = renderToStaticMarkup(
       React.createElement(ScheduleGrid, {
         rows: buildSeedGridRows(),
@@ -25,11 +25,9 @@ describe('D62 Phase 2：ScheduleGrid 班名不一致橫幅', () => {
       })
     );
 
-    expect(html).toContain('data-schedule-sync-banner');
-    expect(html).toContain('名冊有 12 個班名與課表不一致');
-    expect(html).toContain('其中 11 個尚未對應');
-    expect(html).toContain('影響 191 位學生');
-    expect(html).toContain('前往班名同步');
+    expect(html).not.toContain('data-schedule-sync-banner');
+    expect(html).not.toContain('名冊有 12 個班名與課表不一致');
+    expect(html).not.toContain('前往班名同步');
   });
 
   it('舊 roster-only 表與「加入課表設定」按鈕已完全移除', () => {
