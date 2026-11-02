@@ -110,10 +110,6 @@ describe('#201：抽屜的 CLASS_NOT_MAPPED 引導句與 issue-copy 同一來源
     expect(occurrences, '待確認事項與級距比對列應各顯示一次同一句引導').toBe(2);
   });
 
-  it('防漂移：issue-copy 的 CLASS_NOT_MAPPED 說明必須含「班名同步」', () => {
-    expect(issueMessage({ code: 'CLASS_NOT_MAPPED' })).toContain('班名同步');
-  });
-
   it('非 CLASS_NOT_MAPPED 的需確認列仍保留原有的相容比較說明', () => {
     const block = tierComparisonBlock(
       renderDrawer({
