@@ -1104,20 +1104,25 @@ body {
   border-top: 1px solid var(--border-color);
   background: #fafbfc;
   display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.schedule-grid-container .tablefoot {
   flex-direction: column;
   align-items: flex-start;
   justify-content: center;
   gap: 6px;
 }
 
-.schedule-count-summary {
+.schedule-grid-container .schedule-count-summary {
   display: flex;
   align-items: baseline;
   flex-wrap: wrap;
   gap: 4px 16px;
 }
 
-.count-filter-summary {
+.schedule-grid-container .count-filter-summary {
   color: var(--text-muted);
   font-size: 12px;
 }
