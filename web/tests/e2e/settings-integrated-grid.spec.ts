@@ -72,9 +72,15 @@ test.describe('#80 & D61: 單一表格整合屬性與 YesNoRadioGroup E2E 驗收
     await expect(page.locator('.savebar-status')).toContainText('有未儲存的變更');
   });
 
-  test('#80-4: 「＋ 新增班級」仍在表格工具列', async ({ page }) => {
-    const toolbar = page.locator('.schedule-grid-container .toolbar');
-    await expect(toolbar.getByRole('button', { name: '＋ 新增班級' })).toBeVisible();
+  test('UX115: 課表工具集中在主頁籤同列，且不在 tablist 內', async ({ page }) => {
+    const actions = page.locator('[data-schedule-actions]');
+    const mainTablist = page.getByRole('tablist', { name: '課表設定頁籤' });
+    await expect(actions.getByLabel('搜尋課表班級')).toBeVisible();
+    await expect(actions.getByRole('button', { name: '匯入 Excel' })).toBeVisible();
+    await expect(actions.getByRole('button', { name: '匯出 Excel' })).toBeVisible();
+    await expect(actions.getByRole('button', { name: '＋ 新增班級' })).toBeVisible();
+    await expect(mainTablist.locator('[data-schedule-actions]')).toHaveCount(0);
+    await expect(page.locator('.schedule-grid-container .toolbar')).toHaveCount(0);
   });
 
   test('#80-5: 欄位超出螢幕時，表格在容器內 2D 捲動、整頁不橫向溢出', async ({ page }) => {

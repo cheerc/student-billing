@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { ensureClassTypeTab, selectClassTypeTab } from './helpers/d2c-settings';
+import { openClassSchedule } from './helpers/c-batch';
 
 /**
  * 04 §8 UX01／UX05–08／UX24：
@@ -30,13 +31,21 @@ test.describe('R2 展示一：空 DB 先課表後匯入排課工作流程 E2E', 
     const scheduleTable = page.locator('.schedule-table');
     await expect(scheduleTable).toBeVisible();
     await expect(page.locator('#class-type-tab-care')).toHaveAttribute('aria-selected', 'true');
-    await expect(page.locator('.count-summary')).toHaveText('共 8 個班級');
+    const footer = page.locator('.tablefoot');
+    const totalSummary = footer.locator('.count-summary');
+    await expect(totalSummary).toHaveText('共 8 個班級');
+    expect(await page.locator('.schedule-table-scroll').evaluate((scroller) =>
+      !scroller.contains(document.querySelector('.tablefoot'))
+    )).toBe(true);
 
-    // 4. 切到排課頁籤：摘要變成 `共 N 個班級 · M 個時段`
-    //    數學班 12 班、24 個時段（實測值，來源為 seed JSON 的 math 班時段數）
+    // 4. 切到排課頁籤：全量統計位於 footer，不受搜尋影響；篩選顯示量另列。
+    //    數學班 12 班、24 個時段（來源為 seed fixture 的 math 班時段數）。
     await selectClassTypeTab(page, 'math');
     await expect(page.locator('#schedule-weekday-filter')).toBeVisible();
-    await expect(page.locator('.count-summary')).toHaveText('共 12 個班級 · 24 個時段');
+    await expect(totalSummary).toHaveText('共 12 個班級 · 24 個時段');
+    await page.getByLabel('搜尋課表班級').fill('國小數學-四A');
+    await expect(totalSummary).toHaveText('共 12 個班級 · 24 個時段');
+    await expect(footer.locator('.count-filter-summary')).toHaveText('目前顯示 1 個班級 · 2 個時段');
 
     // 5. 編輯一列時間觸發 dirty 狀態（以班名定位，不用整表第一個時段）
     //    四A 首列 seed 值為週三 13:30–15:00，因此這裡必須填「不同的值」才會真的改到草稿
@@ -58,5 +67,30 @@ test.describe('R2 展示一：空 DB 先課表後匯入排課工作流程 E2E', 
     await saveBtn.click();
     await expect(page.locator('#toast')).toContainText('課表已成功儲存', { timeout: 15000 });
     await expect(dialog).not.toBeVisible();
+  });
+
+  test('UX115: 深連結類型正確，搜尋可解除焦點且切換主頁籤後不復活', async ({ page }) => {
+    await openClassSchedule(page, '國小數學-四A');
+    await expect(page.locator('#class-type-tab-math')).toHaveAttribute('aria-selected', 'true');
+    await expect(page.locator('[data-focus-class]')).toContainText('國小數學-四A');
+
+    const search = page.getByLabel('搜尋課表班級');
+    await search.fill('國小數學-四B');
+    await expect(page.locator('[data-focus-class]')).toHaveCount(0);
+    await expect(page.locator('[data-focus-class-missing]')).toHaveCount(0);
+    await expect(await ensureClassTypeTab(page, '國小數學-四B')).toBeVisible();
+    await expect(page.locator('table.schedule-table-math tr.schedule-row', {
+      has: page.locator('input[value="國小數學-四A"]'),
+    })).toHaveCount(0);
+
+    await search.fill('');
+    await expect(page.locator('[data-focus-class]')).toHaveCount(0);
+    await expect(page.locator('table.schedule-table-math tr.schedule-row')).toHaveCount(24);
+    await page.locator('#settings-tab-sync').click();
+    await page.locator('#settings-tab-schedule').click();
+    await expect(page.locator('#class-type-tab-math')).toHaveAttribute('aria-selected', 'true');
+    await expect(search).toHaveValue('');
+    await expect(page.locator('[data-focus-class]')).toHaveCount(0);
+    await expect(page.locator('table.schedule-table-math tr.schedule-row')).toHaveCount(24);
   });
 });
