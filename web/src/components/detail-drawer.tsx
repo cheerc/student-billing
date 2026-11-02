@@ -30,6 +30,24 @@ const FOCUSABLE =
 const formatApplicableRate = (bps: number | null): string =>
   bps === null ? '—' : formatDiscountBps(bps);
 
+/**
+ * 級距比對列的「需確認」說明（#157 Ruling 3／#201）。
+ *
+ * 成因不只一種：未對應課表的班（`CLASS_NOT_MAPPED`）使該列需確認，但成因是「班名沒對上」，
+ * 說「排課缺漏」會誤導使用者去補時段；其餘成因（缺排課、未知星期…）沿用相容比較說明。
+ *
+ * `CLASS_NOT_MAPPED` 一律取 `issue-copy` 的 `issueMessage()`，與抽屜上方「待確認事項」及
+ * 結果頁問題清單共用**同一份**文案；不要在呼叫端另寫一句（#201：兩份文案會各自漂移）。
+ * 級距比對列的 `issues` 只有代碼、沒有 domain message，所以帶入空訊息讓 `issueMessage`
+ * 走已知代碼的固定說明。
+ */
+function tierComparisonNote(issues: readonly string[]): string {
+  if (issues.includes('CLASS_NOT_MAPPED')) {
+    return `⚠ ${issueMessage({ code: 'CLASS_NOT_MAPPED' })}`;
+  }
+  return '⚠ 排課缺漏，暫以相容數值比較，請核對課表設定。';
+}
+
 export default function DetailDrawer({ student, onClose }: DetailDrawerProps) {
   if (!student) return null;
   return <DrawerPanel student={student} onClose={onClose} />;
@@ -365,13 +383,7 @@ function DrawerPanel({
                   </div>
                   {comp.needsReview && (
                     <div style={{ color: '#b45309', marginTop: '4px', fontSize: '0.75rem' }}>
-                      {/* #157 Ruling 3：needsReview 的成因不再只有「缺排課」。未對應課表的班
-                          （CLASS_NOT_MAPPED）也會使該列需確認，但它的成因是「班名沒對上」，
-                          說「排課缺漏」會誤導使用者去補時段。依 comp.issues 的實際內容
-                          選擇白話說明。 */}
-                      {comp.issues.includes('CLASS_NOT_MAPPED')
-                        ? '⚠ 班名未對應課表，請確認米豆奶班名或系統班級名稱。'
-                        : '⚠ 排課缺漏，暫以相容數值比較，請核對課表設定。'}
+                      {tierComparisonNote(comp.issues)}
                     </div>
                   )}
                 </div>

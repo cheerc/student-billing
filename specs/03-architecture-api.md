@@ -333,7 +333,7 @@ run 的設定快照＝`run.scheduleVersionId`：`seed-v250922`（該 run 沒有�
 
 #### 5.3.3 計算路徑接線與未對應班契約
 - 類別解析單一來源：名冊班名有對應系統班級時，採用該系統班級的有效設定；無對應時一律為 `category='unset'`、`categorySource='unset'`、`fixedFiveDays=false`，不依名冊班名推導。
-- **未對應班（#157）**：所有未對應班一律出需確認警告 `CLASS_NOT_MAPPED`（「班名未對應課表，請確認米豆奶班名或系統班級名稱」），其類別、科數與固定 5 天對計算的貢獻為零；`mapped=0` 的 run 快照寫 `unset`。名單只提供待處理班名，不改變此計算契約。
+- **未對應班（#157）**：所有未對應班一律出需確認警告 `CLASS_NOT_MAPPED`。其 domain 訊息為「學生報名之班級「<班名>」班名未對應課表，請確認米豆奶班名或系統班級名稱。」（陳述事實，`web/src/domain/billing/billing-calculator.ts`）；UI 不直接顯示 domain 訊息，而是以代碼經 `web/src/lib/issue-copy.ts` 對映為使用者文案（目前引導至「課表設定 → 班名同步」），結果頁、明細抽屜與匯入摘要共用同一份（#201）。其類別、科數與固定 5 天對計算的貢獻為零；`mapped=0` 的 run 快照寫 `unset`。名單只提供待處理班名，不改變此計算契約。
 - **美語缺課表警告（F-8）**：v3 下美語班找不到排課時發出 `SCHEDULE_NOT_FOUND` 需確認警告（對齊數學班）。
 
 #### 5.3.4 run 類別快照與讀模型
