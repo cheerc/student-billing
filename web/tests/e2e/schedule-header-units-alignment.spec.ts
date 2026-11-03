@@ -39,6 +39,26 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
         element.scrollLeft = move ? element.scrollWidth - element.clientWidth : 0;
       }, scrolled);
       for (const row of [rows.first(), rows.nth(1), rows.last()]) {
+        const multiTarget = row.locator('.col-has-multi .yes-no-radio-group, .col-has-multi .same-class-marker');
+        const multiHeader = table.locator('thead th.col-has-multi');
+        const multiDifference = await multiHeader.evaluate((element, targetElement) => {
+          const range = document.createRange();
+          range.selectNodeContents(element);
+          const a = range.getBoundingClientRect();
+          const b = (targetElement as Element).getBoundingClientRect();
+          return Math.abs(a.x + a.width / 2 - b.x - b.width / 2);
+        }, await multiTarget.elementHandle());
+        expect(multiDifference, `多科折扣 scroll=${scrolled}`).toBeLessThanOrEqual(2);
+        for (const index of [0, 1]) {
+          const label = table.locator('.time-header-tracks span').nth(index);
+          const input = row.locator('.col-time input.input-time').nth(index);
+          const delta = await label.evaluate((element, targetElement) => {
+            const a = element.getBoundingClientRect();
+            const b = (targetElement as Element).getBoundingClientRect();
+            return Math.abs(a.x + a.width / 2 - b.x - b.width / 2);
+          }, await input.elementHandle());
+          expect(delta, `時間 ${index} scroll=${scrolled}`).toBeLessThanOrEqual(2);
+        }
         for (const [column, control] of [
           ['col-skip-deduction', '.yes-no-radio-group'],
           ['col-teacher', '.input-teacher'], ['col-weekday', '.input-weekday'],
@@ -57,5 +77,33 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
       }
     }
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
+  });
+
+  test(`UX120 安親課輔控制本體與表頭共軸 ${viewport.width}`, async ({ page }) => {
+    await page.setViewportSize(viewport);
+    await page.goto('/settings');
+    const table = page.locator('table.schedule-table-care');
+    await expect(table).toBeVisible();
+    const rows = table.locator('tbody tr.schedule-row');
+    for (const scrolled of [false, true]) {
+      await page.locator('.schedule-table-scroll').evaluate((element, move) => {
+        element.scrollLeft = move ? element.scrollWidth - element.clientWidth : 0;
+      }, scrolled);
+      for (const row of [rows.first(), rows.nth(1), rows.last()]) {
+        for (const [column, control] of [
+          ['col-has-multi', '.yes-no-radio-group'], ['col-fixed-five', '.yes-no-radio-group'],
+          ['col-teacher', '.input-teacher'],
+        ]) {
+          const difference = await table.locator(`thead th.${column}`).evaluate((element, targetElement) => {
+            const range = document.createRange();
+            range.selectNodeContents(element);
+            const a = range.getBoundingClientRect();
+            const b = (targetElement as Element).getBoundingClientRect();
+            return Math.abs(a.x + a.width / 2 - b.x - b.width / 2);
+          }, await row.locator(`td.${column} ${control}`).elementHandle());
+          expect(difference, `${column} scroll=${scrolled}`).toBeLessThanOrEqual(2);
+        }
+      }
+    }
   });
 }
