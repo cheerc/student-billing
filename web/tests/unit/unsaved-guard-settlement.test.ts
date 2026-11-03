@@ -36,9 +36,19 @@ describe('UX31 離頁守衛結算狀態機 Unit 契約 (unsaved-guard-settlement
     root = createRoot(container);
     installEarlyPopstateListener();
 
+    let currentState: any = null;
+    Object.defineProperty(window.history, 'state', {
+      get: () => currentState,
+      configurable: true,
+    });
+
     historyGoSpy = vi.spyOn(window.history, 'go').mockImplementation(() => {});
-    historyPushSpy = vi.spyOn(window.history, 'pushState').mockImplementation(() => {});
-    historyReplaceSpy = vi.spyOn(window.history, 'replaceState').mockImplementation(() => {});
+    historyPushSpy = vi.spyOn(window.history, 'pushState').mockImplementation((state) => {
+      currentState = state;
+    });
+    historyReplaceSpy = vi.spyOn(window.history, 'replaceState').mockImplementation((state) => {
+      currentState = state;
+    });
   });
 
   afterEach(() => {

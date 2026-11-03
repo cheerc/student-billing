@@ -1,7 +1,7 @@
 /**
- * 未儲存修改的離頁守衛（specs/09 §3.2；11 C；D38 F07）。
+ * 未儲存修改的離頁守衛（specs/09 §3.2；11 C；D38 F07；Issue #207 Phase 2）。
  *
- * 只在「有未儲存修改」時啟用（arm），儲存成功、取消修改或元件卸載時解除（dispose）；
+ * 只在「有未儲存修改」時啟用（arm），儲存成功、取消修改或元件卸載時結算解除；
  * 已儲存與沒有修改的頁面不會安裝任何監聽或歷史紀錄。
  *
  * 攔截三種離開方式：
@@ -15,35 +15,75 @@
  *   3. reload／關閉分頁／輸入網址：beforeunload 觸發瀏覽器原生提醒（瀏覽器要求使用者對頁面有過互動才會顯示，
  *      這是瀏覽器規定，不是本守衛的限制；不自訂文案）。
  *
- * 用 history.pushState 時一律帶入啟用當下的 history.state（內含 Next 的 __NA 標記與路由樹），
- * Next 對 __NA 標記的 pushState 直接放行、不更動它的路由狀態，避免哨兵紀錄干擾 App Router。
+ * Phase 2 狀態機 Controller 升級（Issue #207）：
+ *   - 持久 Controller 狀態機：clean / armed / settling / armed_pending_landing / leaving_back / disposed
+ *   - 命名空間歷史標記：__sbUnsavedGuard: { role: 'base' | 'sentinel', opId: number }
+ *   - 結算期間保護：Save/Cancel 使 dirty->false 時轉為 settling 並發起單次 history.go(-1)；
+ *     若期間點擊站內連結則以單槽 queuedHref 排隊並阻止 Next 競爭路由，待 base 落地後以 queueMicrotask 單次派送；
+ *     若期間立即再編輯則轉入 armed_pending_landing，待落地後同步 URL 並重推哨兵，合併在途 go(-1) 且不誤跳離頁確認視窗；
+ *     base 落地時以 replaceState 同步 latestHref，防止 dirty 期間清除的 ?class= 焦點參數復活。
  */
 
-import { setPopstateHandler } from '@/lib/leave-guard-registry';
+import {
+  clearLandingAbsorption,
+  registerLandingAbsorption,
+  setPopstateHandler,
+} from '@/lib/leave-guard-registry';
 
 export type LeaveRequest = { kind: 'link'; href: string } | { kind: 'back' };
+
+export type UnsavedGuardState =
+  | 'clean'
+  | 'armed'
+  | 'settling'
+  | 'armed_pending_landing'
+  | 'leaving_back'
+  | 'disposed';
 
 export interface UnsavedGuardOptions {
   /** 使用者嘗試離開；由呼叫端顯示確認並決定是否 leave()。 */
   onAttempt: (request: LeaveRequest) => void;
+  /** 可選導航回呼（通常為 router.push 或 window.location.assign）。 */
+  navigate?: (href: string) => void;
+  /** 狀態變更回呼（供內部監控或單元測試）。 */
+  onStateChange?: (state: UnsavedGuardState) => void;
 }
 
+export interface UnsavedGuardController {
+  getState(): UnsavedGuardState;
+  syncDirty(dirty: boolean): void;
+  discardAndLeave(request: LeaveRequest, navigate: (href: string) => void): void;
+  setNavigate(navigate: (href: string) => void): void;
+  keepEditing(): void;
+  dispose(): void;
+  getPendingRequest(): LeaveRequest | null;
+}
+
+/** 舊版相容介面（若有既有呼叫端）。 */
 export interface UnsavedGuard {
-  /** 啟用：安裝監聽並推入哨兵紀錄。 */
   arm(): void;
-  /** 使用者確認捨棄：解除守衛並離開（back 為 history.go(-2)，link 為呼叫 navigate 一次）。 */
   leave(request: LeaveRequest, navigate: (href: string) => void): Promise<void>;
-  /**
-   * 解除守衛的監聽（儲存成功、取消修改或卸載）；不動歷史紀錄。
-   * 回傳哨兵紀錄是否仍在：呼叫端在「仍停留在此頁」（儲存成功、取消修改）時要呼叫 unwindSentinel()，
-   * 卸載時則不要（頁面正在被取代，不能再退一步）。
-   */
   release(): boolean;
 }
 
 /** 還原歷史紀錄：退回一步，讓哨兵紀錄不再擋住下一次 Back。 */
 export function unwindSentinel(): void {
-  window.history.go(-1);
+  if (typeof window !== 'undefined') {
+    window.history.go(-1);
+  }
+}
+
+function extractState(state: unknown): Record<string, unknown> {
+  if (state && typeof state === 'object') {
+    return { ...(state as Record<string, unknown>) };
+  }
+  return {};
+}
+
+function sanitizeState(state: unknown): Record<string, unknown> {
+  const s = extractState(state);
+  delete s.__sbUnsavedGuard;
+  return s;
 }
 
 /** 純函式：這次點擊是不是「站內離開」（供元件與單元測試使用）。 */
@@ -67,102 +107,311 @@ export function isInternalLeaveClick(
   return url;
 }
 
-export function createUnsavedGuard(options: UnsavedGuardOptions): UnsavedGuard {
-  let armed = false;
-  let sentinel = false;
+export function createUnsavedGuardController(options: UnsavedGuardOptions): UnsavedGuardController {
+  let state: UnsavedGuardState = 'clean';
+  let opId = 0;
+  let activeOpId = 0;
   let guardPath = '';
   let guardHref = '';
   let guardState: unknown = null;
+  let latestHref = '';
+  let latestState: unknown = null;
+  let queuedHref: string | null = null;
+  let queuedNavigate: ((href: string) => void) | null = null;
+  let pendingRequest: LeaveRequest | null = null;
+
+  const setState = (next: UnsavedGuardState) => {
+    state = next;
+    options.onStateChange?.(next);
+  };
 
   const onBeforeUnload = (event: BeforeUnloadEvent) => {
     event.preventDefault();
-    // 部分瀏覽器需要設定 returnValue 才會顯示原生提醒
     event.returnValue = '';
   };
 
   const onClick = (event: MouseEvent) => {
-    if (!armed) return;
+    if (state === 'clean' || state === 'leaving_back' || state === 'disposed') return;
+
     const anchor = (event.target as Element | null)?.closest?.('a[href]') as HTMLAnchorElement | null;
     if (!anchor) return;
     const url = isInternalLeaveClick(event, anchor, window.location);
     if (!url) return;
-    event.preventDefault();
-    event.stopImmediatePropagation();
-    options.onAttempt({ kind: 'link', href: `${url.pathname}${url.search}${url.hash}` });
+
+    if (state === 'armed' || state === 'armed_pending_landing') {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      const href = `${url.pathname}${url.search}${url.hash}`;
+      if (!pendingRequest) {
+        pendingRequest = { kind: 'link', href };
+      }
+      options.onAttempt(pendingRequest);
+      return;
+    }
+
+    if (state === 'settling') {
+      // 結算期間排隊該連結，阻止 Next.js 提前啟動競爭路由
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      queuedHref = `${url.pathname}${url.search}${url.hash}`;
+    }
   };
 
   const onPopState = (event: PopStateEvent) => {
-    if (!armed) return; // 已解除：放行給 Next 處理
-    // 讓 Next 的 popstate 處理器不執行：頁面內容維持在課表頁，草稿不受影響
-    event.stopImmediatePropagation();
-    const atGuardPage = window.location.pathname === guardPath;
-    const href = atGuardPage ? window.location.href : guardHref;
-    // 補回哨兵：回到「課表頁＋哨兵」的狀態，下一次 Back 仍會被攔截
-    window.history.pushState(guardState, '', href);
-    if (!atGuardPage) window.history.pushState(guardState, '', href);
-    sentinel = true;
-    options.onAttempt({ kind: 'back' });
+    if (state === 'clean' || state === 'disposed' || state === 'leaving_back') return;
+
+    const guardMeta =
+      (event.state as Record<string, unknown> | null)?.__sbUnsavedGuard ||
+      (window.history.state as Record<string, unknown> | null)?.__sbUnsavedGuard;
+
+    const metaRole = (guardMeta as { role?: string; opId?: number } | undefined)?.role;
+    const metaOpId = (guardMeta as { role?: string; opId?: number } | undefined)?.opId;
+
+    if (state === 'armed') {
+      // 使用者按瀏覽器 Back
+      event.stopImmediatePropagation();
+      const atGuardPage = window.location.pathname === guardPath;
+      const href = atGuardPage ? window.location.href : guardHref;
+
+      const baseState = extractState(guardState || latestState || window.history.state);
+      baseState.__sbUnsavedGuard = { role: 'base', opId: activeOpId };
+
+      const sentinelState = extractState(guardState || latestState || window.history.state);
+      sentinelState.__sbUnsavedGuard = { role: 'sentinel', opId: activeOpId };
+
+      if (atGuardPage) {
+        window.history.replaceState(baseState, '', href);
+        window.history.pushState(sentinelState, '', href);
+      } else {
+        // 連按兩次 Back 跳過哨兵退到前一頁：在前一頁之上依序重新推入 base 與 sentinel
+        window.history.pushState(baseState, '', guardHref);
+        window.history.pushState(sentinelState, '', guardHref);
+      }
+
+      if (!pendingRequest) {
+        pendingRequest = { kind: 'back' };
+      }
+      options.onAttempt(pendingRequest);
+      return;
+    }
+
+    if (state === 'settling') {
+      // 檢查是否為相符的 base 紀錄落地
+      if (metaRole === 'base' && metaOpId === activeOpId) {
+        event.stopImmediatePropagation();
+        clearLandingAbsorption(activeOpId);
+
+        // 阻斷 Next 過期還原並同步最新同頁 URL（清除 class 等 query）
+        const cleanState = sanitizeState(latestState || event.state || window.history.state);
+        window.history.replaceState(cleanState, '', latestHref);
+
+        teardownListeners();
+        setState('clean');
+
+        if (queuedHref) {
+          const dest = queuedHref;
+          const nav = queuedNavigate || options.navigate;
+          queuedHref = null;
+          queuedNavigate = null;
+          queueMicrotask(() => {
+            if (nav) nav(dest);
+            // eslint-disable-next-line @next/next/no-location-assign-relative-destination
+            else if (typeof window !== 'undefined') window.location.href = dest;
+          });
+        }
+        return;
+      }
+      // 非匹配 opId 或無標記之 external popstate：放行，不吞掉
+      return;
+    }
+
+    if (state === 'armed_pending_landing') {
+      // 在途 go(-1) 落地至 base
+      if (metaRole === 'base' && metaOpId === activeOpId) {
+        event.stopImmediatePropagation();
+        clearLandingAbsorption(activeOpId);
+
+        // 落地至 base，現在安全推進新 opId 並補推新 sentinel
+        opId++;
+        activeOpId = opId;
+        guardPath = window.location.pathname;
+        guardHref = window.location.href;
+        latestHref = guardHref;
+
+        const cleanState = sanitizeState(latestState || event.state || window.history.state);
+        const newBaseState = { ...cleanState, __sbUnsavedGuard: { role: 'base', opId: activeOpId } };
+        window.history.replaceState(newBaseState, '', latestHref);
+
+        const newSentinelState = { ...cleanState, __sbUnsavedGuard: { role: 'sentinel', opId: activeOpId } };
+        window.history.pushState(newSentinelState, '', latestHref);
+
+        setState('armed');
+        return;
+      }
+      return;
+    }
   };
 
-  const teardown = () => {
-    armed = false;
+  const setupListeners = () => {
+    window.addEventListener('beforeunload', onBeforeUnload);
+    window.addEventListener('click', onClick, true);
+    if (!setPopstateHandler(onPopState)) {
+      window.addEventListener('popstate', onPopState, true);
+    }
+  };
+
+  const teardownListeners = () => {
     window.removeEventListener('beforeunload', onBeforeUnload);
     window.removeEventListener('click', onClick, true);
     setPopstateHandler(null);
     window.removeEventListener('popstate', onPopState, true);
   };
 
-  /** 退回一步並等瀏覽器處理完 popstate（含 Next 的處理器）後才 resolve。 */
-  const goBackOne = () =>
-    new Promise<void>((resolve) => {
-      let finished = false;
-      const finish = () => {
-        if (finished) return;
-        finished = true;
-        window.removeEventListener('popstate', onceHandler, true);
-        // 等同一次 popstate 的其餘監聽器（Next）跑完，再繼續導覽，避免兩個導覽動作互相覆蓋
-        setTimeout(resolve, 0);
-      };
-      const onceHandler = () => finish();
-      window.addEventListener('popstate', onceHandler, true);
-      setTimeout(finish, 500); // 保險：沒有收到 popstate 也不卡住
-      window.history.go(-1);
-    });
-
-  return {
-    arm() {
-      if (armed) return;
-      armed = true;
+  const armInternal = () => {
+    guardState = window.history.state;
+    const currentMeta = (window.history.state as Record<string, unknown> | null)?.__sbUnsavedGuard as
+      | { role?: string; opId?: number }
+      | undefined;
+    if (currentMeta?.role === 'sentinel') {
+      // 哨兵紀錄已存在於歷史頂層（例如 StrictMode 雙掛載）：重用既有紀錄，不重複 pushState
+      activeOpId = currentMeta.opId || opId;
       guardPath = window.location.pathname;
       guardHref = window.location.href;
-      guardState = window.history.state;
-      window.history.pushState(guardState, '', guardHref);
-      sentinel = true;
-      window.addEventListener('beforeunload', onBeforeUnload);
-      window.addEventListener('click', onClick, true);
-      // 登記到根版面預先安裝的先手監聽器（排在 Next 的 popstate 處理器前面）；沒有它就退而在此登記（僅能攔截單步返回）
-      if (!setPopstateHandler(onPopState)) window.addEventListener('popstate', onPopState, true);
+      latestHref = guardHref;
+      latestState = window.history.state;
+      setupListeners();
+      setState('armed');
+      return;
+    }
+
+    opId++;
+    activeOpId = opId;
+    guardPath = window.location.pathname;
+    guardHref = window.location.href;
+    latestHref = guardHref;
+    latestState = window.history.state;
+
+    const baseState = extractState(latestState);
+    baseState.__sbUnsavedGuard = { role: 'base', opId: activeOpId };
+    window.history.replaceState(baseState, '', guardHref);
+
+    const sentinelState = extractState(latestState);
+    sentinelState.__sbUnsavedGuard = { role: 'sentinel', opId: activeOpId };
+    window.history.pushState(sentinelState, '', guardHref);
+
+    setupListeners();
+    setState('armed');
+  };
+
+  return {
+    getState: () => state,
+    getPendingRequest: () => pendingRequest,
+
+    syncDirty(dirty: boolean) {
+      if (typeof window === 'undefined') return;
+
+      if (dirty) {
+        if (state === 'clean' || state === 'disposed') {
+          armInternal();
+          return;
+        }
+        if (state === 'settling') {
+          // 結算在途期間使用者立即再編輯
+          queuedHref = null;
+          queuedNavigate = null;
+          window.addEventListener('beforeunload', onBeforeUnload);
+          setState('armed_pending_landing');
+          return;
+        }
+        // armed 或 armed_pending_landing：保持現況
+        return;
+      }
+
+      // dirty === false
+      if (state === 'armed') {
+        setState('settling');
+        window.removeEventListener('beforeunload', onBeforeUnload);
+        latestHref = window.location.href;
+        latestState = window.history.state;
+        registerLandingAbsorption(activeOpId);
+        window.history.go(-1);
+        return;
+      }
+
+      if (state === 'armed_pending_landing') {
+        // 再編輯後又再次取消：共用同一筆在途 go(-1)，絕不發出第二次 history.go(-1)
+        setState('settling');
+        window.removeEventListener('beforeunload', onBeforeUnload);
+        return;
+      }
     },
 
-    async leave(request, navigate) {
-      const hadSentinel = sentinel;
-      teardown();
-      sentinel = false;
+    discardAndLeave(request: LeaveRequest, navigate: (href: string) => void) {
+      pendingRequest = null;
+      if (typeof window === 'undefined') {
+        if (request.kind === 'link') navigate(request.href);
+        return;
+      }
+
       if (request.kind === 'back') {
-        // 哨兵之上再退一步＝使用者原本要去的那一頁
+        setState('leaving_back');
+        teardownListeners();
+        clearLandingAbsorption(activeOpId);
         window.history.go(-2);
         return;
       }
-      if (hadSentinel) await goBackOne();
-      navigate(request.href);
+
+      // request.kind === 'link'
+      if (state === 'armed' || state === 'armed_pending_landing') {
+        queuedHref = request.href;
+        queuedNavigate = navigate;
+        setState('settling');
+        window.removeEventListener('beforeunload', onBeforeUnload);
+        latestHref = window.location.href;
+        latestState = window.history.state;
+        registerLandingAbsorption(activeOpId);
+        window.history.go(-1);
+        return;
+      }
+
+      if (state === 'clean') {
+        navigate(request.href);
+      }
     },
 
+    keepEditing() {
+      pendingRequest = null;
+    },
+
+    setNavigate(nav: (href: string) => void) {
+      options.navigate = nav;
+    },
+
+    dispose() {
+      if (state === 'disposed') return;
+      setState('disposed');
+      teardownListeners();
+      queuedHref = null;
+      queuedNavigate = null;
+      pendingRequest = null;
+    },
+  };
+}
+
+/** 舊版薄相容函式。 */
+export function createUnsavedGuard(options: UnsavedGuardOptions): UnsavedGuard {
+  const ctrl = createUnsavedGuardController(options);
+  return {
+    arm() {
+      ctrl.syncDirty(true);
+    },
+    async leave(request: LeaveRequest, navigate: (href: string) => void) {
+      ctrl.discardAndLeave(request, navigate);
+    },
     release() {
-      if (!armed) return false;
-      const hadSentinel = sentinel;
-      teardown();
-      sentinel = false;
-      return hadSentinel;
+      const had = ctrl.getState() === 'armed' || ctrl.getState() === 'armed_pending_landing';
+      ctrl.dispose();
+      return had;
     },
   };
 }

@@ -496,6 +496,9 @@ test.describe('UX31 R1/R2/R3: 儲存與取消之離頁守衛結算生命週期',
     // 5. 放行上一輪的 history.go(-1)
     await page.evaluate(() => (window as any).__sentinelBarrier.release());
     await page.waitForFunction(() => (window as any).__sentinelBarrier.popCount >= 1);
+    await page.evaluate(() => {
+      (window as any).__sentinelBarrier.enabled = false;
+    });
 
     // 6. 斷言：上一輪的 popstate 不得誤判為使用者按 Back，離頁視窗必須為 0！
     await expect(leaveDialog(page), '結算期間立即再編輯不應誤彈離頁確認視窗').toHaveCount(0);
