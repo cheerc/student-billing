@@ -63,15 +63,15 @@ export function useUnsavedChangesGuard(dirty: boolean, onDiscard: () => void) {
   }, [controller]);
 
   const discardAndLeave = useCallback(() => {
-    setPending((currentPending) => {
-      if (currentPending) {
-        controller.discardAndLeave(currentPending, (href) => {
-          if (routerRef.current) routerRef.current.push(href);
-          else if (typeof window !== 'undefined') window.location.href = href;
-        });
-      }
-      return null;
-    });
+    // 由 controller 保存的第一筆離開要求讀取（事件處理中呼叫，不在 setState updater 內產生副作用）
+    const currentPending = controller.getPendingRequest();
+    setPending(null);
+    if (currentPending) {
+      controller.discardAndLeave(currentPending, (href) => {
+        if (routerRef.current) routerRef.current.push(href);
+        else if (typeof window !== 'undefined') window.location.href = href;
+      });
+    }
     onDiscardRef.current();
   }, [controller]);
 

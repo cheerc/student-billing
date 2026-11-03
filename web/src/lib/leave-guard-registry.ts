@@ -46,12 +46,13 @@ export function installEarlyPopstateListener(): void {
         return;
       }
       // 2. 若無活動處理器（例如元件卸載），檢查是否為已登記的根層 landing 吸收器
+      //    吸收器只管卸載後抵達的第一個 popstate：不匹配（例如在途期間有程式化導覽，traversal 落在別處）
+      //    就清掉殘留的 absorbedOpId，避免之後使用者返回到同 opId 的 base 紀錄時被誤吞。
+      if (reg.absorbedOpId === null) return;
       const guardMeta = (event.state as any)?.__sbUnsavedGuard;
-      if (reg.absorbedOpId !== null && guardMeta?.role === 'base' && guardMeta?.opId === reg.absorbedOpId) {
-        event.stopImmediatePropagation();
-        reg.absorbedOpId = null;
-        return;
-      }
+      const matched = guardMeta?.role === 'base' && guardMeta?.opId === reg.absorbedOpId;
+      reg.absorbedOpId = null;
+      if (matched) event.stopImmediatePropagation();
     },
     true
   );

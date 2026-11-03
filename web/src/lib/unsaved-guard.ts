@@ -232,13 +232,15 @@ export function createUnsavedGuardController(options: UnsavedGuardOptions): Unsa
         clearLandingAbsorption(activeOpId);
 
         // 落地至 base，現在安全推進新 opId 並補推新 sentinel
+        // 以 settling 當下記錄的 latestHref／latestState 重新 arm；不可改讀落地後的 location.href
+        // （base 紀錄保留 arm 當時的網址，例如已被清除的 ?class=，改讀會讓它復活）
         opId++;
         activeOpId = opId;
-        guardPath = window.location.pathname;
-        guardHref = window.location.href;
-        latestHref = guardHref;
+        guardHref = latestHref;
+        guardPath = new URL(latestHref, window.location.href).pathname;
 
         const cleanState = sanitizeState(latestState || event.state || window.history.state);
+        guardState = cleanState;
         const newBaseState = { ...cleanState, __sbUnsavedGuard: { role: 'base', opId: activeOpId } };
         window.history.replaceState(newBaseState, '', latestHref);
 
@@ -311,7 +313,8 @@ export function createUnsavedGuardController(options: UnsavedGuardOptions): Unsa
       if (typeof window === 'undefined') return;
 
       if (dirty) {
-        if (state === 'clean' || state === 'disposed') {
+        if (state === 'clean' || state === 'disposed' || state === 'leaving_back') {
+          // leaving_back：go(-2) 超出範圍（例如分頁只有本頁）時仍停在原頁，新草稿必須重新受保護
           armInternal();
           return;
         }
@@ -340,8 +343,11 @@ export function createUnsavedGuardController(options: UnsavedGuardOptions): Unsa
 
       if (state === 'armed_pending_landing') {
         // 再編輯後又再次取消：共用同一筆在途 go(-1)，絕不發出第二次 history.go(-1)
+        // 在途期間仍停在哨兵紀錄，同步最新同頁網址供落地使用
         setState('settling');
         window.removeEventListener('beforeunload', onBeforeUnload);
+        latestHref = window.location.href;
+        latestState = window.history.state;
         return;
       }
     },
@@ -354,6 +360,8 @@ export function createUnsavedGuardController(options: UnsavedGuardOptions): Unsa
       }
 
       if (request.kind === 'back') {
+        // 只在守衛中才離開；重複呼叫（已 leaving_back）或已結算時不得再發 go(-2)
+        if (state !== 'armed' && state !== 'armed_pending_landing') return;
         setState('leaving_back');
         teardownListeners();
         clearLandingAbsorption(activeOpId);
@@ -363,14 +371,18 @@ export function createUnsavedGuardController(options: UnsavedGuardOptions): Unsa
 
       // request.kind === 'link'
       if (state === 'armed' || state === 'armed_pending_landing') {
+        const inFlight = state === 'armed_pending_landing';
         queuedHref = request.href;
         queuedNavigate = navigate;
         setState('settling');
         window.removeEventListener('beforeunload', onBeforeUnload);
         latestHref = window.location.href;
         latestState = window.history.state;
-        registerLandingAbsorption(activeOpId);
-        window.history.go(-1);
+        if (!inFlight) {
+          // armed_pending_landing 已有在途 go(-1)，共用它，不發第二次
+          registerLandingAbsorption(activeOpId);
+          window.history.go(-1);
+        }
         return;
       }
 
