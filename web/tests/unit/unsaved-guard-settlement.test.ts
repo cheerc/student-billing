@@ -3,7 +3,12 @@ import React, { act, StrictMode } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useUnsavedChangesGuard } from '@/components/ui/use-unsaved-changes-guard';
-import { installEarlyPopstateListener } from '@/lib/leave-guard-registry';
+import {
+  clearLandingAbsorption,
+  installEarlyPopstateListener,
+  registerLandingAbsorption,
+} from '@/lib/leave-guard-registry';
+import { createUnsavedGuardController } from '@/lib/unsaved-guard';
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -110,7 +115,8 @@ describe('UX31 離頁守衛結算狀態機 Unit 契約 (unsaved-guard-settlement
     expect(externalPopEvent.defaultPrevented).toBe(false);
   });
 
-  it('3. Apply 失敗或 409 時 dirty 保持 true，守衛必須維持 armed 狀態而不觸發結算', async () => {
+  // 注意：本案只驗「dirty 維持 true 的重新渲染不觸發結算」；409 的真實 apply 路徑由 E2E leave-guard.spec.ts「UX31 F3」覆蓋。
+  it('3. dirty 維持 true 的重新渲染（如 apply 失敗）不觸發結算', async () => {
     await act(async () => {
       root.render(React.createElement(GuardHarness, { dirty: true }));
     });
@@ -165,5 +171,129 @@ describe('UX31 離頁守衛結算狀態機 Unit 契約 (unsaved-guard-settlement
 
     // 根層 registry 的 landing absorber 應吞掉該次 popstate，防止打入 Next App Router
     expect(stopSpy, '元件卸載後在途 landing 抵達應由根層吸收器吞掉').toHaveBeenCalled();
+  });
+});
+
+/**
+ * Controller 層契約：直接驅動 createUnsavedGuardController，使用 jsdom 真實 pushState／replaceState
+ * （location 會隨之改變），只 mock history.go 以手動模擬 traversal 落地。
+ */
+describe('UX31 Controller 結算契約（F1／F2／F3／吸收器殘留）', () => {
+  let goSpy: ReturnType<typeof vi.spyOn>;
+
+  const beforeUnloadPrevented = () => {
+    const e = new Event('beforeunload', { cancelable: true });
+    window.dispatchEvent(e);
+    return e.defaultPrevented;
+  };
+
+  /** 模擬 traversal 落地：把目前紀錄改成目標網址與 state，並派送 popstate。 */
+  const land = (state: unknown, url: string) => {
+    window.history.replaceState(state, '', url);
+    const ev = new PopStateEvent('popstate', { state });
+    const stop = vi.spyOn(ev, 'stopImmediatePropagation');
+    window.dispatchEvent(ev);
+    return stop;
+  };
+
+  beforeEach(() => {
+    // 前一個 describe 以 defineProperty 覆寫了 history.state；刪除實例屬性以恢復 jsdom 原生 getter
+    delete (window.history as unknown as { state?: unknown }).state;
+    installEarlyPopstateListener();
+    clearLandingAbsorption();
+    window.history.replaceState(null, '', '/settings?tab=schedule');
+    goSpy = vi.spyOn(window.history, 'go').mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    clearLandingAbsorption();
+    vi.restoreAllMocks();
+  });
+
+  it('F3：settling 期間非匹配 opId 的 base popstate 與無標記 popstate 皆放行，維持 settling 且只發出一次 go(-1)', () => {
+    const ctrl = createUnsavedGuardController({ onAttempt: () => {} });
+    ctrl.syncDirty(true);
+    ctrl.syncDirty(false);
+    expect(ctrl.getState()).toBe('settling');
+    expect(goSpy).toHaveBeenCalledTimes(1);
+
+    const mismatched = new PopStateEvent('popstate', { state: { __sbUnsavedGuard: { role: 'base', opId: 999 } } });
+    const stopMismatched = vi.spyOn(mismatched, 'stopImmediatePropagation');
+    window.dispatchEvent(mismatched);
+
+    const external = new PopStateEvent('popstate', { state: { someOtherFramework: true } });
+    const stopExternal = vi.spyOn(external, 'stopImmediatePropagation');
+    window.dispatchEvent(external);
+
+    expect(stopMismatched, '非匹配 opId 不得被吞掉').not.toHaveBeenCalled();
+    expect(stopExternal, '無標記 popstate 不得被吞掉').not.toHaveBeenCalled();
+    expect(ctrl.getState()).toBe('settling');
+    expect(goSpy).toHaveBeenCalledTimes(1);
+    ctrl.dispose();
+  });
+
+  it('F1：armed_pending_landing 落地時以 settling 當下的 latestHref 重新 arm，不得改讀落地後 base 網址而復活 ?class=', () => {
+    window.history.replaceState(null, '', '/settings?tab=schedule&class=X');
+    const ctrl = createUnsavedGuardController({ onAttempt: () => {} });
+    ctrl.syncDirty(true);
+    const baseUrl = window.location.href;
+
+    // dirty 期間清除焦點（同頁 replace 移除 class）
+    window.history.replaceState(window.history.state, '', '/settings?tab=schedule');
+    ctrl.syncDirty(false); // settling，latestHref = 無 class
+    ctrl.syncDirty(true); // 落地前再編輯
+    expect(ctrl.getState()).toBe('armed_pending_landing');
+
+    const stop = land({ __sbUnsavedGuard: { role: 'base', opId: 1 } }, baseUrl);
+    expect(stop).toHaveBeenCalled();
+    expect(ctrl.getState()).toBe('armed');
+    expect(window.location.search, '重新 arm 後的網址不得含 class=').not.toContain('class=');
+    expect(goSpy).toHaveBeenCalledTimes(1);
+    ctrl.dispose();
+  });
+
+  it('F2：Back 捨棄後 go(-2) 超出範圍（停在原頁），新草稿必須重新 arm（beforeunload 與連結攔截恢復）', () => {
+    const attempts: string[] = [];
+    const ctrl = createUnsavedGuardController({ onAttempt: (r) => attempts.push(r.kind) });
+    ctrl.syncDirty(true);
+    ctrl.discardAndLeave({ kind: 'back' }, () => {});
+    expect(goSpy).toHaveBeenLastCalledWith(-2);
+    // go(-2) 為 no-op（超出範圍）；捨棄後草稿還原
+    ctrl.syncDirty(false);
+    ctrl.syncDirty(true);
+    expect(ctrl.getState(), '新草稿必須重新 arm').toBe('armed');
+    expect(beforeUnloadPrevented(), '新草稿必須重新註冊 beforeunload').toBe(true);
+
+    const a = document.createElement('a');
+    a.href = '/imports';
+    document.body.appendChild(a);
+    const click = new MouseEvent('click', { bubbles: true, cancelable: true, button: 0 });
+    a.dispatchEvent(click);
+    a.remove();
+    expect(click.defaultPrevented, '新草稿必須攔截站內連結').toBe(true);
+    expect(attempts).toEqual(['link']);
+    ctrl.dispose();
+  });
+
+  it('F4：重複的 Back 捨棄不得重複發出 go(-2)', () => {
+    const ctrl = createUnsavedGuardController({ onAttempt: () => {} });
+    ctrl.syncDirty(true);
+    ctrl.discardAndLeave({ kind: 'back' }, () => {});
+    ctrl.discardAndLeave({ kind: 'back' }, () => {});
+    expect(goSpy.mock.calls.filter((c) => c[0] === -2)).toHaveLength(1);
+    ctrl.dispose();
+  });
+
+  it('吸收器殘留（a）：卸載後第一個抵達的 popstate 若不是匹配 base，清掉殘留 absorbedOpId，之後的同 opId base 不得被吞掉', () => {
+    registerLandingAbsorption(7);
+    const other = new PopStateEvent('popstate', { state: { someOtherFramework: true } });
+    const stopOther = vi.spyOn(other, 'stopImmediatePropagation');
+    window.dispatchEvent(other);
+    expect(stopOther).not.toHaveBeenCalled();
+
+    const late = new PopStateEvent('popstate', { state: { __sbUnsavedGuard: { role: 'base', opId: 7 } } });
+    const stopLate = vi.spyOn(late, 'stopImmediatePropagation');
+    window.dispatchEvent(late);
+    expect(stopLate, '殘留吸收器不得吞掉之後的使用者返回').not.toHaveBeenCalled();
   });
 });
