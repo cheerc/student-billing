@@ -9,6 +9,7 @@ import {
   ensureClassTypeTab,
   keepEditing,
   leaveDialog,
+  openClassSchedule,
   openClassScheduleViaHome,
   openSchedule,
   scheduleHeading,
@@ -287,6 +288,33 @@ test.describe('UX31 reload／關閉分頁：瀏覽器原生 beforeunload', () =>
   });
 });
 
+async function installSentinelBarrier(page: Page) {
+  await page.addInitScript(() => {
+    const w = window as any;
+    w.__sentinelBarrier = {
+      enabled: false,
+      release: null as null | (() => void),
+      popCount: 0,
+    };
+    const origGo = history.go;
+    history.go = function (delta?: number) {
+      if (w.__sentinelBarrier?.enabled && delta === -1) {
+        const receiver = this;
+        const args = arguments;
+        w.__sentinelBarrier.release = () => {
+          w.__sentinelBarrier.release = null;
+          origGo.apply(receiver, args as any);
+        };
+        return;
+      }
+      return origGo.apply(this, arguments as any);
+    };
+    window.addEventListener('popstate', () => {
+      if (w.__sentinelBarrier) w.__sentinelBarrier.popCount++;
+    }, true);
+  });
+}
+
 test.describe('UX31 儲存成功後不再提醒（會寫入課表，放最後）', () => {
   test('改草稿 → 確認變更 → 儲存課表成功 → 側欄、Back、關閉分頁都不打擾', async ({ page }) => {
     await page.goto('/');
@@ -318,5 +346,199 @@ test.describe('UX31 儲存成功後不再提醒（會寫入課表，放最後）
     await sideLink(page, /課表設定/).click();
     await expect(scheduleHeading(page)).toBeVisible({ timeout: 15000 });
     expect(await closeWithBeforeUnload(page)).toBe('closed');
+  });
+});
+
+test.describe('UX31 R1/R2/R3: 儲存與取消之離頁守衛結算生命週期', () => {
+  for (const action of ['save', 'cancel'] as const) {
+    test(`UX31 R1 (settings_only): ${action} 結算期間點擊站內連結，不丟失新目的地`, async ({ page }) => {
+      await installSentinelBarrier(page);
+      await page.goto('/');
+      await expect(page.locator('main')).toBeVisible();
+      await sideLink(page, /課表設定/).click();
+      await expect(page.locator('.schedule-grid-container')).toBeVisible({ timeout: 15000 });
+
+      // 新增班級產生 dirty
+      await page.getByRole('button', { name: '＋ 新增班級' }).click();
+      const form = page.locator('dialog.add-class-dialog form.add-session-panel');
+      const testName = `國小輔導-r1-${action}-${Date.now().toString().slice(-4)}`;
+      await form.getByLabel('新增班級名稱').fill(testName);
+      await form.getByRole('button', { name: '確認新增' }).click();
+      await expect(page.locator('.save-status-dirty')).toBeVisible();
+
+      // 啟用 barrier 扣留 Save/Cancel 觸發的 history.go(-1)
+      await page.evaluate(() => {
+        (window as any).__sentinelBarrier.enabled = true;
+      });
+
+      if (action === 'save') {
+        await page.getByRole('button', { name: '確認變更', exact: true }).click();
+        const dialog = page.locator('dialog.impact-dialog');
+        await expect(dialog).toBeVisible({ timeout: 15000 });
+        const applied = page.waitForResponse(
+          (r) => r.url().endsWith('/api/v1/settings/apply') && r.request().method() === 'POST'
+        );
+        await dialog.getByRole('button', { name: /儲存並更新結果|儲存課表/ }).click();
+        expect((await applied).ok()).toBe(true);
+        await expect(dialog).toBeHidden();
+        await expect(page.locator('.save-status-clean')).toBeVisible();
+      } else {
+        await page.getByRole('button', { name: '取消修改', exact: true }).click();
+        await expect(page.locator('.save-status-dirty')).toHaveCount(0);
+        await expect(page.locator('.save-status-clean')).toBeVisible();
+      }
+
+      // 確認 history.go(-1) 確實已被呼叫並被 barrier 扣留
+      await page.waitForFunction(() => typeof (window as any).__sentinelBarrier?.release === 'function');
+
+      // 結算期間點擊站內連結
+      await sideLink(page, /匯入學生/).click();
+
+      // 放行原生 traversal
+      await page.evaluate(() => (window as any).__sentinelBarrier.release());
+      await page.waitForFunction(() => (window as any).__sentinelBarrier.popCount >= 1);
+
+      // 斷言：最終目的地必須是 /imports，不被舊 cleanup 覆蓋或退回
+      await expect(page, '舊 cleanup 不能把已要求的匯入學生導航退回課表').toHaveURL(/\/imports$/);
+      await expect(leaveDialog(page)).toHaveCount(0);
+
+      // Back 第一次回到課表設定完整 URL（/settings?tab=schedule）
+      await page.goBack();
+      await expect(page).toHaveURL(/\/settings(?:\?tab=schedule)?$/);
+      await expect(leaveDialog(page)).toHaveCount(0);
+
+      // Back 第二次回到首頁
+      await page.goBack();
+      await expect(page).toHaveURL(/:\d+\/$/);
+      await expect(leaveDialog(page)).toHaveCount(0);
+
+      // Forward 依序回到課表設定與匯入學生
+      await page.goForward();
+      await expect(page).toHaveURL(/\/settings(?:\?tab=schedule)?$/);
+      await page.goForward();
+      await expect(page).toHaveURL(/\/imports$/);
+    });
+  }
+
+  test('UX31 R1 (with_students): Save 結算期間點擊站內連結，不丟失新目的地', async ({ page }) => {
+    await installSentinelBarrier(page);
+    await ensureB2Activated(page);
+    await sideLink(page, /課表設定/).click();
+    await expect(page.locator('.schedule-grid-container')).toBeVisible({ timeout: 15000 });
+
+    // 新增班級產生 dirty
+    await page.getByRole('button', { name: '＋ 新增班級' }).click();
+    const form = page.locator('dialog.add-class-dialog form.add-session-panel');
+    const testName = `國小輔導-r1-students-${Date.now().toString().slice(-4)}`;
+    await form.getByLabel('新增班級名稱').fill(testName);
+    await form.getByRole('button', { name: '確認新增' }).click();
+    await expect(page.locator('.save-status-dirty')).toBeVisible();
+
+    // 啟用 barrier
+    await page.evaluate(() => {
+      (window as any).__sentinelBarrier.enabled = true;
+    });
+
+    await page.getByRole('button', { name: '確認變更', exact: true }).click();
+    const dialog = page.locator('dialog.impact-dialog');
+    await expect(dialog).toBeVisible({ timeout: 15000 });
+    const applied = page.waitForResponse(
+      (r) => r.url().endsWith('/api/v1/settings/apply') && r.request().method() === 'POST'
+    );
+    await dialog.getByRole('button', { name: /儲存並更新結果|儲存課表/ }).click();
+    expect((await applied).ok()).toBe(true);
+    await expect(dialog).toBeHidden();
+    await expect(page.locator('.save-status-clean')).toBeVisible();
+
+    await page.waitForFunction(() => typeof (window as any).__sentinelBarrier?.release === 'function');
+
+    await sideLink(page, /匯入學生/).click();
+
+    await page.evaluate(() => (window as any).__sentinelBarrier.release());
+    await page.waitForFunction(() => (window as any).__sentinelBarrier.popCount >= 1);
+
+    await expect(page, '舊 cleanup 不能把已要求的匯入學生導航退回課表').toHaveURL(/\/imports$/);
+    await expect(leaveDialog(page)).toHaveCount(0);
+  });
+
+  test('UX31 R2: Save／Cancel 結算期間立即再編輯，不誤彈離頁確認視窗且新草稿受保護', async ({ page }) => {
+    await installSentinelBarrier(page);
+    await page.goto('/');
+    await sideLink(page, /課表設定/).click();
+    await expect(page.locator('.schedule-grid-container')).toBeVisible({ timeout: 15000 });
+
+    // 1. 產生草稿
+    await page.getByRole('button', { name: '＋ 新增班級' }).click();
+    const form = page.locator('dialog.add-class-dialog form.add-session-panel');
+    const testName1 = `國小輔導-r2-1-${Date.now().toString().slice(-4)}`;
+    await form.getByLabel('新增班級名稱').fill(testName1);
+    await form.getByRole('button', { name: '確認新增' }).click();
+    await expect(page.locator('.save-status-dirty')).toBeVisible();
+
+    // 2. 啟用 barrier
+    await page.evaluate(() => {
+      (window as any).__sentinelBarrier.enabled = true;
+    });
+
+    // 3. 取消修改 (dirty -> false，history.go(-1) 被扣留)
+    await page.getByRole('button', { name: '取消修改', exact: true }).click();
+    await expect(page.locator('.save-status-dirty')).toHaveCount(0);
+    await expect(page.locator('.save-status-clean')).toBeVisible();
+    await page.waitForFunction(() => typeof (window as any).__sentinelBarrier?.release === 'function');
+
+    // 4. 立即再次編輯！(dirty 重新轉為 true)
+    await page.getByRole('button', { name: '＋ 新增班級' }).click();
+    const testName2 = `國小輔導-r2-2-${Date.now().toString().slice(-4)}`;
+    await form.getByLabel('新增班級名稱').fill(testName2);
+    await form.getByRole('button', { name: '確認新增' }).click();
+    await expect(page.locator('.save-status-dirty')).toBeVisible();
+
+    // 5. 放行上一輪的 history.go(-1)
+    await page.evaluate(() => (window as any).__sentinelBarrier.release());
+    await page.waitForFunction(() => (window as any).__sentinelBarrier.popCount >= 1);
+
+    // 6. 斷言：上一輪的 popstate 不得誤判為使用者按 Back，離頁視窗必須為 0！
+    await expect(leaveDialog(page), '結算期間立即再編輯不應誤彈離頁確認視窗').toHaveCount(0);
+
+    // 7. 新草稿受保護：此時點側欄離開，必須跳出確認視窗！
+    await sideLink(page, /匯入學生/).click();
+    await expect(leaveDialog(page), '新草稿仍受保護，點離開需彈出確認視窗').toBeVisible();
+
+    // 8. 捨棄修改：只導航一次到匯入頁
+    await discardChanges(page).click();
+    await expect(page).toHaveURL(/\/imports$/);
+  });
+
+  test('UX31 R3: dirty 期間按「顯示全部班級」清除 ?class= 焦點後 Save／Cancel，不復活舊焦點參數', async ({ page }) => {
+    // 1. 帶 ?class= 進入課表
+    await openClassSchedule(page, '兒童美語-Gino');
+    await expect(page.locator('[data-focus-class]')).toBeVisible();
+
+    // 2. 修改時段產生 dirty (確保值不同於現況)
+    const startInputBox = await startInput(page);
+    const currentVal = await startInputBox.inputValue();
+    const nextVal = currentVal === '15:45' ? '14:30' : '15:45';
+    await startInputBox.click();
+    await startInputBox.fill(nextVal);
+    await expect(dirtyBar(page)).toBeVisible();
+
+    // 3. 點擊「顯示全部班級」清除焦點（URL 移除 class 參數）
+    await page.locator('button', { hasText: '顯示全部班級' }).click();
+    await expect(page.locator('[data-focus-class]')).toHaveCount(0);
+    expect(page.url()).not.toContain('class=');
+
+    // 4. 取消修改（或儲存）
+    await page.locator('button', { hasText: '取消修改' }).click();
+    await expect(dirtyBar(page)).toHaveCount(0);
+    await expect(page.locator('.save-status-clean')).toBeVisible();
+
+    // 5. 斷言：結算完成後，網址列絕不得復活 ?class= 舊參數
+    expect(page.url(), '結算退回 base 不應復活已清除的 class 參數').not.toContain('class=');
+
+    // 6. 重新整理後仍應為全部班級（不退回單班聚焦）
+    await page.reload();
+    await expect(page.locator('.schedule-grid-container')).toBeVisible({ timeout: 15000 });
+    expect(page.url()).not.toContain('class=');
+    await expect(page.locator('[data-focus-class]')).toHaveCount(0);
   });
 });
