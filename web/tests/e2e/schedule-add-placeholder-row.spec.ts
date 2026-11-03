@@ -100,10 +100,11 @@ test.describe('#82 & D61 1c: 新增班級僅班名必填與未填時間雙重警
     await expect(name).toBeFocused();
     await expect(dialog.getByLabel('新增班級課程類型')).toHaveCount(0);
     await name.fill('只存在對話框的班');
-    for (let step = 0; step < 12; step += 1) {
-      await page.keyboard.press('Tab');
-      expect(await dialog.evaluate((element) => element.contains(document.activeElement))).toBe(true);
-    }
+    const submit = dialog.getByRole('button', { name: '確認新增' });
+    await submit.focus();
+    await page.keyboard.press('Tab');
+    expect(await dialog.evaluate((element) => element.contains(document.activeElement))).toBe(true);
+    await expect(dialog.getByRole('button', { name: '關閉新增視窗' })).toBeFocused();
     await expect(page.locator('tr.schedule-row', { has: page.locator('input[value="只存在對話框的班"]') })).toHaveCount(0);
 
     // Native modal backdrop receives the click; the dialog stays open and does not submit.
@@ -193,8 +194,8 @@ test.describe('#82 & D61 1c: 新增班級僅班名必填與未填時間雙重警
         await expect(skip.locator('input[value="true"]')).toBeChecked({ checked: item.skipDefault ?? false });
       }
       await expect(dialog.getByLabel('新增星期')).toHaveCount(item.schedulable ? 1 : 0);
-      await expect(dialog.getByLabel('新增起始時間')).toHaveCount(item.schedulable ? 1 : 0);
-      await expect(dialog.getByLabel('新增結束時間')).toHaveCount(item.schedulable ? 1 : 0);
+      await expect(dialog.getByRole('textbox', { name: '新增起始時間' })).toHaveCount(item.schedulable ? 1 : 0);
+      await expect(dialog.getByRole('textbox', { name: '新增結束時間' })).toHaveCount(item.schedulable ? 1 : 0);
 
       await dialog.getByRole('button', { name: '取消新增' }).click();
       await expect(dialog).toBeHidden();
@@ -298,6 +299,8 @@ test.describe('#82 & D61 1c: 新增班級僅班名必填與未填時間雙重警
     await hours.press('Home');
     await expect(start).toHaveValue('00:20');
     await expect(row.locator('[data-pending-time-error]')).toHaveCount(0);
+    await hours.focus();
+    await expect(hours).toBeFocused();
     await page.keyboard.press('Escape');
     await expect(popover).toBeHidden();
     await expect(start).toBeFocused();
@@ -487,6 +490,8 @@ test.describe('#82 & D61 1c: 新增班級僅班名必填與未填時間雙重警
     const end = row.locator('input.input-time').last();
     await expect(start).toHaveValue('15:20');
     await expect(end).toHaveValue('16:50');
+    await expect(calcCell(page, '兒童美語-Gino', 'anqin-overlap')).toHaveText('40', { timeout: 10000 });
+    await expect(calcCell(page, '兒童美語-Gino', 'tutoring-overlap')).toHaveText('20');
     let calculateRequests = 0;
     page.on('request', (request) => {
       if (request.url().includes('/api/v1/settings/calculate') && request.method() === 'POST') calculateRequests += 1;
@@ -509,6 +514,11 @@ test.describe('#82 & D61 1c: 新增班級僅班名必填與未填時間雙重警
 
     await start.fill('15:20');
     await expect(row.locator('[data-pending-time-error]')).toHaveCount(0);
+    const restoredRequest = page.waitForRequest((request) =>
+      request.url().includes('/api/v1/settings/calculate') && request.method() === 'POST'
+    );
+    await page.clock.fastForward(500);
+    await restoredRequest;
     await expect(cell('anqin-overlap')).toHaveText('40', { timeout: 10000 });
     await expect(cell('tutoring-overlap')).toHaveText('20');
 
@@ -653,8 +663,8 @@ test.describe('#82 & D61 1c: 新增班級僅班名必填與未填時間雙重警
     const form = page.locator('dialog.add-class-dialog form.add-session-panel');
     await form.getByLabel('新增班級名稱').fill(className);
     await form.getByLabel('新增星期').selectOption('一');
-    await form.getByLabel('新增起始時間').fill('15:20');
-    await form.getByLabel('新增結束時間').fill('16:50');
+    await form.getByRole('textbox', { name: '新增起始時間' }).fill('15:20');
+    await form.getByRole('textbox', { name: '新增結束時間' }).fill('16:50');
     await form.getByRole('button', { name: '確認新增' }).click();
     const row = classRows(page, className).first();
     const start = row.locator('input.input-time').first();
