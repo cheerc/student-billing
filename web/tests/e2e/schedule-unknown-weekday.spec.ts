@@ -145,7 +145,7 @@ test.describe('UX07（修訂）：未知／空白星期與 calculate 失敗不�
     await importLegacyWeekday(page, '八');
     await expect.poll(() => held, { timeout: 5000 }).toBe(true);
     await expectDashedCells(cell);
-    await expect(cell('anqin-overlap').locator('.calc-value')).not.toHaveText('40');
+    await expect(cell('anqin-overlap').locator('.calc-value')).toHaveCount(0);
 
     release();
     await expect(cell('anqin-overlap').getByRole('button', { name: '需確認原因' })).toBeVisible({ timeout: 10000 });
@@ -227,8 +227,8 @@ test.describe('UX07（修訂）：未知／空白星期與 calculate 失敗不�
     await expect(alert).toContainText('無法計算');
     await expect(alert).toContainText('不代表沒有衝堂');
     await expectDashedCells(cell);
-    await expect(cell('anqin-overlap').locator('.calc-value')).not.toHaveText('40');
-    await expect(cell('anqin-overlap').locator('.calc-value')).not.toHaveText('0');
+    await expect(cell('anqin-overlap').locator('.calc-value')).toHaveCount(0);
+    await expect(cell('anqin-overlap').locator('.calc-unit')).toHaveCount(0);
     // 失敗說明不外露工程字（copy-scan 同規則）
     await expect(alert).not.toContainText(/500|boom|API|JSON/);
 
@@ -259,7 +259,7 @@ test.describe('UX07（修訂）：未知／空白星期與 calculate 失敗不�
     const pendingError = page.locator('[data-pending-time-error]');
     await expect(pendingError).toBeVisible();
     await expect(pendingError).toContainText(/修正|完成|復原/);
-    await expect(cell('anqin-overlap').locator('.calc-value')).not.toHaveText('40');
+    await expect(cell('anqin-overlap').locator('.calc-value')).toHaveCount(0);
     await expect(cell('anqin-overlap')).toContainText(/—|需修正/);
 
     // Parent-owned pending draft survives both the settings tab remount and class-type tabs.
