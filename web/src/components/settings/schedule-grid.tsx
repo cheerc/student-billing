@@ -7,8 +7,6 @@ import {
   CLASS_TYPE_ORDER,
   CLASS_TYPE_LABELS,
   isSchedulableClassType,
-  supportsMultiSubjectDiscount,
-  defaultSkipDeductionForClassType,
   DEFAULT_CARE_CLASS_NAMES,
 } from '@/contracts/settings';
 import { SEED_CLASS_TYPES } from '@/domain/schedules/seed-manifest';
@@ -17,18 +15,9 @@ import { InfoTip } from '@/components/ui/info-tip';
 import { type ClassAttributesView } from '@/domain/classification/class-attributes';
 import { TabList } from '@/components/ui/tabs';
 import { YesNoRadioGroup } from './yes-no-radio-group';
-
-/** 星期下拉的可選項（#82 另加「未定」，讓行政可以先建班名再排時間）。 */
-const WEEKDAY_OPTIONS: Array<{ value: string; label: string }> = [
-  { value: '', label: '未定' },
-  { value: '一', label: '週一' },
-  { value: '二', label: '週二' },
-  { value: '三', label: '週三' },
-  { value: '四', label: '週四' },
-  { value: '五', label: '週五' },
-  { value: '六', label: '週六' },
-  { value: '日', label: '週日' },
-];
+import { AddClassDialog } from './add-class-dialog';
+import { WEEKDAY_OPTIONS, WeekdaySelect } from './weekday-select';
+import { TimeRangeEditor, type PendingTimeDraft } from './time-range-editor';
 
 export interface ScheduleGridProps {
   rows: ScheduleGridRow[];
@@ -38,7 +27,9 @@ export interface ScheduleGridProps {
     row: Omit<ScheduleGridRow, 'rowId'>,
     classType?: ClassType | 'non_care',
     options?: { initialCategory?: 'unset'; hasMultiSubjectDiscount?: boolean; fixedFiveDays?: boolean }
-  ) => void;
+  ) => string | null | void;
+  pendingTimeDrafts?: ReadonlyMap<string, PendingTimeDraft>;
+  onPendingTimeChange?: (rowId: string, pending: PendingTimeDraft | null) => void;
   calculating: boolean;
   calculateResult: CalculatePreviewResponse | null;
   calculateInputRows?: ScheduleGridRow[] | null;
@@ -52,6 +43,7 @@ export interface ScheduleGridProps {
   onSelectClassType?: (classType: ClassType) => void;
   search?: string;
   showAddForm?: boolean;
+  addDialogOpener?: HTMLElement | null;
   onShowAddFormChange?: (open: boolean) => void;
   classAttributes?: Map<string, ClassAttributesView>;
   onSelectCategory?: (className: string, category: any) => void;
@@ -102,6 +94,8 @@ export function ScheduleGrid({
   focusedRowIds,
   onClearFocus,
   initialClassTypeTab = 'care',
+  pendingTimeDrafts,
+  onPendingTimeChange,
   classAttributes,
   onSelectCategory,
   onToggleMultiDiscount,
@@ -110,6 +104,7 @@ export function ScheduleGrid({
   onSelectClassType,
   search = '',
   showAddForm = false,
+  addDialogOpener = null,
   onShowAddFormChange,
   importError = null,
 }: ScheduleGridProps) {
@@ -161,29 +156,10 @@ export function ScheduleGrid({
   // 生產頁面傳入受控選取值；本地狀態僅供獨立 ScheduleGrid 渲染測試使用。
   const [localActiveTypeTab, setLocalActiveTypeTab] = useState<ClassType>(initialTab);
   const activeTypeTab = selectedClassType ?? localActiveTypeTab;
-  const [newClassName, setNewClassName] = useState('');
-  const [newTeacher, setNewTeacher] = useState('');
-  const [newWeekday, setNewWeekday] = useState('');
-  const [newStartTime, setNewStartTime] = useState('');
-  const [newEndTime, setNewEndTime] = useState('');
-  const [newHasMulti, setNewHasMulti] = useState(() =>
-    supportsMultiSubjectDiscount(selectedClassType ?? initialTab)
-  );
-  const [newFixedFive, setNewFixedFive] = useState(false);
-  const [newSkipDeduction, setNewSkipDeduction] = useState(() =>
-    defaultSkipDeductionForClassType(selectedClassType ?? initialTab)
-  );
-
-  const resetNewClassTypeDefaults = useCallback((type: ClassType) => {
-    setNewHasMulti(supportsMultiSubjectDiscount(type));
-    setNewFixedFive(false);
-    setNewSkipDeduction(defaultSkipDeductionForClassType(type));
-  }, []);
 
   const handleSelectType = (type: ClassType) => {
     setLocalActiveTypeTab(type);
     onSelectClassType?.(type);
-    resetNewClassTypeDefaults(type);
   };
 
   const resultMap = useMemo(() => {
@@ -316,41 +292,6 @@ export function ScheduleGrid({
     onClearFocus?.();
   };
 
-  const handleCreateSession = (e: React.FormEvent) => {
-    e.preventDefault();
-
-    const name = newClassName.trim();
-    if (!name) return;
-
-    const isSchedulable = isSchedulableClassType(activeTypeTab);
-
-    onAddRow(
-      {
-        className: name,
-        teacher: newTeacher.trim() || null,
-        weekday: !isSchedulable ? '' : newWeekday,
-        startTime: !isSchedulable ? '' : newStartTime,
-        endTime: !isSchedulable ? '' : newEndTime,
-        startMinutes: null,
-        endMinutes: null,
-        active: true,
-        skipDeduction: !isSchedulable ? false : newSkipDeduction,
-      },
-      activeTypeTab,
-      {
-        hasMultiSubjectDiscount: newHasMulti,
-        fixedFiveDays: newFixedFive,
-      }
-    );
-
-    setNewClassName('');
-    setNewTeacher('');
-    setNewWeekday('');
-    setNewStartTime('');
-    setNewEndTime('');
-    onShowAddFormChange?.(false);
-  };
-
   return (
     <div className="card schedule-grid-container">
       {/* D61：5 個課程類型頁籤與條件篩選同列 */}
@@ -440,134 +381,14 @@ export function ScheduleGrid({
         </div>
       )}
 
-      {/* 新增班級表單（動態支援五種課程類型） */}
       {showAddForm && (
-        <form onSubmit={handleCreateSession} className="add-session-panel" aria-label="新增班級表單">
-          <div className="form-row">
-            <label>
-              <span>課程類型 *</span>
-              <select
-                value={activeTypeTab}
-                onChange={(e) => handleSelectType(e.target.value as ClassType)}
-                aria-label="新增班級課程類型"
-              >
-                {CLASS_TYPE_ORDER.map((type) => (
-                  <option key={type} value={type}>
-                    {CLASS_TYPE_LABELS[type]}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label>
-              <span>班級名稱 *</span>
-              <input
-                type="text"
-                value={newClassName}
-                onChange={(e) => setNewClassName(e.target.value)}
-                placeholder="例如：平日作文班"
-                aria-label="新增班級名稱"
-                required
-              />
-            </label>
-            <label>
-              <span>帶班老師</span>
-              <input
-                type="text"
-                value={newTeacher}
-                onChange={(e) => setNewTeacher(e.target.value)}
-                placeholder="例如：張老師"
-                aria-label="新增帶班老師"
-              />
-            </label>
-
-            {/* 是否有多科折扣：僅 care, english, math 出現 */}
-            {supportsMultiSubjectDiscount(activeTypeTab) && (
-              <label>
-                <span>是否有多科折扣</span>
-                <YesNoRadioGroup
-                  label="新增班級是否有多科折扣"
-                  name="new-multi-discount"
-                  value={newHasMulti}
-                  onChange={setNewHasMulti}
-                />
-              </label>
-            )}
-
-            {/* 天數固定 5 天：僅 care 出現 */}
-            {activeTypeTab === 'care' && (
-              <label>
-                <span>天數固定 5 天</span>
-                <YesNoRadioGroup
-                  label="新增班級天數固定5天"
-                  name="new-fixed-five"
-                  value={newFixedFive}
-                  onChange={setNewFixedFive}
-                />
-              </label>
-            )}
-
-            {/* 不計扣天：僅 english, math, other 出現 */}
-            {isSchedulableClassType(activeTypeTab) && (
-              <label>
-                <span>不計扣天</span>
-                <YesNoRadioGroup
-                  label="新增時段不計扣天"
-                  name="new-skip-deduction"
-                  value={newSkipDeduction}
-                  onChange={setNewSkipDeduction}
-                />
-              </label>
-            )}
-
-            {/* 星期與起訖時間：僅排課類型出現 */}
-            {isSchedulableClassType(activeTypeTab) && (
-              <>
-                <label>
-                  <span>星期</span>
-                  <select
-                    value={newWeekday}
-                    onChange={(e) => setNewWeekday(e.target.value)}
-                    aria-label="新增星期"
-                  >
-                    {WEEKDAY_OPTIONS.map((o) => (
-                      <option key={o.value} value={o.value}>
-                        {o.label}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label>
-                  <span>起始時間</span>
-                  <input
-                    type="text"
-                    value={newStartTime}
-                    onChange={(e) => setNewStartTime(e.target.value)}
-                    placeholder="HH:mm"
-                    aria-label="新增起始時間"
-                  />
-                </label>
-                <label>
-                  <span>結束時間</span>
-                  <input
-                    type="text"
-                    value={newEndTime}
-                    onChange={(e) => setNewEndTime(e.target.value)}
-                    placeholder="HH:mm"
-                    aria-label="新增結束時間"
-                  />
-                </label>
-              </>
-            )}
-
-            <button
-              type="submit"
-              className="btn-primary"
-              style={{ alignSelf: 'flex-end' }}
-            >
-              確認新增
-            </button>
-          </div>
-        </form>
+        <AddClassDialog
+          open={showAddForm}
+          selectedClassType={activeTypeTab}
+          opener={addDialogOpener}
+          onOpenChange={(open) => onShowAddFormChange?.(open)}
+          onAddRow={(row, classType, options) => onAddRow(row, classType, options) ?? null}
+        />
       )}
 
       {/* 依頁籤分離渲染表格 */}
@@ -789,12 +610,14 @@ export function ScheduleGrid({
                 displayedTabRows.map((r, idx) => {
                   const isFirstOfClass =
                     idx === 0 || displayedTabRows[idx - 1].className !== r.className;
-                  const calcRow = resultMap.get(r.rowId);
+                  const pendingTime = pendingTimeDrafts?.get(r.rowId);
+                  const calcRow = pendingTime ? undefined : resultMap.get(r.rowId);
                   const className = r.className.trim();
                   const attr = classAttributes?.get(className);
                   const attrsDisabled = !classAttributes;
 
                   const isTimeIncomplete =
+                    Boolean(pendingTime) ||
                     r.startMinutes === null ||
                     r.endMinutes === null ||
                     r.endMinutes <= r.startMinutes;
@@ -813,9 +636,10 @@ export function ScheduleGrid({
                   return (
                     <tr
                       key={r.rowId}
+                      data-row-id={r.rowId}
                       className={`schedule-row ${isFirstOfClass ? 'class-group-start' : ''} ${
                         !r.active ? 'row-inactive' : ''
-                      } ${isTimeIncomplete ? 'row-incomplete' : ''} ${isUnknownWeekday ? 'row-unknown-weekday' : ''}`}
+                      } ${isTimeIncomplete ? 'row-incomplete' : ''} ${isUnknownWeekday ? 'row-unknown-weekday' : ''} ${pendingTime ? 'row-pending-time' : ''}`}
                     >
                       {/* 1. 班級名稱 */}
                       <td className="col-classname sticky-col">
@@ -869,37 +693,30 @@ export function ScheduleGrid({
 
                       {/* 5. 星期（待補時套用 .input-missing） */}
                       <td className="col-weekday">
-                        <input
-                          type="text"
+                        <WeekdaySelect
                           className={`input-weekday ${missingWeekday ? 'input-missing' : ''}`}
-                          placeholder="未定"
                           value={r.weekday}
-                          onChange={(e) => onUpdateRow(r.rowId, { weekday: e.target.value })}
                           aria-label={`星期 第 ${idx + 1} 列`}
+                          onChange={(weekday) => onUpdateRow(r.rowId, { weekday })}
                         />
                       </td>
 
                       {/* 6. 上課時間 (起 — 迄) */}
                       <td className="col-time">
-                        <div className="time-inputs-pair">
-                          <input
-                            type="text"
-                            className={`input-time ${missingStart ? 'input-missing' : ''}`}
-                            placeholder="HH:mm"
-                            value={r.startTime}
-                            onChange={(e) => onUpdateRow(r.rowId, { startTime: e.target.value })}
-                            aria-label={`起始時間 第 ${idx + 1} 列`}
-                          />
-                          <span className="time-separator">—</span>
-                          <input
-                            type="text"
-                            className={`input-time ${missingEnd ? 'input-missing' : ''}`}
-                            placeholder="HH:mm"
-                            value={r.endTime}
-                            onChange={(e) => onUpdateRow(r.rowId, { endTime: e.target.value })}
-                            aria-label={`結束時間 第 ${idx + 1} 列`}
-                          />
-                        </div>
+                        <TimeRangeEditor
+                          value={{ startTime: r.startTime, endTime: r.endTime }}
+                          pending={pendingTime}
+                          onPendingChange={(pending) => onPendingTimeChange?.(r.rowId, pending)}
+                          onCommit={(range) => onUpdateRow(r.rowId, range)}
+                          startLabel={`起始時間 第 ${idx + 1} 列`}
+                          endLabel={`結束時間 第 ${idx + 1} 列`}
+                          startTriggerLabel={`設定起始時間 第 ${idx + 1} 列`}
+                          endTriggerLabel={`設定結束時間 第 ${idx + 1} 列`}
+                          startSliderLabel={`起始時間 第 ${idx + 1} 列`}
+                          endSliderLabel={`結束時間 第 ${idx + 1} 列`}
+                          startClassName={`input-time ${missingStart ? 'input-missing' : ''}`}
+                          endClassName={`input-time ${missingEnd ? 'input-missing' : ''}`}
+                        />
                       </td>
 
                       {/* 7. 課程時長（未填時間顯示高對比「待補時間」徽章 1c） */}
