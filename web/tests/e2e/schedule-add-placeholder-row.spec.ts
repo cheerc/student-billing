@@ -325,6 +325,7 @@ test.describe('#82 & D61 1c: 新增班級僅班名必填與未填時間雙重警
 
     // Escape while a real pointer preview is still dirty must commit before dismissal.
     await end.fill('16:50');
+    await end.click();
     const escapePopover = row.locator('[data-time-popover="end"]').first();
     const escapeHours = escapePopover.getByRole('slider', { name: '結束時間 第 1 列 小時' });
     const escapeBox = await escapeHours.boundingBox();
@@ -437,7 +438,8 @@ test.describe('#82 & D61 1c: 新增班級僅班名必填與未填時間雙重警
       const input = rows.item(rows.length - 1)?.querySelector('input.input-time');
       if (!input) throw new Error('Scrollable schedule table has no last-row time input');
       const inputRect = input.getBoundingClientRect();
-      element.scrollLeft = Math.min(maxLeft, Math.max(0, element.scrollLeft + inputRect.right - window.innerWidth + 12));
+      const scrollerRect = element.getBoundingClientRect();
+      element.scrollLeft = Math.min(maxLeft, Math.max(0, element.scrollLeft + inputRect.right - scrollerRect.right + 20));
       return { maxLeft, maxTop, scrollLeft: element.scrollLeft, scrollTop: element.scrollTop };
     });
     expect(scrollBefore.maxLeft).toBeGreaterThan(0);

@@ -8,7 +8,7 @@ import {
   openClassScheduleFull,
   sideLink,
 } from './helpers/c-batch';
-import { reloadSettings, saveSettings } from './helpers/d2c-settings';
+import { reloadSettings, resetSeedSettings, saveSettings } from './helpers/d2c-settings';
 import { buildSeedGridRows, gridRowsToClasses } from '../../src/contracts/settings';
 
 /**
@@ -95,6 +95,10 @@ async function expectDashedCells(cell: CalcCell) {
 }
 
 test.describe('UX07（修訂）：未知／空白星期與 calculate 失敗不冒充「沒有衝堂」', () => {
+  test.beforeEach(async ({ page }) => {
+    await resetSeedSettings(page);
+  });
+
   test('(1) 非空非法星期「八」：可聚焦的「需確認」警告、原因可讀、舊值 40／20 不冒充；合法週六仍為 0', async ({ page }) => {
     const { row, cell } = await openSchedule(page);
     await importLegacyWeekday(page, '八');
@@ -169,8 +173,26 @@ test.describe('UX07（修訂）：未知／空白星期與 calculate 失敗不�
 
   test('(2b) 合成舊星期修正為「未定」後，重載仍是空值而不是舊異常選項', async ({ page }) => {
     await openSchedule(page);
-    await importLegacyWeekday(page, '八');
-    const row = classRows(page, CLASS).first();
+    // Keep the saved fixture to one uniquely named session: serialization may regroup rows and
+    // regenerate rowIds, so the assertion must follow semantic identity instead of old row order.
+    const className = 'PR2 未知星期修正班';
+    const seedRow = buildSeedGridRows().find((candidate) => candidate.className === CLASS);
+    if (!seedRow) throw new Error(`Synthetic seed fixture has no class named ${CLASS}`);
+    const legacyRow = { ...seedRow, rowId: 'legacy-weekday-remount', className, weekday: '八' };
+    const classes = gridRowsToClasses([legacyRow]);
+    await importScheduleRowsFixture(
+      page,
+      [legacyRow],
+      classes.map((item) => ({
+        className: item.baseName,
+        classType: 'english',
+        hasMultiSubjectDiscount: true,
+        category: 'english',
+        categorySource: 'manual',
+        fixedFiveDays: false,
+      }))
+    );
+    const row = classRows(page, className).first();
     const weekday = row.locator('select.input-weekday');
     await expect(weekday).toHaveValue('八');
     await expect(weekday.locator('option:checked')).toHaveText('需確認：八');
@@ -183,7 +205,7 @@ test.describe('UX07（修訂）：未知／空白星期與 calculate 失敗不�
     await reloadSettings(page);
     await page.locator('#class-type-tab-english').click();
 
-    const reloadedWeekday = classRows(page, CLASS).first().locator('select.input-weekday');
+    const reloadedWeekday = classRows(page, className).first().locator('select.input-weekday');
     await expect(reloadedWeekday).toHaveValue('');
     await expect(reloadedWeekday.locator('option:checked')).toHaveText('未定');
     await expect(reloadedWeekday.locator('option[value="八"]')).toHaveCount(0);
