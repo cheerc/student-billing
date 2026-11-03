@@ -491,8 +491,8 @@ test.describe('#82 & D61 1c: 新增班級僅班名必填與未填時間雙重警
     const end = row.locator('input.input-time').last();
     await expect(start).toHaveValue('15:20');
     await expect(end).toHaveValue('16:50');
-    await expect(calcCell(page, '兒童美語-Gino', 'anqin-overlap')).toHaveText('40', { timeout: 10000 });
-    await expect(calcCell(page, '兒童美語-Gino', 'tutoring-overlap')).toHaveText('20');
+    await expect(calcCell(page, '兒童美語-Gino', 'anqin-overlap').locator('.calc-value')).toHaveText('40', { timeout: 10000 });
+    await expect(calcCell(page, '兒童美語-Gino', 'tutoring-overlap').locator('.calc-value')).toHaveText('20');
     let calculateRequests = 0;
     page.on('request', (request) => {
       if (request.url().includes('/api/v1/settings/calculate') && request.method() === 'POST') calculateRequests += 1;
@@ -520,8 +520,8 @@ test.describe('#82 & D61 1c: 新增班級僅班名必填與未填時間雙重警
     );
     await page.clock.fastForward(500);
     await restoredRequest;
-    await expect(cell('anqin-overlap')).toHaveText('40', { timeout: 10000 });
-    await expect(cell('tutoring-overlap')).toHaveText('20');
+    await expect(cell('anqin-overlap').locator('.calc-value')).toHaveText('40', { timeout: 10000 });
+    await expect(cell('tutoring-overlap').locator('.calc-value')).toHaveText('20');
 
     const requestsBeforeInverted = calculateRequests;
     await start.fill('17:00');
@@ -533,8 +533,8 @@ test.describe('#82 & D61 1c: 新增班級僅班名必填與未填時間雙重警
 
     await start.fill('15:20');
     await expect(row.locator('[data-pending-time-error]')).toHaveCount(0);
-    await expect(cell('anqin-overlap')).toHaveText('40', { timeout: 10000 });
-    await expect(cell('tutoring-overlap')).toHaveText('20');
+    await expect(cell('anqin-overlap').locator('.calc-value')).toHaveText('40', { timeout: 10000 });
+    await expect(cell('tutoring-overlap').locator('.calc-value')).toHaveText('20');
   });
 
   test('UX119: slider preview does not recalculate on pointer moves and commits once on release', async ({ page }) => {

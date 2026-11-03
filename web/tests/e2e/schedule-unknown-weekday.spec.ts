@@ -50,8 +50,8 @@ async function openSchedule(page: Page): Promise<{ row: Locator; cell: CalcCell 
   // 需要整張表（同頁籤鄰班也用得到），因此不用 ?class= 的聚焦模式。
   const row = await openClassScheduleFull(page, CLASS);
   const cell: CalcCell = (name) => calcCell(page, CLASS, name);
-  await expect(cell('anqin-overlap')).toHaveText('40', { timeout: 10000 }); // 初始結果（seed 課表）
-  await expect(cell('tutoring-overlap')).toHaveText('20');
+  await expect(cell('anqin-overlap').locator('.calc-value')).toHaveText('40', { timeout: 10000 }); // 初始結果（seed 課表）
+  await expect(cell('tutoring-overlap').locator('.calc-value')).toHaveText('20');
   return { row, cell };
 }
 
@@ -82,8 +82,8 @@ async function importLegacyWeekday(page: Page, weekday: string): Promise<void> {
 async function expectNeedsReviewCells(cell: CalcCell) {
   for (const name of CALC_COLUMNS) {
     await expect(cell(name)).toContainText('需確認');
-    await expect(cell(name)).not.toHaveText('0');
-    await expect(cell(name)).not.toHaveText('40');
+    await expect(cell(name).locator('.calc-value')).toHaveCount(0);
+    await expect(cell(name).locator('.calc-unit')).toHaveCount(0);
   }
 }
 
@@ -124,8 +124,8 @@ test.describe('UX07（修訂）：未知／空白星期與 calculate 失敗不�
 
     // 合法週六：已驗證與週一至五窗口無交集 → 0，沒有警告
     await row.locator('select.input-weekday').selectOption('六');
-    await expect(cell('anqin-overlap')).toHaveText('0', { timeout: 10000 });
-    await expect(cell('tutoring-overlap')).toHaveText('0');
+    await expect(cell('anqin-overlap').locator('.calc-value')).toHaveText('0', { timeout: 10000 });
+    await expect(cell('tutoring-overlap').locator('.calc-value')).toHaveText('0');
     await expect(row.getByRole('button', { name: '需確認原因' })).toHaveCount(0);
     await expect(page.locator('[data-unknown-weekday-notice]')).toHaveCount(0);
   });
@@ -145,7 +145,7 @@ test.describe('UX07（修訂）：未知／空白星期與 calculate 失敗不�
     await importLegacyWeekday(page, '八');
     await expect.poll(() => held, { timeout: 5000 }).toBe(true);
     await expectDashedCells(cell);
-    await expect(cell('anqin-overlap')).not.toHaveText('40');
+    await expect(cell('anqin-overlap').locator('.calc-value')).not.toHaveText('40');
 
     release();
     await expect(cell('anqin-overlap').getByRole('button', { name: '需確認原因' })).toBeVisible({ timeout: 10000 });
@@ -227,8 +227,8 @@ test.describe('UX07（修訂）：未知／空白星期與 calculate 失敗不�
     await expect(alert).toContainText('無法計算');
     await expect(alert).toContainText('不代表沒有衝堂');
     await expectDashedCells(cell);
-    await expect(cell('anqin-overlap')).not.toHaveText('40');
-    await expect(cell('anqin-overlap')).not.toHaveText('0');
+    await expect(cell('anqin-overlap').locator('.calc-value')).not.toHaveText('40');
+    await expect(cell('anqin-overlap').locator('.calc-value')).not.toHaveText('0');
     // 失敗說明不外露工程字（copy-scan 同規則）
     await expect(alert).not.toContainText(/500|boom|API|JSON/);
 
@@ -242,7 +242,7 @@ test.describe('UX07（修訂）：未知／空白星期與 calculate 失敗不�
     // 恢復：改動即自動重算，失敗說明消失，數值是新結果（15:40 起 → 安親 20 分）
     await page.unroute(CALC_URL);
     await start.fill('15:40');
-    await expect(cell('anqin-overlap')).toHaveText('20', { timeout: 10000 });
+    await expect(cell('anqin-overlap').locator('.calc-value')).toHaveText('20', { timeout: 10000 });
     await expect(page.locator('[data-calculate-error]')).toHaveCount(0);
   });
 
@@ -259,7 +259,7 @@ test.describe('UX07（修訂）：未知／空白星期與 calculate 失敗不�
     const pendingError = page.locator('[data-pending-time-error]');
     await expect(pendingError).toBeVisible();
     await expect(pendingError).toContainText(/修正|完成|復原/);
-    await expect(cell('anqin-overlap')).not.toHaveText('40');
+    await expect(cell('anqin-overlap').locator('.calc-value')).not.toHaveText('40');
     await expect(cell('anqin-overlap')).toContainText(/—|需修正/);
 
     // Parent-owned pending draft survives both the settings tab remount and class-type tabs.
@@ -275,7 +275,7 @@ test.describe('UX07（修訂）：未知／空白星期與 calculate 失敗不�
     await page.getByRole('button', { name: '取消修改' }).click();
     await expect(start).toHaveValue(original);
     await expect(page.locator('.save-status-clean')).toBeVisible();
-    await expect(cell('anqin-overlap')).toHaveText('40');
+    await expect(cell('anqin-overlap').locator('.calc-value')).toHaveText('40');
   });
 
   test('(4b) pending-only edit activates the leave guard and deleting its row clears pending', async ({ page }) => {
@@ -397,7 +397,7 @@ test.describe('UX07（修訂）：未知／空白星期與 calculate 失敗不�
       has: page.locator('input.input-classname[value="兒童美語-Gino"]'),
     });
     await expect(importedRow.locator('input.input-time').first()).toHaveValue('15:20');
-    await expect(cell('anqin-overlap')).toHaveText('40', { timeout: 10000 });
+    await expect(cell('anqin-overlap').locator('.calc-value')).toHaveText('40', { timeout: 10000 });
 
     // A successful replacement that retains row identity must also replace slider-local preview state.
     const stableRowId = await importedRow.first().getAttribute('data-row-id');
