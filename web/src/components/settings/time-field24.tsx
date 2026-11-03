@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { timeStringToMinutes } from '@/contracts/settings';
 
 interface TimeParts {
@@ -21,6 +21,7 @@ function formatParts(parts: TimeParts): string {
 
 export interface TimeField24Props {
   value: string;
+  resetGeneration?: number;
   onChange: (value: string) => void;
   label: string;
   triggerLabel: string;
@@ -34,6 +35,7 @@ export interface TimeField24Props {
 /** A text HH:mm field paired with independent 24-hour and minute sliders in native popover UI. */
 export function TimeField24({
   value,
+  resetGeneration = 0,
   onChange,
   label,
   triggerLabel,
@@ -53,11 +55,16 @@ export function TimeField24({
   const commitPreviewRef = useRef<() => void>(() => undefined);
   const restoreFocusRef = useRef<() => void>(() => undefined);
   const sourceValueRef = useRef(value);
-  const [localParts, setLocalParts] = useState<{ sourceValue: string; parts: TimeParts }>(() => ({
+  const [localParts, setLocalParts] = useState<{ sourceValue: string; generation: number; parts: TimeParts }>(() => ({
     sourceValue: value,
+    generation: resetGeneration,
     parts: partsOf(value),
   }));
-  const parts = localParts.sourceValue === value ? localParts.parts : partsOf(value);
+  const parts = localParts.sourceValue === value && localParts.generation === resetGeneration
+    ? localParts.parts : partsOf(value);
+  useLayoutEffect(() => {
+    previewDirtyRef.current = false;
+  }, [resetGeneration]);
   const [popoverOpen, setPopoverOpen] = useState(false);
   const [popoverStyle, setPopoverStyle] = useState<React.CSSProperties>({});
 
@@ -88,7 +95,7 @@ export function TimeField24({
     if (popoverRef.current?.matches(':popover-open') || pendingOpenFrameRef.current !== null) return;
     const rect = anchor?.getBoundingClientRect();
     if (!rect || !popoverRef.current) return;
-    setLocalParts({ sourceValue: value, parts: partsOf(value) });
+    setLocalParts({ sourceValue: value, generation: resetGeneration, parts: partsOf(value) });
     const width = 250;
     const height = 170;
     const modalBounds = anchor?.closest('dialog.add-class-dialog')?.getBoundingClientRect();
@@ -165,7 +172,7 @@ export function TimeField24({
     const next = { ...parts, [key]: Number(rawValue) };
     if (!previewDirtyRef.current) onPreviewStart?.();
     previewDirtyRef.current = true;
-    setLocalParts({ sourceValue: value, parts: next });
+    setLocalParts({ sourceValue: value, generation: resetGeneration, parts: next });
   };
 
   return (
@@ -177,7 +184,7 @@ export function TimeField24({
         placeholder={placeholder}
         value={value}
         onChange={(event) => {
-          setLocalParts({ sourceValue: event.target.value, parts: partsOf(event.target.value) });
+          setLocalParts({ sourceValue: event.target.value, generation: resetGeneration, parts: partsOf(event.target.value) });
           onChange(event.target.value);
         }}
         onFocus={() => {

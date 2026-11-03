@@ -706,7 +706,7 @@ export function ScheduleGrid({
                       {/* 6. 上課時間 (起 — 迄) */}
                       <td className="col-time">
                         <TimeRangeEditor
-                          key={timeResetGeneration}
+                          resetGeneration={timeResetGeneration}
                           value={{ startTime: r.startTime, endTime: r.endTime }}
                           pending={pendingTime}
                           onPendingChange={(pending) => onPendingTimeChange?.(r.rowId, pending)}

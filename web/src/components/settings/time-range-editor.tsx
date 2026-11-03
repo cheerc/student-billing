@@ -20,6 +20,7 @@ export interface CommittedTimeRange {
 interface TimeRangeEditorProps {
   value: { startTime: string; endTime: string };
   pending?: PendingTimeDraft;
+  resetGeneration?: number;
   onPendingChange?: (pending: PendingTimeDraft | null) => void;
   onCommit: (value: CommittedTimeRange) => void;
   startLabel: string;
@@ -51,6 +52,7 @@ function validatePair(startTime: string, endTime: string): string | null {
 export function TimeRangeEditor({
   value,
   pending,
+  resetGeneration = 0,
   onPendingChange,
   onCommit,
   startLabel,
@@ -89,6 +91,7 @@ export function TimeRangeEditor({
       <div className="time-inputs-pair">
         <TimeField24
           value={startTime}
+          resetGeneration={resetGeneration}
           onChange={(nextValue) => update('startTime', nextValue)}
           label={startLabel}
           triggerLabel={startTriggerLabel}
@@ -104,6 +107,7 @@ export function TimeRangeEditor({
         <span className="time-separator">—</span>
         <TimeField24
           value={endTime}
+          resetGeneration={resetGeneration}
           onChange={(nextValue) => update('endTime', nextValue)}
           label={endLabel}
           triggerLabel={endTriggerLabel}
