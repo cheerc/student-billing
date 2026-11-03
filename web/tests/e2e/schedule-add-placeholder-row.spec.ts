@@ -1,5 +1,6 @@
 import { test, expect, type Page } from '@playwright/test';
-import { resetSeedSettings, saveSettings, reloadSettings } from './helpers/d2c-settings';
+import { resetSeedSettings, saveSettings, reloadSettings, setMultiDiscount } from './helpers/d2c-settings';
+import { classRows, openClassScheduleFull } from './helpers/c-batch';
 
 /**
  * #82 & D61 1c (UX108): 新增時段僅班名必填與未填時間雙重警示 E2E 驗收
@@ -132,5 +133,98 @@ test.describe('#82 & D61 1c: 新增班級僅班名必填與未填時間雙重警
     await expect
       .poll(async () => (await calcCellsText(page, '新開班-待排課')).join('|'), { timeout: 15000 })
       .not.toContain('—');
+  });
+
+  test('Issue #213: 同類型同屬性仍允許同名多時段', async ({ page }) => {
+    const className = '兒童美語-Gino';
+    const classSnapshots: Array<Record<string, unknown>> = [];
+    page.on('request', (request) => {
+      if (!request.url().includes('/api/v1/settings/calculate') || request.method() !== 'POST') return;
+      const body = request.postData();
+      if (!body) return;
+      try {
+        const payload = JSON.parse(body) as { draft?: { classes?: Array<Record<string, unknown>> } };
+        const item = payload.draft?.classes?.find((candidate) => candidate.baseName === className);
+        if (item) classSnapshots.push(item);
+      } catch {
+        // Ignore unrelated malformed request bodies; this listener only records the settings draft.
+      }
+    });
+
+    await openClassScheduleFull(page, className);
+    await page.locator('#class-type-tab-english').click();
+    await expect(classRows(page, className)).toHaveCount(3);
+    await expect.poll(() => classSnapshots.length).toBeGreaterThan(0);
+    const originalAttributes = classSnapshots.at(-1)!;
+    expect(originalAttributes.classType).toBe('english');
+    expect(originalAttributes.hasMultiSubjectDiscount).toBe(true);
+
+    await page.getByRole('button', { name: '＋ 新增班級' }).click();
+    const form = page.locator('form.add-session-panel');
+    await form.locator('select[aria-label="新增班級課程類型"]').selectOption('english');
+    await form.locator('input[aria-label="新增班級名稱"]').fill(className);
+    await form.getByRole('button', { name: '確認新增' }).click();
+
+    await expect(classRows(page, className)).toHaveCount(4);
+    await expect.poll(() => classSnapshots.at(-1)?.sessions?.length).toBe(4);
+    const updatedAttributes = classSnapshots.at(-1)!;
+    for (const key of ['classType', 'hasMultiSubjectDiscount', 'category', 'categorySource', 'fixedFiveDays']) {
+      expect(updatedAttributes[key], `${key} must be preserved when adding a same-attribute session`).toEqual(
+        originalAttributes[key]
+      );
+      expect(Object.prototype.hasOwnProperty.call(updatedAttributes, key)).toBe(
+        Object.prototype.hasOwnProperty.call(originalAttributes, key)
+      );
+    }
+  });
+
+  test('Issue #213: 同類型但多科折扣不同的同名新增被拒絕', async ({ page }) => {
+    const className = '兒童美語-Gino';
+    await openClassScheduleFull(page, className);
+    await page.locator('#class-type-tab-english').click();
+    await expect(classRows(page, className)).toHaveCount(3);
+    await setMultiDiscount(page, className, false);
+
+    await page.getByRole('button', { name: '＋ 新增班級' }).click();
+    const form = page.locator('form.add-session-panel');
+    await form.locator('select[aria-label="新增班級課程類型"]').selectOption('english');
+    await form.locator('input[aria-label="新增班級名稱"]').fill(className);
+    await form.getByRole('button', { name: '確認新增' }).click();
+
+    const conflict = page.getByRole('alert').filter({ hasText: className });
+    await expect(conflict).toBeVisible();
+    await expect(conflict).toContainText(/折扣|設定|衝突/);
+    await expect(page.getByLabel('新增班級名稱')).toHaveValue(className);
+    await expect(classRows(page, className)).toHaveCount(3);
+    await expect(page.getByRole('radiogroup', { name: `${className} 的是否有多科折扣` }).first()
+      .locator('input[value="false"]')).toBeChecked();
+  });
+
+  test('Issue #213: 不同類型與多科折扣衝突的同名新增被拒絕且原列不變', async ({ page }) => {
+    const className = '兒童美語-Gino';
+    await openClassScheduleFull(page, className);
+    await page.locator('#class-type-tab-english').click();
+    await expect(classRows(page, className)).toHaveCount(3);
+
+    // 特徵化既有 English=false 與 Add 預設=true 的衝突；teacher/time/skip 均是列層級。
+    await setMultiDiscount(page, className, false);
+    await page.locator('#class-type-tab-care').click();
+    await page.getByRole('button', { name: '＋ 新增班級' }).click();
+    const form = page.locator('form.add-session-panel');
+    await form.locator('select[aria-label="新增班級課程類型"]').selectOption('care');
+    await form.locator('input[aria-label="新增班級名稱"]').fill(className);
+    await form.getByRole('button', { name: '確認新增' }).click();
+
+    const conflict = page.getByRole('alert').filter({ hasText: className });
+    await expect(conflict).toBeVisible();
+    await expect(conflict).toContainText(/類型|設定|衝突/);
+    await expect(page.getByLabel('新增班級名稱')).toHaveValue(className);
+    await expect(classRows(page, className)).toHaveCount(0);
+
+    await page.getByRole('button', { name: /取消新增|取消/ }).click();
+    await page.locator('#class-type-tab-english').click();
+    await expect(classRows(page, className)).toHaveCount(3);
+    await expect(page.getByRole('radiogroup', { name: `${className} 的是否有多科折扣` }).first()
+      .locator('input[value="false"]')).toBeChecked();
   });
 });

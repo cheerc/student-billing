@@ -165,4 +165,28 @@ test.describe('UX07（修訂）：未知／空白星期與 calculate 失敗不�
     await expect(cell('anqin-overlap')).toHaveText('20', { timeout: 10000 });
     await expect(page.locator('[data-calculate-error]')).toHaveCount(0);
   });
+
+  test('(4) 半輸入時間保留在 pending，遮蔽舊結果並阻止確認與匯出；取消後還原', async ({ page }) => {
+    const { row, cell } = await openSchedule(page);
+    const start = row.locator('input.input-time').first();
+    const original = await start.inputValue();
+
+    await start.click();
+    await start.fill('1');
+    await page.keyboard.press('Escape');
+
+    await expect(start).toHaveValue('1');
+    const pendingError = page.locator('[data-pending-time-error]');
+    await expect(pendingError).toBeVisible();
+    await expect(pendingError).toContainText(/修正|完成|復原/);
+    await expect(cell('anqin-overlap')).not.toHaveText('40');
+    await expect(cell('anqin-overlap')).toContainText(/—|需修正/);
+    await expect(page.getByRole('button', { name: '確認變更' })).toBeDisabled();
+    await expect(page.locator('[data-schedule-export]')).toBeDisabled();
+
+    await page.getByRole('button', { name: '取消修改' }).click();
+    await expect(start).toHaveValue(original);
+    await expect(page.locator('.save-status-clean')).toBeVisible();
+    await expect(cell('anqin-overlap')).toHaveText('40');
+  });
 });
