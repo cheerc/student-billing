@@ -1,4 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
+import { writeFile } from 'node:fs/promises';
 import { resetSeedSettings, saveSettings, reloadSettings, setMultiDiscount } from './helpers/d2c-settings';
 import { classRows, openClassScheduleFull } from './helpers/c-batch';
 
@@ -126,7 +127,7 @@ test.describe('#82 & D61 1c: 新增班級僅班名必填與未填時間雙重警
     await expect(opener).toBeFocused();
   });
 
-  test('UX118: paired time field exposes 24-hour sliders and commits valid endpoint pairs atomically', async ({ page }) => {
+  test('UX118: paired time field exposes 24-hour sliders and commits valid endpoint pairs atomically', async ({ page }, testInfo) => {
     const rows = rowOf(page, '兒童美語-Gino');
     await page.locator('#class-type-tab-english').click();
     const row = rows.first();
@@ -211,6 +212,53 @@ test.describe('#82 & D61 1c: 新增班級僅班名必填與未填時間雙重警
     await expect(end).toHaveValue('00:00');
     await end.fill('23:59');
     await expect(row.locator('[data-pending-time-error]')).toHaveCount(0);
+
+    // Keep the colon-capable manual-entry affordance and popup fully in view at both target sizes.
+    const mobile = { width: 390, height: 844 };
+    await page.setViewportSize(mobile);
+    await start.fill('08:30');
+    await end.fill('08:45');
+    await expect(start).toHaveValue('08:30');
+    await expect(end).toHaveValue('08:45');
+
+    const geometry: Record<string, { left: number; top: number; right: number; bottom: number; width: number; height: number; hit: boolean }> = {};
+    for (const viewport of [{ name: 'desktop', width: 1440, height: 900 }, { name: 'mobile', ...mobile }]) {
+      await page.setViewportSize({ width: viewport.width, height: viewport.height });
+      if (viewport.name === 'mobile') await expect(start).toHaveAttribute('inputmode', 'text');
+      await start.click();
+      await expect(popover).toBeVisible();
+      const measured = await popover.evaluate((element) => {
+        const rect = element.getBoundingClientRect();
+        const target = document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2);
+        return {
+          left: rect.left,
+          top: rect.top,
+          right: rect.right,
+          bottom: rect.bottom,
+          width: window.innerWidth,
+          height: window.innerHeight,
+          hit: target === element || element.contains(target),
+        };
+      });
+      geometry[viewport.name] = measured;
+      expect(measured.left).toBeGreaterThanOrEqual(0);
+      expect(measured.top).toBeGreaterThanOrEqual(0);
+      expect(measured.right).toBeLessThanOrEqual(viewport.width);
+      expect(measured.bottom).toBeLessThanOrEqual(viewport.height);
+      expect(measured.hit).toBe(true);
+      await testInfo.attach(`time-popover-${viewport.name}.png`, {
+        body: await page.screenshot(),
+        contentType: 'image/png',
+      });
+      await page.screenshot({ path: testInfo.outputPath(`time-popover-${viewport.name}.png`) });
+      await page.mouse.click(2, 2);
+      await expect(popover).toBeHidden();
+    }
+    await writeFile(testInfo.outputPath('time-popover-geometry.json'), JSON.stringify(geometry, null, 2));
+    await testInfo.attach('time-popover-geometry.json', {
+      body: Buffer.from(JSON.stringify(geometry, null, 2)),
+      contentType: 'application/json',
+    });
     expect(pageErrors).toEqual([]);
   });
 
