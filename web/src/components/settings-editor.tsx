@@ -16,6 +16,7 @@ import {
   isSettingsDirty,
   supportsMultiSubjectDiscount,
   CLASS_TYPE_LABELS,
+  CLASS_TYPE_ORDER,
   type ClassAttributeSetting,
   type ClassType,
 } from '@/contracts/settings';
@@ -87,6 +88,15 @@ const CALCULATE_FAILED_MESSAGE = '無法計算重疊與扣除天數，請稍後�
  */
 const REPORT_REFRESH_FAILED_MESSAGE = '無法取得最新的班名比對報告。';
 
+function rowIdsForFocus(rows: ScheduleGridRow[], className: string | null): Set<string> {
+  const target = className?.trim();
+  return new Set(
+    target
+      ? rows.filter((row) => row.className.trim() === target).map((row) => row.rowId)
+      : []
+  );
+}
+
 /**
  * 自動重試間隔（毫秒）：第一次失敗後約 1s、第二次失敗後約 3s，之後交給使用者按鈕。
  * 測試可縮短（prop 注入）；單元測試以 0 等待，E2E 用真實間隔（總計 4s，不改用真 sleep 拉長）。
@@ -126,6 +136,29 @@ function mapsDiffer(
     }
   }
   return false;
+}
+
+function scheduleClassTypeForName(
+  className: string,
+  classes: ClassSetting[],
+  attributes?: ReadonlyMap<string, ClassAttributesView>
+): ClassType {
+  const normalizedName = className.trim();
+  const saved = classes.find((item) => item.baseName.trim() === normalizedName);
+  const classType = (attributes?.get(normalizedName) ?? resolveClassAttributes(normalizedName, saved)).classType;
+  return classType === 'non_care' ? 'other' : classType;
+}
+
+function initialScheduleClassType(
+  rows: ScheduleGridRow[],
+  classes: ClassSetting[],
+  focusClass: string | null
+): ClassType {
+  if (focusClass) return scheduleClassTypeForName(focusClass, classes);
+
+  const rowTypes = new Set(rows.map((row) => scheduleClassTypeForName(row.className, classes)));
+  if (rowTypes.has('care')) return 'care';
+  return CLASS_TYPE_ORDER.find((type) => rowTypes.has(type)) ?? 'care';
 }
 
 /**
@@ -195,6 +228,9 @@ export default function SettingsEditor({
   const [activeTab, setActiveTab] = useState<'schedule' | 'sync'>(() =>
     initialTab === 'mapping' || initialTab === 'sync' ? 'sync' : 'schedule'
   );
+  const [scheduleSearch, setScheduleSearch] = useState('');
+  const [isAddClassFormOpen, setIsAddClassFormOpen] = useState(false);
+  const scheduleImportInputRef = useRef<HTMLInputElement | null>(null);
   const [draft, setDraft] = useState<SettingsDraft>(initialDraft);
 
   // 追蹤班名同步暫存操作：erpBaseName -> systemBaseName (改名)
@@ -217,6 +253,12 @@ export default function SettingsEditor({
       : scheduleFocus.kind === 'focused'
         ? scheduleFocus.className
         : null;
+  const scheduleFocusClassRef = useRef(scheduleFocusClass);
+  useEffect(() => {
+    if (scheduleFocus.kind === 'initial') {
+      scheduleFocusClassRef.current = focusClass;
+    }
+  }, [focusClass, scheduleFocus.kind]);
 
   // 初始化平鋪排課時段列（對齊 S 表 89 筆）
   const initialRows = useMemo(() => {
@@ -226,6 +268,32 @@ export default function SettingsEditor({
   }, [initialDraft]);
 
   const [rows, setRows] = useState<ScheduleGridRow[]>(initialRows);
+  // A focus tracks the row identities captured when the target is chosen. Row names can change
+  // during editing, so membership must not be re-derived from the mutable className on each render.
+  const [scheduleFocusRowIds, setScheduleFocusRowIds] = useState<Set<string>>(() =>
+    rowIdsForFocus(initialRows, scheduleFocusClass)
+  );
+  const [selectedClassType, setSelectedClassType] = useState<ClassType>(() =>
+    initialScheduleClassType(initialRows, initialDraft.classes, focusClass)
+  );
+
+  const clearScheduleFocus = useCallback(() => {
+    scheduleFocusClassRef.current = null;
+    setScheduleFocus({ kind: 'cleared' });
+    setScheduleFocusRowIds(new Set());
+    try {
+      const url = new URL(window.location.href);
+      url.searchParams.delete('class');
+      window.history.replaceState({}, '', url.toString());
+    } catch {
+      // 容錯
+    }
+  }, []);
+
+  const handleScheduleSearchChange = useCallback((value: string) => {
+    setScheduleSearch(value);
+    if (value.trim() && scheduleFocusClass !== null) clearScheduleFocus();
+  }, [scheduleFocusClass, clearScheduleFocus]);
 
   /**
    * 手動指定的班級屬性（類別／固定 5 天）以「班名 → 四個欄位」存放。
@@ -404,6 +472,15 @@ export default function SettingsEditor({
       // 美語／數學班時會被系統自動套上多科折扣（10000 → 9500），違反 D17「不得替使用者陳述決定」。
       const hasMulti = supportsMultiSubjectDiscount(resolvedType);
       setRows(res.rows);
+      if (scheduleFocusClass?.trim() === erpBaseName.trim()) {
+        setScheduleFocusRowIds((current) => {
+          const next = new Set(current);
+          for (const row of res.rows) {
+            if (row.className.trim() === erpBaseName.trim()) next.add(row.rowId);
+          }
+          return next;
+        });
+      }
       setManualAttrs((prev) => {
         const next = new Map(prev);
         next.set(erpBaseName, {
@@ -420,7 +497,7 @@ export default function SettingsEditor({
     } catch (err: any) {
       showToast(err.message || '暫存新增失敗');
     }
-  }, [rows, showToast]);
+  }, [rows, scheduleFocusClass, showToast]);
 
   /** D62 Phase 2: 班名同步 — 復原單列暫存 */
   const handleUndoStaged = useCallback((erpBaseName: string) => {
@@ -446,6 +523,14 @@ export default function SettingsEditor({
       showToast(`已復原「${erpBaseName}」的同步暫存`);
     } else if (stagedNewClasses.has(erpBaseName)) {
       setRows((prev) => prev.filter((r) => r.className.trim() !== erpBaseName));
+      const stagedRowIds = new Set(
+        rows.filter((row) => row.className.trim() === erpBaseName).map((row) => row.rowId)
+      );
+      setScheduleFocusRowIds((current) => {
+        const next = new Set(current);
+        for (const rowId of stagedRowIds) next.delete(rowId);
+        return next;
+      });
       setManualAttrs((prev) => {
         const next = new Map(prev);
         next.delete(erpBaseName);
@@ -458,7 +543,7 @@ export default function SettingsEditor({
       });
       showToast(`已復原「${erpBaseName}」的新增暫存`);
     }
-  }, [stagedRenames, stagedNewClasses, baseline.aliases, showToast]);
+  }, [stagedRenames, stagedNewClasses, baseline.aliases, rows, showToast]);
 
   // 班級改散警告 (D28)
   const splitWarnings = useMemo(() => {
@@ -715,6 +800,12 @@ export default function SettingsEditor({
   // 刪除時段列
   const handleDeleteRow = (rowId: string) => {
     setRows((prev) => prev.filter((r) => r.rowId !== rowId));
+    setScheduleFocusRowIds((current) => {
+      if (!current.has(rowId)) return current;
+      const next = new Set(current);
+      next.delete(rowId);
+      return next;
+    });
     setPreview(null);
   };
 
@@ -733,6 +824,9 @@ export default function SettingsEditor({
       endMinutes: endMin,
     };
     setRows((prev) => [...prev, newRow]);
+    if (scheduleFocusClass?.trim() === newRow.className.trim()) {
+      setScheduleFocusRowIds((current) => new Set(current).add(newRow.rowId));
+    }
     if (classType) {
       const resolvedType: ClassType = classType === 'non_care' ? 'other' : classType;
       const className = row.className.trim();
@@ -856,6 +950,9 @@ export default function SettingsEditor({
       }>;
       const importedClasses = gridRowsToClasses(importedRows, draft.classes);
       setRows(importedRows);
+      // The user can change the focus while the request is in flight; bind the replacement rows
+      // to the target active when the import completes, not the target captured at request start.
+      setScheduleFocusRowIds(rowIdsForFocus(importedRows, scheduleFocusClassRef.current));
       setDraft((prev) => ({ ...prev, classes: importedClasses }));
       const nextAttrs = new Map<string, ClassAttributesView>();
       for (const a of importedAttrs) {
@@ -881,6 +978,7 @@ export default function SettingsEditor({
   // 還原到 baseline（取消修改與離頁時「捨棄修改」共用）
   const resetDraft = () => {
     setRows(baseline.rows);
+    setScheduleFocusRowIds(rowIdsForFocus(baseline.rows, scheduleFocusClass));
     setDraft((prev) => ({
       ...prev,
       aliases: baseline.aliases,
@@ -1014,36 +1112,82 @@ export default function SettingsEditor({
 
   return (
     <div className="settings-workflow-root">
-      {/* 頁面標題與快速導引 */}
-      <header className="page-header" style={{ marginBottom: '20px' }}>
-        <div>
-          <h1 style={{ fontSize: '24px', fontWeight: 700, margin: '0 0 6px' }}>課表設定</h1>
-          <p className="note" style={{ margin: 0 }}>
-            設定各班上課時段與老師，即時預覽與安親、課輔窗口的重疊與扣除天數。
-          </p>
-        </div>
+      {/* 頁面標題保留，移除重複說明以收緊首屏。 */}
+      <header className="page-header" style={{ marginBottom: '12px' }}>
+        <h1 style={{ fontSize: '24px', fontWeight: 700, margin: 0 }}>課表設定</h1>
       </header>
 
-      {/* 頁籤切換（09 §6：鍵盤可操作） */}
-      <TabList
-        label="課表設定頁籤"
-        idPrefix="settings"
-        selected={activeTab}
-        onSelect={(k) => setActiveTab(k as 'schedule' | 'sync')}
-        tabs={[
-          { key: 'schedule', label: '課表' },
-          {
-            key: 'sync',
-            label: (
-              <>
-                班名同步 {(syncSummary?.mismatchCount ?? 0) > 0 && (
-                  <span className="pill warn">{syncSummary!.mismatchCount}</span>
-                )}
-              </>
-            ),
-          },
-        ]}
-      />
+      {/* 主頁籤與課表工具同列；工具是 tablist 的 sibling，切至班名同步時卸載。 */}
+      <div className="settings-main-tabs-row">
+        <TabList
+          label="課表設定頁籤"
+          idPrefix="settings"
+          selected={activeTab}
+          onSelect={(k) => setActiveTab(k as 'schedule' | 'sync')}
+          tabs={[
+            { key: 'schedule', label: '課表' },
+            {
+              key: 'sync',
+              label: (
+                <>
+                  班名同步 {(syncSummary?.mismatchCount ?? 0) > 0 && (
+                    <span className="pill warn">{syncSummary!.mismatchCount}</span>
+                  )}
+                </>
+              ),
+            },
+          ]}
+        />
+        {activeTab === 'schedule' && (
+          <div className="schedule-actions" data-schedule-actions="">
+            <input
+              type="text"
+              className="search"
+              placeholder="搜尋班級名稱..."
+              aria-label="搜尋課表班級"
+              value={scheduleSearch}
+              onChange={(event) => handleScheduleSearchChange(event.target.value)}
+            />
+            <button
+              type="button"
+              className="btn-secondary"
+              onClick={() => scheduleImportInputRef.current?.click()}
+              disabled={scheduleTransferBusy}
+              data-schedule-import=""
+            >
+              匯入 Excel
+            </button>
+            <button
+              type="button"
+              className="btn-secondary"
+              onClick={handleExportExcel}
+              disabled={scheduleTransferBusy}
+              data-schedule-export=""
+            >
+              {scheduleTransferBusy ? '處理中...' : '匯出 Excel'}
+            </button>
+            <button
+              type="button"
+              className={isAddClassFormOpen ? 'btn-secondary' : 'btn-primary'}
+              onClick={() => setIsAddClassFormOpen((open) => !open)}
+            >
+              {isAddClassFormOpen ? '取消新增' : '＋ 新增班級'}
+            </button>
+            <input
+              ref={scheduleImportInputRef}
+              type="file"
+              accept=".xlsx"
+              style={{ display: 'none' }}
+              aria-label="選擇課表 Excel 檔案"
+              onChange={(event) => {
+                const file = event.currentTarget.files?.[0];
+                if (file) void handleImportExcel(file);
+                event.currentTarget.value = '';
+              }}
+            />
+          </div>
+        )}
+      </div>
 
       {/* 頁籤內容一：課表平鋪排課主畫面 */}
       {activeTab === 'schedule' && (
@@ -1060,15 +1204,18 @@ export default function SettingsEditor({
             calculateInputRows={calculateInputRows}
             calculateError={calculateError}
             focusClass={scheduleFocusClass}
-            onClearFocus={() => setScheduleFocus({ kind: 'cleared' })}
+            focusedRowIds={scheduleFocusRowIds}
+            onClearFocus={clearScheduleFocus}
+            selectedClassType={selectedClassType}
+            onSelectClassType={setSelectedClassType}
+            search={scheduleSearch}
+            showAddForm={isAddClassFormOpen}
+            onShowAddFormChange={setIsAddClassFormOpen}
             classAttributes={currentAttrs}
             onSelectCategory={handleSelectCategory}
             onToggleMultiDiscount={handleToggleMultiDiscount}
             onToggleFixedFiveDays={handleToggleFixedFiveDays}
-            onExportExcel={handleExportExcel}
-            onImportExcel={handleImportExcel}
             importError={scheduleImportError}
-            transferBusy={scheduleTransferBusy}
           />
         </section>
       )}
@@ -1087,7 +1234,11 @@ export default function SettingsEditor({
             onStageNewClass={handleStageNewClass}
             onUndoStaged={handleUndoStaged}
             onGoToSchedule={(className) => {
+              scheduleFocusClassRef.current = className;
+              setScheduleSearch('');
+              setSelectedClassType(scheduleClassTypeForName(className, draft.classes, currentAttrs));
               setScheduleFocus({ kind: 'focused', className });
+              setScheduleFocusRowIds(rowIdsForFocus(rows, className));
               setActiveTab('schedule');
             }}
             reportStaleMessage={reportStaleError}

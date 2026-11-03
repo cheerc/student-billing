@@ -91,9 +91,17 @@ test.describe('#81：課表 Excel 全量匯出／匯入', () => {
     await expect(page.locator('[data-schedule-import]')).toBeVisible();
   });
 
-  test('#81-1: 工具列只有匯出／匯入兩顆按鈕，沒有任何欄位挑選對話框', async ({ page }) => {
+  test('#81-1: Excel 工具只在課表主頁籤顯示且不屬於 tablist，沒有欄位挑選對話框', async ({ page }) => {
+    const actions = page.locator('[data-schedule-actions]');
+    const primaryTablist = page.getByRole('tablist', { name: '課表設定頁籤' });
     await expect(page.locator('[data-schedule-export]')).toHaveCount(1);
     await expect(page.locator('[data-schedule-import]')).toHaveCount(1);
+    await expect(primaryTablist.locator('[data-schedule-actions]')).toHaveCount(0);
+
+    await page.locator('#settings-tab-sync').click();
+    await expect(actions).toHaveCount(0);
+    await page.locator('#settings-tab-schedule').click();
+    await expect(actions).toBeVisible();
 
     // 點「匯出 Excel」不應彈出任何 modal／dialog（破碎選項的典型形狀）
     const downloadPromise = page.waitForEvent('download');
@@ -104,8 +112,12 @@ test.describe('#81：課表 Excel 全量匯出／匯入', () => {
   });
 
   test('#81-2: 匯出檔可被重新匯入且內容一致（真正的 round-trip）', async ({ page }) => {
-    // 先改一筆：把「國小數學-四A」設成多科折扣＝否（D61：category none 的 UI 表達）
+    // 先改一筆：把「國小數學-四A」設成多科折扣＝否（D61：category none 的 UI 表達）。
+    // 再把畫面限制在單一班，證明匯出仍然是完整草稿而不是目前篩選結果。
     await setMultiDiscount(page, '國小數學-四A', false);
+    await selectClassTypeTab(page, 'math');
+    await page.getByLabel('搜尋課表班級').fill('國小數學-四A');
+    await expect(page.locator('table.schedule-table-math tr.schedule-row')).toHaveCount(2);
 
     // 匯出
     const downloadPromise = page.waitForEvent('download');
@@ -127,8 +139,9 @@ test.describe('#81：課表 Excel 全量匯出／匯入', () => {
     // #157 Ruling 4：沒有「恢復自動」按鈕
     await expect(page.locator('[data-restore-auto]')).toHaveCount(0);
 
-    // 表格仍有原本的全部時段（整批取代不是清空）；逐頁籤加總驗證全量筆數（Reviewer 1 要求，D61 五頁籤）
+    // 匯出與匯入都不依目前篩選縮減草稿；清除搜尋後逐頁籤加總驗證完整列數。
     // 右側是 seed fixture 的定義列數（R-192-2），不是被測函式的輸出。
+    await page.getByLabel('搜尋課表班級').fill('');
     expect(await displayedScheduleRowCount(page)).toBe(seedScheduleRowCount());
   });
 
@@ -162,5 +175,35 @@ test.describe('#81：課表 Excel 全量匯出／匯入', () => {
     // 草稿完全沒動
     await expect(page.locator('tr.schedule-row')).toHaveCount(before);
     await expect(page.locator('.save-status-clean')).toBeVisible();
+  });
+
+  test('#81-5: Excel 匯出 busy 與錯誤狀態跨主頁籤保留', async ({ page }) => {
+    let releaseResponse!: () => void;
+    const responseGate = new Promise<void>((resolve) => {
+      releaseResponse = resolve;
+    });
+    const actions = page.locator('[data-schedule-actions]');
+
+    await page.route('**/api/v1/settings/schedule-table', async (route) => {
+      await responseGate;
+      await route.fulfill({ status: 500, contentType: 'application/json', body: '{}' });
+    });
+
+    try {
+      const exportButton = page.locator('[data-schedule-export]');
+      await exportButton.click();
+      await expect(exportButton).toHaveText('處理中...');
+
+      await page.locator('#settings-tab-sync').click();
+      await expect(actions).toHaveCount(0);
+      await page.locator('#settings-tab-schedule').click();
+      await expect(exportButton).toHaveText('處理中...');
+
+      releaseResponse();
+      await expect(page.locator('[data-schedule-import-error]')).toContainText('匯出失敗');
+    } finally {
+      releaseResponse();
+      await page.unroute('**/api/v1/settings/schedule-table');
+    }
   });
 });

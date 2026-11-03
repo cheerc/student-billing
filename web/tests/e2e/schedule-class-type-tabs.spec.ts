@@ -54,31 +54,34 @@ test.describe('D61 UX106: 課表設定 5 頁籤與簡化操作 E2E 驗收', () =
     await expect(careRows).toHaveCount(8);
   });
 
-  test('Issue #203/#205: 課程頁籤幾何、工具列間距、窄螢幕局部橫捲與鍵盤焦點可見', async ({ page }, testInfo) => {
+  test('Issue #203/#205 + UX115: 課表頁籤密度、局部橫捲與鍵盤焦點可見', async ({ page }, testInfo) => {
     const readGeometry = () =>
       page.evaluate(() => {
+        const header = document.querySelector<HTMLElement>('.page-header');
         const card = document.querySelector<HTMLElement>('.schedule-grid-container');
+        const controls = document.querySelector<HTMLElement>('.schedule-type-controls');
         const scroller = document.querySelector<HTMLElement>('.schedule-type-tabs');
         const tablist = scroller?.querySelector<HTMLElement>('[role="tablist"]');
         const toolbar = document.querySelector<HTMLElement>('.schedule-grid-container .toolbar');
+        const mainRow = document.querySelector<HTMLElement>('.settings-main-tabs-row');
+        const actions = mainRow?.querySelector<HTMLElement>('[data-schedule-actions]');
         const tableScroll = document.querySelector<HTMLElement>('.schedule-grid-container .schedule-table-scroll');
         const careTab = document.querySelector<HTMLElement>('#class-type-tab-care');
         const careLabel = careTab?.querySelector<HTMLElement>('.schedule-type-tab-label');
         const careCount = careTab?.querySelector<HTMLElement>('.schedule-type-tab-count');
-        if (!card || !scroller || !tablist || !toolbar || !tableScroll || !careTab) {
-          throw new Error('Issue #203 geometry frame is missing');
+        if (!header || !card || !scroller || !tablist || !tableScroll || !careTab) {
+          throw new Error('UX115 geometry frame is missing');
         }
         const cardRect = card.getBoundingClientRect();
-        const scrollerRect = scroller.getBoundingClientRect();
-        const tablistRect = tablist.getBoundingClientRect();
-        const toolbarRect = toolbar.getBoundingClientRect();
+        const controlRowRect = (controls ?? scroller).getBoundingClientRect();
         const tableRect = tableScroll.getBoundingClientRect();
+        const mainRowRect = mainRow?.getBoundingClientRect();
+        const actionsRect = actions?.getBoundingClientRect();
         return {
-          leftInset: scrollerRect.left - cardRect.left,
-          rightInset: cardRect.right - scrollerRect.right,
-          toolbarLeft: toolbarRect.left - cardRect.left,
-          tableLeft: tableRect.left - cardRect.left,
-          tabToolbarGap: toolbarRect.top - tablistRect.bottom,
+          leftInset: controlRowRect.left - cardRect.left,
+          rightInset: cardRect.right - controlRowRect.right,
+          tableTop: tableRect.top,
+          tabTableGap: tableRect.top - controlRowRect.bottom,
           scrollWidth: scroller.scrollWidth,
           clientWidth: scroller.clientWidth,
           pageWidth: document.documentElement.scrollWidth,
@@ -88,36 +91,69 @@ test.describe('D61 UX106: 課表設定 5 頁籤與簡化操作 E2E 驗收', () =
           labelWeight: careLabel ? Number(getComputedStyle(careLabel).fontWeight) : null,
           countWeight: careCount ? Number(getComputedStyle(careCount).fontWeight) : null,
           countColor: careCount ? getComputedStyle(careCount).color : null,
+          subtitleCount: header.querySelectorAll('p.note').length,
+          gridToolbarCount: toolbar ? 1 : 0,
+          actionCount: actions ? 1 : 0,
+          actionsOutsideTablist: actions !== null && actions?.closest('[role="tablist"]') === null,
+          actionsRightInset: mainRowRect && actionsRect ? mainRowRect.right - actionsRect.right : null,
         };
       });
 
     await page.setViewportSize({ width: 1440, height: 900 });
     await page.reload();
     const desktop = await readGeometry();
-    expect(Math.round(desktop.leftInset)).toBe(20);
-    expect(Math.round(desktop.rightInset)).toBe(20);
-    expect(Math.round(desktop.toolbarLeft)).toBe(Math.round(desktop.tableLeft));
-    expect(desktop.tabPaddingLeft).toBe('12px');
-    expect(desktop.tabPaddingRight).toBe('12px');
-    expect(desktop.labelWeight ?? 0).toBeGreaterThan(desktop.countWeight ?? 0);
-    expect(desktop.countColor).toBe('rgb(100, 116, 139)');
-    expect(desktop.pageWidth).toBeLessThanOrEqual(desktop.viewportWidth);
-
-    if (process.env.ISSUE_203_SCREENSHOTS === '1') {
-      await page.screenshot({ path: testInfo.outputPath('issue-203-desktop.png') });
+    if (process.env.ISSUE_208_SCREENSHOTS === '1') {
+      await page.screenshot({ path: testInfo.outputPath('issue-208-desktop.png') });
     }
 
     await page.setViewportSize({ width: 390, height: 844 });
     await page.reload();
     const mobile = await readGeometry();
+    if (process.env.ISSUE_208_SCREENSHOTS === '1') {
+      await page.screenshot({ path: testInfo.outputPath('issue-208-mobile.png') });
+    }
+    await testInfo.attach('ux115-geometry.json', {
+      body: Buffer.from(JSON.stringify({ desktop, mobile }, null, 2)),
+      contentType: 'application/json',
+    });
+    expect(desktop.subtitleCount).toBe(0);
+    expect(mobile.subtitleCount).toBe(0);
+    expect(desktop.gridToolbarCount).toBe(0);
+    expect(mobile.gridToolbarCount).toBe(0);
+    expect(desktop.actionCount).toBe(1);
+    expect(mobile.actionCount).toBe(1);
+    expect(desktop.actionsOutsideTablist).toBe(true);
+    expect(mobile.actionsOutsideTablist).toBe(true);
+    expect(desktop.actionsRightInset).toBeLessThanOrEqual(2);
+    expect(Math.round(desktop.leftInset)).toBe(20);
+    expect(Math.round(desktop.rightInset)).toBe(20);
     expect(Math.round(mobile.leftInset)).toBe(16);
     expect(Math.round(mobile.rightInset)).toBe(16);
-    expect(Math.round(mobile.toolbarLeft)).toBe(Math.round(mobile.tableLeft));
+    expect(desktop.tabPaddingLeft).toBe('12px');
+    expect(desktop.tabPaddingRight).toBe('12px');
+    expect(mobile.tabPaddingLeft).toBe('12px');
+    expect(mobile.tabPaddingRight).toBe('12px');
+    expect(desktop.labelWeight ?? 0).toBeGreaterThan(desktop.countWeight ?? 0);
+    expect(desktop.countColor).toBe('rgb(100, 116, 139)');
+    expect(desktop.tabTableGap).toBeLessThanOrEqual(16);
+    expect(mobile.tabTableGap).toBeLessThanOrEqual(16);
     expect(mobile.scrollWidth).toBeGreaterThan(mobile.clientWidth);
+    expect(desktop.pageWidth).toBeLessThanOrEqual(desktop.viewportWidth);
     expect(mobile.pageWidth).toBeLessThanOrEqual(mobile.viewportWidth);
 
-    if (process.env.ISSUE_203_SCREENSHOTS === '1') {
-      await page.screenshot({ path: testInfo.outputPath('issue-203-mobile.png') });
+    for (const viewport of ['desktop', 'mobile'] as const) {
+      await page.setViewportSize(viewport === 'desktop' ? { width: 1440, height: 900 } : { width: 390, height: 844 });
+      await page.locator('#class-type-tab-english').click();
+      const weekdayAlignment = await page.evaluate(() => {
+        const tabs = document.querySelector<HTMLElement>('.schedule-type-tabs [role="tablist"]');
+        const filter = document.querySelector<HTMLElement>('#schedule-weekday-filter');
+        if (!tabs || !filter) return null;
+        const tabsRect = tabs.getBoundingClientRect();
+        const filterRect = filter.getBoundingClientRect();
+        return Math.abs((tabsRect.top + tabsRect.bottom) / 2 - (filterRect.top + filterRect.bottom) / 2);
+      });
+      expect(weekdayAlignment).not.toBeNull();
+      expect(weekdayAlignment ?? Infinity).toBeLessThanOrEqual(2);
     }
 
     await page.locator('#class-type-tab-care').focus();
@@ -147,8 +183,22 @@ test.describe('D61 UX106: 課表設定 5 頁籤與簡化操作 E2E 驗收', () =
 
     await page.keyboard.press('Home');
     await expect(page.locator('#class-type-tab-care')).toHaveAttribute('aria-selected', 'true');
+  });
 
-    expect({ desktop: desktop.tabToolbarGap, mobile: mobile.tabToolbarGap }).toEqual({ desktop: 8, mobile: 8 });
+  test('UX115: 搜尋與課程類型在課表／班名同步主頁籤切換後保留', async ({ page }) => {
+    await page.locator('#class-type-tab-math').click();
+    const search = page.getByLabel('搜尋課表班級');
+    await search.fill('國小數學-四A');
+    await expect(page.locator('table.schedule-table-math tr.schedule-row')).toHaveCount(2);
+
+    const actions = page.locator('[data-schedule-actions]');
+    await page.locator('#settings-tab-sync').click();
+    await expect(actions).toHaveCount(0);
+    await page.locator('#settings-tab-schedule').click();
+
+    await expect(page.locator('#class-type-tab-math')).toHaveAttribute('aria-selected', 'true');
+    await expect(search).toHaveValue('國小數學-四A');
+    await expect(page.locator('table.schedule-table-math tr.schedule-row')).toHaveCount(2);
   });
 
   test('UX106: 各頁籤欄位徹底分離，排他性嚴格成立', async ({ page }) => {

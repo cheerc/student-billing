@@ -560,6 +560,51 @@ body {
   margin-bottom: 20px;
 }
 
+.settings-main-tabs-row {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 8px 16px;
+  flex-wrap: wrap;
+  min-width: 0;
+  border-bottom: 1px solid var(--border-color);
+  margin-bottom: 16px;
+}
+
+.settings-main-tabs-row > .tabs {
+  flex: 0 0 auto;
+  min-width: 0;
+  border-bottom: 0;
+  margin: 0;
+}
+
+.schedule-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  flex: 1 1 560px;
+  flex-wrap: wrap;
+  min-width: 0;
+  margin-left: auto;
+  padding-bottom: 6px;
+}
+
+.schedule-actions .search {
+  flex: 0 1 240px;
+  width: 240px;
+  max-width: 100%;
+  min-width: 160px;
+  padding: 7px 10px;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  font-size: 13px;
+}
+
+.schedule-actions button {
+  white-space: nowrap;
+}
+
 .tabs button {
   padding: 10px 4px;
   border: 0;
@@ -590,9 +635,18 @@ body {
   overflow: hidden;
 }
 
-/* 課程類型頁籤只在本卡片內縮與橫向捲動，不影響共用頁籤或整頁寬度。 */
-.schedule-type-tabs {
+/* 課程類型頁籤保留卡片內局部橫捲；星期篩選是其同列 sibling。 */
+.schedule-type-controls {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
   margin: 0 19px 8px;
+}
+
+.schedule-type-tabs {
+  flex: 1 1 auto;
+  min-width: 0;
   overflow-x: auto;
   overflow-y: hidden;
   white-space: nowrap;
@@ -607,6 +661,21 @@ body {
 
 .schedule-type-tabs .tabs button {
   padding-inline: 12px;
+}
+
+.schedule-weekday-filter {
+  flex: 0 0 auto;
+  padding: 7px 10px;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  font-size: 13px;
+  background: #ffffff;
+}
+
+.schedule-type-controls .calculating-indicator {
+  flex: 0 0 auto;
+  font-size: 13px;
+  white-space: nowrap;
 }
 
 .schedule-type-tabs .tabs button:focus-visible {
@@ -1039,6 +1108,25 @@ body {
   justify-content: space-between;
 }
 
+.schedule-grid-container .tablefoot {
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 6px;
+}
+
+.schedule-grid-container .schedule-count-summary {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+}
+
+.schedule-grid-container .count-filter-summary {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
 .settings-workflow-root {
   scroll-padding-bottom: 96px;
 }
@@ -1315,7 +1403,28 @@ dialog.impact-dialog::backdrop {
   .main {
     padding: 16px;
   }
-  .schedule-type-tabs {
+  .settings-main-tabs-row {
+    align-items: flex-start;
+    margin-bottom: 12px;
+  }
+  .settings-main-tabs-row > .tabs {
+    flex: 1 1 100%;
+    width: 100%;
+    gap: 16px;
+  }
+  .schedule-actions {
+    flex: 1 1 100%;
+    justify-content: flex-start;
+    margin-left: 0;
+    padding-bottom: 8px;
+  }
+  .schedule-actions .search {
+    flex: 1 1 100%;
+    width: 100%;
+    min-width: 0;
+    max-width: none;
+  }
+  .schedule-type-controls {
     margin-inline: 15px;
   }
 }
