@@ -265,7 +265,7 @@ test.describe('UX07（修訂）：未知／空白星期與 calculate 失敗不�
     await expect(cell('anqin-overlap')).toHaveText('40', { timeout: 10000 });
 
     // A successful replacement that retains row identity must also replace slider-local preview state.
-    const stableRowId = await importedRow.getAttribute('data-row-id');
+    const stableRowId = await importedRow.first().getAttribute('data-row-id');
     if (!stableRowId) throw new Error('Imported schedule row does not expose its stable row identity');
     const seedRows = buildSeedGridRows();
     const firstGinoRow = seedRows.findIndex((item) => item.className === '兒童美語-Gino');
