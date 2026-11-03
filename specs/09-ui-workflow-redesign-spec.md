@@ -135,13 +135,19 @@
 
 **離頁提醒（11 C 已實作；D38 F07）**：課表有未儲存修改（dirty）時，下列站內離開入口一律跳確認，選項為「繼續編輯」（留在課表頁、草稿保留）與「捨棄修改」（丟棄草稿後離開）：側欄各頁、品牌／首頁連結、班級編輯入口、瀏覽器Back。**儲存成功後不再提醒**；沒有修改時不打擾。reload與關閉分頁以`beforeunload`觸發瀏覽器原生提醒（瀏覽器規定使用者對頁面有過互動才會出現；不要求自訂文案，驗收只驗有互動後會出現）。驗收UX31，測試須走實際的側欄導覽。
 
-**11 C 現況——離頁守衛的做法與範圍**（`web/src/lib/unsaved-guard.ts`、`components/ui/use-unsaved-changes-guard.ts`、`components/settings/leave-confirm-dialog.tsx`）：
+**11 C 現況——離頁守衛的做法與範圍**（`web/src/lib/unsaved-guard.ts`、`components/ui/use-unsaved-changes-guard.ts`、`components/settings/leave-confirm-dialog.tsx`；Issue #207 Phase 2 擴充持久狀態機 Controller）：
 
 - **只在有未儲存修改時啟用**：`dirty`（課表時段或班名同步草稿與已儲存版本不同）為真才安裝；儲存成功、按「取消修改」、或卸載就解除。已儲存的頁面、沒有修改的頁面、唯讀的歷史頁都沒有任何監聽或歷史紀錄。
+- **持久狀態機 Controller 與結算保護（Issue #207 Phase 2 / PR-2）**：守衛升級為持久 Controller（狀態：`clean` / `armed` / `settling` / `armed_pending_landing` / `leaving_back` / `disposed`），以 `useLayoutEffect` 於 commit 階段同步觸發 `syncDirty(dirty)`，消除 passive effect 排程延遲。歷史紀錄採用命名空間標記 `__sbUnsavedGuard: { role: 'base' | 'sentinel', opId }`，嚴格保留 Next.js 內部路由狀態（`__NA` 與私有路由樹）。
+  - **結算期間站內連結排隊（R1）**：Save 成功或「取消修改」使 `dirty` 轉 false 時，同步移除 `beforeunload`，保留捕獲 `click` 並向根層 registry 登記 `opId` landing 吸收器後呼叫單次 `history.go(-1)`；結算在途期間使用者若點擊站內連結（如側欄「匯入學生」），守衛先攔截排隊（`queuedHref`）並阻止 Next 競爭路由，待 `base` 落地吸收後以 `queueMicrotask` 單次導航至目標，新目的地不遺失。
+  - **快速再編輯合併在途步進（R2）**：在途 `go(-1)` 尚未落地前若使用者立即再編輯使 `dirty` 轉 true，狀態轉為 `armed_pending_landing`（立即掛回 `beforeunload` 保護新草稿，但不提前 pushState），待該次 `go(-1)` 落地至 `base` 時自動吞掉該筆 popstate，並以結算當下記錄的 `latestHref`（不改讀落地後的 `base` 網址）重新標記 `base` 與補推新哨兵，不誤跳離頁確認視窗；若落地前又取消修改或於確認視窗捨棄並點連結，則合併共用同一在途 `go(-1)`，絕不重複發出第二次歷史步進。
+  - **焦點清除與網址同步（R3）**：`base` 落地時（不論結算或 R2 重新 arm）以 `replaceState` 同步結算當下的同頁 URL（`latestHref`），防止 dirty 期間使用者按「顯示全部班級」清除的 `?class=` 焦點參數在退回 `base` 時復活。
+  - **Back 捨棄未離頁時重新保護**：「捨棄修改」以 `go(-2)` 離開時狀態為 `leaving_back`；若 `go(-2)` 超出歷史範圍（例如新分頁只有本頁）而仍停在課表頁，之後的新草稿會重新 arm（恢復 `beforeunload`、連結攔截與哨兵）；重複的捨棄不會再發出 `go(-2)`。
+  - **根層一次性落地吸收器**：元件在 `go(-1)` 在途時若發生非預期卸載，根層先手監聽器（`leave-guard-registry.ts`）保留解耦的一次性吸收器，於該筆 `base` popstate 抵達時以 `stopImmediatePropagation()` 吞掉，防止孤兒步進打入 Next App Router。吸收器只處理卸載後抵達的第一個 popstate：不匹配時（例如在途期間發生非連結的程式化導覽，traversal 落在別處）即清除殘留標記並放行，避免之後使用者返回到同 opId 的 `base` 紀錄時被誤吞。
 - **站內連結（含側欄、品牌連結、班級編輯入口等任何連結）**：在window捕獲階段攔截同源連結的點擊；導向的網址（路徑＋查詢）和目前不同就先跳確認，網址完全相同（沒有要離開）不動作。這是通用做法，沒有逐一元件特判——日後任何新連結掛在課表頁都自動涵蓋。「班級編輯入口」（核對結果頁班級扣天的「編輯此班課表」）是**進入**課表頁的入口；驗收以「從它進入→改草稿→經站內連結離開會先確認→捨棄後再從它進入是乾淨的伺服器狀態」涵蓋。頁內的「顯示全部班級」只改網址參數（`replaceState`）、不離開課表頁，不跳確認。
 - **瀏覽器Back（Forward）**：啟用時多推一筆同網址的哨兵歷史紀錄，Back先退到同一頁並被攔截，再補上哨兵，因此可以反覆攔截；「捨棄修改」以`history.go(-2)`回到使用者原本要去的那一頁。popstate由根版面在Next掛載前預先安裝的先手監聽器轉交（`leave-guard-registry.ts`），才能排在Next的處理器前面，連按兩次Back跳過哨兵也攔得住。儲存成功或取消修改後哨兵會退掉，Back一步就是上一頁。
 - **確認視窗不累積、只導覽一次**：同一時間只保留一個待確認動作（連點連結、連按Back都只有一層視窗）；「捨棄修改」先解除守衛再導覽一次（先退掉哨兵再`router.push`），歷史紀錄只多一筆；離開後不留下`beforeunload`。Esc等同「繼續編輯」。
-- **限制（如實記錄）**：(1) `beforeunload`的原生提醒只有在使用者對頁面有過互動（例如點過輸入框）後瀏覽器才會顯示，這是瀏覽器規定；(2) 跨文件的返回（例如重新整理後才產生的舊歷史紀錄，Back會做整頁載入）只能靠`beforeunload`提醒，無法自訂視窗；(3) 站外連結、直接改網址列、關閉分頁同樣只有瀏覽器原生提醒。
+- **限制（如實記錄）**：(1) `beforeunload`的原生提醒只有在使用者對頁面有過互動（例如點過輸入框）後瀏覽器才會顯示，這是瀏覽器規定；(2) 跨文件的返回（例如重新整理後才產生的舊歷史紀錄，Back會做整頁載入）只能靠`beforeunload`提醒，無法自訂視窗；(3) 站外連結、直接改網址列、關閉分頁同樣只有瀏覽器原生提醒；跨文件之原生動作（reload、關閉分頁、網址列直接導航）無法在不彈出原生對話框的前提下由 JS await 結算，UX31 明定無草稿狀態絕不跳原生提醒；(4) History API 物理上無法抹除 forward tail 中已退出的舊 sentinel，但 Back 一步仍精確回上一頁；(5) 歷史自然 `ERR_ABORTED` 根因仍保留為 H1/H2 候選假說；(6) `go(-1)` 在途期間若發生非連結的程式化導覽（`router.push`／`replace` 不經點擊），該次結算不保證吸收，僅保證吸收器不殘留（未以瀏覽器實驗驗證 traversal 的實際落點）。
 
 ### 3.3 班名同步（D62 取代「班名對應」與「班名比對報告」）
 
