@@ -115,8 +115,8 @@ test.describe('R5-F01：課表兩層固定表頭', () => {
         if (!containerEl) throw new Error('找不到課表捲動容器');
         const containerRect = containerEl.getBoundingClientRect();
         const targets = [
-          { name: '安親窗口', selector: '.schedule-table thead th.col-group-anqin' },
-          { name: '課輔窗口', selector: '.schedule-table thead th.col-group-tutoring' },
+          { name: '安親', selector: '.schedule-table thead th.col-group-anqin' },
+          { name: '課輔', selector: '.schedule-table thead th.col-group-tutoring' },
           { name: '班級名稱', selector: '.schedule-table thead th.sticky-corner' },
         ];
         return targets.map(({ name, selector }) => {
@@ -142,8 +142,8 @@ test.describe('R5-F01：課表兩層固定表頭', () => {
         });
       });
       expect(titleProbes.map((probe) => probe.text)).toEqual([
-        '安親窗口 (13:00–16:00)',
-        '課輔窗口 (16:30–19:30)',
+        '安親 (13:00–16:00)',
+        '課輔 (16:30–19:30)',
         '班級名稱',
       ]);
       for (const probe of titleProbes) {

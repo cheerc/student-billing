@@ -30,8 +30,8 @@ import { VISIBILITY_EXEMPTIONS } from './e2e-conventions-exemptions';
 
 const E2E_DIR = path.resolve(__dirname, '../e2e');
 const FULL_E2E = path.resolve(__dirname, '../../scripts/e2e-full.mjs');
-/** #189 D62 新增 class-name-sync.spec.ts（50）；每次增刪 spec 都要同步更新，守門才會發現漏掃。 */
-const SPEC_COUNT = 50;
+/** #189 D62 新增 class-name-sync.spec.ts（50）；#208 PR-3 新增 schedule-header-units-alignment.spec.ts（51）；每次增刪 spec 都要同步更新，守門才會發現漏掃。 */
+const SPEC_COUNT = 51;
 
 /** 已由 D61 淘汰的選取器與「以列序定位排課列」的寫法：全 repo 不應再有 spec 依賴。 */
 const OBSOLETE_LITERALS: Array<{ pattern: RegExp; why: string }> = [

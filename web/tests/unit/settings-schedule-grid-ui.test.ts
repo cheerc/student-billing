@@ -88,8 +88,10 @@ describe('R2 UI 元件與排課工作流程（RED 測試）', () => {
       expect(html).toContain('課程時長');
       expect(html).toContain('安親');
       expect(html).toContain('課輔');
-      expect(html).toContain('重疊／分');
-      expect(html).toContain('扣除／天');
+      expect(html).toContain('>重疊</th>');
+      expect(html).toContain('>扣除</th>');
+      expect(html).not.toContain('重疊／分');
+      expect(html).not.toContain('扣除／天');
 
       // 應有 89 筆平鋪時段列
       expect(seedRows).toHaveLength(89);
@@ -147,8 +149,8 @@ describe('R2 UI 元件與排課工作流程（RED 測試）', () => {
         })
       );
 
-      expect(html).toContain('<td class="number cblue" data-calc="anqin-overlap">0</td>');
-      expect(html).toContain('<td class="number cblue" data-calc="anqin-deduction">0</td>');
+      expect(html).toContain('<td class="number cblue" data-calc="anqin-overlap"><span class="calc-number"><span class="calc-value">0</span><span class="calc-unit">分</span></span></td>');
+      expect(html).toContain('<td class="number cblue" data-calc="anqin-deduction"><span class="calc-number"><span class="calc-value">0</span><span class="calc-unit">天</span></span></td>');
     });
 
     it('不完整列（缺起訖時間）時平靜顯示「—」且對螢讀可讀為「未設定時間」，不崩潰（#82；decision d-20261004093019108435-11）', () => {

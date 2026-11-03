@@ -106,7 +106,7 @@ describe('UX07（修訂）：ScheduleGrid 對未知／空白星期的呈現', ()
     const tr = trOf(html, '測試班');
     expect(tr).not.toContain('row-unknown-weekday');
     expect(tr).not.toContain('需確認');
-    expect(tr).toMatch(/<td class="number cblue" data-calc="anqin-overlap">0<\/td>/);
+    expect(tr).toMatch(/<td class="number cblue" data-calc="anqin-overlap"><span class="calc-number"><span class="calc-value">0<\/span><span class="calc-unit">分<\/span>/);
     expect(html).not.toContain('data-unknown-weekday-notice');
   });
 
@@ -147,7 +147,7 @@ describe('UX07（修訂）：ScheduleGrid 對未知／空白星期的呈現', ()
     const changedRowCells = trOf(html, '甲班').match(/<td[^>]*data-calc="[a-z-]+">[\s\S]*?<\/td>/g) ?? [];
     expect(changedRowCells).toHaveLength(5);
     expect(changedRowCells.every((cell) => cell.includes('—'))).toBe(true);
-    expect(trOf(html, '乙班')).toMatch(/data-calc="anqin-overlap">40<\/td>/); // 乙班未改，結果仍有效
+    expect(trOf(html, '乙班')).toMatch(/data-calc="anqin-overlap"><span class="calc-number"><span class="calc-value">40<\/span><span class="calc-unit">分<\/span>/); // 乙班未改，結果仍有效
   });
 
   it('舊值立即失效：勾了「不計扣天」也算改到該列的計算輸入（09 §3.1：新結果未回來前不沿用舊值）', () => {

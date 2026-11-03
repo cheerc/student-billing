@@ -349,7 +349,7 @@ Playwright 最小完整旅程：
 |UX113（#189 D62 新增）|未處理列持續保留且無批次／略過控制項（Operator Q1）|只同步其中一列並儲存、重新載入後，未處理列（例：交通車）仍留在差異表；畫面上不存在「全部同步／批次同步／一鍵合併／略過／隱藏」控制項。測試：`class-name-sync-panel.test.tsx`、`class-name-sync.spec.ts`|unit/E2E|
 |UX114（#189 D62 新增；課表橫幅展示由 Operator 2026-11-02 核准方向／Issue #203 取代）|課表頂端資訊精簡、上層班名同步入口保留、類型頁籤幾何與鍵盤操作|課表頁不顯示窗口摘要列或 ScheduleGrid 班名不一致橫幅／其同步按鈕；班名同步頁籤及其不一致數量徽章、差異列表、匯入預覽摘要卡與 `/settings?tab=mapping` 相容行為保留。五個課程類型頁籤保持固定順序與 0 班頁籤；桌面距卡片左右 20px、窄螢幕 16px、按鈕左右 padding 12px；D63 落地前頁籤底線至搜尋工具列外框固定單一 8 CSS px 間距（桌面與窄螢幕相同），移除工具列後改依 UX115 驗收；班名視覺層級高於數量／待補數；窄螢幕只有頁籤容器橫捲、整頁不溢位；Arrow／Home／End、ARIA 與可見焦點保留；不改共用 `.tabs`。測試：`settings-schedule-grid-ui.test.ts`、`class-name-sync-banner-impact.test.tsx`、`class-name-sync.spec.ts`、`schedule-class-type-tabs.spec.ts`、`schedule-grid-workflow.spec.ts`|unit/E2E/視覺|
 
-**D63／Issue #208 目標驗收（已接受；PR-1 已交付 UX115–UX116；PR-2 R01–R04 本地驗證中，Full／CI／exact-HEAD review 尚待完成）**：行為契約以 09 §3.1.1 為準。UX106 五類欄位與 UX108 待補流程不變；UX109 的課表新增類型選單改為 UX117，班名同步新增仍依 D62；UX114 的舊工具列間距改為 UX115。各階段標記完成範圍，不把下表視為已通過報告。
+**D63／Issue #208 目標驗收（已接受；PR-1 已交付 UX115–UX116，PR-2 R01–R04 已合併；PR-3 R09–R10 實作與驗證中）**：行為契約以 09 §3.1.1 為準。UX106 五類欄位與 UX108 待補流程不變；UX109 的課表新增類型選單改為 UX117，班名同步新增仍依 D62；UX114 的舊工具列間距改為 UX115。各階段標記完成範圍，不把下表視為已通過報告。
 
 |ID|驗收範圍|可觀察判準|方式|
 |---|---|---|---|

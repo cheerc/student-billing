@@ -866,6 +866,53 @@ body {
   gap: 4px;
 }
 
+/* 課表表頭與控制本體使用相同水平座標；不影響 Modal 的時間欄。 */
+.schedule-table :is(th, td):is(.col-has-multi, .col-skip-deduction, .col-fixed-five, .col-teacher, .col-weekday) {
+  text-align: center;
+}
+
+.schedule-table th.col-time {
+  padding-left: 10px;
+  padding-right: 10px;
+}
+
+.schedule-table .time-field24-trigger {
+  width: 22px;
+}
+
+.schedule-table .time-separator {
+  width: 12px;
+  text-align: center;
+}
+
+.time-header-tracks {
+  display: grid;
+  grid-template-columns: 90px 20px 90px;
+  text-align: left;
+}
+
+.time-header-tracks span {
+  width: 66px;
+  text-align: center;
+}
+
+.time-header-tracks span:last-child {
+  grid-column: 3;
+}
+
+.schedule-table .calc-number {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 3px;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.schedule-table .calc-unit {
+  font-size: 0.85em;
+  opacity: 0.75;
+}
+
 .input-classname {
   width: 160px;
   padding: 6px 8px;
