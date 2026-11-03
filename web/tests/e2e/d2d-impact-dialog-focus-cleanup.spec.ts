@@ -31,7 +31,23 @@ async function installListenerTracker(page: import('@playwright/test').Page) {
     const active = new Map<string, Set<any>>();
     const origAdd = document.addEventListener.bind(document);
     const origRemove = document.removeEventListener.bind(document);
+    let baseline: Map<string, Set<any>>;
+    let owned: Map<string, Set<any>>;
     w.__LT = {
+      markBaseline() {
+        baseline = new Map([...active].map(([event, listeners]) => [event, new Set(listeners)]));
+      },
+      captureOwned() {
+        owned = new Map(['pointerdown', 'keydown'].map((event) => [
+          event, new Set([...(active.get(event) || [])].filter((fn) => !baseline.get(event)?.has(fn))),
+        ]));
+        return Object.fromEntries([...owned].map(([event, listeners]) => [event, listeners.size]));
+      },
+      get ownedActive() {
+        return Object.fromEntries([...owned].map(([event, listeners]) => [
+          event, [...listeners].filter((fn) => active.get(event)?.has(fn)).length,
+        ]));
+      },
       get active(): Counts {
         return {
           pointerdown: (active.get('pointerdown') || new Set()).size,
@@ -224,13 +240,13 @@ test.describe('D2d r3／F4 cleanup：所有終止路徑都不得殘留 listener'
     await expect(dialog).toBeVisible({ timeout: 15000 });
     const save = dialog.locator('button', { hasText: /^儲存/ });
     await expect(save).toBeEnabled({ timeout: 15000 });
-    const base = await readCounts(page);   // 觀察窗建立前
+    await page.evaluate(() => (window as any).__LT.markBaseline()); // 觀察窗建立前
     await save.click();
     await expect(dialog).toHaveCount(0, { timeout: 15000 });
     await expect(opener, '儲存成功後已無未儲存變更，opener 為 disabled').toBeDisabled();
     const closedAt = Date.now();
 
-    const during = delta(await readCounts(page), base);
+    const during = await page.evaluate(() => (window as any).__LT.captureOwned());
     expect(during, '觀察窗已建立：多出 1 個 pointerdown 與 1 個 keydown').toEqual({ pointerdown: 1, keydown: 1 });
 
     // 瀏覽器 Back：同一 document 內 client-side 導覽，課表頁（含 opener）被卸載
@@ -239,8 +255,8 @@ test.describe('D2d r3／F4 cleanup：所有終止路徑都不得殘留 listener'
     await expect(opener, 'opener 已從 DOM 移除').toHaveCount(0);
 
     await expect
-      .poll(async () => delta(await readCounts(page), base), {
-        message: 'opener 被移除後（尚未到 5s watchdog）listener 必須已釋放，actual delta 見 Received',
+      .poll(async () => page.evaluate(() => (window as any).__LT.ownedActive), {
+        message: 'opener 被移除後（尚未到 5s watchdog）觀察窗的 listener 必須已釋放',
         timeout: 2500,
       })
       .toEqual({ pointerdown: 0, keydown: 0 });

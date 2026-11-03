@@ -304,6 +304,58 @@ test.describe('UX07（修訂）：未知／空白星期與 calculate 失敗不�
     await expect(page.locator('.save-status-clean')).toBeVisible();
   });
 
+  test('同值整表匯入取代尚未提交的滑桿預覽', async ({ page }) => {
+    await openSchedule(page);
+    const rows = buildSeedGridRows().map((item, index) => ({ ...item, rowId: `import-row-${index + 1}` }));
+    const attrs = gridRowsToClasses(rows).map((item) => ({
+      className: item.baseName, classType: item.classType,
+      hasMultiSubjectDiscount: item.hasMultiSubjectDiscount,
+      category: item.category ?? 'unset', categorySource: item.categorySource ?? 'unset',
+      fixedFiveDays: item.fixedFiveDays ?? false,
+    }));
+    await importScheduleRowsFixture(page, rows, attrs);
+    let started!: () => void;
+    let release!: () => void;
+    const startedPromise = new Promise<void>((resolve) => { started = resolve; });
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    await page.route('**/api/v1/settings/schedule-table', async (route) => {
+      if (route.request().method() !== 'POST') return route.continue();
+      started();
+      await gate;
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ rows, classAttrs: attrs }) });
+    });
+    try {
+      await page.getByLabel('選擇課表 Excel 檔案').setInputFiles({
+        name: 'synthetic-identical.xlsx',
+        mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        buffer: Buffer.from('synthetic'),
+      });
+      await startedPromise;
+      const row = classRows(page, CLASS).first();
+      const start = row.locator('input.input-time').first();
+      await start.click();
+      const popover = row.locator('[data-time-popover="start"]').first();
+      const slider = popover.getByRole('slider', { name: '起始時間 第 1 列 小時' });
+      await expect(slider).toBeVisible();
+      await slider.evaluate((element: HTMLInputElement) => {
+        element.value = '14';
+        element.dispatchEvent(new Event('input', { bubbles: true }));
+      });
+      await expect(popover.locator('.time-field24-preview')).toHaveText('14:20');
+      release();
+      await expect(page.locator('#toast')).toContainText('已匯入課表');
+      await expect(start).toHaveValue('15:20');
+      await expect(popover.locator('.time-field24-preview')).toHaveText('15:20');
+      await slider.dispatchEvent('pointerup');
+      await start.press('Escape');
+      await expect(start).toHaveValue('15:20');
+      await expect(page.locator('[data-pending-time-error]')).toHaveCount(0);
+    } finally {
+      release();
+      await page.unroute('**/api/v1/settings/schedule-table');
+    }
+  });
+
   test('(5) 匯入失敗保留 pending 時間；成功整表匯入清除 pending', async ({ page }) => {
     const { row, cell } = await openSchedule(page);
     const start = row.locator('input.input-time').first();
