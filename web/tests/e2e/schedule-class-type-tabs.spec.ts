@@ -84,6 +84,7 @@ async function installNavigationDiagnostics(page: Page) {
         barrier.delayedDelta = delta;
         barrier.pendingRelease = () => {
           log('barrier:history.go(-1)_released', { delta, time: performance.now() });
+          barrier.pendingRelease = null;
           origGo.call(history, delta);
         };
         return;
@@ -520,7 +521,7 @@ test.describe('D61 UX106: 課表設定 5 頁籤與簡化操作 E2E 驗收', () =
     })).toBeVisible();
   });
 
-  test('Issue #207 受控診斷：browser barrier 延後 sentinel traversal 與未延後對照', async ({ page }) => {
+  test('Issue #207 受控診斷（Save 路徑）：未延後對照與受控延後放行時序觀測', async ({ page }) => {
     // 1. 未延後對照（原生預設流程）：編輯草稿 → 儲存 → 立即 reload
     await page.locator('#class-type-tab-care').click();
     await page.getByRole('button', { name: '＋ 新增班級' }).click();
@@ -539,7 +540,7 @@ test.describe('D61 UX106: 課表設定 5 頁籤與簡化操作 E2E 驗收', () =
       has: page.locator(`input[value="${nameUnheld}"]`),
     })).toBeVisible();
 
-    // 2. 受控延後實驗：在真實 UI save 期間啟用 barrier 攔截延後 history.go(-1)
+    // 2. 受控延後放行：在真實 UI save 期間啟用 barrier 攔截延後 history.go(-1)，驗證後放行原生 traversal
     await page.evaluate(() => {
       const b = (window as any).__SENTINEL_BARRIER;
       if (b) {
@@ -551,18 +552,18 @@ test.describe('D61 UX106: 課表設定 5 頁籤與簡化操作 E2E 驗收', () =
 
     await page.getByRole('button', { name: '＋ 新增班級' }).click();
     const addForm2 = page.locator('dialog.add-class-dialog form.add-session-panel');
-    const nameHeld = `國小輔導-延後${Date.now().toString().slice(-4)}`;
-    await addForm2.locator('input[aria-label="新增班級名稱"]').fill(nameHeld);
+    const nameHeldRelease = `國小輔導-延後放行${Date.now().toString().slice(-4)}`;
+    await addForm2.locator('input[aria-label="新增班級名稱"]').fill(nameHeldRelease);
     await addForm2.getByRole('button', { name: '確認新增' }).click();
     await expect(page.locator('table.schedule-table-care tr.schedule-row', {
-      has: page.locator(`input[value="${nameHeld}"]`),
+      has: page.locator(`input[value="${nameHeldRelease}"]`),
     })).toBeVisible();
 
     // 儲存變更：dirty -> false 觸發 unwindSentinel()，被 barrier 延後
     await saveSettings(page);
 
-    // 檢查 barrier 狀態：確認 history.go(-1) 確實處於 pending 狀態
-    const statusBeforeReload = await page.evaluate(() => {
+    // 檢查 barrier 狀態：確認 history.go(-1) 確實處於 held 狀態
+    const statusBeforeRelease = await page.evaluate(() => {
       const b = (window as any).__SENTINEL_BARRIER;
       return {
         enabled: b?.enabled,
@@ -571,14 +572,140 @@ test.describe('D61 UX106: 課表設定 5 頁籤與簡化操作 E2E 驗收', () =
         callCount: b?.callCount,
       };
     });
-    expect(statusBeforeReload.hasPendingRelease).toBe(true);
-    expect(statusBeforeReload.delayedDelta).toBe(-1);
+    expect(statusBeforeRelease.hasPendingRelease).toBe(true);
+    expect(statusBeforeRelease.delayedDelta).toBe(-1);
 
-    // 執行 reload：此時無 history.go(-1) traversal 在途中
+    // 受控放行原生 traversal：呼叫 pendingRelease()，執行原生 history.go(-1)
+    await page.evaluate(() => {
+      const b = (window as any).__SENTINEL_BARRIER;
+      if (b && typeof b.pendingRelease === 'function') {
+        b.pendingRelease();
+      }
+    });
+
+    // 等待原生 popstate 事件實際抵達瀏覽器
+    await page.waitForFunction(() => {
+      const events = (window as any).__NAV_EVENTS || [];
+      const currentDocId = (window as any).__DOC_ID;
+      return events.some((e: any) => e.type === 'window:popstate' && e.docId === currentDocId);
+    });
+
+    // 驗證 barrier 狀態已轉為 released (hasPendingRelease === false)
+    const statusAfterRelease = await page.evaluate(() => {
+      const b = (window as any).__SENTINEL_BARRIER;
+      return {
+        hasPendingRelease: typeof b?.pendingRelease === 'function',
+      };
+    });
+    expect(statusAfterRelease.hasPendingRelease).toBe(false);
+
+    // 原生 traversal 完成後執行 reload
     await page.reload();
     await expect(page.locator('.schedule-grid-container')).toBeVisible({ timeout: 15000 });
     await expect(page.locator('table.schedule-table-care tr.schedule-row', {
-      has: page.locator(`input[value="${nameHeld}"]`),
+      has: page.locator(`input[value="${nameHeldRelease}"]`),
     })).toBeVisible();
+  });
+
+  test('Issue #207 受控診斷（Cancel 路徑）：取消修改之未延後對照與受控延後放行', async ({ page }) => {
+    // 1. 未延後取消對照：新增草稿產生 dirty → 按「取消修改」回到 clean → 立即 page.reload()
+    await page.locator('#class-type-tab-care').click();
+    await page.getByRole('button', { name: '＋ 新增班級' }).click();
+    const addForm1 = page.locator('dialog.add-class-dialog form.add-session-panel');
+    const nameCancelUnheld = `國小輔導-未延後取消${Date.now().toString().slice(-4)}`;
+    await addForm1.locator('input[aria-label="新增班級名稱"]').fill(nameCancelUnheld);
+    await addForm1.getByRole('button', { name: '確認新增' }).click();
+    await expect(page.locator('table.schedule-table-care tr.schedule-row', {
+      has: page.locator(`input[value="${nameCancelUnheld}"]`),
+    })).toBeVisible();
+    await expect(page.locator('button', { hasText: '取消修改' })).toBeEnabled();
+
+    // 點擊「取消修改」：dirty 轉 false，觸發 unwindSentinel() -> 原生 history.go(-1)
+    await page.locator('button', { hasText: '取消修改' }).click();
+    await expect(page.locator('button', { hasText: '取消修改' })).toBeDisabled();
+    await expect(page.locator('.save-status-dirty')).toHaveCount(0);
+    await expect(page.locator('.save-status-clean')).toBeVisible();
+    await expect(page.locator('table.schedule-table-care tr.schedule-row', {
+      has: page.locator(`input[value="${nameCancelUnheld}"]`),
+    })).toHaveCount(0);
+
+    // 立即重新載入
+    await page.reload();
+    await expect(page.locator('.schedule-grid-container')).toBeVisible({ timeout: 15000 });
+    await expect(page.locator('table.schedule-table-care tr.schedule-row', {
+      has: page.locator(`input[value="${nameCancelUnheld}"]`),
+    })).toHaveCount(0);
+
+    // 2. 受控延後放行取消：啟用 barrier → 新增草稿產生 dirty → 按「取消修改」→ 攔截驗證後受控放行原生 traversal
+    await page.evaluate(() => {
+      const b = (window as any).__SENTINEL_BARRIER;
+      if (b) {
+        b.enabled = true;
+        b.delayedDelta = null;
+        b.pendingRelease = null;
+      }
+    });
+
+    await page.getByRole('button', { name: '＋ 新增班級' }).click();
+    const addForm2 = page.locator('dialog.add-class-dialog form.add-session-panel');
+    const nameCancelHeld = `國小輔導-延後取消${Date.now().toString().slice(-4)}`;
+    await addForm2.locator('input[aria-label="新增班級名稱"]').fill(nameCancelHeld);
+    await addForm2.getByRole('button', { name: '確認新增' }).click();
+    await expect(page.locator('table.schedule-table-care tr.schedule-row', {
+      has: page.locator(`input[value="${nameCancelHeld}"]`),
+    })).toBeVisible();
+    await expect(page.locator('button', { hasText: '取消修改' })).toBeEnabled();
+
+    // 點擊「取消修改」：dirty 轉 false，觸發 unwindSentinel()，被 barrier 攔截
+    await page.locator('button', { hasText: '取消修改' }).click();
+    await expect(page.locator('button', { hasText: '取消修改' })).toBeDisabled();
+    await expect(page.locator('.save-status-dirty')).toHaveCount(0);
+    await expect(page.locator('.save-status-clean')).toBeVisible();
+    await expect(page.locator('table.schedule-table-care tr.schedule-row', {
+      has: page.locator(`input[value="${nameCancelHeld}"]`),
+    })).toHaveCount(0);
+
+    // 驗證 barrier 確實攔截到 cancel 觸發之 history.go(-1) (held 狀態)
+    const statusCancel = await page.evaluate(() => {
+      const b = (window as any).__SENTINEL_BARRIER;
+      return {
+        enabled: b?.enabled,
+        hasPendingRelease: typeof b?.pendingRelease === 'function',
+        delayedDelta: b?.delayedDelta,
+      };
+    });
+    expect(statusCancel.hasPendingRelease).toBe(true);
+    expect(statusCancel.delayedDelta).toBe(-1);
+
+    // 受控放行原生 traversal
+    await page.evaluate(() => {
+      const b = (window as any).__SENTINEL_BARRIER;
+      if (b && typeof b.pendingRelease === 'function') {
+        b.pendingRelease();
+      }
+    });
+
+    // 等待原生 popstate 事件實際抵達瀏覽器
+    await page.waitForFunction(() => {
+      const events = (window as any).__NAV_EVENTS || [];
+      const currentDocId = (window as any).__DOC_ID;
+      return events.some((e: any) => e.type === 'window:popstate' && e.docId === currentDocId);
+    });
+
+    // 驗證 barrier 狀態已轉為 released
+    const statusCancelAfter = await page.evaluate(() => {
+      const b = (window as any).__SENTINEL_BARRIER;
+      return {
+        hasPendingRelease: typeof b?.pendingRelease === 'function',
+      };
+    });
+    expect(statusCancelAfter.hasPendingRelease).toBe(false);
+
+    // 接續 reload 驗證頁面與草稿狀態
+    await page.reload();
+    await expect(page.locator('.schedule-grid-container')).toBeVisible({ timeout: 15000 });
+    await expect(page.locator('table.schedule-table-care tr.schedule-row', {
+      has: page.locator(`input[value="${nameCancelHeld}"]`),
+    })).toHaveCount(0);
   });
 });
