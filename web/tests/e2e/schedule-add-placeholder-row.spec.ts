@@ -167,11 +167,31 @@ test.describe('#82 & D61 1c: 新增班級僅班名必填與未填時間雙重警
     await page.mouse.move(endHoursBox.x + endHoursBox.width - 1, sliderY);
     await expect(row.locator('[data-pending-time-error]')).toBeVisible();
     await expect(page.locator('[data-schedule-export]')).toBeDisabled();
+    await expect(page.getByRole('button', { name: '確認變更' })).toBeDisabled();
     await expect(end).toHaveValue('16:50');
     await page.mouse.up();
     await expect(end).toHaveValue('23:50');
     await expect(row.locator('[data-pending-time-error]')).toHaveCount(0);
     await page.keyboard.press('Escape');
+
+    // Escape while a real pointer preview is still dirty must commit before dismissal.
+    await end.fill('16:50');
+    const escapePopover = row.locator('[data-time-popover="end"]').first();
+    const escapeHours = escapePopover.getByRole('slider', { name: '結束時間 第 1 列 小時' });
+    const escapeBox = await escapeHours.boundingBox();
+    if (!escapeBox) throw new Error('End-hour slider has no browser geometry');
+    const escapeY = escapeBox.y + escapeBox.height / 2;
+    await page.mouse.move(escapeBox.x + escapeBox.width * (16 / 23), escapeY);
+    await page.mouse.down();
+    await page.mouse.move(escapeBox.x + escapeBox.width - 1, escapeY);
+    await expect(row.locator('[data-pending-time-error]')).toBeVisible();
+    const escapePreview = await escapePopover.locator('.time-field24-preview').textContent();
+    if (!escapePreview) throw new Error('End-hour preview did not render a value');
+    await page.keyboard.press('Escape');
+    await expect(escapePopover).toBeHidden();
+    await expect(end).toHaveValue(escapePreview);
+    await expect(row.locator('[data-pending-time-error]')).toHaveCount(0);
+    await page.mouse.up();
 
     // A cancelled pointer interaction must settle its latest preview before blur/dismissal.
     await end.fill('16:50');
