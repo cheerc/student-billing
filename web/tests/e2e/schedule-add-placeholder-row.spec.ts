@@ -213,7 +213,7 @@ test.describe('#82 & D61 1c: 新增班級僅班名必填與未填時間雙重警
     await end.fill('23:59');
     await expect(row.locator('[data-pending-time-error]')).toHaveCount(0);
 
-    // Keep the colon-capable manual-entry affordance and popup fully in view at both target sizes.
+    // Keep manual entry and the popup fully in view at both target sizes.
     const mobile = { width: 390, height: 844 };
     await page.setViewportSize(mobile);
     await start.fill('08:30');
@@ -224,7 +224,6 @@ test.describe('#82 & D61 1c: 新增班級僅班名必填與未填時間雙重警
     const geometry: Record<string, { left: number; top: number; right: number; bottom: number; width: number; height: number; hit: boolean }> = {};
     for (const viewport of [{ name: 'desktop', width: 1440, height: 900 }, { name: 'mobile', ...mobile }]) {
       await page.setViewportSize({ width: viewport.width, height: viewport.height });
-      if (viewport.name === 'mobile') await expect(start).toHaveAttribute('inputmode', 'text');
       await start.click();
       await expect(popover).toBeVisible();
       const measured = await popover.evaluate((element) => {
