@@ -1,7 +1,7 @@
 import { test, expect, type Page } from '@playwright/test';
 import { writeFile } from 'node:fs/promises';
 import { resetSeedSettings, saveSettings, reloadSettings, setMultiDiscount } from './helpers/d2c-settings';
-import { classRows, openClassScheduleFull } from './helpers/c-batch';
+import { calcCell, classRows, openClassScheduleFull } from './helpers/c-batch';
 
 /**
  * #82 & D61 1c (UX108): 新增時段僅班名必填與未填時間雙重警示 E2E 驗收
@@ -100,8 +100,10 @@ test.describe('#82 & D61 1c: 新增班級僅班名必填與未填時間雙重警
     await expect(name).toBeFocused();
     await expect(dialog.getByLabel('新增班級課程類型')).toHaveCount(0);
     await name.fill('只存在對話框的班');
-    await page.keyboard.press('Tab');
-    await expect(dialog.locator(':focus')).toHaveCount(1);
+    for (let step = 0; step < 12; step += 1) {
+      await page.keyboard.press('Tab');
+      expect(await dialog.evaluate((element) => element.contains(document.activeElement))).toBe(true);
+    }
     await expect(page.locator('tr.schedule-row', { has: page.locator('input[value="只存在對話框的班"]') })).toHaveCount(0);
 
     // Native modal backdrop receives the click; the dialog stays open and does not submit.
@@ -113,6 +115,22 @@ test.describe('#82 & D61 1c: 新增班級僅班名必填與未填時間雙重警
     await dialog.getByRole('button', { name: '設定新增起始時間' }).click();
     await expect(timePopover).toBeVisible();
     expect(await dialog.evaluate((element) => element.contains(element.querySelector('[data-time-popover="start"]')))).toBe(true);
+    const overlayHit = await timePopover.evaluate((element) => {
+      const rect = element.getBoundingClientRect();
+      const hit = document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2);
+      return {
+        left: rect.left,
+        top: rect.top,
+        right: rect.right,
+        bottom: rect.bottom,
+        hit: hit === element || element.contains(hit),
+      };
+    });
+    expect(overlayHit.left).toBeGreaterThanOrEqual(0);
+    expect(overlayHit.top).toBeGreaterThanOrEqual(0);
+    expect(overlayHit.right).toBeLessThanOrEqual(1440);
+    expect(overlayHit.bottom).toBeLessThanOrEqual(900);
+    expect(overlayHit.hit).toBe(true);
     await page.keyboard.press('Escape');
     await expect(timePopover).toBeHidden();
     await expect(dialog).toBeVisible();
@@ -125,6 +143,134 @@ test.describe('#82 & D61 1c: 新增班級僅班名必填與未填時間雙重警
     await dialog.getByRole('button', { name: '取消新增' }).click();
     await expect(dialog).toBeHidden();
     await expect(opener).toBeFocused();
+  });
+
+  test('UX117: all five class tabs supply the field matrix and defaults; X and successful add restore focus without losing page edits', async ({ page }) => {
+    const matrix: Array<{
+      type: 'care' | 'english' | 'math' | 'other' | 'unscheduled';
+      multi: boolean;
+      fixed: boolean;
+      schedulable: boolean;
+      skip: boolean;
+      multiDefault?: boolean;
+      fixedDefault?: boolean;
+      skipDefault?: boolean;
+    }> = [
+      { type: 'care', multi: true, fixed: true, schedulable: false, skip: false, multiDefault: true, fixedDefault: false },
+      { type: 'english', multi: true, fixed: false, schedulable: true, skip: true, multiDefault: true },
+      { type: 'math', multi: true, fixed: false, schedulable: true, skip: true, multiDefault: true },
+      { type: 'other', multi: false, fixed: false, schedulable: true, skip: true, skipDefault: true },
+      { type: 'unscheduled', multi: false, fixed: false, schedulable: false, skip: false },
+    ] as const;
+
+    for (const item of matrix) {
+      await page.locator(`#class-type-tab-${item.type}`).click();
+      const opener = page.getByRole('button', { name: /新增班級|新增時段/ });
+      await opener.click();
+      const dialog = page.locator('dialog.add-class-dialog');
+      await expect(dialog).toBeVisible();
+      await expect(dialog.getByRole('heading', { name: `新增${({ care: '安親課輔班', english: '美語班', math: '數學班', other: '其他班', unscheduled: '不排課' } as const)[item.type]}` })).toBeVisible();
+      await expect(dialog.getByLabel('新增班級名稱')).toBeFocused();
+      await expect(dialog.getByLabel('新增班級名稱')).toHaveAttribute('required', '');
+      await expect(dialog.getByRole('combobox', { name: '新增班級課程類型' })).toHaveCount(0);
+
+      const multi = dialog.getByRole('radiogroup', { name: '新增班級是否有多科折扣' });
+      await expect(multi).toHaveCount(item.multi ? 1 : 0);
+      if (item.multi) {
+        await expect(multi.locator('input[value="true"]')).toBeChecked({ checked: item.multiDefault });
+        await expect(multi.locator('input[value="false"]')).toBeChecked({ checked: !item.multiDefault });
+      }
+      const fixed = dialog.getByRole('radiogroup', { name: '新增班級天數固定5天' });
+      await expect(fixed).toHaveCount(item.fixed ? 1 : 0);
+      if (item.fixed) {
+        await expect(fixed.locator(`input[value="${item.fixedDefault}"]`)).toBeChecked();
+        await expect(fixed.locator(`input[value="${!item.fixedDefault}"]`)).not.toBeChecked();
+      }
+
+      const skip = dialog.getByRole('radiogroup', { name: '新增時段不計扣天' });
+      await expect(skip).toHaveCount(item.skip ? 1 : 0);
+      if (item.skip) {
+        await expect(skip.locator('input[value="true"]')).toBeChecked({ checked: item.skipDefault ?? false });
+      }
+      await expect(dialog.getByLabel('新增星期')).toHaveCount(item.schedulable ? 1 : 0);
+      await expect(dialog.getByLabel('新增起始時間')).toHaveCount(item.schedulable ? 1 : 0);
+      await expect(dialog.getByLabel('新增結束時間')).toHaveCount(item.schedulable ? 1 : 0);
+
+      await dialog.getByRole('button', { name: '取消新增' }).click();
+      await expect(dialog).toBeHidden();
+      await expect(opener).toBeFocused();
+    }
+
+    await page.locator('#class-type-tab-english').click();
+    await setMultiDiscount(page, '兒童美語-Gino', false);
+    await expect(page.locator('.save-status-dirty')).toBeVisible();
+    const opener = page.getByRole('button', { name: /新增班級|新增時段/ });
+    const existingRows = classRows(page, '兒童美語-Gino');
+    await opener.click();
+    const dialog = page.locator('dialog.add-class-dialog');
+    await dialog.getByLabel('新增班級名稱').fill('X 關閉不建立');
+    await dialog.getByRole('button', { name: '關閉新增視窗' }).click();
+    await expect(dialog).toBeHidden();
+    await expect(opener).toBeFocused();
+    await expect(existingRows).toHaveCount(3);
+    await expect(page.getByRole('radiogroup', { name: '兒童美語-Gino 的是否有多科折扣' }).first()
+      .locator('input[value="false"]')).toBeChecked();
+    await expect(page.locator('.save-status-dirty')).toBeVisible();
+
+    await opener.click();
+    await expect(dialog.getByLabel('新增班級名稱')).toHaveValue('');
+    await dialog.getByLabel('新增班級名稱').fill('成功新增回焦點');
+    await dialog.getByRole('button', { name: '確認新增' }).click();
+    await expect(dialog).toBeHidden();
+    await expect(opener).toBeFocused();
+    await expect(classRows(page, '成功新增回焦點')).toHaveCount(1);
+    await expect(page.locator('.save-status-dirty')).toBeVisible();
+    await page.getByRole('button', { name: '取消修改' }).click();
+    await expect(classRows(page, '成功新增回焦點')).toHaveCount(0);
+    await expect(page.locator('.save-status-clean')).toBeVisible();
+  });
+
+  test('UX117: long add dialog scrolls its content while keeping actions usable on a short viewport', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 320 });
+    await page.locator('#class-type-tab-math').click();
+    await page.getByRole('button', { name: /新增班級|新增時段/ }).click();
+    const dialog = page.locator('dialog.add-class-dialog');
+    await expect(dialog).toBeVisible();
+    const geometry = await dialog.evaluate((element) => {
+      const dialogRect = element.getBoundingClientRect();
+      const footer = element.querySelector('.dialogfooter')!;
+      const footerRect = footer.getBoundingClientRect();
+      const scrollable = Array.from(element.querySelectorAll<HTMLElement>('*')).find((node) => {
+        const overflowY = window.getComputedStyle(node).overflowY;
+        return (overflowY === 'auto' || overflowY === 'scroll') && node.scrollHeight > node.clientHeight;
+      });
+      if (scrollable) scrollable.scrollTop = scrollable.scrollHeight;
+      return {
+        dialog: { top: dialogRect.top, bottom: dialogRect.bottom },
+        scroll: scrollable && {
+          clientHeight: scrollable.clientHeight,
+          scrollHeight: scrollable.scrollHeight,
+          scrollTop: scrollable.scrollTop,
+        },
+        footer: { top: footerRect.top, bottom: footerRect.bottom },
+        viewportHeight: window.innerHeight,
+      };
+    });
+    expect(geometry.dialog.top).toBeGreaterThanOrEqual(0);
+    expect(geometry.dialog.bottom).toBeLessThanOrEqual(geometry.viewportHeight);
+    expect(geometry.scroll).not.toBeNull();
+    expect(geometry.scroll!.scrollHeight).toBeGreaterThan(geometry.scroll!.clientHeight);
+    expect(geometry.scroll!.scrollTop).toBeGreaterThan(0);
+    const confirm = dialog.getByRole('button', { name: '確認新增' });
+    await expect(confirm).toBeVisible();
+    const confirmReachable = await confirm.evaluate((button) => {
+      const rect = button.getBoundingClientRect();
+      const target = document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2);
+      return target === button || button.contains(target);
+    });
+    expect(confirmReachable).toBe(true);
+    expect(geometry.footer.top).toBeGreaterThanOrEqual(0);
+    expect(geometry.footer.bottom).toBeLessThanOrEqual(320);
   });
 
   test('UX118: paired time field exposes 24-hour sliders and commits valid endpoint pairs atomically', async ({ page }, testInfo) => {
@@ -154,6 +300,7 @@ test.describe('#82 & D61 1c: 新增班級僅班名必填與未填時間雙重警
     await expect(row.locator('[data-pending-time-error]')).toHaveCount(0);
     await page.keyboard.press('Escape');
     await expect(popover).toBeHidden();
+    await expect(start).toBeFocused();
 
     await end.click();
     const endPopover = row.locator('[data-time-popover="end"]').first();
@@ -273,12 +420,174 @@ test.describe('#82 & D61 1c: 新增班級僅班名必填與未填時間雙重警
       await page.mouse.click(2, 2);
       await expect(popover).toBeHidden();
     }
+
+    await page.setViewportSize(mobile);
+    await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+    const pageScrollBefore = await page.evaluate(() => window.scrollY);
+    const scroller = page.locator('.schedule-table-scroll');
+    const edgeRow = page.locator('.schedule-table-english tbody tr.schedule-row').last();
+    const edgeStart = edgeRow.locator('input.input-time').first();
+    const scrollBefore = await scroller.evaluate((element) => {
+      const maxLeft = element.scrollWidth - element.clientWidth;
+      const maxTop = element.scrollHeight - element.clientHeight;
+      element.scrollTop = maxTop;
+      const rows = element.querySelectorAll('tbody tr.schedule-row');
+      const input = rows.item(rows.length - 1)?.querySelector('input.input-time');
+      if (!input) throw new Error('Scrollable schedule table has no last-row time input');
+      const inputRect = input.getBoundingClientRect();
+      element.scrollLeft = Math.min(maxLeft, Math.max(0, element.scrollLeft + inputRect.right - window.innerWidth + 12));
+      return { maxLeft, maxTop, scrollLeft: element.scrollLeft, scrollTop: element.scrollTop };
+    });
+    expect(scrollBefore.maxLeft).toBeGreaterThan(0);
+    expect(scrollBefore.maxTop).toBeGreaterThan(0);
+    await expect(edgeStart).toBeVisible();
+    const scrolledPopover = edgeRow.locator('[data-time-popover="start"]');
+    await edgeStart.click();
+    await expect(scrolledPopover).toBeVisible();
+    const scrolledGeometry = await scrolledPopover.evaluate((element) => {
+      const rect = element.getBoundingClientRect();
+      const hit = document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2);
+      return {
+        left: rect.left,
+        top: rect.top,
+        right: rect.right,
+        bottom: rect.bottom,
+        width: window.innerWidth,
+        height: window.innerHeight,
+        hit: hit === element || element.contains(hit),
+      };
+    });
+    expect(scrolledGeometry.left).toBeGreaterThanOrEqual(0);
+    expect(scrolledGeometry.top).toBeGreaterThanOrEqual(0);
+    expect(scrolledGeometry.right).toBeLessThanOrEqual(mobile.width);
+    expect(scrolledGeometry.bottom).toBeLessThanOrEqual(mobile.height);
+    expect(scrolledGeometry.hit).toBe(true);
+    const scrollWhileOpen = await scroller.evaluate((element) => ({ scrollLeft: element.scrollLeft, scrollTop: element.scrollTop }));
+    expect(scrollWhileOpen).toEqual({ scrollLeft: scrollBefore.scrollLeft, scrollTop: scrollBefore.scrollTop });
+    await page.keyboard.press('Escape');
+    await expect(scrolledPopover).toBeHidden();
+    const scrollAfter = await scroller.evaluate((element) => ({ scrollLeft: element.scrollLeft, scrollTop: element.scrollTop }));
+    expect(scrollAfter).toEqual(scrollWhileOpen);
+    await expect(edgeStart).toBeFocused();
+    expect(await page.evaluate(() => window.scrollY)).toBe(pageScrollBefore);
+    geometry['scrolled-table-mobile'] = scrolledGeometry;
     await writeFile(testInfo.outputPath('time-popover-geometry.json'), JSON.stringify(geometry, null, 2));
     await testInfo.attach('time-popover-geometry.json', {
       body: Buffer.from(JSON.stringify(geometry, null, 2)),
       contentType: 'application/json',
     });
     expect(pageErrors).toEqual([]);
+  });
+
+  test('UX119: equal-time pending masks prior calculation and blocks apply/export until the valid pair returns', async ({ page }) => {
+    const row = await openClassScheduleFull(page, '兒童美語-Gino');
+    const calcColumns = ['anqin-overlap', 'anqin-deduction', 'tutoring-overlap', 'tutoring-deduction'] as const;
+    const cell = (name: (typeof calcColumns)[number]) => calcCell(page, '兒童美語-Gino', name);
+    const start = row.locator('input.input-time').first();
+    const end = row.locator('input.input-time').last();
+    await expect(start).toHaveValue('15:20');
+    await expect(end).toHaveValue('16:50');
+    let calculateRequests = 0;
+    page.on('request', (request) => {
+      if (request.url().includes('/api/v1/settings/calculate') && request.method() === 'POST') calculateRequests += 1;
+    });
+    await page.clock.install();
+    const assertPendingBoundary = async () => {
+      await expect(row.locator('[data-pending-time-error]')).toBeVisible();
+      for (const column of calcColumns) await expect(cell(column)).toHaveText('—');
+      await expect(page.getByRole('button', { name: '確認變更' })).toBeDisabled();
+      await expect(page.locator('[data-schedule-export]')).toBeDisabled();
+    };
+    const requestsBeforePending = calculateRequests;
+
+    await start.fill('16:50');
+    await expect(start).toHaveValue('16:50');
+    await expect(end).toHaveValue('16:50');
+    await assertPendingBoundary();
+    await page.clock.fastForward(500);
+    expect(calculateRequests).toBe(requestsBeforePending);
+
+    await start.fill('15:20');
+    await expect(row.locator('[data-pending-time-error]')).toHaveCount(0);
+    await expect(cell('anqin-overlap')).toHaveText('40', { timeout: 10000 });
+    await expect(cell('tutoring-overlap')).toHaveText('20');
+
+    const requestsBeforeInverted = calculateRequests;
+    await start.fill('17:00');
+    await expect(start).toHaveValue('17:00');
+    await expect(end).toHaveValue('16:50');
+    await assertPendingBoundary();
+    await page.clock.fastForward(500);
+    expect(calculateRequests).toBe(requestsBeforeInverted);
+
+    await start.fill('15:20');
+    await expect(row.locator('[data-pending-time-error]')).toHaveCount(0);
+    await expect(cell('anqin-overlap')).toHaveText('40', { timeout: 10000 });
+    await expect(cell('tutoring-overlap')).toHaveText('20');
+  });
+
+  test('UX119: slider preview does not recalculate on pointer moves and commits once on release', async ({ page }) => {
+    const row = await openClassScheduleFull(page, '兒童美語-Gino');
+    const end = row.locator('input.input-time').last();
+    let calculateRequests = 0;
+    page.on('request', (request) => {
+      if (request.url().includes('/api/v1/settings/calculate') && request.method() === 'POST') calculateRequests += 1;
+    });
+
+    await end.click();
+    const popover = row.locator('[data-time-popover="end"]');
+    const hours = popover.getByRole('slider', { name: '結束時間 第 1 列 小時' });
+    const box = await hours.boundingBox();
+    if (!box) throw new Error('End-hour slider has no browser geometry');
+    await page.clock.install();
+    const before = calculateRequests;
+    const y = box.y + box.height / 2;
+    await page.mouse.move(box.x + box.width * (16 / 23), y);
+    await page.mouse.down();
+    await page.mouse.move(box.x + box.width * (18 / 23), y);
+    await page.mouse.move(box.x + box.width * (20 / 23), y);
+    await expect(row.locator('[data-pending-time-error]')).toBeVisible();
+    await page.clock.fastForward(500);
+    expect(calculateRequests).toBe(before);
+    const preview = await popover.locator('.time-field24-preview').textContent();
+    if (!preview) throw new Error('Held pointer preview did not render a value');
+
+    const committedRequest = page.waitForRequest((request) =>
+      request.url().includes('/api/v1/settings/calculate') && request.method() === 'POST'
+    );
+    await page.mouse.up();
+    await page.clock.fastForward(250);
+    await committedRequest;
+    expect(calculateRequests).toBe(before + 1);
+    await expect(end).toHaveValue(preview);
+    await expect(row.locator('[data-pending-time-error]')).toHaveCount(0);
+  });
+
+  test('UX119: touch slider completion commits the selected hour on a touch-enabled Chromium page', async ({ browser }) => {
+    const context = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true });
+    const touchPage = await context.newPage();
+    try {
+      await resetSeedSettings(touchPage);
+      await touchPage.goto('/settings');
+      await expect(touchPage.locator('h1', { hasText: '課表設定' })).toBeVisible({ timeout: 15000 });
+      await touchPage.locator('#class-type-tab-english').click();
+      const row = classRows(touchPage, '兒童美語-Gino').first();
+      const end = row.locator('input.input-time').last();
+      await end.click();
+      const popover = row.locator('[data-time-popover="end"]');
+      await expect(popover).toBeVisible();
+      const hours = popover.getByRole('slider', { name: '結束時間 第 1 列 小時' });
+      const box = await hours.boundingBox();
+      if (!box) throw new Error('Touch end-hour slider has no browser geometry');
+      await touchPage.touchscreen.tap(box.x + box.width * (18 / 23), box.y + box.height / 2);
+      await expect.poll(() => end.inputValue()).not.toBe('16:50');
+      const preview = await popover.locator('.time-field24-preview').textContent();
+      if (!preview) throw new Error('Touch preview did not render a value');
+      await expect(end).toHaveValue(preview);
+      await expect(row.locator('[data-pending-time-error]')).toHaveCount(0);
+    } finally {
+      await context.close();
+    }
   });
 
   test('UX108: 未填時間排課列渲染 1c 雙重警示並支援先存檔', async ({ page }) => {
@@ -335,6 +644,35 @@ test.describe('#82 & D61 1c: 新增班級僅班名必填與未填時間雙重警
     await expect
       .poll(async () => (await calcCellsText(page, '新開班-待排課')).join('|'), { timeout: 15000 })
       .not.toContain('—');
+  });
+
+  test('UX119: one blank endpoint is legal and survives save/reload without pending error', async ({ page }) => {
+    await page.locator('#class-type-tab-english').click();
+    const className = 'PR2 單端空白測試班';
+    await page.getByRole('button', { name: '＋ 新增班級' }).click();
+    const form = page.locator('dialog.add-class-dialog form.add-session-panel');
+    await form.getByLabel('新增班級名稱').fill(className);
+    await form.getByLabel('新增星期').selectOption('一');
+    await form.getByLabel('新增起始時間').fill('15:20');
+    await form.getByLabel('新增結束時間').fill('16:50');
+    await form.getByRole('button', { name: '確認新增' }).click();
+    const row = classRows(page, className).first();
+    const start = row.locator('input.input-time').first();
+    const end = row.locator('input.input-time').last();
+    const originalEnd = await end.inputValue();
+    await start.fill('');
+    await expect(start).toHaveValue('');
+    await expect(end).toHaveValue(originalEnd);
+    await expect(row.locator('[data-pending-time-error]')).toHaveCount(0);
+    await expect(row).toHaveClass(/row-incomplete/);
+    await saveSettings(page);
+    await reloadSettings(page);
+    await page.locator('#class-type-tab-english').click();
+    const reloaded = classRows(page, className).first();
+    await expect(reloaded.locator('input.input-time').first()).toHaveValue('');
+    await expect(reloaded.locator('input.input-time').last()).toHaveValue(originalEnd);
+    await expect(reloaded.locator('[data-pending-time-error]')).toHaveCount(0);
+    await expect(reloaded).toHaveClass(/row-incomplete/);
   });
 
   test('Issue #213: 同類型同屬性仍允許同名多時段', async ({ page }) => {
@@ -425,5 +763,26 @@ test.describe('#82 & D61 1c: 新增班級僅班名必填與未填時間雙重警
     await expect(classRows(page, className)).toHaveCount(3);
     await expect(page.getByRole('radiogroup', { name: `${className} 的是否有多科折扣` }).first()
       .locator('input[value="false"]')).toBeChecked();
+  });
+
+  test('Issue #213: 同名安親班的固定 5 天屬性衝突在新增前拒絕且保留原值', async ({ page }) => {
+    const className = '國小輔導-四年級';
+    await openClassScheduleFull(page, className);
+    await page.locator('#class-type-tab-care').click();
+    const fixed = page.getByRole('radiogroup', { name: `${className} 的天數固定 5 天` });
+    await fixed.locator('label', { hasText: '是' }).click();
+    await expect(fixed.locator('input[value="true"]')).toBeChecked();
+
+    await page.getByRole('button', { name: /新增班級|新增時段/ }).click();
+    const dialog = page.locator('dialog.add-class-dialog');
+    const draftFixed = dialog.getByRole('radiogroup', { name: '新增班級天數固定5天' });
+    await expect(draftFixed.locator('input[value="false"]')).toBeChecked();
+    await dialog.getByLabel('新增班級名稱').fill(className);
+    await dialog.getByRole('button', { name: '確認新增' }).click();
+
+    const conflict = dialog.getByRole('alert');
+    await expect(conflict).toContainText(/固定 5 天/);
+    await expect(classRows(page, className)).toHaveCount(1);
+    await expect(fixed.locator('input[value="true"]')).toBeChecked();
   });
 });

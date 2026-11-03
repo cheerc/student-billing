@@ -1,5 +1,14 @@
 import { test, expect, type Page, type Locator } from '@playwright/test';
-import { calcCell, importScheduleRowsFixture, openClassScheduleFull } from './helpers/c-batch';
+import {
+  calcCell,
+  classRows,
+  importScheduleRowsFixture,
+  keepEditing,
+  leaveDialog,
+  openClassScheduleFull,
+  sideLink,
+} from './helpers/c-batch';
+import { reloadSettings, saveSettings } from './helpers/d2c-settings';
 import { buildSeedGridRows, gridRowsToClasses } from '../../src/contracts/settings';
 
 /**
@@ -158,6 +167,29 @@ test.describe('UX07（修訂）：未知／空白星期與 calculate 失敗不�
     await expect(calcCell(page, NEIGHBOR_CLASS, 'anqin-overlap')).not.toHaveText('—');
   });
 
+  test('(2b) 合成舊星期修正為「未定」後，重載仍是空值而不是舊異常選項', async ({ page }) => {
+    await openSchedule(page);
+    await importLegacyWeekday(page, '八');
+    const row = classRows(page, CLASS).first();
+    const weekday = row.locator('select.input-weekday');
+    await expect(weekday).toHaveValue('八');
+    await expect(weekday.locator('option:checked')).toHaveText('需確認：八');
+
+    await weekday.selectOption('');
+    await expect(weekday).toHaveValue('');
+    await expect(weekday.locator('option:checked')).toHaveText('未定');
+    await expect(weekday.locator('option[value="八"]')).toHaveCount(0);
+    await saveSettings(page);
+    await reloadSettings(page);
+    await page.locator('#class-type-tab-english').click();
+
+    const reloadedWeekday = classRows(page, CLASS).first().locator('select.input-weekday');
+    await expect(reloadedWeekday).toHaveValue('');
+    await expect(reloadedWeekday.locator('option:checked')).toHaveText('未定');
+    await expect(reloadedWeekday.locator('option[value="八"]')).toHaveCount(0);
+    await expect(page.locator('.save-status-clean')).toBeVisible();
+  });
+
   test('(3) calculate 失敗（500／連線中斷）：顯示失敗說明、各欄「—」，不是 0／「無重疊」也不沿用舊值；恢復後自動重算', async ({ page }) => {
     const { row, cell } = await openSchedule(page);
     const start = row.locator('input.input-time').first();
@@ -222,6 +254,32 @@ test.describe('UX07（修訂）：未知／空白星期與 calculate 失敗不�
     await expect(start).toHaveValue(original);
     await expect(page.locator('.save-status-clean')).toBeVisible();
     await expect(cell('anqin-overlap')).toHaveText('40');
+  });
+
+  test('(4b) pending-only edit activates the leave guard and deleting its row clears pending', async ({ page }) => {
+    const { row } = await openSchedule(page);
+    const start = row.locator('input.input-time').first();
+    await start.fill('1');
+    await expect(page.locator('[data-pending-time-error]')).toBeVisible();
+    await expect(page.locator('.save-status-dirty')).toBeVisible();
+
+    await sideLink(page, /匯入學生/).click();
+    await expect(leaveDialog(page)).toBeVisible();
+    await keepEditing(page).click();
+    await expect(leaveDialog(page)).toHaveCount(0);
+    await expect(start).toHaveValue('1');
+    await expect(page.locator('[data-pending-time-error]')).toBeVisible();
+
+    const before = await classRows(page, CLASS).count();
+    await row.getByRole('button', { name: `刪除時段 ${CLASS}` }).click();
+    await expect(classRows(page, CLASS)).toHaveCount(before - 1);
+    await expect(page.locator('[data-pending-time-error]')).toHaveCount(0);
+    await expect(page.locator('.save-status-dirty')).toBeVisible();
+
+    await page.getByRole('button', { name: '取消修改' }).click();
+    await expect(classRows(page, CLASS)).toHaveCount(before);
+    await expect(page.locator('[data-pending-time-error]')).toHaveCount(0);
+    await expect(page.locator('.save-status-clean')).toBeVisible();
   });
 
   test('(5) 匯入失敗保留 pending 時間；成功整表匯入清除 pending', async ({ page }) => {
