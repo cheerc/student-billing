@@ -1,7 +1,7 @@
-# Issue #207 診斷報告：課表儲存／取消後立即 reload 偶發 net::ERR_ABORTED（r2 修訂版）
+# Issue #207 診斷報告：課表儲存／取消後立即 reload 偶發 net::ERR_ABORTED（r3 修訂版）
 
-- 任務目標：建立 save/cancel dirty→clean 與立即導航時序的可追溯證據，完成 Phase 1 / PR-1 有界診斷、局部 trace/telemetry 收集、真實 Save/Cancel 受控 barrier 放行實驗與同族盤點。
-- 派工 Brief：`/tmp/otter-briefs/issue-207-p1-diagnosis.md`、`/tmp/otter-briefs/pr-217-rework-r1.md`
+- 任務目標：建立 save/cancel dirty→clean 與立即導航時序的可追溯證據，完成 Phase 1 / PR-1 有界診斷、局部 trace/telemetry 收集、真實 Save/Cancel 受控 barrier 放行實驗與同族候選盤點。
+- 派工 Brief：`/tmp/otter-briefs/issue-207-p1-diagnosis.md`、`/tmp/otter-briefs/pr-217-rework-r1.md`、`/tmp/otter-briefs/pr-217-rework-r2.md`
 - 參考計畫：`plan/207-reload` @ `743e18ecff0e5a2b4ac69568995fb2e16c9be527` (`specs/19-issue-207-reload-recovery-plan.md`)
 - 調查基線：`origin/main` = `ad45f5d7ac826cf841bcc19116ae2920c7777f5e`
 - 權責界線：本次僅 Phase 1 / PR-1（診斷與可觀測性），不修改產品程式碼、不改動共用 helper 成功契約、不修改 runner/full 流程，不新增 spec 檔案。保持 Phase 2 HOLD。
@@ -27,10 +27,12 @@
   - 狀態：`git status --short` 乾淨
   - 測試檔 SHA-256：`1e02963567cfb647bd360729ebf2ec74033a9b334d7b6b87bd28f0336bd49412` (`web/tests/e2e/schedule-class-type-tabs.spec.ts`)
   - 案例數：8 案（原 6 案保留 + Test 7 Save 放行診斷 + Test 8 Cancel 放行診斷）
-- **r1 歷史執行記錄之證據限制說明**：
+- **r3 文件修訂 Commit（Docs Commit）**：待本次提交（僅更新 `specs/reviews/issue-207-navigation-diagnosis.md`，完全不更動測試程式碼，測試檔 SHA-256 保持不變）。
+- **歷史執行記錄與版本限制說明（F4 採納）**：
   - r1 baseline 3 輪（各 6 案）執行於 `ad45f5d`，但未在執行期寫入 spec hash。
-  - r1 instrumented 3 輪（各 7 案）執行於提交 `a8cbed5` 前的未提交工作樹，原始 artifacts 未綁定 commit SHA 與 spec hash。
-  - 依 F4 裁決，本報告**誠實記錄此項歷史 provenance 缺口**，不補造歷史 hash，亦不以現在 8 案結果混淆過去紀錄。所有 r2 實驗皆在凍結 commit `d3717e7e` 上執行並綁定。
+  - r1 instrumented 3 輪（各 7 案）執行於提交 `a8cbed5` 前的工作樹，原始 artifacts 未綁定 commit SHA 與 spec hash。
+  - Reviewer 於 r2 審查中核實了工作階段記錄（`feb99c98-3878-4ec6-a44e-38de40fbc4d8.jsonl:3595–3615` commit/clean/hash，`:3622/:3634/:3638` 三輪與歸檔）。
+  - 依 F4 裁決，本報告**誠實記錄 r1 歷史 provenance 缺口**，不補造歷史 hash。r2 實驗嚴格在凍結 commit `d3717e7e` 上執行、歸檔並綁定。
 
 ---
 
@@ -43,17 +45,17 @@
 
 ---
 
-## 3. 生命週期標記與名詞定義（F2 採納）
+## 3. 生命週期標記定義與觀測邊界（F2 校正）
 
-為避免將「wrapper 攔截呼叫」混淆為「原生 traversal 在途中」，嚴格定義並分開下列五個可觀測之生命週期標記：
+為避免將程式碼靜態邊界混淆為執行期量測，明確界定下列生命週期標記的觀測狀態與性質：
 
-| 標記代碼 | 標記名稱 | 觸發點與意義 | 觀測方式 |
+| 標記代碼 | 標記名稱 | 性質與觀測方式 | 觀測限制說明 |
 |---|---|---|---|
-| **M1** | Traversal Call Initiated | 產品端呼叫 `window.history.go(-1)`。若 barrier 啟用，此時僅 wrapper 扣留呼叫，原生 traversal **尚未在途**。 | wrapper 記錄 `history.go` 或 `barrier:history.go(-1)_held` |
-| **M2** | Native PopState Dispatched | 瀏覽器核心完成 joint session history 步進，派發原生 `popstate` 事件。原生 traversal 於此時完成。 | `window.addEventListener('popstate')` 記錄 `window:popstate` |
-| **M3** | Helper Resolved | 測試端等待條件滿足（POST apply 回應 200、dialog 隱藏、`.save-status-clean` 可見）。不包含任何 history 等待。 | Playwright `await saveSettings(page)` resolve |
-| **M4** | Reload Initiated | 測試端呼叫 `page.reload()`，向瀏覽器發出導航請求，舊 document 觸發 `beforeunload`。 | `window.addEventListener('beforeunload')` 記錄 `window:beforeunload` |
-| **M5** | Document Committed | 瀏覽器完成新文件 commit，新 document 初始化並執行腳本。 | 新 document 記錄 `document:init`、Playwright `framenavigated` |
+| **M1** | Traversal Call Initiated | 執行期記錄：產品端呼叫 `window.history.go(-1)`。 | wrapper 記錄 `history.go` 或 `barrier:history.go(-1)_held`。若 barrier 啟用，僅為 wrapper 扣留呼叫，原生 traversal **尚未在途**。 |
+| **M2** | Native PopState Dispatched | 執行期記錄：瀏覽器核心完成 joint session history 步進，派發原生 `popstate` 事件。 | 瀏覽器監聽器記錄 `window:popstate`。表示原生歷史步進已完成。 |
+| **M3** | Helper Resolved Boundary | **僅源碼 await 邊界（未量測時間）**：測試腳本等待條件滿足（POST apply 回應 200、dialog 隱藏、`.save-status-clean` 可見）。 | **僅為 test 程式碼 await 完成點，telemetry 無執行期 marker，未注入亦未量測 helper 實際耗時**。 |
+| **M4** | Reload Initiated Proxy | 觀測代理：測試端呼叫 `page.reload()` 後，舊 document 觸發 `beforeunload`。 | 透過 `window:beforeunload` 觀測。**僅為瀏覽器端事件代理，非 CDP `Page.reload` 請求發起的精確底層時點**。 |
+| **M5** | Document Committed | 執行期記錄：瀏覽器完成新文件 commit，新 document 初始化。 | 新文件初始化記錄 `document:init`、Playwright `framenavigated`。 |
 
 ---
 
@@ -62,14 +64,14 @@
 ### 4.1 實驗設計矩陣（F1 採納）
 在 `schedule-class-type-tabs.spec.ts` 內設計對照矩陣，涵蓋真實 Save 與 Cancel 兩個獨立入口：
 
-| 測試路徑 | 實驗分支 | 操作步驟 | 預期觀察與判定判準 |
+| 測試路徑 | 實驗分支 | 操作步驟 | 觀察標的與判定依據 |
 |---|---|---|---|
-| **Save 路徑** (Test 7) | 1. 未延後對照 | 新增班級 → `saveSettings(page)` → 立即 `page.reload()` | 觀察原生 M1、M2、M3、M4、M5 之真實排程與間隔；若 Chromium 偶發碰撞則記錄 `ERR_ABORTED`。 |
-| | 2. 受控延後放行 | 新增班級 → 啟用 barrier → `saveSettings(page)` → 斷言 held (M1 被扣留) → 呼叫 `pendingRelease()` 放行原生 traversal (M2) → 驗證 released → `page.reload()` (M4) | 驗證儀器能區分 held 與 released；證實 traversal 受控放行且完成 (M2) 後，reload 正常 commit (M5)。 |
-| **Cancel 路徑** (Test 8) | 1. 未延後取消對照 | 新增班級（產生 dirty） → 點擊「取消修改」 → 立即 `page.reload()` | 驗證取消修改亦為 dirty→clean producer，觸發原生 M1 與 M2；觀察與立即 M4 的交互。 |
+| **Save 路徑** (Test 7) | 1. 未延後對照 | 新增班級 → `saveSettings(page)` → 立即 `page.reload()` | 觀測原生未延後排程下，M1、M2、M4、M5 的有序事件記錄；若發生碰撞則記錄結果。 |
+| | 2. 受控延後放行 | 新增班級 → 啟用 barrier → `saveSettings(page)` → 斷言 held (M1 被扣留) → 呼叫 `pendingRelease()` 放行原生 traversal (M2) → 驗證 released → `page.reload()` (M4) | 驗證儀器能區分 held 與 released；證實原生 traversal 受控放行且收到 M2 後，reload 正常 commit (M5)。 |
+| **Cancel 路徑** (Test 8) | 1. 未延後取消對照 | 新增班級（產生 dirty） → 點擊「取消修改」 → 立即 `page.reload()` | 驗證取消修改亦為 dirty→clean producer，觸發原生 M1 與 M2；觀測與立即 M4 的交互。 |
 | | 2. 受控延後放行取消 | 新增班級 → 啟用 barrier → 點擊「取消修改」 → 斷言 held (M1 被扣留) → 呼叫 `pendingRelease()` 放行原生 traversal (M2) → 驗證 released → `page.reload()` (M4) | 證實 Cancel 路徑之 sentinel unwind 亦能被受控攔截並放行原生 traversal，完成後 reload 正確復原。 |
 
-### 4.2 凍結 Commit 之三輪獨立執行結果
+### 4.2 凍結 Commit `d3717e7e` 之三輪獨立執行結果
 執行命令：`npm run test:e2e:isolated -- --port 3127 tests/e2e/schedule-class-type-tabs.spec.ts`（埠 3127，每輪獨立 server/DB）：
 
 | 輪次 | 測試案例數 | 通過數 | 失敗數 | 耗時 | Exit Code | 隔離資料庫路徑 |
@@ -82,27 +84,28 @@
 
 ---
 
-## 5. 時序分析、微競態窗口與可觀測性限制（F2 採納）
+## 5. 執行期事件軌跡與可觀測性限制（F2 校正）
 
-### 5.1 量測數據分析
-在未延後對照中，記錄到 M1 (`history.go(-1)`)、M2 (`popstate`) 與 M4 (`beforeunload`) 之相對時間：
-- **M1 至 M2 間隔**：本機量測值為 **2.8 – 3.5 ms**。
-- **M1 至 M4 間隔**：本機量測值為 **14.7 – 25.1 ms**。
-- **M2 至 M4 裕度**：在目前環境下，原生 `popstate` 比 `page.reload()` 早約 **11.9 – 22.1 ms** 結束。
-
-### 5.2 受控放行實驗所證實之事實
-1. **Save 與 Cancel 雙路徑皆呼叫 `history.go(-1)`**：
+### 5.1 r2 原始事件所支持的事實陳述
+基於 r2 三輪執行產出的真實 `navigation-telemetry.json` 事件序列，確認下列事實：
+1. **真實 Save 與 Cancel 皆觸發 `history.go(-1)`**：
    - Save 完成時：`barrierStatus.delayedDelta === -1` 且 `hasPendingRelease === true`。
    - Cancel 點擊時：`barrierStatus.delayedDelta === -1` 且 `hasPendingRelease === true`。
 2. **儀器具備區分 held 與 released 之能力**：
-   - 扣留時：`hasPendingRelease === true`。
-   - 呼叫 `pendingRelease()` 後：原生 `history.go(-1)` 實際執行，瀏覽器派發原生 `popstate`（由 `waitForFunction` 監聽確認抵達），`hasPendingRelease` 轉為 `false`。
-   - 放行且步進完成後，`page.reload()` 正常執行，持久化與草稿還原皆正確。
+   - 扣留狀態：`hasPendingRelease === true`。
+   - 呼叫 `pendingRelease()` 後：原生 `history.go(-1)` 實際呼叫，瀏覽器派發原生 `popstate`，`hasPendingRelease` 轉為 `false`。
+3. **有序事件流支持**：
+   - 受控放行分支呈現嚴格有序之事件序列：`barrier:history.go(-1)_held` → `barrier:history.go(-1)_released` → 原生 `window:popstate` → `window:beforeunload` → `document:init`（新 document commit）。
+   - 未延後對照分支呈現：`history.go(-1)` → 原生 `window:popstate` → `window:beforeunload` → `document:init`。
+   - 在 r2 的全部執行中，`page.reload()` 皆成功 commit，**未自然重現 `net::ERR_ABORTED`**。
 
-### 5.3 儀器干擾與量測限制（Disclosure）
-- **IPC 與傳輸延遲**：瀏覽器內部事件透過 `exposeFunction` 非同步傳輸至 Node 端，傳輸本身存在微小延遲。事件排序以瀏覽器內部之 `performance.now()` 為準，不以 Node 到達時間排序。
-- **時鐘不同步限制**：瀏覽器內 `performance.now()` 為頁面導航起算之單調時鐘，Node 端為 `Date.now()`，兩者絕對毫秒差存在對齊誤差（±2–5ms），故跨端比較採事件序列因果而非絕對時間減法。
-- **Instrumentation 擾動**：`addInitScript` 與事件監聽的注入增加了微秒級的 JS 執行開銷，可能微幅改變瀏覽器 task queue 的排程微間隔。
+### 5.2 歷史樣本數據備忘（r1 歷史樣本，具版本限制）
+在 r1 早期單一案例（Test 6）中，曾於未延後對照記錄到 `history.go(-1)` 至 `popstate` 約 2.8–3.5 ms、至 `beforeunload` 約 14.7–25.1 ms。此項數據僅屬 r1 歷史樣本之觀察脈絡，**受限於 r1 之版本與未凍結工作樹限制，不得直接延用或宣稱為 r2 之統計區間**。
+
+### 5.3 儀器擾動與量測限制（Disclosure）
+- **IPC 傳輸延遲**：瀏覽器內部事件透過 `exposeFunction` 非同步傳送至 Node 端，傳輸存在排隊延遲。事件時間戳記以瀏覽器端 `performance.now()` 為準。
+- **跨端時鐘差異**：瀏覽器內 `performance.now()`（自導航起算之單調時鐘）與 Node 端 `Date.now()`（系統時間）分屬不同時鐘源，兩者不可進行絕對時間算術減法。
+- **排程擾動**：`addInitScript` 與事件監聽器的注入增加了腳本執行開銷，可能微幅改變瀏覽器 task queue 與 microtask 的排程時序。
 
 ---
 
@@ -111,60 +114,64 @@
 依派工 Ruling「不得將 mock popstate、舊 document toast、單次成功或單純延後 reload 當因果證明。保留 H2，不能猜修或關閉 issue」：
 
 1. **主要假設 H1（dirty 清除觸發之 history traversal 與 reload 重疊相互取消）**：
-   - **狀態**：**候選假設（Hypothesis），具高度靜態結構支持與受控實驗佐證，但未在本次 3 輪自然執行中取得未延後天然崩潰的原始 trace**。
-   - **支持論據**：
-     - 靜態結構證實 `unwindSentinel()` 確實為 fire-and-forget 且未等待。
-     - Barrier 實驗證實 Save 與 Cancel 皆會觸發此項未等待之呼叫。
-     - 微時序量測證實 M1 與 M4 之間僅有約 15–25ms 之極窄空隙。
-     - 若 traversal 與 reload 併發，Chromium / Blink 架構下確實會引發導航取消（CDP `net::ERR_ABORTED`）。
-   - **限制**：目前樣本在無干擾的自然執行下皆綠，未直接捕捉到天然的 `ERR_ABORTED` 失敗 trace。
+   - **狀態**：**候選假設（Hypothesis），具靜態結構支持與受控放行實驗佐證，但未在本次自然執行中取得未延後天然崩潰的原始 trace**。
+   - **支持依據**：
+     - 靜態程式碼證實 `unwindSentinel()` 確實為 fire-and-forget，未提供任何完成等待機制。
+     - Barrier 實驗證實 Save 與 Cancel 皆會觸發 `history.go(-1)`。
+     - 假設 traversal 與 reload 在底層排程衝突時可能引發導航取消（為 Hypothesis，尚無本次直接 CDP netlog 或天然崩潰 trace 佐證）。
+   - **限制**：目前三輪自然執行皆通過，未直接捕捉到天然的 `ERR_ABORTED` 失敗 trace。
 2. **替代假設 H2（Next.js dev/HMR/編譯或其他 frame navigation 取消 reload）**：
    - **狀態**：**明確保留，未予排除**。
    - **理由**：在缺乏實際發生 `ERR_ABORTED` 當下的 Chrome DevTools Protocol netlog 的情況下，無法排除開發伺服器 HMR 更新或 frame 導航干擾。不可因 H1 具說服力即推定 H2 必定不存在。
 
 ---
 
-## 7. 全 Repo 同族 Call-site 完整盤點（F3 採納）
+## 7. 同族 Call-site 候選清單（已確認清單，非窮盡盤點；F3 校正）
 
-### 7.1 搜尋範圍與母體定義（Search Universe & Denominator）
-- **母體**：全專案 `web/tests/e2e/` 下全部 **51 個 `.spec.ts` 規格檔案**。
-- **可重現搜尋命令**：
+### 7.1 母體、搜尋命令與 Plan 偏差說明（F3 採納）
+- **搜尋母體**：專案 `web/tests/e2e/` 下全部 51 個 `.spec.ts` 檔案。
+- **搜尋命令**：
   ```bash
   cd web
-  # 1. 導航操作呼叫點
-  grep -rn "page\.reload(" tests/e2e/       # 16 處
-  grep -rn "page\.goBack(" tests/e2e/       # 20 處
-  # 2. 儲存與重新整理 helper
-  grep -rn "saveSettings(" tests/e2e/       # 12 處
-  grep -rn "reloadSettings(" tests/e2e/     # 6 處
-  # 3. 捨棄與取消修改操作
-  grep -rn "取消修改" tests/e2e/             # 18 處
+  grep -rn "page\.reload(" tests/e2e/
+  grep -rn "page\.goBack(" tests/e2e/
+  grep -rn "saveSettings(" tests/e2e/
+  grep -rn "reloadSettings(" tests/e2e/
+  grep -rn "取消修改" tests/e2e/
   ```
+- **搜尋命中行 vs. 語意 Callsite 區分**：
+  - 上述 grep 命中行僅為純文字比對結果（包含註解、不同頁面之幾何重整等無關項目）。
+  - 下列清單為經人工核對程式碼脈絡後確認之「語意候選 callsite」。
+- **Plan 偏差與未完成項聲明（Plan Deviation）**：
+  - **原 Plan 19 要求完成全 repo 同族 call-site 的完整窮盡盤點。本清單僅為基於上述關鍵字識別出的「已確認候選清單」，並未窮盡全 repo 所有自訂 save helper（例如 `report-refresh-recovery.spec.ts` 內部的 `confirmAndSave`）、直接 API apply、或後續各類導航消費者（goto / link / back）**。
+  - **此項未窮盡屬於 Phase 1 的未完成項與 Plan 偏差。本清單不可作為 Phase 2 的完整回歸測試集合**。
+  - **P2 保持 HOLD**；未來在解除 P2 前，必須先補足嚴格的 producer→consumer 窮盡盤點與可區分的因果證據。
 
-### 7.2 實際同族（Group A: 經 dirty→clean 觸發 sentinel unwind 後，立即由測試發起 reload／站內導航／Back）
+### 7.2 已確認之實際同族候選（Group A: 經 dirty→clean 觸發 sentinel unwind 後，立即由測試發起 reload／站內導航／Back）
 
 | 檔案路徑與座標 | 呼叫模式 | 觸發原因與潛在風險說明 |
 |---|---|---|
-| `schedule-class-type-tabs.spec.ts:514` | `saveSettings(page)` → `page.reload()` | **Issue #207 原案例（Test 6）**。新增/刪班後存檔，dirty 轉 false 觸發 `unwindSentinel()`，緊接著執行 `page.reload()`。 |
-| `schedule-class-type-tabs.spec.ts:536` | `saveSettings(page)` → `page.reload()` | Test 7 Save 未延後對照。同上。 |
-| `schedule-class-type-tabs.spec.ts:628` | 取消修改 → `page.reload()` | Test 8 Cancel 未延後對照。新增草稿後點擊「取消修改」，dirty 轉 false 觸發 `unwindSentinel()`，緊接著執行 `page.reload()`。 |
+| `schedule-class-type-tabs.spec.ts:512–515` | `saveSettings(page)` → `page.reload()` | **Issue #207 原案例（Test 6）**。新增/刪班後存檔，dirty 轉 false 觸發 `unwindSentinel()`，緊接著執行 `page.reload()`。 |
+| `schedule-class-type-tabs.spec.ts:536–537` | `saveSettings(page)` → `page.reload()` | Test 7 Save 未延後對照。同上。 |
+| `schedule-class-type-tabs.spec.ts:630–633` | 取消修改 → `page.reload()` | Test 8 Cancel 未延後對照。新增草稿後點擊「取消修改」，dirty 轉 false 觸發 `unwindSentinel()`，緊接著執行 `page.reload()`。 |
 | `settings-cancel.spec.ts:26–32` | `button: 取消修改` → `page.reload()` | 編輯時段產生草稿，按「取消修改」使 dirty 轉 false，觸發 `unwindSentinel()`，緊接著執行 `page.reload()`。 |
 | `cancel-calculate-race.spec.ts:337–343` | `cancelButton.click()` → `page.reload()` | 同步設定草稿取消，`dirtyBar` 消失使 dirty 轉 false，觸發 `unwindSentinel()`，緊接著執行 `page.reload()`。 |
 | `copy-d39.spec.ts:233–236` | `dialog save.click()` → `page.reload()` | 直接點擊儲存視窗，等待 `#toast` 顯示成功後立即 `page.reload()`（繞過 `saveSettings` helper 但走同一產品 state 流程）。 |
-| `date-format.spec.ts:38–42` | `apply response` → `page.reload()` | 課表儲存後等待 `.save-status-clean`，立即執行 `page.reload()`。 |
+| `date-format.spec.ts:32–42` | `apply response` → `page.reload()` | 課表儲存後等待 `.save-status-clean`，立即執行 `page.reload()`。 |
 | `schedule-unknown-weekday.spec.ts:204–205` | `saveSettings(page)` → `reloadSettings(page)` | `reloadSettings` 內部呼叫 `page.reload()`，同屬 save 後立即 reload。 |
 | `issue-157-pr2-roster-settings.spec.ts:39–40` | `saveSettings(page)` → `reloadSettings(page)` | 同上，save 後經由 `reloadSettings` 立即 reload。 |
 | `schedule-add-placeholder-row.spec.ts:631–633, 679–680` | `saveSettings(page)` → `reloadSettings(page)` | 同上，佔位列存檔後立即經由 `reloadSettings` 重新整理。 |
 | `issue-157-seed-category-lifecycle.spec.ts:23–24` | `saveSettings(page)` → `reloadSettings(page)` | 同上，種子生命週期存檔後立即重新整理。 |
-| `leave-guard.spec.ts:300–310` | save 成功 → `sideLink` → `page.goBack()` | 儲存後立即以站內連結導向 `/imports`，隨後依賴 `page.goBack()` 驗證返回歷史。若 sentinel unwind 未完成或與站內導航競態，會導致 Back 步數失真。 |
-| `leave-guard.spec.ts:280–285` | `取消修改` → `sideLink` | 取消修改後立即以站內連結離開，與上述 save 後站內導航同屬 unwind 競態族。 |
-| `d2d-impact-dialog-focus-cleanup.spec.ts:244–253` | save 成功 → `page.goBack()` | **（F3 修正補入）** 編輯時段產生草稿，點擊確認變更與儲存，dialog 關閉且 dirty 轉 false 後，立即呼叫 `page.goBack()` 測試 opener 清理。屬於真實 save 後立即 Back 之同族路徑。 |
+| `leave-guard.spec.ts:300–312` | save 成功 → `sideLink` → `page.goBack()` | 儲存後立即以站內連結導向 `/imports`，隨後依賴 `page.goBack()` 驗證返回歷史。若 sentinel unwind 未完成或與站內導航競態，會導致 Back 步數失真。 |
+| `leave-guard.spec.ts:280–286` | `取消修改` → `sideLink` | 取消修改後立即以站內連結離開，與上述 save 後站內導航同屬 unwind 競態族。 |
+| `d2d-impact-dialog-focus-cleanup.spec.ts:244–253` | save 成功 → `page.goBack()` | **（r1 審查 F3 補入）** 編輯時段產生草稿，點擊確認變更與儲存，dialog 關閉且 dirty 轉 false 後，立即呼叫 `page.goBack()` 測試 opener 清理。屬於真實 save 後立即 Back 之同族路徑。 |
+| `report-refresh-recovery.spec.ts:354–360` | `stageAndSaveRename` → 站內連結離開 | **（r2 審查 F3 補入）** 透過內部 helper `confirmAndSave` 儲存改名（dirty 轉 false 觸發 `unwindSentinel()`），緊接著點擊導覽列連結離開至 `/imports`。屬於 save 成功後立即站內導航之同族路徑。 |
 
-### 7.3 非同族（Group B: 無 dirty→clean 轉換，或純粹為幾何/狀態切換 reload）
+### 7.3 已確認之非同族候選（Group B: 無 dirty→clean 轉換，或純粹為幾何/狀態切換 reload）
 
 | 檔案路徑與座標 | 呼叫模式 | 非同族判定依據 |
 |---|---|---|
-| `schedule-class-type-tabs.spec.ts:290, 297` | `setViewportSize` → `page.reload()` | 純視區切換後重整以量測幾何 layout；頁面無任何編輯，`dirty` 恆為 `false`，未曾 arm sentinel。 |
+| `schedule-class-type-tabs.spec.ts:291, 298` | `setViewportSize` → `page.reload()` | 純視區切換後重整以量測幾何 layout；頁面無任何編輯，`dirty` 恆為 `false`，未曾 arm sentinel。 |
 | `copy-scan.spec.ts:171` | 非課表上傳失敗 → `page.reload()` | 錯誤訊息展示後的重整；未產生草稿，`dirty` 恆為 `false`。 |
 | `leave-guard.spec.ts:254` | dirty 狀態下 `page.reload()` | 刻意在 `dirty === true` 時重新整理以測試瀏覽器原生 `beforeunload` 對話框；非 dirty→clean unwind 路徑。 |
 | `batch-e-navigation.spec.ts:76` | `/` 總表頁籤 → `page.reload()` | 首頁核對結果分頁切換後重整驗證 URL query 參數，無 settings guard。 |
@@ -200,11 +207,11 @@
 ## 9. 結論與 Phase 2 (P2) Gate 建議
 
 1. **Phase 1 交付結論**：
-   - 完備實作了 Save 與 Cancel 雙路徑之受控 barrier 放行實驗，消除了 r1 原生 traversal 被跳過之缺陷（F1 解決）。
-   - 區分並記錄了 M1–M5 生命週期標記，去除了過度定性之確證宣稱，誠實保留 H2 候選（F2 解決）。
-   - 重跑全量搜尋，將 `d2d-impact-dialog-focus-cleanup.spec.ts` 補入實際同族，明訂 51 檔母體與搜尋指令（F3 解決）。
-   - 採用獨立凍結 commit 與乾淨狀態綁定 r2 執行，記錄 spec hash 與版本邊界（F4 解決）。
+   - 實作了 Save 與 Cancel 雙路徑之受控 barrier 放行實驗，消除了 r1 原生 traversal 被跳過之缺陷（F1 關閉）。
+   - 界定並校正了 M1–M5 生命週期標記，M3 標示為僅源碼 await 邊界未量測時間，M4 標示為 beforeunload 觀測代理；去除了無實測之確定性宣稱；誠實保留 H2 候選（F2 處置完成）。
+   - 補齊了已知漏項 `report-refresh-recovery.spec.ts:354–360`，校正現有所有座標；誠實將未窮盡全 repo 所有自訂 save helper 的現況標列為 **Plan 偏差與未完成項**（F3 處置完成）。
+   - 嚴格綁定 r2 凍結 commit `d3717e7e` 與 spec hash `1e02963567cfb647bd360729ebf2ec74033a9b334d7b6b87bd28f0336bd49412`，並誠實揭露 r1 歷史限制（F4 關閉）。
 2. **Phase 2 (PR-2) 執行方向與邊界建議**：
-   - **優先在產品邊界解決生命週期**：修復核心應集中於 `web/src/lib/unsaved-guard.ts` 與 `web/src/components/ui/use-unsaved-changes-guard.ts`，賦予 sentinel unwind 一個可等待或生命週期協調的完成狀態（例如回傳或暴露 unwind 完成信號），確保 dirty 轉 clean 時歷史步進不會成為未受控的背景射後不理操作；而非僅在測試端 `saveSettings` 加大 sleep。
-   - **嚴格 TDD 兩階段 Commit**：P2 實作時，必須先依據 P1 揭露之時序邊界撰寫 tests-only RED commit，在未修復的 parent commit 上確認紅燈，再提交 minimal GREEN 修正 commit。
-   - **保持 Issue #207 開啟**：P1 PR 合併後不關閉 Issue #207（Refs #207），待 P2 修復完成並經由 GitHub-hosted Ubuntu nightly full E2E 驗證通過後，再由 Coordinator 決定結案。
+   - **P2 保持嚴格 HOLD**：目前既未在自然執行中捕捉到天然的 `ERR_ABORTED` 失敗 trace，亦未完成全 repo 窮盡之 producer→consumer 盤點。依 Ruling，在解除 P2 前，必須先補足窮盡盤點與真正可區分的因果證據。
+   - **優先在產品邊界解決生命週期**：未來若 Coord 核准修復，修復核心應集中於 `web/src/lib/unsaved-guard.ts` 與 `web/src/components/ui/use-unsaved-changes-guard.ts`，賦予 sentinel unwind 一個可等待或生命週期協調的完成狀態（例如回傳或暴露 unwind 完成信號），確保 dirty 轉 clean 時歷史步進不會成為未受控的背景射後不理操作；而非僅在測試端 `saveSettings` 加大 sleep。
+   - **保持 Issue #207 開啟**：P1 僅為有界且標明 Plan 偏差的診斷交付，不 Closes #207；owner 維持 impl，追蹤由 Coordinator 管理，禁止自行 merge。
