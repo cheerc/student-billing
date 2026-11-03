@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { saveSettings } from './helpers/d2c-settings';
 
 /**
  * D61 Phase 3（specs/06 D61；UX106）：課表設定 5 頁籤 UI、欄位徹底分離與簡化操作 E2E 驗收
@@ -266,8 +267,8 @@ test.describe('D61 UX106: 課表設定 5 頁籤與簡化操作 E2E 驗收', () =
     await expect(addForm.locator('text=天數固定 5 天')).toHaveCount(0);
     await expect(addForm.locator('text=不計扣天')).toBeVisible();
     await expect(addForm.locator('select[aria-label="新增星期"]')).toBeVisible();
-    await expect(addForm.getByLabel('新增起始時間')).toBeVisible();
-    await expect(addForm.getByLabel('新增結束時間')).toBeVisible();
+    await expect(addForm.getByRole('textbox', { name: '新增起始時間' })).toBeVisible();
+    await expect(addForm.getByRole('textbox', { name: '新增結束時間' })).toBeVisible();
     await dialog.getByRole('button', { name: '取消新增' }).click();
 
     // 切到不排課頁籤後重開，新增視窗依該頁籤顯示欄位。
@@ -279,7 +280,7 @@ test.describe('D61 UX106: 課表設定 5 頁籤與簡化操作 E2E 驗收', () =
     await expect(unscheduledForm.locator('text=天數固定 5 天')).toHaveCount(0);
     await expect(unscheduledForm.locator('text=不計扣天')).toHaveCount(0);
     await expect(unscheduledForm.locator('select[aria-label="新增星期"]')).toHaveCount(0);
-    await expect(unscheduledForm.getByLabel('新增起始時間')).toHaveCount(0);
+    await expect(unscheduledForm.locator('input[aria-label="新增起始時間"]')).toHaveCount(0);
 
     // 填寫班級名稱新增一班不排課班級
     const testUnschName = `下午交通車-測試${Date.now().toString().slice(-4)}`;
@@ -321,11 +322,7 @@ test.describe('D61 UX106: 課表設定 5 頁籤與簡化操作 E2E 驗收', () =
     await expect(page.locator('table.schedule-table-care tr.schedule-row')).toHaveCount(8);
 
     // 儲存變更
-    await page.getByRole('button', { name: '確認變更' }).click();
-    const impactDialog = page.locator('dialog.impact-dialog');
-    await expect(impactDialog).toBeVisible();
-    await impactDialog.locator('button', { hasText: /儲存並更新結果|儲存課表/ }).click();
-    await expect(impactDialog).toHaveCount(0);
+    await saveSettings(page);
 
     // 重新載入頁面驗證持久化
     await page.reload();

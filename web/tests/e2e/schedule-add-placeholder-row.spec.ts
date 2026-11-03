@@ -127,11 +127,16 @@ test.describe('#82 & D61 1c: 新增班級僅班名必填與未填時間雙重警
   });
 
   test('UX118: paired time field exposes 24-hour sliders and commits valid endpoint pairs atomically', async ({ page }) => {
-    const row = rowOf(page, '兒童美語-Gino');
+    const rows = rowOf(page, '兒童美語-Gino');
     await page.locator('#class-type-tab-english').click();
+    const row = rows.first();
     const start = row.locator('input.input-time').first();
     const end = row.locator('input.input-time').last();
-    await start.click();
+    const pageErrors: string[] = [];
+    page.on('pageerror', (error) => pageErrors.push(error.message));
+    await row.locator('select.input-weekday').focus();
+    await page.keyboard.press('Tab');
+    await expect(start).toBeFocused();
     const popover = row.locator('[data-time-popover="start"]').first();
     await expect(popover).toBeVisible();
     const hours = popover.getByRole('slider', { name: '起始時間 第 1 列 小時' });
@@ -167,6 +172,26 @@ test.describe('#82 & D61 1c: 新增班級僅班名必填與未填時間雙重警
     await expect(row.locator('[data-pending-time-error]')).toHaveCount(0);
     await page.keyboard.press('Escape');
 
+    // A cancelled pointer interaction must settle its latest preview before blur/dismissal.
+    await end.fill('16:50');
+    await end.click();
+    const cancelPopover = row.locator('[data-time-popover="end"]').first();
+    const cancelHours = cancelPopover.getByRole('slider', { name: '結束時間 第 1 列 小時' });
+    const cancelBox = await cancelHours.boundingBox();
+    if (!cancelBox) throw new Error('End-hour slider has no browser geometry');
+    const cancelY = cancelBox.y + cancelBox.height / 2;
+    await page.mouse.move(cancelBox.x + cancelBox.width * (16 / 23), cancelY);
+    await page.mouse.down();
+    await page.mouse.move(cancelBox.x + cancelBox.width * (20 / 23), cancelY);
+    await expect(row.locator('[data-pending-time-error]')).toBeVisible();
+    const previewValue = await cancelPopover.locator('.time-field24-preview').textContent();
+    if (!previewValue) throw new Error('End-hour preview did not render a value');
+    await cancelHours.dispatchEvent('pointercancel', { pointerId: 1, pointerType: 'mouse', isPrimary: true, bubbles: true });
+    await expect(end).toHaveValue(previewValue);
+    await expect(row.locator('[data-pending-time-error]')).toHaveCount(0);
+    await page.mouse.up();
+    await page.keyboard.press('Escape');
+
     await start.fill('00:00');
     await end.fill('23:59');
     await expect(start).toHaveValue('00:00');
@@ -186,6 +211,7 @@ test.describe('#82 & D61 1c: 新增班級僅班名必填與未填時間雙重警
     await expect(end).toHaveValue('00:00');
     await end.fill('23:59');
     await expect(row.locator('[data-pending-time-error]')).toHaveCount(0);
+    expect(pageErrors).toEqual([]);
   });
 
   test('UX108: 未填時間排課列渲染 1c 雙重警示並支援先存檔', async ({ page }) => {
