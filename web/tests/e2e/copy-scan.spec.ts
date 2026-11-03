@@ -1,7 +1,15 @@
 import { test, expect, Page } from '@playwright/test';
 import path from 'path';
 import { openFilter, applyFilter } from './helpers/header-filter';
-import { brokenXlsx, classRow, missingHeadersXlsx, sideLink, startInput, xlsxUpload } from './helpers/c-batch';
+import {
+  brokenXlsx,
+  classRow,
+  importLegacyWeekdayFixture,
+  missingHeadersXlsx,
+  sideLink,
+  startInput,
+  xlsxUpload,
+} from './helpers/c-batch';
 
 /**
  * R5 文案全頁掃描（specs/09 §7；specs/04 UX16 相關；specs/10 §5）。
@@ -126,15 +134,16 @@ test.describe('R5 文案全頁掃描（09 §7）', () => {
 
     // 課表警告態（批次 C & D61）：切換至排課頁籤測試非法星期、空白星期、計算失敗、離頁確認
     await ensureEnglishTab();
+    await importLegacyWeekdayFixture(page, '兒童美語-Gino', '八');
     const row3 = classRow(page, '兒童美語-Gino');
     const cancelEdits = async () => {
       await page.locator('button', { hasText: '取消修改' }).click();
       await expect(page.locator('.save-status-dirty')).toHaveCount(0);
     };
-    await row3.locator('input.input-weekday').fill('八');
+    await expect(row3.locator('select.input-weekday')).toHaveValue('八');
     await expect(page.locator('[data-unknown-weekday-notice]')).toBeVisible({ timeout: 10000 });
     await scan(page, '課表設定｜星期無法識別（非法星期）', violations);
-    await row3.locator('input.input-weekday').fill('');
+    await row3.locator('select.input-weekday').selectOption('');
     await expect(page.locator('[data-unknown-weekday-notice]')).toContainText('沒有填星期', { timeout: 10000 });
     await scan(page, '課表設定｜星期無法識別（空白星期）', violations);
     await cancelEdits();
@@ -191,10 +200,12 @@ test.describe('R5 文案全頁掃描（09 §7）', () => {
     await cancelEdits();
 
     // specs/14 1C（新增畫面狀態）：新增班級選安親、安親頁籤、焦點定位
+    await page.locator('#class-type-tab-care').click();
     await page.getByRole('button', { name: /＋ 新增班級|＋ 新增時段/ }).click();
-    await page.locator('select[aria-label="新增班級課程類型"]').selectOption('care');
+    const addDialog = page.locator('dialog.add-class-dialog');
+    await expect(addDialog).toBeVisible();
     await scan(page, '課表設定｜新增班級表單（選安親課輔班）', violations);
-    await page.getByRole('button', { name: '取消新增' }).click();
+    await addDialog.getByRole('button', { name: '取消新增' }).click();
 
     await page.locator('#class-type-tab-care').click();
     await scan(page, '課表設定｜安親課輔班頁籤', violations);

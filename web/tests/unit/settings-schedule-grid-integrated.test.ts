@@ -195,9 +195,9 @@ describe('#113 follow-up & D61：逐列獨立單選「不計扣天」', () => {
 });
 
 describe('#82 & D61 1c：新增時段僅班名必填與未填時間雙重警示', () => {
-  it('星期可留空：編輯列是文字輸入且以 placeholder「未定」提示留空', () => {
+  it('星期可留空：編輯列以共用原生選單提供「未定」', () => {
     const html = render();
-    expect(html).toMatch(/<input[^>]*class="input-weekday[^"]*"[^>]*placeholder="未定"/);
+    expect(html).toMatch(/<select[^>]*class="input-weekday[^"]*"[^>]*>[\s\S]*?<option value="">未定<\/option>/);
     // 新增按鈕已由 SettingsEditor 主頁籤工具區持有，不在獨立 Grid 重複渲染。
     expect(html).not.toContain('＋ 新增班級');
   });

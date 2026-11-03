@@ -58,7 +58,7 @@ function renderGrid(props: {
 
 /** 取出某列（依 aria-label 的星期輸入）在 tbody 內的 <tr> html。 */
 function trOf(html: string, className: string): string {
-  const trs = html.match(/<tr class="schedule-row[\s\S]*?<\/tr>/g) ?? [];
+  const trs = html.match(/<tr\b(?=[^>]*class="[^"]*\bschedule-row\b[^"]*")[^>]*>[\s\S]*?<\/tr>/g) ?? [];
   const hit = trs.find((t) => t.includes(`value="${className}"`));
   if (!hit) throw new Error(`找不到班級列：${className}`);
   return hit;
@@ -144,8 +144,10 @@ describe('UX07（修訂）：ScheduleGrid 對未知／空白星期的呈現', ()
       before[1],
     ];
     const html = renderGrid({ rows: now, calculateResult: oldResult, calculateInputRows: before });
-    expect(trOf(html, '甲班')).not.toMatch(/>40</);
-    expect(trOf(html, '乙班')).toMatch(/>40</); // 乙班未改，結果仍有效
+    const changedRowCells = trOf(html, '甲班').match(/<td[^>]*data-calc="[a-z-]+">[\s\S]*?<\/td>/g) ?? [];
+    expect(changedRowCells).toHaveLength(5);
+    expect(changedRowCells.every((cell) => cell.includes('—'))).toBe(true);
+    expect(trOf(html, '乙班')).toMatch(/data-calc="anqin-overlap">40<\/td>/); // 乙班未改，結果仍有效
   });
 
   it('舊值立即失效：勾了「不計扣天」也算改到該列的計算輸入（09 §3.1：新結果未回來前不沿用舊值）', () => {

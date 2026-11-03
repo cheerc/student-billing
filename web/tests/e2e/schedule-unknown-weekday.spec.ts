@@ -1,5 +1,15 @@
 import { test, expect, type Page, type Locator } from '@playwright/test';
-import { calcCell, openClassScheduleFull } from './helpers/c-batch';
+import {
+  calcCell,
+  classRows,
+  importScheduleRowsFixture,
+  keepEditing,
+  leaveDialog,
+  openClassScheduleFull,
+  sideLink,
+} from './helpers/c-batch';
+import { reloadSettings, resetSeedSettings, saveSettings } from './helpers/d2c-settings';
+import { buildSeedGridRows, gridRowsToClasses } from '../../src/contracts/settings';
 
 /**
  * 04 §8 UX07（修訂）／09 §3.1（11 §3 A；F01）：瀏覽器實際操作。
@@ -45,6 +55,29 @@ async function openSchedule(page: Page): Promise<{ row: Locator; cell: CalcCell 
   return { row, cell };
 }
 
+async function importLegacyWeekday(page: Page, weekday: string): Promise<void> {
+  const seedRows = buildSeedGridRows();
+  const firstClassRow = seedRows.findIndex((candidate) => candidate.className === CLASS);
+  const rows = seedRows.map((row, index) => ({
+    ...row,
+    rowId: `legacy-weekday-${index + 1}`,
+    ...(index === firstClassRow ? { weekday } : {}),
+  }));
+  const classes = gridRowsToClasses(rows);
+  await importScheduleRowsFixture(
+    page,
+    rows,
+    classes.map((item) => ({
+      className: item.baseName,
+      classType: item.classType,
+      hasMultiSubjectDiscount: item.hasMultiSubjectDiscount,
+      category: item.category ?? 'unset',
+      categorySource: item.categorySource ?? 'unset',
+      fixedFiveDays: item.fixedFiveDays ?? false,
+    }))
+  );
+}
+
 /** 四個計算欄（安親重疊／扣除、課輔重疊／扣除）都已被「需確認」取代：不是 0、不是舊值。 */
 async function expectNeedsReviewCells(cell: CalcCell) {
   for (const name of CALC_COLUMNS) {
@@ -62,10 +95,16 @@ async function expectDashedCells(cell: CalcCell) {
 }
 
 test.describe('UX07（修訂）：未知／空白星期與 calculate 失敗不冒充「沒有衝堂」', () => {
+  test.beforeEach(async ({ page }) => {
+    await resetSeedSettings(page);
+  });
+
   test('(1) 非空非法星期「八」：可聚焦的「需確認」警告、原因可讀、舊值 40／20 不冒充；合法週六仍為 0', async ({ page }) => {
     const { row, cell } = await openSchedule(page);
+    await importLegacyWeekday(page, '八');
 
-    await row.locator('input.input-weekday').fill('八');
+    await expect(row.locator('select.input-weekday')).toHaveValue('八');
+    await expect(row.locator('select.input-weekday option:checked')).toHaveText('需確認：八');
 
     // 警告：徽章是按鈕，鍵盤可達
     const badge = cell('anqin-overlap').getByRole('button', { name: '需確認原因' });
@@ -84,7 +123,7 @@ test.describe('UX07（修訂）：未知／空白星期與 calculate 失敗不�
     await expect(notice).toContainText('不代表沒有衝堂');
 
     // 合法週六：已驗證與週一至五窗口無交集 → 0，沒有警告
-    await row.locator('input.input-weekday').fill('六');
+    await row.locator('select.input-weekday').selectOption('六');
     await expect(cell('anqin-overlap')).toHaveText('0', { timeout: 10000 });
     await expect(cell('tutoring-overlap')).toHaveText('0');
     await expect(row.getByRole('button', { name: '需確認原因' })).toHaveCount(0);
@@ -103,7 +142,7 @@ test.describe('UX07（修訂）：未知／空白星期與 calculate 失敗不�
       await route.continue();
     });
 
-    await row.locator('input.input-weekday').fill('八');
+    await importLegacyWeekday(page, '八');
     await expect.poll(() => held, { timeout: 5000 }).toBe(true);
     await expectDashedCells(cell);
     await expect(cell('anqin-overlap')).not.toHaveText('40');
@@ -118,7 +157,7 @@ test.describe('UX07（修訂）：未知／空白星期與 calculate 失敗不�
     const blankResponse = page.waitForResponse(
       (r) => r.url().includes('/api/v1/settings/calculate') && (r.request().postData() ?? '').includes('"weekday":""')
     );
-    await row.locator('input.input-weekday').fill('');
+    await row.locator('select.input-weekday').selectOption('');
     expect((await blankResponse).status()).toBe(200); // 整個 calculate 不因空白星期而失敗
 
     const badge = cell('anqin-overlap').getByRole('button', { name: '需確認原因' });
@@ -130,6 +169,47 @@ test.describe('UX07（修訂）：未知／空白星期與 calculate 失敗不�
     // 其他列不受影響：同頁籤的鄰班仍是完整結果，畫面沒有整片變「—」
     await expect(page.locator('[data-calculate-error]')).toHaveCount(0);
     await expect(calcCell(page, NEIGHBOR_CLASS, 'anqin-overlap')).not.toHaveText('—');
+  });
+
+  test('(2b) 合成舊星期修正為「未定」後，重載仍是空值而不是舊異常選項', async ({ page }) => {
+    await openSchedule(page);
+    // Keep the saved fixture to one uniquely named session: serialization may regroup rows and
+    // regenerate rowIds, so the assertion must follow semantic identity instead of old row order.
+    const className = 'PR2 未知星期修正班';
+    const seedRow = buildSeedGridRows().find((candidate) => candidate.className === CLASS);
+    if (!seedRow) throw new Error(`Synthetic seed fixture has no class named ${CLASS}`);
+    const legacyRow = { ...seedRow, rowId: 'legacy-weekday-remount', className, weekday: '八' };
+    const classes = gridRowsToClasses([legacyRow]);
+    await importScheduleRowsFixture(
+      page,
+      [legacyRow],
+      classes.map((item) => ({
+        className: item.baseName,
+        classType: 'english',
+        hasMultiSubjectDiscount: true,
+        category: 'english',
+        categorySource: 'manual',
+        fixedFiveDays: false,
+      }))
+    );
+    const row = classRows(page, className).first();
+    const weekday = row.locator('select.input-weekday');
+    await expect(weekday).toHaveValue('八');
+    await expect(weekday.locator('option:checked')).toHaveText('需確認：八');
+
+    await weekday.selectOption('');
+    await expect(weekday).toHaveValue('');
+    await expect(weekday.locator('option:checked')).toHaveText('未定');
+    await expect(weekday.locator('option[value="八"]')).toHaveCount(0);
+    await saveSettings(page);
+    await reloadSettings(page);
+    await page.locator('#class-type-tab-english').click();
+
+    const reloadedWeekday = classRows(page, className).first().locator('select.input-weekday');
+    await expect(reloadedWeekday).toHaveValue('');
+    await expect(reloadedWeekday.locator('option:checked')).toHaveText('未定');
+    await expect(reloadedWeekday.locator('option[value="八"]')).toHaveCount(0);
+    await expect(page.locator('.save-status-clean')).toBeVisible();
   });
 
   test('(3) calculate 失敗（500／連線中斷）：顯示失敗說明、各欄「—」，不是 0／「無重疊」也不沿用舊值；恢復後自動重算', async ({ page }) => {
@@ -164,5 +244,224 @@ test.describe('UX07（修訂）：未知／空白星期與 calculate 失敗不�
     await start.fill('15:40');
     await expect(cell('anqin-overlap')).toHaveText('20', { timeout: 10000 });
     await expect(page.locator('[data-calculate-error]')).toHaveCount(0);
+  });
+
+  test('(4) 半輸入時間保留在 pending，遮蔽舊結果並阻止確認與匯出；取消後還原', async ({ page }) => {
+    const { row, cell } = await openSchedule(page);
+    const start = row.locator('input.input-time').first();
+    const original = await start.inputValue();
+
+    await start.click();
+    await start.fill('1');
+    await page.keyboard.press('Escape');
+
+    await expect(start).toHaveValue('1');
+    const pendingError = page.locator('[data-pending-time-error]');
+    await expect(pendingError).toBeVisible();
+    await expect(pendingError).toContainText(/修正|完成|復原/);
+    await expect(cell('anqin-overlap')).not.toHaveText('40');
+    await expect(cell('anqin-overlap')).toContainText(/—|需修正/);
+
+    // Parent-owned pending draft survives both the settings tab remount and class-type tabs.
+    await page.locator('#settings-tab-sync').click();
+    await page.locator('#settings-tab-schedule').click();
+    await page.locator('#class-type-tab-care').click();
+    await page.locator('#class-type-tab-english').click();
+    await expect(start).toHaveValue('1');
+    await expect(page.locator('[data-pending-time-error]')).toBeVisible();
+    await expect(page.getByRole('button', { name: '確認變更' })).toBeDisabled();
+    await expect(page.locator('[data-schedule-export]')).toBeDisabled();
+
+    await page.getByRole('button', { name: '取消修改' }).click();
+    await expect(start).toHaveValue(original);
+    await expect(page.locator('.save-status-clean')).toBeVisible();
+    await expect(cell('anqin-overlap')).toHaveText('40');
+  });
+
+  test('(4b) pending-only edit activates the leave guard and deleting its row clears pending', async ({ page }) => {
+    const { row } = await openSchedule(page);
+    const start = row.locator('input.input-time').first();
+    await start.fill('1');
+    await expect(page.locator('[data-pending-time-error]')).toBeVisible();
+    await expect(page.locator('.save-status-dirty')).toBeVisible();
+
+    await sideLink(page, /匯入學生/).click();
+    await expect(leaveDialog(page)).toBeVisible();
+    await keepEditing(page).click();
+    await expect(leaveDialog(page)).toHaveCount(0);
+    await expect(start).toHaveValue('1');
+    await expect(page.locator('[data-pending-time-error]')).toBeVisible();
+
+    const before = await classRows(page, CLASS).count();
+    await row.getByRole('button', { name: `刪除時段 ${CLASS}` }).click();
+    await expect(classRows(page, CLASS)).toHaveCount(before - 1);
+    await expect(page.locator('[data-pending-time-error]')).toHaveCount(0);
+    await expect(page.locator('.save-status-dirty')).toBeVisible();
+
+    await page.getByRole('button', { name: '取消修改' }).click();
+    await expect(classRows(page, CLASS)).toHaveCount(before);
+    await expect(page.locator('[data-pending-time-error]')).toHaveCount(0);
+    await expect(page.locator('.save-status-clean')).toBeVisible();
+  });
+
+  test('同值整表匯入取代尚未提交的滑桿預覽', async ({ page }) => {
+    await openSchedule(page);
+    const rows = buildSeedGridRows().map((item, index) => ({ ...item, rowId: `import-row-${index + 1}` }));
+    const attrs = gridRowsToClasses(rows).map((item) => ({
+      className: item.baseName, classType: item.classType,
+      hasMultiSubjectDiscount: item.hasMultiSubjectDiscount,
+      category: item.category ?? 'unset', categorySource: item.categorySource ?? 'unset',
+      fixedFiveDays: item.fixedFiveDays ?? false,
+    }));
+    await importScheduleRowsFixture(page, rows, attrs);
+    let started!: () => void;
+    let release!: () => void;
+    const startedPromise = new Promise<void>((resolve) => { started = resolve; });
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    await page.route('**/api/v1/settings/schedule-table', async (route) => {
+      if (route.request().method() !== 'POST') return route.continue();
+      started();
+      await gate;
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ rows, classAttrs: attrs }) });
+    });
+    try {
+      await page.getByLabel('選擇課表 Excel 檔案').setInputFiles({
+        name: 'synthetic-identical.xlsx',
+        mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        buffer: Buffer.from('synthetic'),
+      });
+      await startedPromise;
+      const row = classRows(page, CLASS).first();
+      const start = row.locator('input.input-time').first();
+      await start.click();
+      const popover = row.locator('[data-time-popover="start"]').first();
+      const slider = popover.getByRole('slider', { name: '起始時間 第 1 列 小時' });
+      await expect(slider).toBeVisible();
+      const oldSlider = await slider.elementHandle();
+      const oldPopover = await popover.elementHandle();
+      if (!oldSlider || !oldPopover) throw new Error('找不到原滑桿或浮層');
+      await slider.evaluate((element: HTMLInputElement) => {
+        element.value = '14';
+        element.dispatchEvent(new Event('input', { bubbles: true }));
+      });
+      await expect(popover.locator('.time-field24-preview')).toHaveText('14:20');
+      release();
+      await expect(page.locator('#toast')).toContainText('已匯入課表');
+      await expect(start).toHaveValue('15:20');
+      await expect(popover.locator('.time-field24-preview')).toHaveText('15:20');
+      await oldSlider.dispatchEvent('pointerup');
+      await oldPopover.dispatchEvent('toggle', { newState: 'closed' });
+      await expect(start).toHaveValue('15:20');
+      await expect(page.locator('[data-pending-time-error]')).toHaveCount(0);
+    } finally {
+      release();
+      await page.unroute('**/api/v1/settings/schedule-table');
+    }
+  });
+
+  test('(5) 匯入失敗保留 pending 時間；成功整表匯入清除 pending', async ({ page }) => {
+    const { row, cell } = await openSchedule(page);
+    const start = row.locator('input.input-time').first();
+    await start.fill('1');
+    await expect(page.locator('[data-pending-time-error]')).toBeVisible();
+
+    await page.route('**/api/v1/settings/schedule-table', (route) =>
+      route.fulfill({ status: 400, contentType: 'application/json', body: JSON.stringify({ error: 'synthetic failure' }) })
+    );
+    await page.getByLabel('選擇課表 Excel 檔案').setInputFiles({
+      name: 'synthetic-failed-import.xlsx',
+      mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      buffer: Buffer.from('synthetic failure'),
+    });
+    await expect(page.locator('[data-schedule-import-error]')).toBeVisible();
+    await expect(page.locator('[data-pending-time-error]')).toBeVisible();
+    await expect(start).toHaveValue('1');
+    await page.unroute('**/api/v1/settings/schedule-table');
+
+    const rows = buildSeedGridRows().map((item, index) => ({ ...item, rowId: `replace-${index + 1}` }));
+    const classes = gridRowsToClasses(rows);
+    await importScheduleRowsFixture(
+      page,
+      rows,
+      classes.map((item) => ({
+        className: item.baseName,
+        classType: item.classType,
+        hasMultiSubjectDiscount: item.hasMultiSubjectDiscount,
+        category: item.category ?? 'unset',
+        categorySource: item.categorySource ?? 'unset',
+        fixedFiveDays: item.fixedFiveDays ?? false,
+      }))
+    );
+    await expect(page.locator('[data-pending-time-error]')).toHaveCount(0);
+    const importedRow = page.locator('tr.schedule-row', {
+      has: page.locator('input.input-classname[value="兒童美語-Gino"]'),
+    });
+    await expect(importedRow.locator('input.input-time').first()).toHaveValue('15:20');
+    await expect(cell('anqin-overlap')).toHaveText('40', { timeout: 10000 });
+
+    // A successful replacement that retains row identity must also replace slider-local preview state.
+    const stableRowId = await importedRow.first().getAttribute('data-row-id');
+    if (!stableRowId) throw new Error('Imported schedule row does not expose its stable row identity');
+    const seedRows = buildSeedGridRows();
+    const firstGinoRow = seedRows.findIndex((item) => item.className === '兒童美語-Gino');
+    const replacementRows = seedRows.map((item, index) => ({
+      ...item,
+      rowId: index === firstGinoRow ? stableRowId : `popup-replacement-${index + 1}`,
+      ...(index === firstGinoRow
+        ? { startTime: '16:00', endTime: '17:00', startMinutes: 960, endMinutes: 1020 }
+        : {}),
+    }));
+    const replacementClasses = gridRowsToClasses(replacementRows);
+    const replacementAttrs = replacementClasses.map((item) => ({
+      className: item.baseName,
+      classType: item.classType,
+      hasMultiSubjectDiscount: item.hasMultiSubjectDiscount,
+      category: item.category ?? 'unset',
+      categorySource: item.categorySource ?? 'unset',
+      fixedFiveDays: item.fixedFiveDays ?? false,
+    }));
+    let started!: () => void;
+    let release!: () => void;
+    const importStarted = new Promise<void>((resolve) => (started = resolve));
+    const importGate = new Promise<void>((resolve) => (release = resolve));
+    await page.route('**/api/v1/settings/schedule-table', async (route) => {
+      if (route.request().method() !== 'POST') {
+        await route.continue();
+        return;
+      }
+      started();
+      await importGate;
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ rows: replacementRows, classAttrs: replacementAttrs }),
+      });
+    });
+    try {
+      await page.getByLabel('選擇課表 Excel 檔案').setInputFiles({
+        name: 'synthetic-delayed-import.xlsx',
+        mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        buffer: Buffer.from('synthetic delayed import'),
+      });
+      await importStarted;
+      const liveRow = page.locator('tr.schedule-row', {
+        has: page.locator('input.input-classname[value="兒童美語-Gino"]'),
+      });
+      const liveStart = liveRow.locator('input.input-time').first();
+      await liveStart.click();
+      const livePopover = liveRow.locator('[data-time-popover="start"]').first();
+      await expect(livePopover).toBeVisible();
+      const liveHourSlider = livePopover.getByRole('slider', { name: '起始時間 第 1 列 小時' });
+      await expect(liveHourSlider).toHaveValue('15');
+
+      release();
+      await expect(page.locator('#toast')).toContainText('已匯入課表');
+      await expect(liveStart).toHaveValue('16:00');
+      await expect(liveHourSlider).toHaveValue('16');
+      await expect(page.locator('[data-pending-time-error]')).toHaveCount(0);
+    } finally {
+      release();
+      await page.unroute('**/api/v1/settings/schedule-table');
+    }
   });
 });

@@ -24,6 +24,7 @@ import { CalculatePreviewResponse } from '@/application/schedule-preview';
 import type { ClassNameSyncReport } from '@/application/class-name-match-report';
 import { stageClassNameSync, stageNewClassFromRoster } from '@/domain/schedules/class-name-sync';
 import { ScheduleGrid } from '@/components/settings/schedule-grid';
+import type { PendingTimeDraft } from '@/components/settings/time-range-editor';
 import { ImpactDialog, SettingsPreviewData } from '@/components/settings/impact-dialog';
 import { LeaveConfirmDialog } from '@/components/settings/leave-confirm-dialog';
 import { ClassNameSyncPanel } from '@/components/settings/class-name-sync-panel';
@@ -230,6 +231,7 @@ export default function SettingsEditor({
   );
   const [scheduleSearch, setScheduleSearch] = useState('');
   const [isAddClassFormOpen, setIsAddClassFormOpen] = useState(false);
+  const [addClassOpener, setAddClassOpener] = useState<HTMLElement | null>(null);
   const scheduleImportInputRef = useRef<HTMLInputElement | null>(null);
   const [draft, setDraft] = useState<SettingsDraft>(initialDraft);
 
@@ -268,6 +270,8 @@ export default function SettingsEditor({
   }, [initialDraft]);
 
   const [rows, setRows] = useState<ScheduleGridRow[]>(initialRows);
+  const [timeResetGeneration, setTimeResetGeneration] = useState(0);
+  const [pendingTimeDrafts, setPendingTimeDrafts] = useState<Map<string, PendingTimeDraft>>(() => new Map());
   // A focus tracks the row identities captured when the target is chosen. Row names can change
   // during editing, so membership must not be re-derived from the mutable className on each render.
   const [scheduleFocusRowIds, setScheduleFocusRowIds] = useState<Set<string>>(() =>
@@ -613,9 +617,10 @@ export default function SettingsEditor({
         draft.aliases,
         manualAttrSettings
       ) ||
-      mapsDiffer(baselineManualAttrs, effectiveManualAttrs)
+      mapsDiffer(baselineManualAttrs, effectiveManualAttrs) ||
+      pendingTimeDrafts.size > 0
     );
-  }, [baseline, baselineManualAttrs, rows, draft.aliases, manualAttrSettings, effectiveManualAttrs]);
+  }, [baseline, baselineManualAttrs, rows, draft.aliases, manualAttrSettings, effectiveManualAttrs, pendingTimeDrafts]);
 
   /**
    * 課表每個班級目前有效的類別／固定 5 天（使用者的指定優先，未指定者為 unset）。
@@ -797,9 +802,25 @@ export default function SettingsEditor({
     setPreview(null);
   };
 
+  const handlePendingTimeChange = (rowId: string, pending: PendingTimeDraft | null) => {
+    setPendingTimeDrafts((current) => {
+      const next = new Map(current);
+      if (pending) next.set(rowId, pending);
+      else next.delete(rowId);
+      return next;
+    });
+    setPreview(null);
+  };
+
   // 刪除時段列
   const handleDeleteRow = (rowId: string) => {
     setRows((prev) => prev.filter((r) => r.rowId !== rowId));
+    setPendingTimeDrafts((current) => {
+      if (!current.has(rowId)) return current;
+      const next = new Map(current);
+      next.delete(rowId);
+      return next;
+    });
     setScheduleFocusRowIds((current) => {
       if (!current.has(rowId)) return current;
       const next = new Set(current);
@@ -814,9 +835,33 @@ export default function SettingsEditor({
     row: Omit<ScheduleGridRow, 'rowId'>,
     classType?: ClassType | 'non_care',
     options?: { initialCategory?: 'unset'; hasMultiSubjectDiscount?: boolean; fixedFiveDays?: boolean }
-  ) => {
+  ): string | null => {
     const startMin = timeStringToMinutes(row.startTime);
     const endMin = timeStringToMinutes(row.endTime);
+    const className = row.className.trim();
+    const resolvedType: ClassType | undefined = classType
+      ? classType === 'non_care' ? 'other' : classType
+      : undefined;
+    const hasMulti = resolvedType
+      ? options?.hasMultiSubjectDiscount ?? supportsMultiSubjectDiscount(resolvedType)
+      : undefined;
+    const fixedFive = resolvedType === 'care' ? options?.fixedFiveDays ?? false : false;
+    const existingRows = rows.filter((item) => item.className.trim() === className);
+
+    if (existingRows.length > 0 && resolvedType) {
+      const saved = draft.classes.find((item) => item.baseName === className);
+      const existing = currentAttrs.get(className) ?? resolveClassAttributes(className, saved);
+      const existingType = existing.classType === 'non_care' ? 'other' : existing.classType;
+      const existingHasMulti = existing.hasMultiSubjectDiscount ?? supportsMultiSubjectDiscount(existingType);
+      const conflicts: string[] = [];
+      if (existingType !== resolvedType) conflicts.push('課程類型');
+      if (existingHasMulti !== hasMulti) conflicts.push('多科折扣');
+      if (resolvedType === 'care' && existing.fixedFiveDays !== fixedFive) conflicts.push('天數固定 5 天');
+      if (conflicts.length > 0) {
+        return `班級「${className}」已存在，新增時段的${conflicts.join('、')}設定與原班不同。請沿用原設定後再新增。`;
+      }
+    }
+
     const newRow: ScheduleGridRow = {
       ...row,
       rowId: `user-row-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
@@ -827,11 +872,7 @@ export default function SettingsEditor({
     if (scheduleFocusClass?.trim() === newRow.className.trim()) {
       setScheduleFocusRowIds((current) => new Set(current).add(newRow.rowId));
     }
-    if (classType) {
-      const resolvedType: ClassType = classType === 'non_care' ? 'other' : classType;
-      const className = row.className.trim();
-      const hasMulti = options?.hasMultiSubjectDiscount ?? supportsMultiSubjectDiscount(resolvedType);
-      const fixedFive = options?.fixedFiveDays ?? false;
+    if (resolvedType && hasMulti !== undefined && existingRows.length === 0) {
       const category = deriveEffectiveCategory(resolvedType, hasMulti);
       const newClass: ClassSetting = {
         baseName: className,
@@ -844,9 +885,10 @@ export default function SettingsEditor({
         categorySource: 'manual',
         ...(resolvedType === 'care' ? { fixedFiveDays: fixedFive } : {}),
       };
-      setDraft((prev) => prev.classes.some((item) => item.baseName === className)
-        ? prev
-        : { ...prev, classes: [...prev.classes, newClass] });
+      setDraft((prev) => ({
+        ...prev,
+        classes: [...prev.classes.filter((item) => item.baseName !== className), newClass],
+      }));
       setManualAttrs((prev) => {
         const next = new Map(prev);
         next.set(className, {
@@ -860,6 +902,7 @@ export default function SettingsEditor({
       });
     }
     setPreview(null);
+    return null;
   };
 
   // ---------------------------------------------------------------------------
@@ -874,6 +917,10 @@ export default function SettingsEditor({
    * 匯出的是有效屬性（使用者的指定優先、未指定者為「（未設定）」），所以匯出檔本身就是一份完整的課表備份。
    */
   const handleExportExcel = useCallback(async () => {
+    if (pendingTimeDrafts.size > 0) {
+      setScheduleImportError('尚有時間輸入未完成，請修正或復原後再匯出。');
+      return;
+    }
     setScheduleTransferBusy(true);
     setScheduleImportError(null);
     try {
@@ -911,7 +958,7 @@ export default function SettingsEditor({
     } finally {
       setScheduleTransferBusy(false);
     }
-  }, [rows, currentAttrs, showToast]);
+  }, [rows, currentAttrs, showToast, pendingTimeDrafts]);
 
   /**
    * 匯入：整批取代目前草稿。
@@ -950,6 +997,7 @@ export default function SettingsEditor({
       }>;
       const importedClasses = gridRowsToClasses(importedRows, draft.classes);
       setRows(importedRows);
+      setTimeResetGeneration((generation) => generation + 1);
       // The user can change the focus while the request is in flight; bind the replacement rows
       // to the target active when the import completes, not the target captured at request start.
       setScheduleFocusRowIds(rowIdsForFocus(importedRows, scheduleFocusClassRef.current));
@@ -965,6 +1013,7 @@ export default function SettingsEditor({
         });
       }
       setManualAttrs(nextAttrs);
+      setPendingTimeDrafts(new Map());
       // 匯入是整份取代，不是「沿用原本的手動值」。
       setPreview(null);
       showToast(`已匯入課表（${importedRows.length} 個時段），請確認後儲存`);
@@ -978,6 +1027,8 @@ export default function SettingsEditor({
   // 還原到 baseline（取消修改與離頁時「捨棄修改」共用）
   const resetDraft = () => {
     setRows(baseline.rows);
+    setTimeResetGeneration((generation) => generation + 1);
+    setPendingTimeDrafts(new Map());
     setScheduleFocusRowIds(rowIdsForFocus(baseline.rows, scheduleFocusClass));
     setDraft((prev) => ({
       ...prev,
@@ -1000,6 +1051,7 @@ export default function SettingsEditor({
 
   // 開啟確認視窗並載入影響預覽
   const handleOpenReview = async () => {
+    if (pendingTimeDrafts.size > 0) return;
     setIsImpactDialogOpen(true);
     setPreviewLoading(true);
     setDialogError(null);
@@ -1046,7 +1098,7 @@ export default function SettingsEditor({
 
   // 套用並儲存設定
   const handleApply = async () => {
-    if (!preview) return;
+    if (!preview || pendingTimeDrafts.size > 0) return;
     setApplying(true);
     setDialogError(null);
 
@@ -1073,6 +1125,7 @@ export default function SettingsEditor({
         rows: [...rows],
         aliases: [...draft.aliases],
       });
+      setPendingTimeDrafts(new Map());
       const savedClasses = applyManualAttrsToClasses(
         gridRowsToClasses(rows, draft.classes),
         effectiveManualAttrs
@@ -1161,7 +1214,7 @@ export default function SettingsEditor({
               type="button"
               className="btn-secondary"
               onClick={handleExportExcel}
-              disabled={scheduleTransferBusy}
+              disabled={scheduleTransferBusy || pendingTimeDrafts.size > 0}
               data-schedule-export=""
             >
               {scheduleTransferBusy ? '處理中...' : '匯出 Excel'}
@@ -1169,7 +1222,10 @@ export default function SettingsEditor({
             <button
               type="button"
               className={isAddClassFormOpen ? 'btn-secondary' : 'btn-primary'}
-              onClick={() => setIsAddClassFormOpen((open) => !open)}
+              onClick={(event) => {
+                if (!isAddClassFormOpen) setAddClassOpener(event.currentTarget);
+                setIsAddClassFormOpen((open) => !open);
+              }}
             >
               {isAddClassFormOpen ? '取消新增' : '＋ 新增班級'}
             </button>
@@ -1199,6 +1255,9 @@ export default function SettingsEditor({
             onUpdateRow={handleUpdateRow}
             onDeleteRow={handleDeleteRow}
             onAddRow={handleAddRow}
+            pendingTimeDrafts={pendingTimeDrafts}
+            timeResetGeneration={timeResetGeneration}
+            onPendingTimeChange={handlePendingTimeChange}
             calculating={calculating}
             calculateResult={calculateResult}
             calculateInputRows={calculateInputRows}
@@ -1210,6 +1269,7 @@ export default function SettingsEditor({
             onSelectClassType={setSelectedClassType}
             search={scheduleSearch}
             showAddForm={isAddClassFormOpen}
+            addDialogOpener={addClassOpener}
             onShowAddFormChange={setIsAddClassFormOpen}
             classAttributes={currentAttrs}
             onSelectCategory={handleSelectCategory}
@@ -1302,7 +1362,7 @@ export default function SettingsEditor({
           <button
             type="button"
             className="btn-primary"
-            disabled={!isDirty || calculating || mergeConflicts.length > 0}
+            disabled={!isDirty || calculating || mergeConflicts.length > 0 || pendingTimeDrafts.size > 0}
             onClick={handleOpenReview}
           >
             確認變更

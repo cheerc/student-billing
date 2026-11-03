@@ -169,7 +169,7 @@ test.describe('UX32／D-1：空白星期成功預覽與確認視窗錯誤白話�
     await activateFixture(page);
     await openClassSchedule(page, '兒童美語-Chevady');
     const row = classRow(page, '兒童美語-Chevady');
-    const weekday = row.locator('input.input-weekday');
+    const weekday = row.locator('select.input-weekday');
     const times = row.locator('input.input-time');
     const originalWeekday = await weekday.inputValue();
     const originalStart = await times.nth(0).inputValue();
@@ -178,7 +178,7 @@ test.describe('UX32／D-1：空白星期成功預覽與確認視窗錯誤白話�
     expect(originalStart).not.toBe('');
     expect(originalEnd).not.toBe('');
 
-    await weekday.fill('');
+    await weekday.selectOption('');
     await page.waitForTimeout(500);
 
     const previewRequest = page.waitForRequest(
@@ -238,7 +238,7 @@ test.describe('UX32／D-1：空白星期成功預覽與確認視窗錯誤白話�
     const persistedRows = await classRows(page, '兒童美語-Chevady').all();
     const persistedSlots = await Promise.all(
       persistedRows.map(async (savedRow) => ({
-        weekday: await savedRow.locator('input.input-weekday').inputValue(),
+        weekday: await savedRow.locator('select.input-weekday').inputValue(),
         start: await savedRow.locator('input.input-time').nth(0).inputValue(),
         end: await savedRow.locator('input.input-time').nth(1).inputValue(),
       }))

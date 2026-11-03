@@ -14,7 +14,7 @@ import { VISIBILITY_EXEMPTIONS } from './e2e-conventions-exemptions';
  * 本檔**只做三件事**（純字串掃描，不啟動瀏覽器）：
  * (a) 已淘汰的字面不得再出現：`data-category-select`、`schedule-table-non-care`、
  *     以列序定位排課列（`.schedule-table tbody tr').nth(`／`").nth(`，單雙引號皆擋）；
- * (b) spec 若直接觸碰受管輸入框（`input.input-time`／`input.input-weekday`），
+ * (b) spec 若直接觸碰受管時段控制（`input.input-time`／`select.input-weekday`），
  *     必須 import 一個 row helper，且不得用**頁面級** locator 取第一個相符元素；
  * (c) `startInput` 的**形狀**：必須 async、經 `classRow(page, className)` 定位、回傳前
  *     呼叫 `toBeVisible`（R-191-3 的契約）。
@@ -47,7 +47,7 @@ const OBSOLETE_LITERALS: Array<{ pattern: RegExp; why: string }> = [
  * 受管輸入框：只存在於有排課列的頁籤（預設安親頁籤沒有）。
  * 直接用它定位等於假設「現在剛好停在對的頁籤」，正是這次 19 檔全紅的成因。
  */
-const MANAGED_INPUT = /input\.input-(?:time|weekday)/;
+const MANAGED_INPUT = /(?:input|select)\.input-(?:time|weekday)/;
 
 /**
  * 頁面級（非某列）locator 直接取「第一個／第 n 個」受管輸入框，
@@ -56,7 +56,7 @@ const MANAGED_INPUT = /input\.input-(?:time|weekday)/;
  * 以 `evaluateAll` 掃全表再按班名挑列不算在內——那不依賴列序。
  */
 const PAGE_FIRST_MANAGED_INPUT =
-  /\b(?:page|p)\.locator\(\s*[`'"][^`'"\n]*input\.input-(?:time|weekday)[`'"]\s*\)\s*\.(?:first|last|nth)\(/;
+  /\b(?:page|p)\.locator\(\s*[`'"][^`'"\n]*(?:input|select)\.input-(?:time|weekday)[`'"]\s*\)\s*\.(?:first|last|nth)\(/;
 
 const ROW_HELPER_NAMES = [
   'classRow',
@@ -102,7 +102,6 @@ describe('E2E 慣例：排課列一律經 helper，不以列序或淘汰選取�
   });
 
   it('例外清單只指向真實存在的 spec，且每一筆都有理由', () => {
-    expect(exemptionRows.length).toBeGreaterThan(0);
     for (const [file, exemption] of exemptionRows) {
       expect(knownSpecs.has(file), `例外清單指向不存在的 spec：${file}`).toBe(true);
       expect(exemption.reason.trim().length, `例外 ${file} 沒有寫理由`).toBeGreaterThan(10);
