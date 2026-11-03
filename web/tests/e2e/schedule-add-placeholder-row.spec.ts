@@ -100,11 +100,10 @@ test.describe('#82 & D61 1c: 新增班級僅班名必填與未填時間雙重警
     await expect(name).toBeFocused();
     await expect(dialog.getByLabel('新增班級課程類型')).toHaveCount(0);
     await name.fill('只存在對話框的班');
-    const submit = dialog.getByRole('button', { name: '確認新增' });
-    await submit.focus();
-    await page.keyboard.press('Tab');
+    const backgroundButton = page.getByRole('button', { name: '匯入 Excel' });
+    await backgroundButton.evaluate((element) => (element as HTMLButtonElement).focus());
+    expect(await backgroundButton.evaluate((element) => document.activeElement === element)).toBe(false);
     expect(await dialog.evaluate((element) => element.contains(document.activeElement))).toBe(true);
-    await expect(dialog.getByRole('button', { name: '關閉新增視窗' })).toBeFocused();
     await expect(page.locator('tr.schedule-row', { has: page.locator('input[value="只存在對話框的班"]') })).toHaveCount(0);
 
     // Native modal backdrop receives the click; the dialog stays open and does not submit.
