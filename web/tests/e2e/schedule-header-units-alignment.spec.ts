@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { writeFile } from 'node:fs/promises';
 import { openClassScheduleFull, classRows } from './helpers/c-batch';
 
 const CLASS = '兒童美語-Gino';
@@ -34,11 +35,12 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
     await expect(classRows(page, CLASS)).toHaveCount(3);
     await expect(rows.first()).toBeVisible();
     await page.screenshot({ path: testInfo.outputPath(`geometry-${viewport.width}.png`) });
+    const measurements: Array<{ row: number; column: string; scrolled: boolean; difference: number }> = [];
     for (const scrolled of [false, true]) {
       await page.locator('.schedule-table-scroll').evaluate((element, move) => {
         element.scrollLeft = move ? element.scrollWidth - element.clientWidth : 0;
       }, scrolled);
-      for (const row of [rows.first(), rows.nth(1), rows.last()]) {
+      for (const [rowIndex, row] of [rows.first(), rows.nth(1), rows.last()].entries()) {
         const multiTarget = row.locator('.col-has-multi .yes-no-radio-group, .col-has-multi .same-class-marker');
         const multiHeader = table.locator('thead th.col-has-multi');
         const multiDifference = await multiHeader.evaluate((element, targetElement) => {
@@ -48,6 +50,7 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
           const b = (targetElement as Element).getBoundingClientRect();
           return Math.abs(a.x + a.width / 2 - b.x - b.width / 2);
         }, await multiTarget.elementHandle());
+        measurements.push({ row: rowIndex, column: '多科折扣', scrolled, difference: multiDifference });
         expect(multiDifference, `多科折扣 scroll=${scrolled}`).toBeLessThanOrEqual(2);
         for (const index of [0, 1]) {
           const label = table.locator('.time-header-tracks span').nth(index);
@@ -57,6 +60,7 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
             const b = (targetElement as Element).getBoundingClientRect();
             return Math.abs(a.x + a.width / 2 - b.x - b.width / 2);
           }, await input.elementHandle());
+          measurements.push({ row: rowIndex, column: `時間${index}`, scrolled, difference: delta });
           expect(delta, `時間 ${index} scroll=${scrolled}`).toBeLessThanOrEqual(2);
         }
         for (const [column, control] of [
@@ -72,10 +76,13 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
             const b = (targetElement as Element).getBoundingClientRect();
             return Math.abs(a.x + a.width / 2 - b.x - b.width / 2);
           }, await target.elementHandle());
+          measurements.push({ row: rowIndex, column, scrolled, difference });
           expect(difference, `${column} scroll=${scrolled}`).toBeLessThanOrEqual(2);
         }
       }
+      if (scrolled) await page.screenshot({ path: testInfo.outputPath(`geometry-${viewport.width}-scrolled.png`) });
     }
+    await writeFile(testInfo.outputPath(`geometry-${viewport.width}.json`), JSON.stringify(measurements, null, 2));
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
   });
 
