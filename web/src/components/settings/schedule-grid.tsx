@@ -29,6 +29,7 @@ export interface ScheduleGridProps {
     options?: { initialCategory?: 'unset'; hasMultiSubjectDiscount?: boolean; fixedFiveDays?: boolean }
   ) => string | null | void;
   pendingTimeDrafts?: ReadonlyMap<string, PendingTimeDraft>;
+  timeResetGeneration?: number;
   onPendingTimeChange?: (rowId: string, pending: PendingTimeDraft | null) => void;
   calculating: boolean;
   calculateResult: CalculatePreviewResponse | null;
@@ -95,6 +96,7 @@ export function ScheduleGrid({
   onClearFocus,
   initialClassTypeTab = 'care',
   pendingTimeDrafts,
+  timeResetGeneration = 0,
   onPendingTimeChange,
   classAttributes,
   onSelectCategory,
@@ -704,6 +706,7 @@ export function ScheduleGrid({
                       {/* 6. 上課時間 (起 — 迄) */}
                       <td className="col-time">
                         <TimeRangeEditor
+                          key={timeResetGeneration}
                           value={{ startTime: r.startTime, endTime: r.endTime }}
                           pending={pendingTime}
                           onPendingChange={(pending) => onPendingTimeChange?.(r.rowId, pending)}

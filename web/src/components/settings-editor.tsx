@@ -270,6 +270,7 @@ export default function SettingsEditor({
   }, [initialDraft]);
 
   const [rows, setRows] = useState<ScheduleGridRow[]>(initialRows);
+  const [timeResetGeneration, setTimeResetGeneration] = useState(0);
   const [pendingTimeDrafts, setPendingTimeDrafts] = useState<Map<string, PendingTimeDraft>>(() => new Map());
   // A focus tracks the row identities captured when the target is chosen. Row names can change
   // during editing, so membership must not be re-derived from the mutable className on each render.
@@ -996,6 +997,7 @@ export default function SettingsEditor({
       }>;
       const importedClasses = gridRowsToClasses(importedRows, draft.classes);
       setRows(importedRows);
+      setTimeResetGeneration((generation) => generation + 1);
       // The user can change the focus while the request is in flight; bind the replacement rows
       // to the target active when the import completes, not the target captured at request start.
       setScheduleFocusRowIds(rowIdsForFocus(importedRows, scheduleFocusClassRef.current));
@@ -1025,6 +1027,7 @@ export default function SettingsEditor({
   // 還原到 baseline（取消修改與離頁時「捨棄修改」共用）
   const resetDraft = () => {
     setRows(baseline.rows);
+    setTimeResetGeneration((generation) => generation + 1);
     setPendingTimeDrafts(new Map());
     setScheduleFocusRowIds(rowIdsForFocus(baseline.rows, scheduleFocusClass));
     setDraft((prev) => ({
@@ -1253,6 +1256,7 @@ export default function SettingsEditor({
             onDeleteRow={handleDeleteRow}
             onAddRow={handleAddRow}
             pendingTimeDrafts={pendingTimeDrafts}
+            timeResetGeneration={timeResetGeneration}
             onPendingTimeChange={handlePendingTimeChange}
             calculating={calculating}
             calculateResult={calculateResult}
