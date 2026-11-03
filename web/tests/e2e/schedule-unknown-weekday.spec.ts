@@ -337,6 +337,9 @@ test.describe('UX07（修訂）：未知／空白星期與 calculate 失敗不�
       const popover = row.locator('[data-time-popover="start"]').first();
       const slider = popover.getByRole('slider', { name: '起始時間 第 1 列 小時' });
       await expect(slider).toBeVisible();
+      const oldSlider = await slider.elementHandle();
+      const oldPopover = await popover.elementHandle();
+      if (!oldSlider || !oldPopover) throw new Error('找不到原滑桿或浮層');
       await slider.evaluate((element: HTMLInputElement) => {
         element.value = '14';
         element.dispatchEvent(new Event('input', { bubbles: true }));
@@ -346,8 +349,8 @@ test.describe('UX07（修訂）：未知／空白星期與 calculate 失敗不�
       await expect(page.locator('#toast')).toContainText('已匯入課表');
       await expect(start).toHaveValue('15:20');
       await expect(popover.locator('.time-field24-preview')).toHaveText('15:20');
-      await slider.dispatchEvent('pointerup');
-      await start.press('Escape');
+      await oldSlider.dispatchEvent('pointerup');
+      await oldPopover.dispatchEvent('toggle', { newState: 'closed' });
       await expect(start).toHaveValue('15:20');
       await expect(page.locator('[data-pending-time-error]')).toHaveCount(0);
     } finally {
