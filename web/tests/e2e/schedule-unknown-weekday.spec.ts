@@ -1,5 +1,6 @@
 import { test, expect, type Page, type Locator } from '@playwright/test';
-import { calcCell, openClassScheduleFull } from './helpers/c-batch';
+import { calcCell, importScheduleRowsFixture, openClassScheduleFull } from './helpers/c-batch';
+import { buildSeedGridRows, gridRowsToClasses } from '../../src/contracts/settings';
 
 /**
  * 04 §8 UX07（修訂）／09 §3.1（11 §3 A；F01）：瀏覽器實際操作。
@@ -45,6 +46,29 @@ async function openSchedule(page: Page): Promise<{ row: Locator; cell: CalcCell 
   return { row, cell };
 }
 
+async function importLegacyWeekday(page: Page, weekday: string): Promise<void> {
+  const seedRows = buildSeedGridRows();
+  const firstClassRow = seedRows.findIndex((candidate) => candidate.className === CLASS);
+  const rows = seedRows.map((row, index) => ({
+    ...row,
+    rowId: `legacy-weekday-${index + 1}`,
+    ...(index === firstClassRow ? { weekday } : {}),
+  }));
+  const classes = gridRowsToClasses(rows);
+  await importScheduleRowsFixture(
+    page,
+    rows,
+    classes.map((item) => ({
+      className: item.baseName,
+      classType: item.classType,
+      hasMultiSubjectDiscount: item.hasMultiSubjectDiscount,
+      category: item.category ?? 'unset',
+      categorySource: item.categorySource ?? 'unset',
+      fixedFiveDays: item.fixedFiveDays ?? false,
+    }))
+  );
+}
+
 /** 四個計算欄（安親重疊／扣除、課輔重疊／扣除）都已被「需確認」取代：不是 0、不是舊值。 */
 async function expectNeedsReviewCells(cell: CalcCell) {
   for (const name of CALC_COLUMNS) {
@@ -64,8 +88,10 @@ async function expectDashedCells(cell: CalcCell) {
 test.describe('UX07（修訂）：未知／空白星期與 calculate 失敗不冒充「沒有衝堂」', () => {
   test('(1) 非空非法星期「八」：可聚焦的「需確認」警告、原因可讀、舊值 40／20 不冒充；合法週六仍為 0', async ({ page }) => {
     const { row, cell } = await openSchedule(page);
+    await importLegacyWeekday(page, '八');
 
-    await row.locator('input.input-weekday').fill('八');
+    await expect(row.locator('select.input-weekday')).toHaveValue('八');
+    await expect(row.locator('select.input-weekday option:checked')).toHaveText('需確認：八');
 
     // 警告：徽章是按鈕，鍵盤可達
     const badge = cell('anqin-overlap').getByRole('button', { name: '需確認原因' });
@@ -84,7 +110,7 @@ test.describe('UX07（修訂）：未知／空白星期與 calculate 失敗不�
     await expect(notice).toContainText('不代表沒有衝堂');
 
     // 合法週六：已驗證與週一至五窗口無交集 → 0，沒有警告
-    await row.locator('input.input-weekday').fill('六');
+    await row.locator('select.input-weekday').selectOption('六');
     await expect(cell('anqin-overlap')).toHaveText('0', { timeout: 10000 });
     await expect(cell('tutoring-overlap')).toHaveText('0');
     await expect(row.getByRole('button', { name: '需確認原因' })).toHaveCount(0);
@@ -103,7 +129,7 @@ test.describe('UX07（修訂）：未知／空白星期與 calculate 失敗不�
       await route.continue();
     });
 
-    await row.locator('input.input-weekday').fill('八');
+    await importLegacyWeekday(page, '八');
     await expect.poll(() => held, { timeout: 5000 }).toBe(true);
     await expectDashedCells(cell);
     await expect(cell('anqin-overlap')).not.toHaveText('40');
@@ -118,7 +144,7 @@ test.describe('UX07（修訂）：未知／空白星期與 calculate 失敗不�
     const blankResponse = page.waitForResponse(
       (r) => r.url().includes('/api/v1/settings/calculate') && (r.request().postData() ?? '').includes('"weekday":""')
     );
-    await row.locator('input.input-weekday').fill('');
+    await row.locator('select.input-weekday').selectOption('');
     expect((await blankResponse).status()).toBe(200); // 整個 calculate 不因空白星期而失敗
 
     const badge = cell('anqin-overlap').getByRole('button', { name: '需確認原因' });
@@ -181,6 +207,14 @@ test.describe('UX07（修訂）：未知／空白星期與 calculate 失敗不�
     await expect(pendingError).toContainText(/修正|完成|復原/);
     await expect(cell('anqin-overlap')).not.toHaveText('40');
     await expect(cell('anqin-overlap')).toContainText(/—|需修正/);
+
+    // Parent-owned pending draft survives both the settings tab remount and class-type tabs.
+    await page.locator('#settings-tab-sync').click();
+    await page.locator('#settings-tab-schedule').click();
+    await page.locator('#class-type-tab-care').click();
+    await page.locator('#class-type-tab-english').click();
+    await expect(start).toHaveValue('1');
+    await expect(page.locator('[data-pending-time-error]')).toBeVisible();
     await expect(page.getByRole('button', { name: '確認變更' })).toBeDisabled();
     await expect(page.locator('[data-schedule-export]')).toBeDisabled();
 
@@ -188,5 +222,46 @@ test.describe('UX07（修訂）：未知／空白星期與 calculate 失敗不�
     await expect(start).toHaveValue(original);
     await expect(page.locator('.save-status-clean')).toBeVisible();
     await expect(cell('anqin-overlap')).toHaveText('40');
+  });
+
+  test('(5) 匯入失敗保留 pending 時間；成功整表匯入清除 pending', async ({ page }) => {
+    const { row, cell } = await openSchedule(page);
+    const start = row.locator('input.input-time').first();
+    await start.fill('1');
+    await expect(page.locator('[data-pending-time-error]')).toBeVisible();
+
+    await page.route('**/api/v1/settings/schedule-table', (route) =>
+      route.fulfill({ status: 400, contentType: 'application/json', body: JSON.stringify({ error: 'synthetic failure' }) })
+    );
+    await page.getByLabel('選擇課表 Excel 檔案').setInputFiles({
+      name: 'synthetic-failed-import.xlsx',
+      mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      buffer: Buffer.from('synthetic failure'),
+    });
+    await expect(page.locator('[data-schedule-import-error]')).toBeVisible();
+    await expect(page.locator('[data-pending-time-error]')).toBeVisible();
+    await expect(start).toHaveValue('1');
+    await page.unroute('**/api/v1/settings/schedule-table');
+
+    const rows = buildSeedGridRows().map((item, index) => ({ ...item, rowId: `replace-${index + 1}` }));
+    const classes = gridRowsToClasses(rows);
+    await importScheduleRowsFixture(
+      page,
+      rows,
+      classes.map((item) => ({
+        className: item.baseName,
+        classType: item.classType,
+        hasMultiSubjectDiscount: item.hasMultiSubjectDiscount,
+        category: item.category ?? 'unset',
+        categorySource: item.categorySource ?? 'unset',
+        fixedFiveDays: item.fixedFiveDays ?? false,
+      }))
+    );
+    await expect(page.locator('[data-pending-time-error]')).toHaveCount(0);
+    const importedRow = page.locator('tr.schedule-row', {
+      has: page.locator('input.input-classname[value="兒童美語-Gino"]'),
+    });
+    await expect(importedRow.locator('input.input-time').first()).toHaveValue('15:20');
+    await expect(cell('anqin-overlap')).toHaveText('40', { timeout: 10000 });
   });
 });

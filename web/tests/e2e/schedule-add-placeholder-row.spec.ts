@@ -24,10 +24,11 @@ async function calcCellsText(page: Page, className: string): Promise<string[]> {
 }
 
 async function addClassNameOnly(page: Page, className: string, classType: string = 'other') {
+  const tab = page.locator(`#class-type-tab-${classType}`);
+  if (await tab.getAttribute('aria-selected') !== 'true') await tab.click();
   await page.getByRole('button', { name: /＋ 新增班級|＋ 新增時段/ }).click();
-  const form = page.locator('form.add-session-panel');
+  const form = page.locator('dialog.add-class-dialog form.add-session-panel');
   await expect(form).toBeVisible();
-  await form.locator('select[aria-label="新增班級課程類型"]').selectOption(classType);
   await form.locator('input[aria-label="新增班級名稱"]').fill(className);
   await form.getByRole('button', { name: '確認新增' }).click();
   await expect(rowOf(page, className)).toBeVisible();
@@ -43,13 +44,21 @@ test.describe('#82 & D61 1c: 新增班級僅班名必填與未填時間雙重警
   });
 
   test('#82-1: 排課班級新增僅班名必填、其餘欄位預設皆空', async ({ page }) => {
+    await page.locator('#class-type-tab-other').click();
     await page.getByRole('button', { name: '＋ 新增班級' }).click();
-    const form = page.locator('form.add-session-panel');
+    const dialog = page.locator('dialog.add-class-dialog');
+    const form = dialog.locator('form.add-session-panel');
     await expect(form).toBeVisible();
 
-    await form.locator('select[aria-label="新增班級課程類型"]').selectOption('other');
+    await expect(dialog).toHaveJSProperty('open', true);
+    expect(await dialog.evaluate((element) => element.matches(':modal'))).toBe(true);
+    await expect(form.locator('select[aria-label="新增班級課程類型"]')).toHaveCount(0);
+    await expect(form.locator('input[aria-label="新增班級名稱"]')).toBeFocused();
     const weekdaySelect = form.locator('select[aria-label="新增星期"]');
     await expect(weekdaySelect).toHaveValue('');
+    await expect(weekdaySelect.locator('option')).toHaveText([
+      '未定', '週一', '週二', '週三', '週四', '週五', '週六', '週日',
+    ]);
     await expect(form.locator('input[aria-label="新增起始時間"]')).toHaveValue('');
     await expect(form.locator('input[aria-label="新增結束時間"]')).toHaveValue('');
 
@@ -60,15 +69,14 @@ test.describe('#82 & D61 1c: 新增班級僅班名必填與未填時間雙重警
     // 列已建立
     const row = rowOf(page, '新開班-待排課');
     await expect(row).toHaveCount(1);
-    await expect(row.locator('input.input-weekday')).toHaveValue('');
-    await expect(row.locator('input.input-weekday')).toHaveAttribute('placeholder', '未定');
+    await expect(row.locator('select.input-weekday')).toHaveValue('');
     await expect(row.locator('input.input-time').first()).toHaveValue('');
     await expect(row.locator('input.input-time').last()).toHaveValue('');
   });
 
   test('#82-2: 只有班級名稱是必填（班名空白時不得新增）', async ({ page }) => {
     await page.getByRole('button', { name: '＋ 新增班級' }).click();
-    const form = page.locator('form.add-session-panel');
+    const form = page.locator('dialog.add-class-dialog form.add-session-panel');
     await expect(form).toBeVisible();
 
     await expect(form.locator('input[required]')).toHaveCount(1);
@@ -77,6 +85,87 @@ test.describe('#82 & D61 1c: 新增班級僅班名必填與未填時間雙重警
     const before = await page.locator('tr.schedule-row').count();
     await form.getByRole('button', { name: '確認新增' }).click();
     await expect(page.locator('tr.schedule-row')).toHaveCount(before);
+  });
+
+  test('UX117: native add dialog has one selected type source, traps focus, and discards local draft on close', async ({ page }) => {
+    await page.locator('#class-type-tab-english').click();
+    const opener = page.getByRole('button', { name: '＋ 新增班級' });
+    await opener.click();
+
+    const dialog = page.locator('dialog.add-class-dialog');
+    const name = dialog.getByLabel('新增班級名稱');
+    await expect(dialog).toBeVisible();
+    expect(await dialog.evaluate((element) => element.matches(':modal'))).toBe(true);
+    await expect(name).toBeFocused();
+    await expect(dialog.getByLabel('新增班級課程類型')).toHaveCount(0);
+    await name.fill('只存在對話框的班');
+    await page.keyboard.press('Tab');
+    await expect(dialog.locator(':focus')).toHaveCount(1);
+    await expect(page.locator('tr.schedule-row', { has: page.locator('input[value="只存在對話框的班"]') })).toHaveCount(0);
+
+    // Native modal backdrop receives the click; the dialog stays open and does not submit.
+    await page.mouse.click(2, 2);
+    await expect(dialog).toBeVisible();
+    await expect(page.locator('tr.schedule-row', { has: page.locator('input[value="只存在對話框的班"]') })).toHaveCount(0);
+
+    const timePopover = dialog.locator('[data-time-popover="start"]');
+    await dialog.getByRole('button', { name: '設定新增起始時間' }).click();
+    await expect(timePopover).toBeVisible();
+    expect(await dialog.evaluate((element) => element.contains(element.querySelector('[data-time-popover="start"]')))).toBe(true);
+    await page.keyboard.press('Escape');
+    await expect(timePopover).toBeHidden();
+    await expect(dialog).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(dialog).toBeHidden();
+    await expect(opener).toBeFocused();
+    await opener.click();
+    await expect(dialog.getByLabel('新增班級名稱')).toHaveValue('');
+    await expect(dialog.getByLabel('新增星期')).toHaveValue('');
+    await dialog.getByRole('button', { name: '取消新增' }).click();
+    await expect(dialog).toBeHidden();
+    await expect(opener).toBeFocused();
+  });
+
+  test('UX118: paired time field exposes 24-hour sliders and commits valid endpoint pairs atomically', async ({ page }) => {
+    const row = rowOf(page, '兒童美語-Gino');
+    await page.locator('#class-type-tab-english').click();
+    const start = row.locator('input.input-time').first();
+    const end = row.locator('input.input-time').last();
+    const startButton = row.getByRole('button', { name: '設定起始時間 第 1 列' });
+
+    await startButton.click();
+    const popover = row.locator('[data-time-popover="start"]');
+    await expect(popover).toBeVisible();
+    const hours = popover.getByRole('slider', { name: '起始時間 小時 第 1 列' });
+    const minutes = popover.getByRole('slider', { name: '起始時間 分鐘 第 1 列' });
+    await expect(hours).toHaveAttribute('min', '0');
+    await expect(hours).toHaveAttribute('max', '23');
+    await expect(hours).toHaveAttribute('step', '1');
+    await expect(minutes).toHaveAttribute('min', '0');
+    await expect(minutes).toHaveAttribute('max', '59');
+    await expect(minutes).toHaveAttribute('step', '1');
+    await page.keyboard.press('Escape');
+    await expect(popover).toBeHidden();
+
+    await start.fill('00:00');
+    await end.fill('23:59');
+    await expect(start).toHaveValue('00:00');
+    await expect(end).toHaveValue('23:59');
+    await expect(row.locator('[data-pending-time-error]')).toHaveCount(0);
+
+    await start.fill('24:00');
+    await expect(row.locator('[data-pending-time-error]')).toBeVisible();
+    await expect(start).toHaveValue('24:00');
+    await expect(end).toHaveValue('23:59');
+    await start.fill('00:00');
+    await expect(row.locator('[data-pending-time-error]')).toHaveCount(0);
+
+    await end.fill('00:00');
+    await expect(row.locator('[data-pending-time-error]')).toBeVisible();
+    await expect(start).toHaveValue('00:00');
+    await expect(end).toHaveValue('00:00');
+    await end.fill('23:59');
+    await expect(row.locator('[data-pending-time-error]')).toHaveCount(0);
   });
 
   test('UX108: 未填時間排課列渲染 1c 雙重警示並支援先存檔', async ({ page }) => {
@@ -137,7 +226,7 @@ test.describe('#82 & D61 1c: 新增班級僅班名必填與未填時間雙重警
 
   test('Issue #213: 同類型同屬性仍允許同名多時段', async ({ page }) => {
     const className = '兒童美語-Gino';
-    const classSnapshots: Array<Record<string, unknown>> = [];
+    const classSnapshots: Array<Record<string, unknown> & { sessions?: unknown[] }> = [];
     page.on('request', (request) => {
       if (!request.url().includes('/api/v1/settings/calculate') || request.method() !== 'POST') return;
       const body = request.postData();
@@ -160,8 +249,7 @@ test.describe('#82 & D61 1c: 新增班級僅班名必填與未填時間雙重警
     expect(originalAttributes.hasMultiSubjectDiscount).toBe(true);
 
     await page.getByRole('button', { name: '＋ 新增班級' }).click();
-    const form = page.locator('form.add-session-panel');
-    await form.locator('select[aria-label="新增班級課程類型"]').selectOption('english');
+    const form = page.locator('dialog.add-class-dialog form.add-session-panel');
     await form.locator('input[aria-label="新增班級名稱"]').fill(className);
     await form.getByRole('button', { name: '確認新增' }).click();
 
@@ -186,8 +274,7 @@ test.describe('#82 & D61 1c: 新增班級僅班名必填與未填時間雙重警
     await setMultiDiscount(page, className, false);
 
     await page.getByRole('button', { name: '＋ 新增班級' }).click();
-    const form = page.locator('form.add-session-panel');
-    await form.locator('select[aria-label="新增班級課程類型"]').selectOption('english');
+    const form = page.locator('dialog.add-class-dialog form.add-session-panel');
     await form.locator('input[aria-label="新增班級名稱"]').fill(className);
     await form.getByRole('button', { name: '確認新增' }).click();
 
@@ -210,8 +297,7 @@ test.describe('#82 & D61 1c: 新增班級僅班名必填與未填時間雙重警
     await setMultiDiscount(page, className, false);
     await page.locator('#class-type-tab-care').click();
     await page.getByRole('button', { name: '＋ 新增班級' }).click();
-    const form = page.locator('form.add-session-panel');
-    await form.locator('select[aria-label="新增班級課程類型"]').selectOption('care');
+    const form = page.locator('dialog.add-class-dialog form.add-session-panel');
     await form.locator('input[aria-label="新增班級名稱"]').fill(className);
     await form.getByRole('button', { name: '確認新增' }).click();
 

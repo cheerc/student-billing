@@ -145,6 +145,38 @@ export function xlsxUpload(name: string, buffer: Buffer): { name: string; mimeTy
   return { name, mimeType: XLSX_MIME, buffer };
 }
 
+/**
+ * Import synthetic rows through the product's file-picker entry point while controlling only
+ * the parsed server response. This lets UI tests characterize legacy schedule values (such as
+ * an unknown weekday) that current Excel exports correctly refuse to create.
+ */
+export async function importScheduleRowsFixture(
+  page: Page,
+  rows: unknown[],
+  classAttrs: unknown[]
+): Promise<void> {
+  const route = '**/api/v1/settings/schedule-table';
+  await page.route(route, async (requestRoute) => {
+    if (requestRoute.request().method() !== 'POST') {
+      await requestRoute.continue();
+      return;
+    }
+    await requestRoute.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ rows, classAttrs }),
+    });
+  });
+  try {
+    await page.getByLabel('選擇課表 Excel 檔案').setInputFiles(
+      xlsxUpload('synthetic-schedule.xlsx', Buffer.from('synthetic schedule fixture'))
+    );
+    await expect(page.locator('#toast')).toContainText('已匯入課表');
+  } finally {
+    await page.unroute(route);
+  }
+}
+
 /** 損毀檔案：副檔名是 .xlsx，內容不是 ZIP。 */
 export const brokenXlsx = (): Buffer => Buffer.from('this is not a zip archive');
 
