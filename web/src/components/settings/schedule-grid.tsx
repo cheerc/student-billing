@@ -65,6 +65,11 @@ export function formatDeductionDays(val: number | null | undefined): string {
   return String(rounded);
 }
 
+function NumericWithUnit({ value, unit, deduction = false }: { value: number | null | undefined; unit: '分' | '天'; deduction?: boolean }) {
+  if (value === null || value === undefined) return '—';
+  return <span className="calc-number"><span className="calc-value">{deduction ? formatDeductionDays(value) : value}</span><span className="calc-unit">{unit}</span></span>;
+}
+
 function NotSetYetCell({ children = '—', label = '未設定時間' }: { children?: React.ReactNode; label?: string }) {
   return (
     <InfoTip label={label} trigger={<span className="subtle cell-not-set">{children}</span>} variant="plain">
@@ -577,28 +582,26 @@ export function ScheduleGrid({
                 </th>
                 <th rowSpan={2} className="col-time">
                   上課時間
-                  <br />
-                  起 — 迄
+                  <div className="time-header-tracks"><span>起</span><span>迄</span></div>
                 </th>
                 <th rowSpan={2} className="col-duration number">
                   課程時長
-                  <br />分
                 </th>
                 <th colSpan={2} className="col-group-anqin cblue">
-                  安親窗口 (13:00–16:00)
+                  安親 (13:00–16:00)
                 </th>
                 <th colSpan={2} className="col-group-tutoring cteal">
-                  課輔窗口 (16:30–19:30)
+                  課輔 (16:30–19:30)
                 </th>
                 <th rowSpan={2} className="col-actions">
                   操作
                 </th>
               </tr>
               <tr>
-                <th className="number cblue">重疊／分</th>
-                <th className="number cblue">扣除／天</th>
-                <th className="number cteal">重疊／分</th>
-                <th className="number cteal">扣除／天</th>
+                <th className="number cblue">重疊</th>
+                <th className="number cblue">扣除</th>
+                <th className="number cteal">重疊</th>
+                <th className="number cteal">扣除</th>
               </tr>
             </thead>
             <tbody>
@@ -735,7 +738,7 @@ export function ScheduleGrid({
                         ) : isInactive ? (
                           <span className="subtle">停用</span>
                         ) : (
-                          calcRow?.durationMinutes ?? '—'
+                          <NumericWithUnit value={calcRow?.durationMinutes} unit="分" />
                         )}
                       </td>
 
@@ -750,7 +753,7 @@ export function ScheduleGrid({
                         ) : isUnknownWeekday ? (
                           <NeedsReviewBadge reasons={issuesMap.get(r.rowId) ?? []} />
                         ) : (
-                          calcRow?.anqin.overlapMinutes ?? '—'
+                          <NumericWithUnit value={calcRow?.anqin.overlapMinutes} unit="分" />
                         )}
                       </td>
 
@@ -767,7 +770,7 @@ export function ScheduleGrid({
                         ) : calcRow?.anqin.status === 'no_deduction' ? (
                           <span className="subtle">不計扣天</span>
                         ) : (
-                          formatDeductionDays(calcRow?.anqin.rawDeduction)
+                          <NumericWithUnit value={calcRow?.anqin.rawDeduction} unit="天" deduction />
                         )}
                       </td>
 
@@ -782,7 +785,7 @@ export function ScheduleGrid({
                         ) : isUnknownWeekday ? (
                           <NeedsReviewBadge reasons={issuesMap.get(r.rowId) ?? []} />
                         ) : (
-                          calcRow?.tutoring.overlapMinutes ?? '—'
+                          <NumericWithUnit value={calcRow?.tutoring.overlapMinutes} unit="分" />
                         )}
                       </td>
 
@@ -799,7 +802,7 @@ export function ScheduleGrid({
                         ) : calcRow?.tutoring.status === 'no_deduction' ? (
                           <span className="subtle">不計扣天</span>
                         ) : (
-                          formatDeductionDays(calcRow?.tutoring.rawDeduction)
+                          <NumericWithUnit value={calcRow?.tutoring.rawDeduction} unit="天" deduction />
                         )}
                       </td>
 
