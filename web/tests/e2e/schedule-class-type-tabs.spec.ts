@@ -1,5 +1,177 @@
-import { test, expect } from '@playwright/test';
+import fs from 'fs';
+import path from 'path';
+import { test, expect, type Page } from '@playwright/test';
 import { saveSettings } from './helpers/d2c-settings';
+
+test.use({ trace: 'retain-on-failure' });
+
+interface NavigationTelemetryEvent {
+  docId: string;
+  source: 'browser' | 'playwright';
+  type: string;
+  time: number;
+  wallTime: string;
+  href: string;
+  detail?: any;
+}
+
+async function installNavigationDiagnostics(page: Page) {
+  const events: NavigationTelemetryEvent[] = [];
+  (page as any).__navigationTelemetry = events;
+
+  await page.exposeFunction('__recordBrowserEvent', (entry: NavigationTelemetryEvent) => {
+    events.push(entry);
+  });
+
+  await page.addInitScript(() => {
+    const docId = 'doc_' + Math.random().toString(36).slice(2, 8);
+    (window as any).__DOC_ID = docId;
+
+    const log = (type: string, detail?: any) => {
+      const entry = {
+        docId,
+        source: 'browser' as const,
+        type,
+        time: performance.now(),
+        wallTime: new Date().toISOString(),
+        href: window.location.href,
+        detail,
+      };
+      if (!(window as any).__NAV_EVENTS) (window as any).__NAV_EVENTS = [];
+      (window as any).__NAV_EVENTS.push(entry);
+      if (typeof (window as any).__recordBrowserEvent === 'function') {
+        (window as any).__recordBrowserEvent(entry);
+      }
+    };
+
+    log('document:init', { readyState: document.readyState });
+    window.addEventListener('DOMContentLoaded', () => log('document:DOMContentLoaded'));
+    window.addEventListener('load', () => log('document:load'));
+    window.addEventListener('beforeunload', () => log('window:beforeunload'));
+    window.addEventListener('pagehide', (e) => log('window:pagehide', { persisted: e.persisted }));
+    window.addEventListener('popstate', (e) => log('window:popstate', { state: e.state }));
+
+    // Wrap history.pushState preserving this, arguments, and return value
+    const origPushState = history.pushState;
+    history.pushState = function (state, unused, url) {
+      log('history.pushState', { state, url: String(url) });
+      return origPushState.apply(this, arguments as any);
+    };
+
+    // Wrap history.replaceState preserving this, arguments, and return value
+    const origReplaceState = history.replaceState;
+    history.replaceState = function (state, unused, url) {
+      log('history.replaceState', { state, url: String(url) });
+      return origReplaceState.apply(this, arguments as any);
+    };
+
+    // Controlled barrier state
+    const barrier = (window as any).__SENTINEL_BARRIER || {
+      enabled: false,
+      callCount: 0,
+      delayedDelta: null,
+      pendingRelease: null,
+    };
+    (window as any).__SENTINEL_BARRIER = barrier;
+
+    // Wrap history.go preserving this, arguments, and return value
+    const origGo = history.go;
+    history.go = function (delta) {
+      barrier.callCount++;
+      log('history.go', { delta, barrierEnabled: barrier.enabled });
+      if (barrier.enabled && delta === -1) {
+        log('barrier:history.go(-1)_held', { delta, time: performance.now() });
+        barrier.delayedDelta = delta;
+        barrier.pendingRelease = () => {
+          log('barrier:history.go(-1)_released', { delta, time: performance.now() });
+          barrier.pendingRelease = null;
+          origGo.call(history, delta);
+        };
+        return;
+      }
+      return origGo.apply(this, arguments as any);
+    };
+
+    // Wrap history.back
+    const origBack = history.back;
+    history.back = function () {
+      log('history.back');
+      return origBack.apply(this, arguments as any);
+    };
+
+    // Wrap history.forward
+    const origForward = history.forward;
+    history.forward = function () {
+      log('history.forward');
+      return origForward.apply(this, arguments as any);
+    };
+  });
+
+  page.on('request', (req) => {
+    if (req.url().includes('/api/v1/settings/apply')) {
+      events.push({
+        docId: 'playwright',
+        source: 'playwright',
+        type: 'request:settings_apply',
+        time: Date.now(),
+        wallTime: new Date().toISOString(),
+        href: page.url(),
+        detail: { url: req.url(), method: req.method() },
+      });
+    }
+  });
+
+  page.on('response', (res) => {
+    if (res.url().includes('/api/v1/settings/apply')) {
+      events.push({
+        docId: 'playwright',
+        source: 'playwright',
+        type: 'response:settings_apply',
+        time: Date.now(),
+        wallTime: new Date().toISOString(),
+        href: page.url(),
+        detail: { url: res.url(), status: res.status() },
+      });
+    }
+  });
+
+  page.on('framenavigated', (frame) => {
+    if (frame === page.mainFrame()) {
+      events.push({
+        docId: 'playwright',
+        source: 'playwright',
+        type: 'main-frame:navigated',
+        time: Date.now(),
+        wallTime: new Date().toISOString(),
+        href: frame.url(),
+      });
+    }
+  });
+
+  page.on('requestfailed', (req) => {
+    events.push({
+      docId: 'playwright',
+      source: 'playwright',
+      type: 'requestfailed',
+      time: Date.now(),
+      wallTime: new Date().toISOString(),
+      href: page.url(),
+      detail: { url: req.url(), failure: req.failure()?.errorText },
+    });
+  });
+
+  page.on('pageerror', (err) => {
+    events.push({
+      docId: 'playwright',
+      source: 'playwright',
+      type: 'pageerror',
+      time: Date.now(),
+      wallTime: new Date().toISOString(),
+      href: page.url(),
+      detail: { message: err.message, stack: err.stack },
+    });
+  });
+}
 
 /**
  * D61 Phase 3（specs/06 D61；UX106）：課表設定 5 頁籤 UI、欄位徹底分離與簡化操作 E2E 驗收
@@ -18,9 +190,24 @@ import { saveSettings } from './helpers/d2c-settings';
 
 test.describe('D61 UX106: 課表設定 5 頁籤與簡化操作 E2E 驗收', () => {
   test.beforeEach(async ({ page }) => {
+    await installNavigationDiagnostics(page);
     await page.goto('/settings');
     await expect(page.locator('h1', { hasText: '課表設定' })).toBeVisible({ timeout: 15000 });
     await expect(page.locator('.schedule-grid-container')).toBeVisible();
+  });
+
+  test.afterEach(async ({ page }, testInfo) => {
+    try {
+      const allEvents = (page as any).__navigationTelemetry || [];
+      await testInfo.attach('navigation-telemetry.json', {
+        body: Buffer.from(JSON.stringify(allEvents, null, 2)),
+        contentType: 'application/json',
+      });
+      fs.mkdirSync(testInfo.outputDir, { recursive: true });
+      fs.writeFileSync(path.join(testInfo.outputDir, 'navigation-telemetry.json'), JSON.stringify(allEvents, null, 2));
+    } catch {
+      // ignore
+    }
   });
 
   test('UX106: 初始狀態預設開啟「安親課輔班」，5 頁籤依固定順序呈現正確統計', async ({ page }) => {
@@ -332,5 +519,193 @@ test.describe('D61 UX106: 課表設定 5 頁籤與簡化操作 E2E 驗收', () =
     await expect(page.locator('table.schedule-table-care tr.schedule-row', {
       has: page.locator(`input[value="${testCareName}"]`),
     })).toBeVisible();
+  });
+
+  test('Issue #207 受控診斷（Save 路徑）：未延後對照與受控延後放行時序觀測', async ({ page }) => {
+    // 1. 未延後對照（原生預設流程）：編輯草稿 → 儲存 → 立即 reload
+    await page.locator('#class-type-tab-care').click();
+    await page.getByRole('button', { name: '＋ 新增班級' }).click();
+    const addForm1 = page.locator('dialog.add-class-dialog form.add-session-panel');
+    const nameUnheld = `國小輔導-未延後${Date.now().toString().slice(-4)}`;
+    await addForm1.locator('input[aria-label="新增班級名稱"]').fill(nameUnheld);
+    await addForm1.getByRole('button', { name: '確認新增' }).click();
+    await expect(page.locator('table.schedule-table-care tr.schedule-row', {
+      has: page.locator(`input[value="${nameUnheld}"]`),
+    })).toBeVisible();
+
+    await saveSettings(page);
+    await page.reload();
+    await expect(page.locator('.schedule-grid-container')).toBeVisible({ timeout: 15000 });
+    await expect(page.locator('table.schedule-table-care tr.schedule-row', {
+      has: page.locator(`input[value="${nameUnheld}"]`),
+    })).toBeVisible();
+
+    // 2. 受控延後放行：在真實 UI save 期間啟用 barrier 攔截延後 history.go(-1)，驗證後放行原生 traversal
+    await page.evaluate(() => {
+      const b = (window as any).__SENTINEL_BARRIER;
+      if (b) {
+        b.enabled = true;
+        b.delayedDelta = null;
+        b.pendingRelease = null;
+      }
+    });
+
+    await page.getByRole('button', { name: '＋ 新增班級' }).click();
+    const addForm2 = page.locator('dialog.add-class-dialog form.add-session-panel');
+    const nameHeldRelease = `國小輔導-延後放行${Date.now().toString().slice(-4)}`;
+    await addForm2.locator('input[aria-label="新增班級名稱"]').fill(nameHeldRelease);
+    await addForm2.getByRole('button', { name: '確認新增' }).click();
+    await expect(page.locator('table.schedule-table-care tr.schedule-row', {
+      has: page.locator(`input[value="${nameHeldRelease}"]`),
+    })).toBeVisible();
+
+    // 儲存變更：dirty -> false 觸發 unwindSentinel()，被 barrier 延後
+    await saveSettings(page);
+
+    // 檢查 barrier 狀態：確認 history.go(-1) 確實處於 held 狀態
+    const statusBeforeRelease = await page.evaluate(() => {
+      const b = (window as any).__SENTINEL_BARRIER;
+      return {
+        enabled: b?.enabled,
+        hasPendingRelease: typeof b?.pendingRelease === 'function',
+        delayedDelta: b?.delayedDelta,
+        callCount: b?.callCount,
+      };
+    });
+    expect(statusBeforeRelease.hasPendingRelease).toBe(true);
+    expect(statusBeforeRelease.delayedDelta).toBe(-1);
+
+    // 受控放行原生 traversal：呼叫 pendingRelease()，執行原生 history.go(-1)
+    await page.evaluate(() => {
+      const b = (window as any).__SENTINEL_BARRIER;
+      if (b && typeof b.pendingRelease === 'function') {
+        b.pendingRelease();
+      }
+    });
+
+    // 等待原生 popstate 事件實際抵達瀏覽器
+    await page.waitForFunction(() => {
+      const events = (window as any).__NAV_EVENTS || [];
+      const currentDocId = (window as any).__DOC_ID;
+      return events.some((e: any) => e.type === 'window:popstate' && e.docId === currentDocId);
+    });
+
+    // 驗證 barrier 狀態已轉為 released (hasPendingRelease === false)
+    const statusAfterRelease = await page.evaluate(() => {
+      const b = (window as any).__SENTINEL_BARRIER;
+      return {
+        hasPendingRelease: typeof b?.pendingRelease === 'function',
+      };
+    });
+    expect(statusAfterRelease.hasPendingRelease).toBe(false);
+
+    // 原生 traversal 完成後執行 reload
+    await page.reload();
+    await expect(page.locator('.schedule-grid-container')).toBeVisible({ timeout: 15000 });
+    await expect(page.locator('table.schedule-table-care tr.schedule-row', {
+      has: page.locator(`input[value="${nameHeldRelease}"]`),
+    })).toBeVisible();
+  });
+
+  test('Issue #207 受控診斷（Cancel 路徑）：取消修改之未延後對照與受控延後放行', async ({ page }) => {
+    // 1. 未延後取消對照：新增草稿產生 dirty → 按「取消修改」回到 clean → 立即 page.reload()
+    await page.locator('#class-type-tab-care').click();
+    await page.getByRole('button', { name: '＋ 新增班級' }).click();
+    const addForm1 = page.locator('dialog.add-class-dialog form.add-session-panel');
+    const nameCancelUnheld = `國小輔導-未延後取消${Date.now().toString().slice(-4)}`;
+    await addForm1.locator('input[aria-label="新增班級名稱"]').fill(nameCancelUnheld);
+    await addForm1.getByRole('button', { name: '確認新增' }).click();
+    await expect(page.locator('table.schedule-table-care tr.schedule-row', {
+      has: page.locator(`input[value="${nameCancelUnheld}"]`),
+    })).toBeVisible();
+    await expect(page.locator('button', { hasText: '取消修改' })).toBeEnabled();
+
+    // 點擊「取消修改」：dirty 轉 false，觸發 unwindSentinel() -> 原生 history.go(-1)
+    await page.locator('button', { hasText: '取消修改' }).click();
+    await expect(page.locator('button', { hasText: '取消修改' })).toBeDisabled();
+    await expect(page.locator('.save-status-dirty')).toHaveCount(0);
+    await expect(page.locator('.save-status-clean')).toBeVisible();
+    await expect(page.locator('table.schedule-table-care tr.schedule-row', {
+      has: page.locator(`input[value="${nameCancelUnheld}"]`),
+    })).toHaveCount(0);
+
+    // 立即重新載入
+    await page.reload();
+    await expect(page.locator('.schedule-grid-container')).toBeVisible({ timeout: 15000 });
+    await expect(page.locator('table.schedule-table-care tr.schedule-row', {
+      has: page.locator(`input[value="${nameCancelUnheld}"]`),
+    })).toHaveCount(0);
+
+    // 2. 受控延後放行取消：啟用 barrier → 新增草稿產生 dirty → 按「取消修改」→ 攔截驗證後受控放行原生 traversal
+    await page.evaluate(() => {
+      const b = (window as any).__SENTINEL_BARRIER;
+      if (b) {
+        b.enabled = true;
+        b.delayedDelta = null;
+        b.pendingRelease = null;
+      }
+    });
+
+    await page.getByRole('button', { name: '＋ 新增班級' }).click();
+    const addForm2 = page.locator('dialog.add-class-dialog form.add-session-panel');
+    const nameCancelHeld = `國小輔導-延後取消${Date.now().toString().slice(-4)}`;
+    await addForm2.locator('input[aria-label="新增班級名稱"]').fill(nameCancelHeld);
+    await addForm2.getByRole('button', { name: '確認新增' }).click();
+    await expect(page.locator('table.schedule-table-care tr.schedule-row', {
+      has: page.locator(`input[value="${nameCancelHeld}"]`),
+    })).toBeVisible();
+    await expect(page.locator('button', { hasText: '取消修改' })).toBeEnabled();
+
+    // 點擊「取消修改」：dirty 轉 false，觸發 unwindSentinel()，被 barrier 攔截
+    await page.locator('button', { hasText: '取消修改' }).click();
+    await expect(page.locator('button', { hasText: '取消修改' })).toBeDisabled();
+    await expect(page.locator('.save-status-dirty')).toHaveCount(0);
+    await expect(page.locator('.save-status-clean')).toBeVisible();
+    await expect(page.locator('table.schedule-table-care tr.schedule-row', {
+      has: page.locator(`input[value="${nameCancelHeld}"]`),
+    })).toHaveCount(0);
+
+    // 驗證 barrier 確實攔截到 cancel 觸發之 history.go(-1) (held 狀態)
+    const statusCancel = await page.evaluate(() => {
+      const b = (window as any).__SENTINEL_BARRIER;
+      return {
+        enabled: b?.enabled,
+        hasPendingRelease: typeof b?.pendingRelease === 'function',
+        delayedDelta: b?.delayedDelta,
+      };
+    });
+    expect(statusCancel.hasPendingRelease).toBe(true);
+    expect(statusCancel.delayedDelta).toBe(-1);
+
+    // 受控放行原生 traversal
+    await page.evaluate(() => {
+      const b = (window as any).__SENTINEL_BARRIER;
+      if (b && typeof b.pendingRelease === 'function') {
+        b.pendingRelease();
+      }
+    });
+
+    // 等待原生 popstate 事件實際抵達瀏覽器
+    await page.waitForFunction(() => {
+      const events = (window as any).__NAV_EVENTS || [];
+      const currentDocId = (window as any).__DOC_ID;
+      return events.some((e: any) => e.type === 'window:popstate' && e.docId === currentDocId);
+    });
+
+    // 驗證 barrier 狀態已轉為 released
+    const statusCancelAfter = await page.evaluate(() => {
+      const b = (window as any).__SENTINEL_BARRIER;
+      return {
+        hasPendingRelease: typeof b?.pendingRelease === 'function',
+      };
+    });
+    expect(statusCancelAfter.hasPendingRelease).toBe(false);
+
+    // 接續 reload 驗證頁面與草稿狀態
+    await page.reload();
+    await expect(page.locator('.schedule-grid-container')).toBeVisible({ timeout: 15000 });
+    await expect(page.locator('table.schedule-table-care tr.schedule-row', {
+      has: page.locator(`input[value="${nameCancelHeld}"]`),
+    })).toHaveCount(0);
   });
 });
