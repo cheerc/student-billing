@@ -1,5 +1,176 @@
-import { test, expect } from '@playwright/test';
+import fs from 'fs';
+import path from 'path';
+import { test, expect, type Page } from '@playwright/test';
 import { saveSettings } from './helpers/d2c-settings';
+
+test.use({ trace: 'retain-on-failure' });
+
+interface NavigationTelemetryEvent {
+  docId: string;
+  source: 'browser' | 'playwright';
+  type: string;
+  time: number;
+  wallTime: string;
+  href: string;
+  detail?: any;
+}
+
+async function installNavigationDiagnostics(page: Page) {
+  const events: NavigationTelemetryEvent[] = [];
+  (page as any).__navigationTelemetry = events;
+
+  await page.exposeFunction('__recordBrowserEvent', (entry: NavigationTelemetryEvent) => {
+    events.push(entry);
+  });
+
+  await page.addInitScript(() => {
+    const docId = 'doc_' + Math.random().toString(36).slice(2, 8);
+    (window as any).__DOC_ID = docId;
+
+    const log = (type: string, detail?: any) => {
+      const entry = {
+        docId,
+        source: 'browser' as const,
+        type,
+        time: performance.now(),
+        wallTime: new Date().toISOString(),
+        href: window.location.href,
+        detail,
+      };
+      if (!(window as any).__NAV_EVENTS) (window as any).__NAV_EVENTS = [];
+      (window as any).__NAV_EVENTS.push(entry);
+      if (typeof (window as any).__recordBrowserEvent === 'function') {
+        (window as any).__recordBrowserEvent(entry);
+      }
+    };
+
+    log('document:init', { readyState: document.readyState });
+    window.addEventListener('DOMContentLoaded', () => log('document:DOMContentLoaded'));
+    window.addEventListener('load', () => log('document:load'));
+    window.addEventListener('beforeunload', () => log('window:beforeunload'));
+    window.addEventListener('pagehide', (e) => log('window:pagehide', { persisted: e.persisted }));
+    window.addEventListener('popstate', (e) => log('window:popstate', { state: e.state }));
+
+    // Wrap history.pushState preserving this, arguments, and return value
+    const origPushState = history.pushState;
+    history.pushState = function (state, unused, url) {
+      log('history.pushState', { state, url: String(url) });
+      return origPushState.apply(this, arguments as any);
+    };
+
+    // Wrap history.replaceState preserving this, arguments, and return value
+    const origReplaceState = history.replaceState;
+    history.replaceState = function (state, unused, url) {
+      log('history.replaceState', { state, url: String(url) });
+      return origReplaceState.apply(this, arguments as any);
+    };
+
+    // Controlled barrier state
+    const barrier = (window as any).__SENTINEL_BARRIER || {
+      enabled: false,
+      callCount: 0,
+      delayedDelta: null,
+      pendingRelease: null,
+    };
+    (window as any).__SENTINEL_BARRIER = barrier;
+
+    // Wrap history.go preserving this, arguments, and return value
+    const origGo = history.go;
+    history.go = function (delta) {
+      barrier.callCount++;
+      log('history.go', { delta, barrierEnabled: barrier.enabled });
+      if (barrier.enabled && delta === -1) {
+        log('barrier:history.go(-1)_held', { delta, time: performance.now() });
+        barrier.delayedDelta = delta;
+        barrier.pendingRelease = () => {
+          log('barrier:history.go(-1)_released', { delta, time: performance.now() });
+          origGo.call(history, delta);
+        };
+        return;
+      }
+      return origGo.apply(this, arguments as any);
+    };
+
+    // Wrap history.back
+    const origBack = history.back;
+    history.back = function () {
+      log('history.back');
+      return origBack.apply(this, arguments as any);
+    };
+
+    // Wrap history.forward
+    const origForward = history.forward;
+    history.forward = function () {
+      log('history.forward');
+      return origForward.apply(this, arguments as any);
+    };
+  });
+
+  page.on('request', (req) => {
+    if (req.url().includes('/api/v1/settings/apply')) {
+      events.push({
+        docId: 'playwright',
+        source: 'playwright',
+        type: 'request:settings_apply',
+        time: Date.now(),
+        wallTime: new Date().toISOString(),
+        href: page.url(),
+        detail: { url: req.url(), method: req.method() },
+      });
+    }
+  });
+
+  page.on('response', (res) => {
+    if (res.url().includes('/api/v1/settings/apply')) {
+      events.push({
+        docId: 'playwright',
+        source: 'playwright',
+        type: 'response:settings_apply',
+        time: Date.now(),
+        wallTime: new Date().toISOString(),
+        href: page.url(),
+        detail: { url: res.url(), status: res.status() },
+      });
+    }
+  });
+
+  page.on('framenavigated', (frame) => {
+    if (frame === page.mainFrame()) {
+      events.push({
+        docId: 'playwright',
+        source: 'playwright',
+        type: 'main-frame:navigated',
+        time: Date.now(),
+        wallTime: new Date().toISOString(),
+        href: frame.url(),
+      });
+    }
+  });
+
+  page.on('requestfailed', (req) => {
+    events.push({
+      docId: 'playwright',
+      source: 'playwright',
+      type: 'requestfailed',
+      time: Date.now(),
+      wallTime: new Date().toISOString(),
+      href: page.url(),
+      detail: { url: req.url(), failure: req.failure()?.errorText },
+    });
+  });
+
+  page.on('pageerror', (err) => {
+    events.push({
+      docId: 'playwright',
+      source: 'playwright',
+      type: 'pageerror',
+      time: Date.now(),
+      wallTime: new Date().toISOString(),
+      href: page.url(),
+      detail: { message: err.message, stack: err.stack },
+    });
+  });
+}
 
 /**
  * D61 Phase 3（specs/06 D61；UX106）：課表設定 5 頁籤 UI、欄位徹底分離與簡化操作 E2E 驗收
@@ -18,9 +189,24 @@ import { saveSettings } from './helpers/d2c-settings';
 
 test.describe('D61 UX106: 課表設定 5 頁籤與簡化操作 E2E 驗收', () => {
   test.beforeEach(async ({ page }) => {
+    await installNavigationDiagnostics(page);
     await page.goto('/settings');
     await expect(page.locator('h1', { hasText: '課表設定' })).toBeVisible({ timeout: 15000 });
     await expect(page.locator('.schedule-grid-container')).toBeVisible();
+  });
+
+  test.afterEach(async ({ page }, testInfo) => {
+    try {
+      const allEvents = (page as any).__navigationTelemetry || [];
+      await testInfo.attach('navigation-telemetry.json', {
+        body: Buffer.from(JSON.stringify(allEvents, null, 2)),
+        contentType: 'application/json',
+      });
+      fs.mkdirSync(testInfo.outputDir, { recursive: true });
+      fs.writeFileSync(path.join(testInfo.outputDir, 'navigation-telemetry.json'), JSON.stringify(allEvents, null, 2));
+    } catch {
+      // ignore
+    }
   });
 
   test('UX106: 初始狀態預設開啟「安親課輔班」，5 頁籤依固定順序呈現正確統計', async ({ page }) => {
@@ -331,6 +517,68 @@ test.describe('D61 UX106: 課表設定 5 頁籤與簡化操作 E2E 驗收', () =
     await expect(page.locator('table.schedule-table-care tr.schedule-row')).toHaveCount(8);
     await expect(page.locator('table.schedule-table-care tr.schedule-row', {
       has: page.locator(`input[value="${testCareName}"]`),
+    })).toBeVisible();
+  });
+
+  test('Issue #207 受控診斷：browser barrier 延後 sentinel traversal 與未延後對照', async ({ page }) => {
+    // 1. 未延後對照（原生預設流程）：編輯草稿 → 儲存 → 立即 reload
+    await page.locator('#class-type-tab-care').click();
+    await page.getByRole('button', { name: '＋ 新增班級' }).click();
+    const addForm1 = page.locator('dialog.add-class-dialog form.add-session-panel');
+    const nameUnheld = `國小輔導-未延後${Date.now().toString().slice(-4)}`;
+    await addForm1.locator('input[aria-label="新增班級名稱"]').fill(nameUnheld);
+    await addForm1.getByRole('button', { name: '確認新增' }).click();
+    await expect(page.locator('table.schedule-table-care tr.schedule-row', {
+      has: page.locator(`input[value="${nameUnheld}"]`),
+    })).toBeVisible();
+
+    await saveSettings(page);
+    await page.reload();
+    await expect(page.locator('.schedule-grid-container')).toBeVisible({ timeout: 15000 });
+    await expect(page.locator('table.schedule-table-care tr.schedule-row', {
+      has: page.locator(`input[value="${nameUnheld}"]`),
+    })).toBeVisible();
+
+    // 2. 受控延後實驗：在真實 UI save 期間啟用 barrier 攔截延後 history.go(-1)
+    await page.evaluate(() => {
+      const b = (window as any).__SENTINEL_BARRIER;
+      if (b) {
+        b.enabled = true;
+        b.delayedDelta = null;
+        b.pendingRelease = null;
+      }
+    });
+
+    await page.getByRole('button', { name: '＋ 新增班級' }).click();
+    const addForm2 = page.locator('dialog.add-class-dialog form.add-session-panel');
+    const nameHeld = `國小輔導-延後${Date.now().toString().slice(-4)}`;
+    await addForm2.locator('input[aria-label="新增班級名稱"]').fill(nameHeld);
+    await addForm2.getByRole('button', { name: '確認新增' }).click();
+    await expect(page.locator('table.schedule-table-care tr.schedule-row', {
+      has: page.locator(`input[value="${nameHeld}"]`),
+    })).toBeVisible();
+
+    // 儲存變更：dirty -> false 觸發 unwindSentinel()，被 barrier 延後
+    await saveSettings(page);
+
+    // 檢查 barrier 狀態：確認 history.go(-1) 確實處於 pending 狀態
+    const statusBeforeReload = await page.evaluate(() => {
+      const b = (window as any).__SENTINEL_BARRIER;
+      return {
+        enabled: b?.enabled,
+        hasPendingRelease: typeof b?.pendingRelease === 'function',
+        delayedDelta: b?.delayedDelta,
+        callCount: b?.callCount,
+      };
+    });
+    expect(statusBeforeReload.hasPendingRelease).toBe(true);
+    expect(statusBeforeReload.delayedDelta).toBe(-1);
+
+    // 執行 reload：此時無 history.go(-1) traversal 在途中
+    await page.reload();
+    await expect(page.locator('.schedule-grid-container')).toBeVisible({ timeout: 15000 });
+    await expect(page.locator('table.schedule-table-care tr.schedule-row', {
+      has: page.locator(`input[value="${nameHeld}"]`),
     })).toBeVisible();
   });
 });
