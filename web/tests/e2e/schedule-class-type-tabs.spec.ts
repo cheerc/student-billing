@@ -253,38 +253,41 @@ test.describe('D61 UX106: 課表設定 5 頁籤與簡化操作 E2E 驗收', () =
   });
 
   test('UX106 & A1: 新增班級表單支援五種課程類型動態切換', async ({ page }) => {
+    await page.locator('#class-type-tab-other').click();
     await page.getByRole('button', { name: '＋ 新增班級' }).click();
-    const addForm = page.locator('form.add-session-panel');
+    const dialog = page.locator('dialog.add-class-dialog');
+    const addForm = dialog.locator('form.add-session-panel');
     await expect(addForm).toBeVisible();
 
-    const typeSelect = addForm.locator('select[aria-label="新增班級課程類型"]');
-    await expect(typeSelect).toBeVisible();
+    await expect(addForm.locator('select[aria-label="新增班級課程類型"]')).toHaveCount(0);
 
-    // 包含 5 種選項
-    const options = await typeSelect.locator('option').allTextContents();
-    expect(options).toEqual(['安親課輔班', '美語班', '數學班', '其他班', '不排課']);
-
-    // 切到「其他班」時，不顯示多科折扣欄與固定 5 天，但顯示不計扣天與星期時間
-    await typeSelect.selectOption('other');
+    // 選定頁籤是唯一課程類型來源；其他班顯示逐時段選項與完整排課欄位。
     await expect(addForm.locator('text=是否有多科折扣')).toHaveCount(0);
     await expect(addForm.locator('text=天數固定 5 天')).toHaveCount(0);
     await expect(addForm.locator('text=不計扣天')).toBeVisible();
     await expect(addForm.locator('select[aria-label="新增星期"]')).toBeVisible();
+    await expect(addForm.getByLabel('新增起始時間')).toBeVisible();
+    await expect(addForm.getByLabel('新增結束時間')).toBeVisible();
+    await dialog.getByRole('button', { name: '取消新增' }).click();
 
-    // 切到「不排課」時，不顯示三個開關與星期時間
-    await typeSelect.selectOption('unscheduled');
+    // 切到不排課頁籤後重開，新增視窗依該頁籤顯示欄位。
+    await page.locator('#class-type-tab-unscheduled').click();
+    await page.getByRole('button', { name: '＋ 新增班級' }).click();
+    const unscheduledDialog = page.locator('dialog.add-class-dialog');
+    const unscheduledForm = unscheduledDialog.locator('form.add-session-panel');
     await expect(addForm.locator('text=是否有多科折扣')).toHaveCount(0);
-    await expect(addForm.locator('text=天數固定 5 天')).toHaveCount(0);
-    await expect(addForm.locator('text=不計扣天')).toHaveCount(0);
-    await expect(addForm.locator('select[aria-label="新增星期"]')).toHaveCount(0);
+    await expect(unscheduledForm.locator('text=天數固定 5 天')).toHaveCount(0);
+    await expect(unscheduledForm.locator('text=不計扣天')).toHaveCount(0);
+    await expect(unscheduledForm.locator('select[aria-label="新增星期"]')).toHaveCount(0);
+    await expect(unscheduledForm.getByLabel('新增起始時間')).toHaveCount(0);
 
     // 填寫班級名稱新增一班不排課班級
     const testUnschName = `下午交通車-測試${Date.now().toString().slice(-4)}`;
-    await addForm.locator('input[aria-label="新增班級名稱"]').fill(testUnschName);
-    await addForm.getByRole('button', { name: '確認新增' }).click();
+    await unscheduledForm.locator('input[aria-label="新增班級名稱"]').fill(testUnschName);
+    await unscheduledForm.getByRole('button', { name: '確認新增' }).click();
 
-    // 表單關閉，自動切換至 [不排課] 頁籤，且該班已在列表中
-    await expect(addForm).toHaveCount(0);
+    // 表單關閉，[不排課] 頁籤保持選取，新增班已在列表中
+    await expect(unscheduledDialog).toBeHidden();
     await expect(page.locator('#class-type-tab-unscheduled')).toHaveAttribute('aria-selected', 'true');
     const newRow = page.locator('table.schedule-table-unscheduled tr.schedule-row', {
       has: page.locator(`input[value="${testUnschName}"]`),
@@ -300,9 +303,9 @@ test.describe('D61 UX106: 課表設定 5 頁籤與簡化操作 E2E 驗收', () =
     await expect(page.locator('dialog.switch-class-type-dialog')).toHaveCount(0);
 
     // 2. 新增安親班與刪除班級後存檔，驗證持久化
+    await page.locator('#class-type-tab-care').click();
     await page.getByRole('button', { name: '＋ 新增班級' }).click();
-    const addForm = page.locator('form.add-session-panel');
-    await addForm.locator('select[aria-label="新增班級課程類型"]').selectOption('care');
+    const addForm = page.locator('dialog.add-class-dialog form.add-session-panel');
     const testCareName = `國小輔導-持久化${Date.now().toString().slice(-4)}`;
     await addForm.locator('input[aria-label="新增班級名稱"]').fill(testCareName);
     await addForm.getByRole('button', { name: '確認新增' }).click();

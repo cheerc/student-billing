@@ -1,6 +1,7 @@
 import path from 'path';
 import ExcelJS from 'exceljs';
 import { expect, type Locator, type Page } from '@playwright/test';
+import { buildSeedGridRows, gridRowsToClasses } from '@/contracts/settings';
 import { classRow, ensureClassTypeTab } from './d2c-settings';
 
 /**
@@ -175,6 +176,31 @@ export async function importScheduleRowsFixture(
   } finally {
     await page.unroute(route);
   }
+}
+
+/** Loads a synthetic legacy weekday through the real Excel-picker import path. */
+export async function importLegacyWeekdayFixture(page: Page, className: string, weekday: string): Promise<void> {
+  const seedRows = buildSeedGridRows();
+  const firstClassRow = seedRows.findIndex((row) => row.className === className);
+  if (firstClassRow < 0) throw new Error(`Synthetic legacy fixture has no class named ${className}`);
+  const rows = seedRows.map((row, index) => ({
+    ...row,
+    rowId: `legacy-weekday-${index + 1}`,
+    ...(index === firstClassRow ? { weekday } : {}),
+  }));
+  const classes = gridRowsToClasses(rows);
+  await importScheduleRowsFixture(
+    page,
+    rows,
+    classes.map((item) => ({
+      className: item.baseName,
+      classType: item.classType,
+      hasMultiSubjectDiscount: item.hasMultiSubjectDiscount,
+      category: item.category ?? 'unset',
+      categorySource: item.categorySource ?? 'unset',
+      fixedFiveDays: item.fixedFiveDays ?? false,
+    }))
+  );
 }
 
 /** 損毀檔案：副檔名是 .xlsx，內容不是 ZIP。 */

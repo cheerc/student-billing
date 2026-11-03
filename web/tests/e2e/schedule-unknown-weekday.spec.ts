@@ -263,5 +263,70 @@ test.describe('UX07（修訂）：未知／空白星期與 calculate 失敗不�
     });
     await expect(importedRow.locator('input.input-time').first()).toHaveValue('15:20');
     await expect(cell('anqin-overlap')).toHaveText('40', { timeout: 10000 });
+
+    // A successful replacement that retains row identity must also replace slider-local preview state.
+    const stableRowId = await importedRow.getAttribute('data-row-id');
+    if (!stableRowId) throw new Error('Imported schedule row does not expose its stable row identity');
+    const seedRows = buildSeedGridRows();
+    const firstGinoRow = seedRows.findIndex((item) => item.className === '兒童美語-Gino');
+    const replacementRows = seedRows.map((item, index) => ({
+      ...item,
+      rowId: index === firstGinoRow ? stableRowId : `popup-replacement-${index + 1}`,
+      ...(index === firstGinoRow
+        ? { startTime: '16:00', endTime: '17:00', startMinutes: 960, endMinutes: 1020 }
+        : {}),
+    }));
+    const replacementClasses = gridRowsToClasses(replacementRows);
+    const replacementAttrs = replacementClasses.map((item) => ({
+      className: item.baseName,
+      classType: item.classType,
+      hasMultiSubjectDiscount: item.hasMultiSubjectDiscount,
+      category: item.category ?? 'unset',
+      categorySource: item.categorySource ?? 'unset',
+      fixedFiveDays: item.fixedFiveDays ?? false,
+    }));
+    let started!: () => void;
+    let release!: () => void;
+    const importStarted = new Promise<void>((resolve) => (started = resolve));
+    const importGate = new Promise<void>((resolve) => (release = resolve));
+    await page.route('**/api/v1/settings/schedule-table', async (route) => {
+      if (route.request().method() !== 'POST') {
+        await route.continue();
+        return;
+      }
+      started();
+      await importGate;
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ rows: replacementRows, classAttrs: replacementAttrs }),
+      });
+    });
+    try {
+      await page.getByLabel('選擇課表 Excel 檔案').setInputFiles({
+        name: 'synthetic-delayed-import.xlsx',
+        mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        buffer: Buffer.from('synthetic delayed import'),
+      });
+      await importStarted;
+      const liveRow = page.locator('tr.schedule-row', {
+        has: page.locator('input.input-classname[value="兒童美語-Gino"]'),
+      });
+      const liveStart = liveRow.locator('input.input-time').first();
+      await liveStart.click();
+      const livePopover = liveRow.locator('[data-time-popover="start"]').first();
+      await expect(livePopover).toBeVisible();
+      const liveHourSlider = livePopover.getByRole('slider', { name: '起始時間 第 1 列 小時' });
+      await expect(liveHourSlider).toHaveValue('15');
+
+      release();
+      await expect(page.locator('#toast')).toContainText('已匯入課表');
+      await expect(liveStart).toHaveValue('16:00');
+      await expect(liveHourSlider).toHaveValue('16');
+      await expect(page.locator('[data-pending-time-error]')).toHaveCount(0);
+    } finally {
+      release();
+      await page.unroute('**/api/v1/settings/schedule-table');
+    }
   });
 });

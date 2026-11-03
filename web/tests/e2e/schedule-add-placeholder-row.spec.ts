@@ -131,21 +131,41 @@ test.describe('#82 & D61 1c: 新增班級僅班名必填與未填時間雙重警
     await page.locator('#class-type-tab-english').click();
     const start = row.locator('input.input-time').first();
     const end = row.locator('input.input-time').last();
-    const startButton = row.getByRole('button', { name: '設定起始時間 第 1 列' });
-
-    await startButton.click();
-    const popover = row.locator('[data-time-popover="start"]');
+    await start.click();
+    const popover = row.locator('[data-time-popover="start"]').first();
     await expect(popover).toBeVisible();
-    const hours = popover.getByRole('slider', { name: '起始時間 小時 第 1 列' });
-    const minutes = popover.getByRole('slider', { name: '起始時間 分鐘 第 1 列' });
+    const hours = popover.getByRole('slider', { name: '起始時間 第 1 列 小時' });
+    const minutes = popover.getByRole('slider', { name: '起始時間 第 1 列 分鐘' });
     await expect(hours).toHaveAttribute('min', '0');
     await expect(hours).toHaveAttribute('max', '23');
     await expect(hours).toHaveAttribute('step', '1');
     await expect(minutes).toHaveAttribute('min', '0');
     await expect(minutes).toHaveAttribute('max', '59');
     await expect(minutes).toHaveAttribute('step', '1');
+    await hours.focus();
+    await hours.press('Home');
+    await expect(start).toHaveValue('00:20');
+    await expect(row.locator('[data-pending-time-error]')).toHaveCount(0);
     await page.keyboard.press('Escape');
     await expect(popover).toBeHidden();
+
+    await end.click();
+    const endPopover = row.locator('[data-time-popover="end"]').first();
+    const endHours = endPopover.getByRole('slider', { name: '結束時間 第 1 列 小時' });
+    await expect(endPopover).toBeVisible();
+    const endHoursBox = await endHours.boundingBox();
+    if (!endHoursBox) throw new Error('End-hour slider has no browser geometry');
+    const sliderY = endHoursBox.y + endHoursBox.height / 2;
+    await page.mouse.move(endHoursBox.x + endHoursBox.width * (16 / 23), sliderY);
+    await page.mouse.down();
+    await page.mouse.move(endHoursBox.x + endHoursBox.width - 1, sliderY);
+    await expect(row.locator('[data-pending-time-error]')).toBeVisible();
+    await expect(page.locator('[data-schedule-export]')).toBeDisabled();
+    await expect(end).toHaveValue('16:50');
+    await page.mouse.up();
+    await expect(end).toHaveValue('23:50');
+    await expect(row.locator('[data-pending-time-error]')).toHaveCount(0);
+    await page.keyboard.press('Escape');
 
     await start.fill('00:00');
     await end.fill('23:59');
@@ -176,7 +196,7 @@ test.describe('#82 & D61 1c: 新增班級僅班名必填與未填時間雙重警
     await expect(row).toHaveClass(/row-incomplete/);
 
     // 2. 缺漏的輸入框具有 .input-missing 色框
-    await expect(row.locator('input.input-weekday')).toHaveClass(/input-missing/);
+    await expect(row.locator('select.input-weekday')).toHaveClass(/input-missing/);
     await expect(row.locator('input.input-time').first()).toHaveClass(/input-missing/);
     await expect(row.locator('input.input-time').last()).toHaveClass(/input-missing/);
 
@@ -210,7 +230,7 @@ test.describe('#82 & D61 1c: 新增班級僅班名必填與未填時間雙重警
     await addClassNameOnly(page, '新開班-待排課', 'other');
 
     const row = rowOf(page, '新開班-待排課');
-    await row.locator('input.input-weekday').fill('一');
+    await row.locator('select.input-weekday').selectOption('一');
     await row.locator('input.input-time').first().fill('15:20');
     await row.locator('input.input-time').last().fill('16:50');
 
@@ -307,7 +327,7 @@ test.describe('#82 & D61 1c: 新增班級僅班名必填與未填時間雙重警
     await expect(page.getByLabel('新增班級名稱')).toHaveValue(className);
     await expect(classRows(page, className)).toHaveCount(0);
 
-    await page.getByRole('button', { name: /取消新增|取消/ }).click();
+    await page.locator('dialog.add-class-dialog').getByRole('button', { name: '取消新增' }).click();
     await page.locator('#class-type-tab-english').click();
     await expect(classRows(page, className)).toHaveCount(3);
     await expect(page.getByRole('radiogroup', { name: `${className} 的是否有多科折扣` }).first()

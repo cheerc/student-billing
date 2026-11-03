@@ -9,6 +9,7 @@ import {
   leaveDialog,
   openSchedule,
   openClassScheduleViaHome,
+  importLegacyWeekdayFixture,
   sideLink,
   startInput,
 } from './helpers/c-batch';
@@ -210,10 +211,11 @@ test('calculate已在途仍可取消；baseline與dirty還原，舊回應不能�
 test('完整F1前置：calculate在pointerdown/up間啟動，一次原生取消仍還原baseline／dirty0', async ({ page }) => {
   await enterFromHome(page);
   const row = classRow(page, '兒童美語-Gino');
-  await row.locator('input.input-weekday').fill('八');
+  await importLegacyWeekdayFixture(page, '兒童美語-Gino', '八');
+  await expect(row.locator('select.input-weekday')).toHaveValue('八');
   await expect(page.locator('[data-unknown-weekday-notice]')).toBeVisible();
   await page.locator('main').innerText();
-  await row.locator('input.input-weekday').fill('');
+  await row.locator('select.input-weekday').selectOption('');
   await expect(page.locator('[data-unknown-weekday-notice]')).toContainText('沒有填星期');
   await page.locator('main').innerText();
   await cancelButton(page).click();

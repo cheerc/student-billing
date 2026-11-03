@@ -7,8 +7,8 @@
  * 修完後沒人回來拿掉例外。
  *
  * Phase 2 已移除族 B 的 4 筆（`d2b-class-category-empty-db`、`round3-preview-category-deltas`、
- * `schedule-excel-io`、`schedule-grid-workflow`）。剩下的唯一一筆是新班尚未進 seed 的情形，
- * 不屬族 B。
+ * `schedule-excel-io`、`schedule-grid-workflow`）。PR-2 migrates the final add-row spec to the
+ * managed row helpers, so no active exceptions remain.
  *
  * 因此每一筆例外只放行**一種具體事實**（`literals`：特定淘汰字面；`managedInputWithoutHelper`：
  * 仍直接觸碰時段／星期輸入框而不用 row helper），以及一個收斂動作。
@@ -29,9 +29,4 @@ export interface ConventionExemption {
 }
 
 export const VISIBILITY_EXEMPTIONS: Record<string, ConventionExemption> = {
-  'schedule-add-placeholder-row.spec.ts': {
-    reason:
-      '新班在儲存前不存在於 seed／?class= 深連結，classRow 定位不到；本檔自建 rowOf 查該列。Phase 2 若 helper 支援「剛新增的列」再收斂。',
-    managedInputWithoutHelper: true,
-  },
 };
