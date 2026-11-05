@@ -110,20 +110,19 @@ describe('D65 B3 學生總表 server 排序與 keyset cursor', () => {
     expect(pages.flat()).toEqual(BY_GRADE);
   });
 
-  it('UX127(a)：anqinDays 降冪 limit=2 逐頁取完＝一次取全量；null 最後、同值依 personCode', async () => {
-    const rows = getDatabase().prepare('SELECT person_code, anqin_days FROM student_calculations WHERE run_id = ?').all(runId) as Array<{ person_code: string; anqin_days: number | null }>;
-    expect(rows.filter((r) => r.anqin_days === null).length).toBeGreaterThanOrEqual(2);
-    const byVal = new Map<number, number>();
-    for (const r of rows) if (r.anqin_days !== null) byVal.set(r.anqin_days, (byVal.get(r.anqin_days) ?? 0) + 1);
-    expect(Math.max(...byVal.values())).toBeGreaterThanOrEqual(3);
-    const expected = [...rows].sort((a, b) => {
-      if ((a.anqin_days === null) !== (b.anqin_days === null)) return a.anqin_days === null ? 1 : -1;
-      if (a.anqin_days !== b.anqin_days) return (b.anqin_days as number) - (a.anqin_days as number);
-      return a.person_code < b.person_code ? -1 : 1;
-    }).map((r) => r.person_code);
+  it('UX127(a)：anqinDays 降冪 limit=2 逐頁取完，頁界落在同值群內與 null 群內；null 最後、同值依 personCode', async () => {
+    // 直接設定合成的持久化計算值（查詢層測試，不依賴課表計算）：
+    // 5 天＝S2,S8；3 天＝S1,S3,S5；1 天＝S6；null＝S4,S7
+    const set = getDatabase().prepare('UPDATE student_calculations SET anqin_days = ? WHERE run_id = ? AND person_code = ?');
+    const values: Record<number, number | null> = { 1: 3, 2: 5, 3: 3, 4: null, 5: 3, 6: 1, 7: null, 8: 5 };
+    for (const [i, v] of Object.entries(values)) set.run(v, runId, code(Number(i)));
+    const desc = [2, 8, 1, 3, 5, 6, 4, 7].map(code);
+    const asc = [6, 1, 3, 5, 2, 8, 4, 7].map(code);
     const pages = await pageAll((p) => run(runId, p), [['sort', '-anqinDays']], 2);
-    expect(pages.flat()).toEqual(expected);
-    expect((await run(runId, [['sort', '-anqinDays'], ['limit', '200']])).body.items.map((x: any) => x.personCode)).toEqual(expected);
+    expect(pages).toEqual([[code(2), code(8)], [code(1), code(3)], [code(5), code(6)], [code(4), code(7)]]);
+    expect(pages.flat()).toEqual(desc);
+    expect((await pageAll((p) => run(runId, p), [['sort', 'anqinDays']], 3)).flat()).toEqual(asc);
+    expect(codes((await run(runId, [['sort', '-anqinDays'], ['limit', '200']])).body)).toEqual(desc);
   });
 
   it('UX127(d)：白名單外 sort 回 400 並指名 sort', async () => {

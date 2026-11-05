@@ -18,6 +18,8 @@ export interface ResultsInitialState {
   view: 'students' | 'deductions';
   filters: StudentFilters;
   deductionFilters: DeductionFilters;
+  /** 學生總表排序 wire（null＝預設順序） */
+  sort: string | null;
   data: RunStudentsQueryResult;
   options: RunStudentOptions;
   /** 網址帶的條件無效而被整組忽略 */
@@ -33,16 +35,18 @@ export function resolveResultsView(db: Database.Database, runId: string, raw: Ra
   const options = queryStudentOptions(db, runId, url.filters);
   const resolved = pruneResultsState(url, options.options);
   let invalid = resolved.invalid;
+  let sortWire = url.sort;
   let pruned = resolved.filters;
 
   let data: RunStudentsQueryResult;
   try {
-    data = queryRunStudents(db, runId, { limit: 50, ...pruned });
+    data = queryRunStudents(db, runId, { limit: 50, ...pruned, ...(url.sort ? { sort: url.sort } : {}) });
   } catch (error) {
     if (!(error instanceof QueryStudentError)) throw error;
     invalid = true;
     pruned = {};
     data = queryRunStudents(db, runId, { limit: 50 });
+    sortWire = null;
   }
 
   // 初始 options 已含網址條件的計數；prune 若移除了值，頁面掛載時 client 會以保留後的條件重取。
@@ -50,6 +54,7 @@ export function resolveResultsView(db: Database.Database, runId: string, raw: Ra
     view: url.view,
     filters: pruned,
     deductionFilters: url.deductionFilters,
+    sort: sortWire,
     data,
     options,
     invalid,

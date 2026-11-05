@@ -2915,3 +2915,16 @@ select {
   color: var(--primary-color);
   font-weight: 600;
 }
+
+/* D65：表頭排序鈕（共用表頭元件；沿用表頭字級，不另立色票） */
+.th-sort {
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+.th-sort:hover { text-decoration: underline; }
+th[aria-sort="ascending"] .th-sort::after { content: ' ▲'; font-size: 0.7em; }
+th[aria-sort="descending"] .th-sort::after { content: ' ▼'; font-size: 0.7em; }

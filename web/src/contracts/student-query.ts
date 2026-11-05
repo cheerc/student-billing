@@ -10,9 +10,15 @@ export interface NormalizedStudentQuery {
   careType?: 'anqin' | 'tutoring';
   runId?: string;
   cursor?: string;
+  sort?: SortSpec;
   limit: number;
   options: boolean;
 }
+
+/** D65：`sort=<field>`／`sort=-<field>`（降冪）。欄位白名單由各查詢入口提供。 */
+export interface SortSpec { field: string; dir: 'asc' | 'desc' }
+/** keyset 游標位置；`sortValue` 為 undefined＝未排序（預設 person_code 序），null＝該列排序欄為空值。 */
+export interface CursorPosition { personCode: string; sortValue?: string | number | null }
 
 export class StudentQueryInputError extends Error {
   statusCode = 400;
@@ -27,7 +33,7 @@ export const VALID_TIER_COMPARISONS = new Set(['match', 'mismatch', 'not_applica
 const BOOLEAN_KEYS = new Set(['hasClass', 'sibling', 'specialDiscount', 'internalStudent', 'hasExtraDeduction', 'hasIssues', 'tierMismatch']);
 const INTEGER_KEYS = new Set(['grade', 'baseDiscountBps', 'applicableDiscountBps']);
 const NUMBER_KEYS = new Set(['anqinDays', 'tutoringDays', 'billingTier', 'erpBillingTier', 'previewErpBillingTier']);
-const SINGLE_KEYS = new Set(['q', 'subject', 'careType', 'runId', 'cursor', 'limit', 'options', 'billingTier']);
+const SINGLE_KEYS = new Set(['q', 'subject', 'careType', 'runId', 'cursor', 'limit', 'options', 'billingTier', 'sort']);
 
 /** URL 與 application 呼叫共用：不壓掉同一參數的重複值。 */
 export function readStudentQuery(searchParams: URLSearchParams): StudentQueryInput {
@@ -76,16 +82,22 @@ function selection(key: string, raw: string[]): QuerySelection | undefined {
   return unique.length ? { values: unique, none: false } : undefined;
 }
 
-export function normalizeStudentQuery(input: StudentQueryInput, allowed: ReadonlySet<string>): NormalizedStudentQuery {
+export function normalizeStudentQuery(input: StudentQueryInput, allowed: ReadonlySet<string>, sortFields: ReadonlySet<string> = new Set()): NormalizedStudentQuery {
   const result: NormalizedStudentQuery = { selections: {}, limit: 50, options: false };
   for (const key of Object.keys(input)) {
     if (!allowed.has(key)) invalid(key, '未知或不支援');
-    if (['sort', 'scheduleStatus', 'mappingStatus'].includes(key)) invalid(key, '尚未實作，請勿指定');
+    if (['scheduleStatus', 'mappingStatus'].includes(key)) invalid(key, '尚未實作，請勿指定');
     const source = input[key];
     if (source === undefined || source === null) continue;
     const raw = (Array.isArray(source) ? source : [source]).map(String);
     if (SINGLE_KEYS.has(key) && raw.length > 1) invalid(key, '只能指定一次');
-    if (key === 'limit') {
+    if (key === 'sort') {
+      if (raw[0] === '') continue;
+      const desc = raw[0].startsWith('-');
+      const field = desc ? raw[0].slice(1) : raw[0];
+      if (!sortFields.has(field)) invalid('sort', `只接受：${[...sortFields].join('、') || '（此端點不支援排序）'}（降冪加前綴 -）`);
+      result.sort = { field, dir: desc ? 'desc' : 'asc' };
+    } else if (key === 'limit') {
       if (raw[0] === '') continue;
       if (!/^\d+$/.test(raw[0]) || !Number.isSafeInteger(Number(raw[0])) || Number(raw[0]) <= 0) invalid(key, '必須為正整數');
       result.limit = Math.min(200, Number(raw[0]));
@@ -125,22 +137,31 @@ export function normalizeStudentQuery(input: StudentQueryInput, allowed: Readonl
 
 export function queryIdentity(scope: string, query: NormalizedStudentQuery): string {
   const filters = Object.fromEntries(Object.entries(query.selections).sort(([a], [b]) => a.localeCompare(b)));
-  return createHash('sha256').update(JSON.stringify({ scope, filters, q: query.q || '', subject: query.subject || '', careType: query.careType || '' })).digest('hex');
+  return createHash('sha256').update(JSON.stringify({ scope, filters, q: query.q || '', subject: query.subject || '', careType: query.careType || '', sort: query.sort ? `${query.sort.dir}:${query.sort.field}` : '' })).digest('hex');
 }
 
-export function encodeStudentCursor(identity: string, after: string): string {
-  return Buffer.from(JSON.stringify({ version: 1, identity, after })).toString('base64');
+/** v2 keyset：`n`＝排序值為 null（與任何實值，含空字串、0，皆可區分）；`v`＝排序值。v1 舊格式一律視為無效。 */
+export function encodeStudentCursor(identity: string, after: CursorPosition): string {
+  const body: Record<string, unknown> = { version: 2, identity, p: after.personCode };
+  if (after.sortValue === null) body.n = true;
+  else if (after.sortValue !== undefined) body.v = after.sortValue;
+  return Buffer.from(JSON.stringify(body)).toString('base64');
 }
 
-export function decodeStudentCursor(cursor: string | undefined, identity: string): string | null {
+export function decodeStudentCursor(cursor: string | undefined, identity: string): CursorPosition | null {
   if (!cursor) return null;
   try {
     if (cursor.length > 4096 || !/^[A-Za-z0-9+/]+={0,2}$/.test(cursor)) throw new Error();
     const bytes = Buffer.from(cursor, 'base64');
     if (bytes.toString('base64') !== cursor) throw new Error();
     const value = JSON.parse(bytes.toString('utf8'));
-    if (value.version !== 1 || value.identity !== identity || typeof value.after !== 'string' || !value.after || value.after.length > 200) throw new Error();
-    return value.after;
+    if (value.version !== 2 || value.identity !== identity || typeof value.p !== 'string' || !value.p || value.p.length > 200) throw new Error();
+    if (value.n === true) return { personCode: value.p, sortValue: null };
+    if ('v' in value) {
+      if (!(typeof value.v === 'string' || (typeof value.v === 'number' && Number.isFinite(value.v))) || (typeof value.v === 'string' && value.v.length > 200)) throw new Error();
+      return { personCode: value.p, sortValue: value.v };
+    }
+    return { personCode: value.p };
   } catch {
     invalid('cursor', '無效或與本次名冊／條件不符，請從第一頁重查');
   }

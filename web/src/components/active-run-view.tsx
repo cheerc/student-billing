@@ -25,6 +25,7 @@ import {
   EMPTY,
   STUDENT_FILTER_FIELDS,
   buildResultsQuery,
+  parseSortWire,
   buildStudentApiParams,
   chipsOf,
   compareOptionValues,
@@ -147,6 +148,9 @@ export default function ActiveRunView({
 
   const [filters, setFilters] = useState<StudentFilters>(restored.filters);
   const [deductionFilters, setDeductionFilters] = useState<DeductionFilters>(restored.deductionFilters);
+  // 學生總表 server 排序（D65）：入網址、換排序清 cursor 重查；null＝預設 person_code 序
+  const [sort, setSort] = useState<string | null>(restored.sort);
+  const sortRef = useRef<string | null>(restored.sort);
   const [searchQuery, setSearchQuery] = useState('');
   const [appliedQ, setAppliedQ] = useState('');
   const [isHydrated, setIsHydrated] = useState(false);
@@ -212,6 +216,7 @@ export default function ActiveRunView({
       setError(null);
       const extra: Record<string, string> = { limit: '50' };
       if (targetCursor) extra.cursor = targetCursor;
+      if (sortRef.current) extra.sort = sortRef.current;
       const params = buildStudentApiParams(nextFilters, q, extra);
       try {
         const res = await fetch(`/api/v1/runs/${runId}/students?${params.toString()}`, { signal: ac.signal });
@@ -300,6 +305,19 @@ export default function ActiveRunView({
     setCursor(null);
     setHistoryCursors([]);
   };
+
+  /** 點學生總表表頭排序：兩態（升冪↔降冪），點另一欄從升冪開始；清 cursor 從第一頁重查（D65 Ruling 5）。 */
+  const toggleSort = useCallback(
+    (field: string) => {
+      const current = parseSortWire(sortRef.current);
+      const next = current?.field === field && current.dir === 'asc' ? `-${field}` : field;
+      sortRef.current = next;
+      setSort(next);
+      resetPaging();
+      void load(filtersRef.current, qRef.current, null);
+    },
+    [load]
+  );
 
   /** 套用學生條件：條件改變即清 cursor 從第一頁重查（03 §5.1）；本班適用折扣在不再恰選一班時自動移除並提示。 */
   const applyFilters = useCallback(
@@ -402,14 +420,14 @@ export default function ActiveRunView({
   // 頁籤與條件同步到網址（不含姓名搜尋）；用 replaceState，不堆疊瀏覽器歷史。
   // 預設狀態（學生總表、無條件）網址保持乾淨（不寫 view／runId）；網址原本帶了參數而現在回到預設（清除全部、run 變更後選值全被移除）才改寫回乾淨路徑
   useEffect(() => {
-    const isDefault = resultTab === 'students' && !hasAnySelection(filters) && !hasAnySelection(deductionFilters);
+    const isDefault = resultTab === 'students' && !hasAnySelection(filters) && !hasAnySelection(deductionFilters) && !sort;
     if (isDefault && !window.location.search) return;
-    const query = isDefault ? '' : buildResultsQuery({ view: resultTab, runId, filters, deductionFilters });
+    const query = isDefault ? '' : buildResultsQuery({ view: resultTab, runId, sort, filters, deductionFilters });
     const target = query ? `${window.location.pathname}?${query}` : window.location.pathname;
     if (target !== `${window.location.pathname}${window.location.search}`) {
       window.history.replaceState(window.history.state, '', target);
     }
-  }, [resultTab, filters, deductionFilters, runId]);
+  }, [resultTab, filters, deductionFilters, runId, sort]);
 
   // 捲動位置：儲存（表內與整頁），返回時還原
   useEffect(() => {
@@ -694,6 +712,8 @@ export default function ActiveRunView({
               singleClass={singleClass}
               classCategorySnapshots={classCategorySnapshots ?? null}
               renderFilter={renderFilter}
+              sort={parseSortWire(sort)}
+              onSortChange={toggleSort}
               onSelectStudent={(student) => {
                 if (student.runId === runId) setDrawerSelection({ runId, student });
               }}
