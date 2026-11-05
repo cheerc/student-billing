@@ -169,7 +169,7 @@
   - 匯入解析至可查詢：$\le 3$ 秒
   - 完整重算：$\le 1$ 秒
   - 班級/學生篩選反應時間：$\le 200$ ms (經 07 指定暖機後 10 次 p95 評估)
-- **效能門檻量測條件**：使用單檔、不與其他測試檔並行的獨立量測，記錄硬體、Node／瀏覽器版本、build 模式、輪數與統計方式（見 `specs/07` T07）。四條 API 路徑以 `npm run test:perf:isolated` 執行 production build／HTTP 量測，單輪 p95 必須 < 200ms；不含 UI render。並行下失敗後重跑到通過不算 PASS，獨立量測的失敗同樣須揭露，不以重試掩蓋。
+- **效能門檻量測條件**：使用單檔、不與其他測試檔並行的獨立量測，記錄硬體、Node／瀏覽器版本、build 模式、輪數與統計方式（見 `specs/07` T07）。四條 API 量測路徑加 D65 排序路徑共五條以 `npm run test:perf:isolated` 執行 production build／HTTP 量測，單輪 p95 必須 < 200ms；不含 UI render。並行下失敗後重跑到通過不算 PASS，獨立量測的失敗同樣須揭露，不以重試掩蓋。
 - **誠實記錄未驗項**：未完成之項目（例如整本 Excel workaround 原生 golden、A4 點名表輸出）必須於驗收報告誠實揭露，嚴禁虛報完成。
 
 ---

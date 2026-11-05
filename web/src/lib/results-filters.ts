@@ -9,6 +9,7 @@
  */
 
 import { ISSUE_LABELS } from '@/lib/issue-copy';
+import { STUDENT_SORT_FIELDS } from '@/contracts/student-sort-fields';
 
 export const BLANK = '~blank';
 export const EMPTY = '~empty';
@@ -122,9 +123,21 @@ export function compareOptionValues(field: Pick<FilterFieldDef, 'kind'>, a: stri
   return a.localeCompare(b, 'zh-Hant');
 }
 
+export { STUDENT_SORT_FIELDS };
+
+/** 網址／API 的 sort 值：`<field>` 或 `-<field>`；不在白名單者視為未排序。 */
+export function parseSortWire(wire: string | undefined | null): { field: string; dir: 'asc' | 'desc' } | null {
+  if (!wire) return null;
+  const desc = wire.startsWith('-');
+  const field = desc ? wire.slice(1) : wire;
+  return STUDENT_SORT_FIELDS.includes(field) ? { field, dir: desc ? 'desc' : 'asc' } : null;
+}
+
 export interface ResultsUrlState {
   view: 'students' | 'deductions';
   runId: string | null;
+  /** 學生總表排序（wire 值，null＝預設 person_code 序） */
+  sort: string | null;
   filters: StudentFilters;
   deductionFilters: DeductionFilters;
 }
@@ -154,6 +167,7 @@ export function readResultsUrl(raw: RawParams): ResultsUrlState {
   return {
     view,
     runId: allOf(raw, 'runId')[0] || null,
+    sort: parseSortWire(allOf(raw, 'sort')[0]) ? allOf(raw, 'sort')[0] : null,
     filters: readSelection(raw, STUDENT_FILTER_FIELDS),
     deductionFilters: readSelection(raw, DEDUCTION_FILTER_FIELDS),
   };
@@ -171,6 +185,7 @@ export function buildResultsQuery(state: ResultsUrlState): string {
   const params = new URLSearchParams();
   params.set('view', state.view);
   if (state.runId) params.set('runId', state.runId);
+  if (state.sort) params.set('sort', state.sort);
   selectionsToParams(state.filters, params);
   selectionsToParams(state.deductionFilters, params);
   return params.toString();

@@ -3,6 +3,8 @@ export const PERF_PATHS: Array<{ name: string; pairs: Array<[string, string]> }>
   { name: 'options', pairs: [['options', 'true']] },
   { name: 'options-mismatch', pairs: [['options', 'true'], ['tierMismatch', 'true']] },
   { name: 'class-mismatch', pairs: [['enrollmentKey', '國小輔導-一A'], ['tierMismatch', 'true']] },
+  // D65 B3：server 排序路徑（ORDER BY＋keyset 首頁）
+  { name: 'sort-anqin-desc', pairs: [['sort', '-anqinDays'], ['limit', '50']] },
 ];
 
 export function summarizeTimings(samples: number[]): { medianMs: number; p95Ms: number } {

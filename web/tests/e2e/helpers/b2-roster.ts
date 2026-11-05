@@ -117,6 +117,7 @@ export interface ApiStudent {
   personCode: string;
   name: string;
   grade: number | null;
+  anqinDays?: number | null;
   baseDiscountBps: number | null;
   applicableAnqinBps: number | null;
   applicableTutoringBps: number | null;

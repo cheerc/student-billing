@@ -1,5 +1,7 @@
 import Database from 'better-sqlite3';
 import { StudentSnapshot, ParsedToken } from '@/domain/students';
+import { buildSortSql } from './student-sort';
+import { IMPORT_SORT_COLUMNS } from '@/contracts/student-sort-fields';
 import { normalizeStudentQuery, StudentQueryInputError, queryIdentity, decodeStudentCursor, encodeStudentCursor } from '@/contracts/student-query';
 import { classPredicate, selectionPredicate, branchPredicate, escapeLike, type QueryPredicate } from './student-query-sql';
 import { getLatestSettingsVersion, readStoredDraft, buildSeedDraft, draftToAliasMap } from '@/adapters/sqlite/settings-repository';
@@ -90,7 +92,7 @@ function parseImportQuery(params: RosterQueryParams) {
   for (const key of Object.keys(params)) {
     if (FORBIDDEN_CALCULATION_PARAMS.has(key)) throw new RosterQueryError(400, `參數「${key}」為正式計算 run 專屬參數，預覽名單查詢不支援此參數。`);
   }
-  try { return normalizeStudentQuery(params, ALLOWED_IMPORT_QUERY_PARAMS); }
+  try { return normalizeStudentQuery(params, ALLOWED_IMPORT_QUERY_PARAMS, new Set(Object.keys(IMPORT_SORT_COLUMNS))); }
   catch (error) {
     if (error instanceof StudentQueryInputError) throw new RosterQueryError(400, error.message);
     throw error;
@@ -101,8 +103,8 @@ export function queryImportStudents(db: Database.Database, importId: string, par
   const query = parseImportQuery(params);
   const limit = query.limit;
   const identity = queryIdentity(`import:${importId}`, query);
-  let lastPersonCode: string | null;
-  try { lastPersonCode = decodeStudentCursor(query.cursor, identity); }
+  let after: ReturnType<typeof decodeStudentCursor>;
+  try { after = decodeStudentCursor(query.cursor, identity, query.sort); }
   catch (error) { throw new RosterQueryError(400, (error as Error).message); }
   const whereClauses = ['s.import_id = ?'];
   const queryArgs: Array<string | number> = [importId];
@@ -177,12 +179,14 @@ export function queryImportStudents(db: Database.Database, importId: string, par
   const noCourseTotal = (db.prepare(`SELECT COUNT(DISTINCT s.person_code) AS total FROM imported_students s WHERE s.import_id = ? AND NOT (${hasClass})`).get(importId) as { total: number }).total;
   const pagedWhereClauses = [...whereClauses];
   const pagedArgs = [...queryArgs];
-  if (lastPersonCode) { pagedWhereClauses.push('s.person_code > ?'); pagedArgs.push(lastPersonCode); }
+  const sortSql = buildSortSql(query.sort, IMPORT_SORT_COLUMNS, 's');
+  const keyset = sortSql.keyset(after);
+  if (keyset) { pagedWhereClauses.push(keyset.sql); pagedArgs.push(...keyset.args); }
   pagedArgs.push(limit + 1);
-  const studentRows = db.prepare(`SELECT s.* FROM imported_students s WHERE ${pagedWhereClauses.join(' AND ')} ORDER BY s.person_code ASC LIMIT ?`).all(...pagedArgs) as any[];
+  const studentRows = db.prepare(`SELECT s.* FROM imported_students s WHERE ${pagedWhereClauses.join(' AND ')} ORDER BY ${sortSql.orderBy} LIMIT ?`).all(...pagedArgs) as any[];
   const hasNextPage = studentRows.length > limit;
   const itemsRows = hasNextPage ? studentRows.slice(0, limit) : studentRows;
-  const nextCursor = hasNextPage && itemsRows.length ? encodeStudentCursor(identity, itemsRows[itemsRows.length - 1].person_code) : null;
+  const nextCursor = hasNextPage && itemsRows.length ? encodeStudentCursor(identity, { personCode: itemsRows[itemsRows.length - 1].person_code, sortValue: sortSql.valueOf(itemsRows[itemsRows.length - 1]) }) : null;
 
   // 取得學生對應的 enrollments
   const personCodes = itemsRows.map((r) => r.person_code);

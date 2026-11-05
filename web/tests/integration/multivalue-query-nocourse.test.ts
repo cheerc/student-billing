@@ -284,7 +284,7 @@ describe('B1 多值查詢／全 run 選項／無課程真實 API', () => {
   it.each(([
     [['grade', 'oops']], [['grade', '1x']], [['hasIssues', 'maybe']],
     [['grade', '~none'], ['grade', '1']], [['grade', '~unknown']],
-    [['scheduleStatus', 'calculated']], [['sort', 'name']], [['mappingStatus', 'mapped']],
+    [['scheduleStatus', 'calculated']], [['sort', 'bogus']], [['mappingStatus', 'mapped']],
     [['applicableDiscountBps', '9000']], [['enrollmentKey', MATH], ['enrollmentKey', ENGLISH], ['applicableDiscountBps', '9000']],
     [['q', 'a'], ['q', 'b']], [['limit', '2x']], [['unknown', '']],
     [['hasIssues', 'false'], ['issueCode', 'STAFF_FAMILY_NO_DISCOUNT']],
@@ -293,7 +293,7 @@ describe('B1 多值查詢／全 run 選項／無課程真實 API', () => {
     expect((await query(runId, pairs)).status).toBe(400);
   });
 
-  it.each(['sort', 'mappingStatus', 'anqinDays', 'options'])('preview 不接受%s，正式計算欄/未實作參數指名400', async (key) => {
+  it.each(['mappingStatus', 'anqinDays', 'options'])('preview 不接受%s，正式計算欄/未實作參數指名400', async (key) => {
     const result = await preview([[key, key === 'options' ? 'true' : '1']]);
     expect(result.status).toBe(400);
     expect(result.body.error).toContain(key);

@@ -4,7 +4,10 @@ import { ParsedToken } from '@/domain/students';
 import { createStudentPredicateBuilder } from './student-query-predicates';
 import { normalizeStudentQuery, StudentQueryInputError, queryIdentity, decodeStudentCursor, encodeStudentCursor, type NormalizedStudentQuery } from '@/contracts/student-query';
 import { noCoursePredicate } from './student-query-sql';
+import { buildSortSql } from './student-sort';
+import { RUN_SORT_COLUMNS } from '@/contracts/student-sort-fields';
 
+export { RUN_SORT_COLUMNS };
 export class QueryStudentError extends Error {
   statusCode: number;
   constructor(statusCode: number, message: string) {
@@ -107,7 +110,7 @@ function issueView<T extends { code: string }>(
 
 function parseRunQuery(params: RunStudentQueryParams): NormalizedStudentQuery {
   try {
-    return normalizeStudentQuery(params, ALLOWED_RUN_QUERY_PARAMS);
+    return normalizeStudentQuery(params, ALLOWED_RUN_QUERY_PARAMS, new Set(Object.keys(RUN_SORT_COLUMNS)));
   } catch (error) {
     if (error instanceof StudentQueryInputError) throw new QueryStudentError(400, error.message);
     throw error;
@@ -125,8 +128,8 @@ export function queryRunStudents(db: Database.Database, runId: string, params: R
   if (query.runId && query.runId !== runId) throw new QueryStudentError(400, 'runId 與路徑不符');
   const limit = query.limit;
   const identity = queryIdentity(`run:${runId}:import:${run.importId}`, query);
-  let lastPersonCode: string | null;
-  try { lastPersonCode = decodeStudentCursor(query.cursor, identity); }
+  let after: ReturnType<typeof decodeStudentCursor>;
+  try { after = decodeStudentCursor(query.cursor, identity, query.sort); }
   catch (error) { throw new QueryStudentError(400, (error as Error).message); }
   const selected = query.selections;
   const { where, classes, mismatch, issues } = createStudentPredicateBuilder(db, runId, run.importId)(query);
@@ -143,12 +146,14 @@ export function queryRunStudents(db: Database.Database, runId: string, params: R
   const classScopeTotal = emptySelection ? 0 : (db.prepare(`SELECT COUNT(*) AS total FROM student_calculations sc WHERE sc.run_id = ? AND ${classes.sql}`).get(runId, ...classes.args) as { total: number }).total;
   const pagedWhere = [baseWhereSql];
   const pagedArgs = [...queryArgs];
-  if (lastPersonCode) { pagedWhere.push('sc.person_code > ?'); pagedArgs.push(lastPersonCode); }
+  const sortSql = buildSortSql(query.sort, RUN_SORT_COLUMNS, 'sc');
+  const keyset = sortSql.keyset(after);
+  if (keyset) { pagedWhere.push(keyset.sql); pagedArgs.push(...keyset.args); }
   pagedArgs.push(limit + 1);
-  const rows = db.prepare(`SELECT sc.*, s.source_row FROM student_calculations sc LEFT JOIN imported_students s ON s.import_id = ? AND s.person_code = sc.person_code WHERE ${pagedWhere.join(' AND ')} ORDER BY sc.person_code ASC LIMIT ?`).all(run.importId, ...pagedArgs) as any[];
+  const rows = db.prepare(`SELECT sc.*, s.source_row FROM student_calculations sc LEFT JOIN imported_students s ON s.import_id = ? AND s.person_code = sc.person_code WHERE ${pagedWhere.join(' AND ')} ORDER BY ${sortSql.orderBy} LIMIT ?`).all(run.importId, ...pagedArgs) as any[];
   const hasNext = rows.length > limit;
   const itemRows = hasNext ? rows.slice(0, limit) : rows;
-  const nextCursor = hasNext && itemRows.length ? encodeStudentCursor(identity, itemRows[itemRows.length - 1].person_code) : null;
+  const nextCursor = hasNext && itemRows.length ? encodeStudentCursor(identity, { personCode: itemRows[itemRows.length - 1].person_code, sortValue: sortSql.valueOf(itemRows[itemRows.length - 1]) }) : null;
 
   // 查詢 enrollments
   const personCodes = itemRows.map((r) => r.person_code);

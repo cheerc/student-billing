@@ -1,8 +1,8 @@
 import { test, expect } from '@playwright/test';
 import { PERF_PATHS, summarizeTimings, assertPerformanceBudget } from '../../scripts/perf-contract';
 
-/** 單一 spec、單一 test 依序量四條路徑；無 retry，任何一次超標都保留原始數值並失敗。 */
-test('477 人 production API 四路徑：暖機後 10 次 p95 < 200ms（不含 UI render）', async ({ page, browser }) => {
+/** 單一 spec、單一 test 依序量五條路徑（含 D65 排序）；無 retry，任何一次超標都保留原始數值並失敗。 */
+test('477 人 production API 五路徑：暖機後 10 次 p95 < 200ms（不含 UI render）', async ({ page, browser }) => {
   const runId = process.env.PERF_RUN_ID;
   expect(runId, 'runner 必須提供合成資料 runId').toBeTruthy();
   // JSON 文件沒有 React hydration／背景 fetch，不把其他 UI 請求混入計時。

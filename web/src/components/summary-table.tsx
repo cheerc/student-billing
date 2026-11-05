@@ -8,7 +8,7 @@ import { parseTagDiscounts } from '@/domain/billing/discount-rules';
 import { InfoTip } from './ui/info-tip';
 import { issueLabel } from '@/lib/issue-copy';
 import { columnLabels, type ColumnDef } from './tables/column-def';
-import TableHeaderCell from './tables/table-header-cell';
+import TableHeaderCell, { type HeaderSortState } from './tables/table-header-cell';
 
 /**
  * 學生總表（09 §5.1）。
@@ -27,14 +27,14 @@ import TableHeaderCell from './tables/table-header-cell';
 
 /** 預設欄位定義（順序即規格順序；欄名清單由此推導，維持欄位定義唯一來源）。 */
 const STUDENT_COLUMN_DEFS = [
-  { key: 'name', label: '姓名', className: 'sticky-name' },
-  { key: 'grade', label: '年級', filterKey: 'grade' },
+  { key: 'name', label: '姓名', className: 'sticky-name', sort: { server: 'name' } },
+  { key: 'grade', label: '年級', filterKey: 'grade', sort: { server: 'grade' } },
   { key: 'enrollment', label: '所屬班級', filterKey: 'enrollment' },
-  { key: 'anqinDays', label: '安親天數', className: 'cblue', filterKey: 'anqinDays' },
-  { key: 'tutoringDays', label: '課輔天數', className: 'cblue', filterKey: 'tutoringDays' },
+  { key: 'anqinDays', label: '安親天數', className: 'cblue', filterKey: 'anqinDays', sort: { server: 'anqinDays' } },
+  { key: 'tutoringDays', label: '課輔天數', className: 'cblue', filterKey: 'tutoringDays', sort: { server: 'tutoringDays' } },
   { key: 'extra', label: '額外扣天', filterKey: 'extra' },
-  { key: 'baseDiscount', label: '合計折扣', filterKey: 'baseDiscount' },
-  { key: 'supplement', label: '已補科數' },
+  { key: 'baseDiscount', label: '合計折扣', filterKey: 'baseDiscount', sort: { server: 'baseDiscountBps' } },
+  { key: 'supplement', label: '已補科數', sort: { server: 'subjectCount' } },
   { key: 'sibling', label: '兄弟姊妹折扣', filterKey: 'sibling' },
   { key: 'special', label: '特殊折扣', filterKey: 'special' },
   { key: 'internal', label: '園內生', filterKey: 'internal' },
@@ -42,8 +42,6 @@ const STUDENT_COLUMN_DEFS = [
 ] as const satisfies readonly ColumnDef[];
 
 const APPLICABLE_COLUMN: ColumnDef = { key: 'applicable', label: '本班適用折扣', filterKey: 'applicable' };
-
-const colDef = (key: (typeof STUDENT_COLUMN_DEFS)[number]['key']) => STUDENT_COLUMN_DEFS.find((d) => d.key === key)!;
 
 export const STUDENT_TABLE_COLUMNS = columnLabels(STUDENT_COLUMN_DEFS);
 
@@ -109,6 +107,9 @@ interface SummaryTableProps {
   singleClass?: string | null;
   /** 表頭篩選觸發鈕；未提供時是純表格 */
   renderFilter?: (column: StudentColumnKey) => React.ReactNode;
+  /** 目前 server 排序（null＝預設順序）；與 onSortChange 同時提供才顯示排序鈕（D65） */
+  sort?: { field: string; dir: 'asc' | 'desc' } | null;
+  onSortChange?: (field: string) => void;
   /** 該 run 的班級類別快照（server 由 run_class_categories 讀出）；缺該班快照時顯示「未設定」。 */
   classCategorySnapshots?: RunClassCategorySnapshot[] | null;
 }
@@ -146,10 +147,17 @@ export default function SummaryTable({
   onResetFilters,
   singleClass = null,
   renderFilter,
+  sort = null,
+  onSortChange,
   classCategorySnapshots = null,
 }: SummaryTableProps) {
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
   const f = (column: StudentColumnKey) => renderFilter?.(column) ?? null;
+  const sortStateOf = (d: ColumnDef): HeaderSortState | undefined => {
+    if (!onSortChange || !d.sort || !('server' in d.sort)) return undefined;
+    const field = d.sort.server;
+    return { dir: sort?.field === field ? (sort.dir === 'asc' ? 'ascending' : 'descending') : 'none', onToggle: () => onSortChange(field) };
+  };
 
   if (loading && students.length === 0) {
     return (
@@ -190,27 +198,35 @@ export default function SummaryTable({
         <table className="data-table results-table">
           <thead>
             <tr>
-              <TableHeaderCell column={colDef('name')} />
-              <TableHeaderCell column={colDef('grade')} filter={f('grade')} />
-              <TableHeaderCell column={colDef('enrollment')} filter={f('enrollment')} />
-              <TableHeaderCell column={colDef('anqinDays')} filter={f('anqinDays')} />
-              <TableHeaderCell column={colDef('tutoringDays')} filter={f('tutoringDays')} />
-              <TableHeaderCell column={colDef('extra')} filter={f('extra')} />
-              <TableHeaderCell column={colDef('baseDiscount')} filter={f('baseDiscount')}>
-                {' '}
-                <InfoTip label="合計折扣說明">對應基本率；指定課程可能另有調整</InfoTip>
-              </TableHeaderCell>
-              {singleClass !== null && (
-                <TableHeaderCell column={APPLICABLE_COLUMN} filter={f('applicable')}>
-                  {' '}
-                  <InfoTip label="本班適用折扣說明">這個班適用的最終折扣，與合計折扣並列、不取代它。「未設定」＝這個班尚未設定適用折扣（不是 100%）；「—」＝這位學生無法判定。</InfoTip>
-                </TableHeaderCell>
-              )}
-              <TableHeaderCell column={colDef('supplement')} />
-              <TableHeaderCell column={colDef('sibling')} filter={f('sibling')} />
-              <TableHeaderCell column={colDef('special')} filter={f('special')} />
-              <TableHeaderCell column={colDef('internal')} filter={f('internal')} />
-              <TableHeaderCell column={colDef('review')} filter={f('review')} />
+              {STUDENT_COLUMN_DEFS.map((def) => {
+                const d: ColumnDef = def;
+                const cell = (
+                  <TableHeaderCell
+                    key={d.key}
+                    column={d}
+                    filter={d.filterKey ? f(d.filterKey as StudentColumnKey) : null}
+                    sort={sortStateOf(d)}
+                  >
+                    {d.key === 'baseDiscount' ? (
+                      <>
+                        {' '}
+                        <InfoTip label="合計折扣說明">對應基本率；指定課程可能另有調整</InfoTip>
+                      </>
+                    ) : null}
+                  </TableHeaderCell>
+                );
+                // 本班適用折扣緊接在合計折扣之後（恰選一班時）
+                if (d.key !== 'baseDiscount' || singleClass === null) return cell;
+                return (
+                  <React.Fragment key={d.key}>
+                    {cell}
+                    <TableHeaderCell key="applicable" column={APPLICABLE_COLUMN} filter={f('applicable')}>
+                      {' '}
+                      <InfoTip label="本班適用折扣說明">這個班適用的最終折扣，與合計折扣並列、不取代它。「未設定」＝這個班尚未設定適用折扣（不是 100%）；「—」＝這位學生無法判定。</InfoTip>
+                    </TableHeaderCell>
+                  </React.Fragment>
+                );
+              })}
             </tr>
           </thead>
           <tbody>
