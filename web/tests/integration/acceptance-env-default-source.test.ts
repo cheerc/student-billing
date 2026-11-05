@@ -9,6 +9,21 @@ const web = path.resolve(__dirname, '../..');
 const children: ChildProcess[] = [];
 const states: string[] = [];
 
+/**
+ * 清理逾時（#229）：SIGTERM 後工具的 finish() 會先 terminate 子程序（最久 5s 後 SIGKILL），
+ * 再**同步** rmSync 整個 build workspace——此時 `npm ci` 已裝滿 node_modules（約 527 套件）。
+ * 這個 rm 在測試端表現為 `await exited` 的等待時間，才是 afterEach 的主要耗時。
+ * 無負載約 2s，但 IO 壓力（4 核 + 6 路並行 cp -R／rm -rf）下實測同一份 node_modules 的 rm
+ * 為 2.0／45.8／3.0s；以 afterEach 儀器量得 child 退出 41.5／39.9／39.2s、測試端 rm 0.8–1.1s，
+ * 超過 vitest 預設 hookTimeout 10s（修前壓力下 3/3 皆 "Hook timed out in 10000ms"）。
+ *
+ * 處置：只在測試端調整——此 hook 明確指定 timeout（取實測最壞約 52s＝45.8s rm + 5s SIGKILL 窗
+ * + 1s，再留約 4 倍餘裕），並把測試端 rm 改 async。不動 scripts/acceptance-env.ts：
+ * 把工具內的 rm 改 async 也得等它完成才退出，測試端等待時間不變。
+ * 不調整全域 hookTimeout（CLAUDE.md §8）。清理內容不變，仍完整刪除。
+ */
+const CLEANUP_TIMEOUT_MS = 180_000;
+
 afterEach(async () => {
   for (const child of children.splice(0)) {
     if (child.exitCode === null && child.signalCode === null) {
@@ -17,8 +32,8 @@ afterEach(async () => {
       await exited;
     }
   }
-  for (const state of states.splice(0)) fs.rmSync(state, { recursive: true, force: true });
-});
+  for (const state of states.splice(0)) await fs.promises.rm(state, { recursive: true, force: true });
+}, CLEANUP_TIMEOUT_MS);
 
 /** 從指定 commit 解出 web/（不帶 node_modules／.next／data）——與 T1 對來源做的事一致。 */
 function trackedWeb(repo: string, commit = 'HEAD'): string {
