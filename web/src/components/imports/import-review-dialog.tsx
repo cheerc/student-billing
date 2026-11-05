@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import type { StudentSnapshot } from '@/domain/students';
 import type { PreviewWithDiff } from '@/components/imports/imports-workflow';
 import { ClassNameReportSummaryCard } from '@/components/imports/class-name-report-summary';
@@ -42,17 +42,17 @@ export function ImportReviewDialog({
   filteredStudents,
 }: ImportReviewDialogProps) {
   const dialogRef = useRef<HTMLDialogElement>(null);
-  const openerRef = useRef<HTMLElement | null>(null);
 
   // 記住觸發元素：本元件每次開啟都是全新掛載，故於首次 render（showModal 之前）擷取 activeElement。
   // 不放進 effect：dev StrictMode 會重跑 effect，那時焦點已被 showModal 移進視窗內，會誤記成視窗內的按鈕。
-  if (openerRef.current === null && isOpen && typeof document !== 'undefined') {
-    openerRef.current = document.activeElement as HTMLElement | null;
-  }
+  const [opener] = useState<HTMLElement | null>(() =>
+    typeof document === 'undefined' ? null : (document.activeElement as HTMLElement | null),
+  );
   useEffect(() => {
     if (!isOpen) return;
-    return () => restoreFocusToOpener(openerRef.current);
-  }, [isOpen]);
+    return () => restoreFocusToOpener(opener);
+  }, [isOpen, opener]);
+
   useEffect(() => {
     const dialog = dialogRef.current;
     if (isOpen && dialog && !dialog.open) dialog.showModal();
