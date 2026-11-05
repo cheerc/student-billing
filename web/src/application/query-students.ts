@@ -5,12 +5,9 @@ import { createStudentPredicateBuilder } from './student-query-predicates';
 import { normalizeStudentQuery, StudentQueryInputError, queryIdentity, decodeStudentCursor, encodeStudentCursor, type NormalizedStudentQuery } from '@/contracts/student-query';
 import { noCoursePredicate } from './student-query-sql';
 import { buildSortSql } from './student-sort';
+import { RUN_SORT_COLUMNS } from '@/contracts/student-sort-fields';
 
-/** D65：`/runs/{id}/students` 可排序欄（field → student_calculations 實體欄）。 */
-export const RUN_SORT_COLUMNS: Record<string, string> = {
-  name: 'name', grade: 'grade', anqinDays: 'anqin_days', tutoringDays: 'tutoring_days', baseDiscountBps: 'base_discount_bps', subjectCount: 'subject_count',
-};
-
+export { RUN_SORT_COLUMNS };
 export class QueryStudentError extends Error {
   statusCode: number;
   constructor(statusCode: number, message: string) {
@@ -132,7 +129,7 @@ export function queryRunStudents(db: Database.Database, runId: string, params: R
   const limit = query.limit;
   const identity = queryIdentity(`run:${runId}:import:${run.importId}`, query);
   let after: ReturnType<typeof decodeStudentCursor>;
-  try { after = decodeStudentCursor(query.cursor, identity); }
+  try { after = decodeStudentCursor(query.cursor, identity, query.sort); }
   catch (error) { throw new QueryStudentError(400, (error as Error).message); }
   const selected = query.selections;
   const { where, classes, mismatch, issues } = createStudentPredicateBuilder(db, runId, run.importId)(query);

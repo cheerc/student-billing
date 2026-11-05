@@ -1,4 +1,5 @@
 import { createHash } from 'crypto';
+import { TEXT_SORT_FIELDS } from './student-sort-fields';
 
 export type QueryValue = string | number | boolean | null;
 export type StudentQueryInput = Record<string, any>;
@@ -148,7 +149,7 @@ export function encodeStudentCursor(identity: string, after: CursorPosition): st
   return Buffer.from(JSON.stringify(body)).toString('base64');
 }
 
-export function decodeStudentCursor(cursor: string | undefined, identity: string): CursorPosition | null {
+export function decodeStudentCursor(cursor: string | undefined, identity: string, sort?: SortSpec): CursorPosition | null {
   if (!cursor) return null;
   try {
     if (cursor.length > 4096 || !/^[A-Za-z0-9+/]+={0,2}$/.test(cursor)) throw new Error();
@@ -156,12 +157,20 @@ export function decodeStudentCursor(cursor: string | undefined, identity: string
     if (bytes.toString('base64') !== cursor) throw new Error();
     const value = JSON.parse(bytes.toString('utf8'));
     if (value.version !== 2 || value.identity !== identity || typeof value.p !== 'string' || !value.p || value.p.length > 200) throw new Error();
-    if (value.n === true) return { personCode: value.p, sortValue: null };
-    if ('v' in value) {
-      if (!(typeof value.v === 'string' || (typeof value.v === 'number' && Number.isFinite(value.v))) || (typeof value.v === 'string' && value.v.length > 200)) throw new Error();
-      return { personCode: value.p, sortValue: value.v };
+    // 形狀必須與本次 sort 相符：未排序不得帶 v/n；排序則必須恰有 n（null）或 v（文字欄為字串、其餘為有限數值）
+    const hasN = 'n' in value, hasV = 'v' in value;
+    if (!sort) {
+      if (hasN || hasV) throw new Error();
+      return { personCode: value.p };
     }
-    return { personCode: value.p };
+    if (hasN === hasV) throw new Error();
+    if (hasN) {
+      if (value.n !== true) throw new Error();
+      return { personCode: value.p, sortValue: null };
+    }
+    const text = TEXT_SORT_FIELDS.has(sort.field);
+    if (text ? typeof value.v !== 'string' || value.v.length > 200 : typeof value.v !== 'number' || !Number.isFinite(value.v)) throw new Error();
+    return { personCode: value.p, sortValue: value.v };
   } catch {
     invalid('cursor', '無效或與本次名冊／條件不符，請從第一頁重查');
   }

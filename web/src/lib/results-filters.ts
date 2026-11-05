@@ -9,6 +9,7 @@
  */
 
 import { ISSUE_LABELS } from '@/lib/issue-copy';
+import { STUDENT_SORT_FIELDS } from '@/contracts/student-sort-fields';
 
 export const BLANK = '~blank';
 export const EMPTY = '~empty';
@@ -122,15 +123,14 @@ export function compareOptionValues(field: Pick<FilterFieldDef, 'kind'>, a: stri
   return a.localeCompare(b, 'zh-Hant');
 }
 
-/** 學生總表可 server 排序欄（D65 Ruling 7；與 `RUN_SORT_COLUMNS` 同鍵）。 */
-export const STUDENT_SORT_FIELDS = ['name', 'grade', 'anqinDays', 'tutoringDays', 'baseDiscountBps', 'subjectCount'] as const;
+export { STUDENT_SORT_FIELDS };
 
 /** 網址／API 的 sort 值：`<field>` 或 `-<field>`；不在白名單者視為未排序。 */
 export function parseSortWire(wire: string | undefined | null): { field: string; dir: 'asc' | 'desc' } | null {
   if (!wire) return null;
   const desc = wire.startsWith('-');
   const field = desc ? wire.slice(1) : wire;
-  return (STUDENT_SORT_FIELDS as readonly string[]).includes(field) ? { field, dir: desc ? 'desc' : 'asc' } : null;
+  return STUDENT_SORT_FIELDS.includes(field) ? { field, dir: desc ? 'desc' : 'asc' } : null;
 }
 
 export interface ResultsUrlState {

@@ -1,6 +1,7 @@
 import Database from 'better-sqlite3';
 import { StudentSnapshot, ParsedToken } from '@/domain/students';
 import { buildSortSql } from './student-sort';
+import { IMPORT_SORT_COLUMNS } from '@/contracts/student-sort-fields';
 import { normalizeStudentQuery, StudentQueryInputError, queryIdentity, decodeStudentCursor, encodeStudentCursor } from '@/contracts/student-query';
 import { classPredicate, selectionPredicate, branchPredicate, escapeLike, type QueryPredicate } from './student-query-sql';
 import { getLatestSettingsVersion, readStoredDraft, buildSeedDraft, draftToAliasMap } from '@/adapters/sqlite/settings-repository';
@@ -16,9 +17,6 @@ export class RosterQueryError extends Error {
     this.statusCode = statusCode;
   }
 }
-
-/** D65：`/imports/{id}/students` 可排序欄（僅 imported_students 實體欄）。 */
-export const IMPORT_SORT_COLUMNS: Record<string, string> = { name: 'name', grade: 'grade' };
 
 export const ALLOWED_IMPORT_QUERY_PARAMS = new Set([
   'classId',
@@ -106,7 +104,7 @@ export function queryImportStudents(db: Database.Database, importId: string, par
   const limit = query.limit;
   const identity = queryIdentity(`import:${importId}`, query);
   let after: ReturnType<typeof decodeStudentCursor>;
-  try { after = decodeStudentCursor(query.cursor, identity); }
+  try { after = decodeStudentCursor(query.cursor, identity, query.sort); }
   catch (error) { throw new RosterQueryError(400, (error as Error).message); }
   const whereClauses = ['s.import_id = ?'];
   const queryArgs: Array<string | number> = [importId];
