@@ -239,15 +239,59 @@ describe('R3 匯入頁工作流程與 UI 元件（RED 測試）', () => {
       expect(html).not.toContain('OOXML');
       expect(html).not.toContain('inlineStr');
 
-      // 課表狀態連結
+      // 課表狀態連結（併入步驟 1 行動說明，UX123）
       expect(html).toContain('查看課表');
       expect(html).toContain('/settings');
 
-      // 流程三步驟標示
-      // 序號只出現在圓圈裡一次；文字不再重複序號（R5 視覺檢視：原本畫面是「① 1 選擇檔案」）
-      expect(html).toContain('<span class="step-number">1</span><span class="step-text">選擇檔案</span>');
-      expect(html).toContain('<span class="step-number">2</span><span class="step-text">確認名單</span>');
-      expect(html).toContain('<span class="step-number">3</span><span class="step-text">完成</span>');
+      // 步驟條改版（D64／UX123）：舊 `role="navigation"` 與頁首「查看課表 →」按鈕已移除，見下方 UX123 describe
+    });
+  });
+
+  describe('UX123：步驟條（D64 G2）', () => {
+    const renderStage = (stage: 'upload' | 'preview' | 'success', savedAt: string | null = null) =>
+      renderToStaticMarkup(
+        React.createElement(ImportsWorkflow, {
+          initialStage: stage,
+          initialPreview: stage === 'upload' ? null : mockPreview,
+          currentRevision: 1,
+          lastScheduleSavedAt: savedAt,
+        }),
+      );
+    const stepItems = (html: string) => html.match(/<li\b[^>]*class="[^"]*step-item[^"]*"[^>]*>/g) ?? [];
+
+    it('upload：<ol> 內恰 3 個步驟 <li>，第 1 個 aria-current="step"，無 role="navigation"', () => {
+      const html = renderStage('upload');
+      expect(html).toMatch(/<ol\b[^>]*class="[^"]*import-steps/);
+      const items = stepItems(html);
+      expect(items).toHaveLength(3);
+      expect(items[0]).toContain('aria-current="step"');
+      expect(items[1]).not.toContain('aria-current');
+      expect(items[2]).not.toContain('aria-current');
+      expect(html).not.toContain('role="navigation"');
+      for (const label of ['選擇檔案', '確認名單', '完成']) expect(html).toContain(label);
+    });
+
+    it('preview：步驟 1 顯示 ✓ 且無數字「1」，步驟 2 aria-current="step"', () => {
+      const html = renderStage('preview');
+      const items = stepItems(html);
+      expect(items).toHaveLength(3);
+      expect(items[1]).toContain('aria-current="step"');
+      expect(items[0]).not.toContain('aria-current');
+      const firstLi = html.slice(html.indexOf(items[0]), html.indexOf('</li>', html.indexOf(items[0])));
+      expect(firstLi).toContain('✓');
+      expect(firstLi).not.toMatch(/<span class="step-number"[^>]*>1<\/span>/);
+    });
+
+    it('upload＋課表儲存時間（2026-11-05T01:30:00Z＝台北 09:30）：步驟 1 行動說明含「目前課表：2026-11-05 09:30 已儲存」與 /settings?tab=schedule 連結，頁首無「查看課表 →」按鈕', () => {
+      const html = renderStage('upload', '2026-11-05T01:30:00.000Z');
+      expect(html).toContain('目前課表：2026-11-05 09:30 已儲存');
+      expect(html).toContain('href="/settings?tab=schedule"');
+      expect(html).not.toContain('class="btn-secondary"');
+      expect(html).not.toMatch(/<header[^>]*>[\s\S]*查看課表[\s\S]*<\/header>/);
+      // 連結位於步驟條（<ol>）內
+      const ol = html.slice(html.indexOf('<ol'), html.indexOf('</ol>'));
+      expect(ol).toContain('目前課表：2026-11-05 09:30 已儲存');
+      expect(ol).toContain('href="/settings?tab=schedule"');
     });
   });
 

@@ -50,6 +50,23 @@ test.describe('Imports Page E2E Test (R3 匯入頁一次完成使用名單)', ()
     await expect(page.locator('.step-item.step-active')).toContainText(/1\s*選擇檔案/);
     await expect(page.locator('.step-item.step-active .step-text')).toHaveText('選擇檔案'); // 文字不重複序號
     await expect(page.locator('.schedule-meta-note')).toBeVisible();
+    await expect(page.locator('ol.import-steps > li')).toHaveCount(3);
+    await expect(page.locator('ol.import-steps > li[aria-current="step"]')).toHaveCount(1);
+    // UX123：1280×800 下步驟文字 ≥ 15px、編號圓 ≥ 32px
+    await page.setViewportSize({ width: 1280, height: 800 });
+    const metrics = await page.evaluate(() => {
+      const texts = Array.from(document.querySelectorAll('ol.import-steps .step-text')).map(
+        (el) => parseFloat(getComputedStyle(el).fontSize),
+      );
+      const circles = Array.from(document.querySelectorAll('ol.import-steps .step-number')).map((el) => {
+        const r = el.getBoundingClientRect();
+        return Math.min(r.width, r.height);
+      });
+      return { texts, circles };
+    });
+    expect(metrics.texts).toHaveLength(3);
+    for (const px of metrics.texts) expect(px).toBeGreaterThanOrEqual(15);
+    for (const px of metrics.circles) expect(px).toBeGreaterThanOrEqual(32);
 
     // 檢查上傳標題（去技術化文案）
     await expect(page.locator('h2')).toContainText('上傳米豆奶匯出的學生Excel');
