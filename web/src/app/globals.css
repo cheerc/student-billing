@@ -3021,6 +3021,11 @@ select {
   font: inherit;
   color: inherit;
   cursor: pointer;
+  /* WCAG 2.5.8：點擊目標至少 24×24；外觀不變（置中對齊，不加底色／邊框） */
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  min-width: 24px;
 }
 .th-sort:hover { text-decoration: underline; }
 th[aria-sort="ascending"] .th-sort::after { content: ' ▲'; font-size: 0.7em; }
