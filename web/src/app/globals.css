@@ -1589,69 +1589,122 @@ dialog.add-class-dialog::backdrop {
    R3 Imports Workflow Styles (specs/09 §4)
    ========================================================================== */
 
-/* Step Indicator */
-.step-indicator {
+/* Step Indicator（D64 G2：引導式進度條，顏色只用 token） */
+.import-page-header {
+  margin-bottom: 20px;
+}
+
+.import-steps {
+  list-style: none;
   display: flex;
-  align-items: center;
-  gap: 16px;
-  margin-bottom: 18px;
+  align-items: flex-start;
+  gap: 12px;
+  margin: 0 0 24px;
+  padding: 0;
 }
 
 .step-item {
+  flex: 1 1 0;
+  min-width: 0;
   display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 13px;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 14px 16px;
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  background: var(--bg-card);
+  font-size: 15px;
   font-weight: 500;
   color: var(--text-muted);
 }
 
 .step-item.step-active {
+  border-color: var(--primary-color);
+  background: var(--badge-bg);
   color: var(--primary-color);
   font-weight: 700;
 }
 
 .step-item.step-done {
+  border-color: var(--success-text);
+  background: var(--success-bg);
   color: var(--success-text);
   font-weight: 600;
 }
 
 .step-number {
+  flex: none;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 22px;
-  height: 22px;
+  width: 32px;
+  height: 32px;
   border-radius: 50%;
-  font-size: 12px;
-  background: #f1f5f9;
+  font-size: 15px;
+  font-weight: 700;
+  background: var(--code-bg);
   color: var(--text-muted);
 }
 
 .step-active .step-number {
-  background: #eff6ff;
-  color: var(--primary-color);
-  border: 1px solid #bfdbfe;
+  background: var(--primary-color);
+  color: var(--bg-card);
 }
 
 .step-done .step-number {
-  background: #ecfdf5;
-  color: var(--success-text);
+  background: var(--success-text);
+  color: var(--bg-card);
 }
 
-.step-divider {
-  width: 32px;
-  height: 1px;
-  background: var(--border-color);
+.step-body {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.step-text {
+  font-size: 15px;
+  line-height: 32px;
+}
+
+.step-hint {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 12px;
+  font-size: 13px;
+  font-weight: 400;
+  color: var(--text-secondary);
+}
+
+.step-hint-link {
+  color: var(--primary-color);
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.step-hint-link:hover {
+  text-decoration: underline;
 }
 
 .schedule-meta-note {
-  display: flex;
+  display: inline-flex;
   align-items: center;
   gap: 8px;
-  font-size: 12px;
-  color: var(--text-muted);
-  margin-bottom: 20px;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.schedule-meta-note .dot {
+  width: 7px;
+  height: 7px;
+}
+
+@media (max-width: 640px) {
+  .import-steps {
+    flex-direction: column;
+  }
 }
 
 /* Upload Dropzone */
