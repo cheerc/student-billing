@@ -46,7 +46,7 @@
 
 Coordinator Rulings（Gate 1，優先於上列 Planner Rulings）：
 
-- C1: server 文字排序（`sort=name`、`grade`）使用 SQLite 預設 BINARY collation（UTF-8 碼點序），**不是** zh-Hant；client 表用 `Intl.Collator('zh-Hant')`。兩者差異於 D65 明文記載。理由：此技術棧 SQLite 無 ICU collation，明文記載優於隱藏不一致。B3 文字排序 expected 依碼點手算。
+- C1（F2 修正）: server 文字排序僅 `name`，使用 SQLite 預設 BINARY collation（UTF-8 碼點序），**不是** zh-Hant；`grade` 為 INTEGER（migrations 0002、0003），依數值排序、null 最後；client 表用 `Intl.Collator('zh-Hant')`。兩者差異於 D65 明文記載。理由：此技術棧 SQLite 無 ICU collation，明文記載優於隱藏不一致。B3 文字排序 expected 依碼點手算。
 - C2: keyset cursor 必須將 null sortValue 與任何實值區分編碼；UX127 須涵蓋「頁界落在 null 群內」與「頁界落在同值群內」，跨頁無重複無遺漏。
 - C3: 完成畫面「前往班名同步 →」條件為啟用前預覽回應之 `classNameReport.unmappedCount > 0`（欄位在 `ClassNameReportSummary`，`web/src/application/class-name-match-report.ts:223`）；不一致班名全由舊別名涵蓋（unmappedCount＝0）時不顯示連結。
 
@@ -91,7 +91,7 @@ Coordinator Rulings（Gate 1，優先於上列 Planner Rulings）：
 - 測試（RED 先行）：
   - unit：fixture preview（含 `classNameReport` mismatch>0）於 `stage='preview'` 渲染 → HTML 不含 `href="/settings?tab=sync`、不含名單表 `<table>`；含「查看異動」「預覽名單」按鈕。
   - unit：`stage='success'` 且 `unmappedCount>0` → 含連到 `/settings?tab=sync` 的「前往班名同步 →」；`unmappedCount=0` → 不含。
-  - E2E：上傳 `tests/fixtures/conforming-erp-fixture.xlsx` → 預覽頁無「前往班名同步」連結；點「查看異動」→ dialog 開啟且顯示「名冊有 12 個班名與課表不一致（其中 12 個尚未對應，影響 191 位學生）」（數字沿用 04 UX47 獨立盤點值，非 report 函式輸出）；Esc 關閉且焦點回到觸發鈕；點「預覽名單」→ 名單頁籤，列數 477（fixture 總列）；按「使用這份名單」→ 完成畫面出現「前往班名同步 →」，點擊後 URL 為 `/settings?tab=sync`。
+  - E2E：上傳 `tests/fixtures/conforming-erp-fixture.xlsx` → 預覽頁無「前往班名同步」連結；點「查看異動」→ dialog 開啟且顯示「名冊有 12 個班名與課表不一致（其中 12 個尚未對應，影響 191 位學生）」（數字沿用 04 UX47 獨立盤點值，非 report 函式輸出）；Esc 關閉且焦點回到觸發鈕；點「預覽名單」→ 名單頁籤，計數標籤 `名單預覽 (477 / 477)` 且可見 `tbody tr` 數＝100（沿用現行 `slice(0, 100)` 顯示上限，F1）；按「使用這份名單」→ 完成畫面出現「前往班名同步 →」，點擊後 URL 為 `/settings?tab=sync`。
   - 調整既有斷言：`tests/e2e/imports.spec.ts:216-217`、`class-name-report.spec.ts:96-207`、`round3-mapping-candidates-sync.spec.ts:143`、`copy-scan.spec.ts:243`、`tests/unit/imports-workflow-ui.test.ts:289-290`、`tests/unit/class-name-sync-banner-impact.test.tsx`——依 P0 改寫後的 UX47／UX121–124，不得只刪斷言。
 - 指令：`cd web && npx vitest run tests/unit/imports-workflow-ui.test.ts tests/unit/class-name-sync-banner-impact.test.tsx && npm run typecheck && npm run lint`，E2E 逐檔 `npm run test:e2e:isolated -- <file>`（列出上述 4 個 spec＋新增者，報告各檔測試數）。
 
@@ -106,7 +106,7 @@ Coordinator Rulings（Gate 1，優先於上列 Planner Rulings）：
 
 ### B2 — feat(tables)：client 資料表排序（G5）
 
-- 對象：A2 的「名單」頁籤表、「異動」頁籤的異動明細表（`roster-changes-details.tsx:127`）、班級扣天主表（`class-deductions-panel.tsx:195`）、班名同步兩表（`class-name-sync-panel.tsx:159,449`）。動作欄（按鈕）不可排序。
+- 排序作用於完整篩選後集合，再套用 100 列顯示上限（F1）；對象：A2 的「名單」頁籤表、「異動」頁籤的異動明細表（`roster-changes-details.tsx:127`）、班級扣天主表（`class-deductions-panel.tsx:195`）、班名同步兩表（`class-name-sync-panel.tsx:159,449`）。動作欄（按鈕）不可排序。
 - 新 `web/src/components/tables/use-client-sort.ts`：純函式 `sortRows(rows, def, dir)`＋hook。
 - 測試（RED 先行）：
   - unit `sortRows`：數值 `[3, null, 1, 2]` 升冪 → `[1, 2, 3, null]`、降冪 → `[3, 2, 1, null]`；ASCII 文字 `['b', null, 'a']` 升冪 → `['a', 'b', null]`；兩列同值保持輸入相對順序。中文排序案例的 expected 須在測試內寫明比較依據（`Intl.Collator('zh-Hant')`），不得以 `sortRows` 自身輸出生成。
@@ -122,7 +122,7 @@ Coordinator Rulings（Gate 1，優先於上列 Planner Rulings）：
   - `web/src/lib/results-filters.ts` 網址狀態加 `sort`；`active-run-view.tsx` 條件或排序改變時清 cursor 重查（沿用 `:304` 既有行為）。
   - 表頭：Ruling 7 之欄啟用排序按鈕。
 - 測試（RED 先行，入口為 route handler／application 查詢，沿用 `tests/integration` 既有 DB fixture 作法）：
-  - 合成學生（含 grade null 至少 3 人、同 anqin_days 至少 3 人）→ `sort=-anqinDays&limit=2`／`sort=grade&limit=2` 逐頁取完，使頁界分別落在 null 群內與同值群內（C2）→ 順序依手算表；null 在最後；同值依 personCode 升冪；跨頁無重複無遺漏。文字排序（`name`／`grade`）expected 依 UTF-8 碼點手算（C1）。
+  - 合成學生（含 grade null 至少 3 人、同 anqin_days 至少 3 人）→ `sort=-anqinDays&limit=2`／`sort=grade&limit=2` 逐頁取完，使頁界分別落在 null 群內與同值群內（C2）→ 順序依手算表；null 在最後；同值依 personCode 升冪；跨頁無重複無遺漏。`name` expected 依 UTF-8 碼點手算、`grade` 依數值手算（C1）。
   - 未帶 `sort` → 結果與以 `person_code ASC` 手算順序相同（UX128 相容）。
   - `sort=bogus`、`sort=enrollment` → 400 指名 `sort`。
   - 換 sort 沿用舊 cursor → 400（identity 不符）。

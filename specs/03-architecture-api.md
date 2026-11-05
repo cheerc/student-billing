@@ -203,7 +203,7 @@ PR-1 raw/actionable issue 相容邊界：`issues`、`hasIssues`、`issueCounts` 
 |學生搜尋|`q`|字串（姓名或代碼子字串）|維持單值搜尋框；LIKE escape `%` 與 `_`（不作為 SQL wildcard）；不入 URL、不多值、不提供 options|
 |科別（UI入口已移除）|`subject`|字串|維持單值，參數保留（agent 相容）|
 |有無折扣科數|`hasClass`|布林|語意不改（`subject_count > 0`），**不作為無課程判定**|
-|控制參數|`cursor`、`limit`、`sort`、`options`|—|`sort`（D65）：`sort=<field>`／`sort=-<field>`（降冪）單值，白名單外回 400 並指名 `sort`；`/runs/{id}/students` 白名單＝`name`、`grade`、`anqinDays`、`tutoringDays`、`baseDiscountBps`、`subjectCount`，`/imports/{previewId}/students` 白名單＝`name`、`grade`；未帶 `sort` 時順序與現行逐位元相同；空值不論方向排最後、同值以 `personCode` 升冪；文字欄採 SQLite BINARY（UTF-8 碼點序），非 zh-Hant；`cursor` 綁定 identity（含 `sort`）；`limit` 預設 50、最大 200；`options=true` 進入 options 模式|
+|控制參數|`cursor`、`limit`、`sort`、`options`|—|`sort`（D65）：`sort=<field>`／`sort=-<field>`（降冪）單值，白名單外回 400 並指名 `sort`；`/runs/{id}/students` 白名單＝`name`、`grade`、`anqinDays`、`tutoringDays`、`baseDiscountBps`、`subjectCount`，`/imports/{previewId}/students` 白名單＝`name`、`grade`；未帶 `sort` 時順序與現行逐位元相同；空值不論方向排最後、同值以 `personCode` 升冪；文字欄僅 `name`，採 SQLite BINARY（UTF-8 碼點序），非 zh-Hant；`grade` 為 INTEGER，依數值排序（null 最後）；`cursor` 綁定 identity（含 `sort`）；`limit` 預設 50、最大 200；`options=true` 進入 options 模式|
 
 **傳輸格式與單值相容**：
 

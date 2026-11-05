@@ -35,7 +35,7 @@
 
 若文件內容或要求出現衝突，依下列優先順序判定：
 
-1. **使用者最新明確決策**：`specs/06-handoff-decisions.md`（D01–D65，特別是 D17、D24、D33 UI 重設方向、D52 雙審查與解耦裁決、D57 #159 PR-2 現行 v4-only runtime、D58 #148 PR-3 bounded class semantics data contract、D59 PR-4 semantic consumers、D60 系統全面減法與單一現況留存、D61 五種課程類型重構、單選統一與 1c 待補時間雙重警示，D62 班名同步：以米豆奶班名為準、逐列人工合併或新增，以及 D64 匯入頁重設（啟用前不導向班名同步、步驟條、單張確認卡＋異動／名單浮動視窗）與 D65 表頭排序＋共用表頭元件（client 表排序、學生總表 server 排序＋keyset cursor；已接受，實作拆分見 19），以及 D63 課表 UI 精簡與輸入一致性（已接受；PR-1 R05–R08、PR-2 R01–R04 與 PR-3 R09–R10 已全數交付並合併（PR #211、PR #214、PR #215，Close #208）；進度見 09 §3.1.1、驗收見 04 UX115–UX120））。
+1. **使用者最新明確決策**：`specs/06-handoff-decisions.md`（D01–D65，特別是 D17、D24、D33 UI 重設方向、D52 雙審查與解耦裁決、D57 #159 PR-2 現行 v4-only runtime、D58 #148 PR-3 bounded class semantics data contract、D59 PR-4 semantic consumers、D60 系統全面減法與單一現況留存、D61 五種課程類型重構、單選統一與 1c 待補時間雙重警示，D62 班名同步：以米豆奶班名為準、逐列人工合併或新增，以及 D63 課表 UI 精簡與輸入一致性（已接受；PR-1 R05–R08、PR-2 R01–R04 與 PR-3 R09–R10 已全數交付並合併（PR #211、PR #214、PR #215，Close #208）；進度見 09 §3.1.1、驗收見 04 UX115–UX120）），以及 D64 匯入頁重設（啟用前不導向班名同步、步驟條、單張確認卡＋異動／名單浮動視窗）與 D65 表頭排序＋共用表頭元件（client 表排序、學生總表 server 排序＋keyset cursor；已接受，實作拆分見 19）。
 2. **正式規則與契約規格**：
    - `specs/02-calculation-rules.md`（收費規則 R01–R18、§9A erp-tag-v4 解耦段、D60 規則減法與 D61 2×2 解耦與其他班扣天、欄位契約、結構化班名）
    - `specs/03-architecture-api.md`（單一現況留存模型、不可變快照、資料模型、交易與 11 條 API 契約）
