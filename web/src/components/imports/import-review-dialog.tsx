@@ -5,6 +5,9 @@ import type { StudentSnapshot } from '@/domain/students';
 import type { PreviewWithDiff } from '@/components/imports/imports-workflow';
 import { ClassNameReportSummaryCard } from '@/components/imports/class-name-report-summary';
 import { RosterChangesDetails } from '@/components/imports/roster-changes-details';
+import TableHeaderCell from '@/components/tables/table-header-cell';
+import { useClientSort } from '@/components/tables/use-client-sort';
+import type { ColumnDef } from '@/components/tables/column-def';
 import { restoreFocusToOpener } from '@/components/ui/restore-focus-to-opener';
 
 export type ReviewTab = 'changes' | 'list';
@@ -24,6 +27,18 @@ interface ImportReviewDialogProps {
   filteredStudents: StudentSnapshot[];
 }
 
+/** 名單頁籤表格欄位（D65 G5）：序號／報名班級為版面與多值欄，不可排序。 */
+const LIST_COLUMNS: readonly ColumnDef<StudentSnapshot>[] = [
+  { key: 'seq', label: '序號' },
+  { key: 'personCode', label: '人員代碼', sort: { type: 'text', accessor: (s) => s.personCode } },
+  { key: 'name', label: '姓名', sort: { type: 'text', accessor: (s) => s.name } },
+  { key: 'grade', label: '年級', sort: { type: 'number', accessor: (s) => s.grade ?? null } },
+  { key: 'branch', label: '所屬分校', sort: { type: 'text', accessor: (s) => s.branch || null } },
+  { key: 'enrollments', label: '報名班級' },
+  { key: 'tags', label: '標籤', sort: { type: 'text', accessor: (s) => s.tagsRaw || null } },
+  { key: 'notes', label: '備註', sort: { type: 'text', accessor: (s) => s.notesRaw || null } },
+];
+
 /**
  * 匯入預覽的「異動／名單」浮動視窗（D64 G3，UX124）。
  * 原生 <dialog>.showModal()；關閉（含 Esc）後焦點回到觸發鈕（同 settings/impact-dialog.tsx）。
@@ -42,6 +57,7 @@ export function ImportReviewDialog({
   filteredStudents,
 }: ImportReviewDialogProps) {
   const dialogRef = useRef<HTMLDialogElement>(null);
+  const columnSort = useClientSort(LIST_COLUMNS);
 
   // 記住觸發元素：本元件每次開啟都是全新掛載，故於首次 render（showModal 之前）擷取 activeElement。
   // 不放進 effect：dev StrictMode 會重跑 effect，那時焦點已被 showModal 移進視窗內，會誤記成視窗內的按鈕。
@@ -71,6 +87,9 @@ export function ImportReviewDialog({
   }, [isOpen, onClose]);
 
   if (!isOpen) return null;
+
+  // 排序作用於完整篩選後集合，再套用 100 列顯示上限（D65／UX126 (e)）。
+  const sortedStudents = columnSort.apply(filteredStudents);
 
   const diff = preview.rosterDiff;
   const hasBase = !!diff && diff.baseImportId !== null;
@@ -193,18 +212,13 @@ export function ImportReviewDialog({
           <table className="data-table">
             <thead>
               <tr>
-                <th style={{ width: '48px' }}>序號</th>
-                <th>人員代碼</th>
-                <th>姓名</th>
-                <th>年級</th>
-                <th>所屬分校</th>
-                <th>報名班級</th>
-                <th>標籤</th>
-                <th>備註</th>
+                {LIST_COLUMNS.map((c) => (
+                  <TableHeaderCell key={c.key} column={c} style={c.key === 'seq' ? { width: '48px' } : undefined} sort={columnSort.headerSort(c.key)} />
+                ))}
               </tr>
             </thead>
             <tbody>
-              {filteredStudents.slice(0, 100).map((stu, idx) => (
+              {sortedStudents.slice(0, 100).map((stu, idx) => (
                 <tr key={stu.personCode}>
                   <td style={{ color: 'var(--text-muted)' }}>{idx + 1}</td>
                   <td className="code-text" style={{ fontWeight: 600 }}>{stu.personCode}</td>
@@ -255,7 +269,7 @@ export function ImportReviewDialog({
                   </td>
                   <td>
                     {stu.tagsRaw ? (
-                      <span style={{ fontSize: '0.75rem', color: '#1d4ed8' }}>{stu.tagsRaw}</span>
+                      <span style={{ fontSize: '0.75rem', color: 'var(--badge-text)' }}>{stu.tagsRaw}</span>
                     ) : (
                       '-'
                     )}
