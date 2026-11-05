@@ -53,3 +53,50 @@ test.describe('UX26：班級扣天狀態涵蓋安親與課輔兩側', () => {
     }
   });
 });
+
+/**
+ * UX126（D65 G5）：班級扣天表頭排序。兩態切換，點另一欄從升冪開始、前一欄失去 aria-sort；動作類欄位無排序鈕。
+ */
+test.describe('UX126：班級扣天表頭排序', () => {
+  test('點「班級」→ ascending，再點 → descending，點「老師」→ 老師 ascending 且班級無 aria-sort', async ({ page }) => {
+    await page.goto('/imports');
+    await page.locator('input[type="file"]').setInputFiles(path.resolve(__dirname, '../fixtures/conforming-erp-fixture.xlsx'));
+    await expect(page.locator('.stats-grid')).toBeVisible({ timeout: 15000 });
+    await page.locator('button', { hasText: '使用這份名單' }).click();
+    await expect(page.getByText(/\d+ 位學生資料已備妥/)).toBeVisible({ timeout: 15000 });
+
+    await page.goto('/?view=deductions');
+    await page.locator('button[role="tab"]', { hasText: '班級扣天' }).click();
+    const table = page.locator('.deductions-table');
+    await expect(table).toBeVisible();
+
+    const classTh = table.locator('thead th', { hasText: '班級' }).first();
+    const teacherTh = table.locator('thead th', { hasText: '老師' }).first();
+    await expect(classTh).not.toHaveAttribute('aria-sort', /.+/);
+
+    await classTh.locator('button.th-sort').click();
+    await expect(classTh).toHaveAttribute('aria-sort', 'ascending');
+    await classTh.locator('button.th-sort').click();
+    await expect(classTh).toHaveAttribute('aria-sort', 'descending');
+
+    await teacherTh.locator('button.th-sort').click();
+    await expect(teacherTh).toHaveAttribute('aria-sort', 'ascending');
+    await expect(classTh).not.toHaveAttribute('aria-sort', /.+/);
+
+    // 降冪時安親實際扣除欄：第一列是全表最大值（以頁面上全部列讀出的數字獨立比較）
+    const actualTh = table.locator('thead th', { hasText: '安親實際扣除' }).first();
+    await actualTh.locator('button.th-sort').click();
+    await actualTh.locator('button.th-sort').click();
+    await expect(actualTh).toHaveAttribute('aria-sort', 'descending');
+    const col = await table.locator('tbody > tr:not(.ded-expanded)').evaluateAll((trs) =>
+      trs.map((tr) => Number(tr.querySelectorAll('td')[4]?.textContent ?? 'NaN')),
+    );
+    expect(col.length).toBeGreaterThan(40);
+    expect(col[0]).toBe(Math.max(...col));
+    for (let i = 1; i < col.length; i++) expect(col[i - 1]!).toBeGreaterThanOrEqual(col[i]!);
+
+    // 無排序鈕的欄：上課時間
+    const timeTh = table.locator('thead th', { hasText: '上課時間' }).first();
+    await expect(timeTh.locator('button.th-sort')).toHaveCount(0);
+  });
+});

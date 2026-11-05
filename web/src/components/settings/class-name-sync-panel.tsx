@@ -2,6 +2,9 @@
 
 import React, { useState, useMemo } from 'react';
 import type { ClassNameSyncReport, ClassNameSyncSystemOnly } from '@/application/class-name-match-report';
+import TableHeaderCell from '@/components/tables/table-header-cell';
+import { useClientSort } from '@/components/tables/use-client-sort';
+import type { ColumnDef } from '@/components/tables/column-def';
 import { CLASS_TYPE_LABELS, type ScheduleGridRow, type AliasMapping, type ClassType } from '@/contracts/settings';
 
 export interface ClassNameSyncPanelProps {
@@ -25,6 +28,27 @@ export interface ClassNameSyncPanelProps {
 
 const CLASS_TYPE_ORDER: ClassType[] = ['care', 'english', 'math', 'other', 'unscheduled'];
 
+type SyncMismatch = NonNullable<ClassNameSyncReport['mismatches']>[number];
+
+/** 差異表欄位（D65 G5）：「現況」含暫存狀態、「動作」為按鈕，不排序。 */
+const MISMATCH_COLUMNS: readonly ColumnDef<SyncMismatch>[] = [
+  { key: 'erpBaseName', label: '米豆奶班名', sort: { type: 'text', accessor: (m) => m.erpBaseName } },
+  { key: 'students', label: '學生', sort: { type: 'number', accessor: (m) => m.students } },
+  { key: 'status', label: '現況' },
+  { key: 'action', label: '動作' },
+];
+
+const MISMATCH_WIDTHS: Record<string, string> = { erpBaseName: '25%', students: '18%', status: '27%', action: '30%' };
+
+/** 「課表有、本次名冊沒有」表欄位。 */
+const SYSTEM_ONLY_COLUMNS: readonly ColumnDef<ClassNameSyncSystemOnly>[] = [
+  { key: 'baseName', label: '課表班名', sort: { type: 'text', accessor: (c) => c.baseName } },
+  { key: 'classType', label: '課程類型', sort: { type: 'text', accessor: (c) => CLASS_TYPE_LABELS[c.classType] } },
+  { key: 'sessionCount', label: '時段數', sort: { type: 'number', accessor: (c) => c.sessionCount } },
+  { key: 'active', label: '狀態', sort: { type: 'text', accessor: (c) => (c.active ? '啟用中' : '已停用') } },
+  { key: 'legacyAliasFrom', label: '舊別名來源', sort: { type: 'text', accessor: (c) => (c.legacyAliasFrom.length > 0 ? c.legacyAliasFrom.join('、') : null) } },
+];
+
 export function ClassNameSyncPanel({
   report,
   rows = [],
@@ -47,6 +71,8 @@ export function ClassNameSyncPanel({
   );
   const [selectedTargetMap, setSelectedTargetMap] = useState<Record<string, string>>({});
   const [selectedClassTypeMap, setSelectedClassTypeMap] = useState<Record<string, ClassType>>({});
+  const mismatchSort = useClientSort(MISMATCH_COLUMNS);
+  const systemOnlySort = useClientSort(SYSTEM_ONLY_COLUMNS);
 
   // 整理已被暫存改名的課表班級集合（避免其他列重複選擇）
   const claimedSystemNames = useMemo(() => {
@@ -158,14 +184,13 @@ export function ClassNameSyncPanel({
             <table className="data-table sync-mismatch-table" style={{ width: '100%', borderCollapse: 'collapse' }}>
               <thead>
                 <tr>
-                  <th style={{ width: '25%' }}>米豆奶班名</th>
-                  <th style={{ width: '18%' }}>學生</th>
-                  <th style={{ width: '27%' }}>現況</th>
-                  <th style={{ width: '30%' }}>動作</th>
+                  {MISMATCH_COLUMNS.map((c) => (
+                    <TableHeaderCell key={c.key} column={c} style={{ width: MISMATCH_WIDTHS[c.key] }} sort={mismatchSort.headerSort(c.key)} />
+                  ))}
                 </tr>
               </thead>
               <tbody>
-                {mismatches.map((m) => {
+                {mismatchSort.apply(mismatches).map((m) => {
                   const erpName = m.erpBaseName;
                   const isStagedRename = stagedRenames.has(erpName);
                   const isStagedNew = stagedNewClasses.has(erpName);
@@ -448,15 +473,13 @@ export function ClassNameSyncPanel({
               <table className="data-table" style={{ width: '100%' }}>
                 <thead>
                   <tr>
-                    <th>課表班名</th>
-                    <th>課程類型</th>
-                    <th>時段數</th>
-                    <th>狀態</th>
-                    <th>舊別名來源</th>
+                    {SYSTEM_ONLY_COLUMNS.map((c) => (
+                      <TableHeaderCell key={c.key} column={c} sort={systemOnlySort.headerSort(c.key)} />
+                    ))}
                   </tr>
                 </thead>
                 <tbody>
-                  {systemOnly.map((c) => (
+                  {systemOnlySort.apply(systemOnly).map((c) => (
                     <tr key={c.baseName}>
                       <td style={{ fontWeight: 600 }}>{c.baseName}</td>
                       <td>{CLASS_TYPE_LABELS[c.classType]}</td>

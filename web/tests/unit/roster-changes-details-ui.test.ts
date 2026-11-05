@@ -102,7 +102,8 @@ describe('PR-2 逐人明細：表頭與欄位契約', () => {
     const html = render([
       change({ dayChange: { beforeAnqinDays: 5, afterAnqinDays: 4, beforeTutoringDays: 5, afterTutoringDays: 5, classBreakdown: ONE_BREAKDOWN } }),
     ]);
-    const headers = [...html.matchAll(/<th>([^<]*)<\/th>/g)].map((m) => m[1]);
+    // B2：可排序欄的表頭文字在排序鈕內；取 <th> 內去除標籤後的文字
+    const headers = [...html.matchAll(/<th[^>]*>(.*?)<\/th>/g)].map((m) => m[1]!.replace(/<[^>]+>/g, ''));
     expect(headers).toEqual(['學生', '狀態', '報名異動', '折扣變動', '安親天數', '課輔天數']);
     expect(html).toMatch(/<td colSpan="6">/);
     expect(html).not.toMatch(/<td colSpan="7">/);

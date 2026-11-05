@@ -277,6 +277,28 @@ test.describe('Imports Page E2E Test (R3 匯入頁一次完成使用名單)', ()
     expect(Number(pillText), '課表設定的班名同步頁籤應顯示 12 個不一致班名').toBe(12);
   });
 
+  test('UX126 (e)：名單頁籤排序作用於完整篩選後集合，再取前 100 列（fixture 477 列）', async ({ page }) => {
+    await page.goto('/imports');
+    await page.locator('input[type="file"]').setInputFiles(path.resolve(__dirname, '../fixtures/conforming-erp-fixture.xlsx'));
+    await expect(page.locator('.stats-grid')).toBeVisible({ timeout: 15000 });
+    const dialog = await openReviewDialog(page, 'list');
+    const table = dialog.locator('.data-table');
+    const codeTh = table.locator('thead th', { hasText: '人員代碼' });
+
+    await codeTh.locator('button.th-sort').click();
+    await expect(codeTh).toHaveAttribute('aria-sort', 'ascending');
+    await expect(table.locator('tbody tr')).toHaveCount(100);
+    await expect(table.locator('tbody tr').first()).toContainText('STU0001');
+
+    // 降冪：第一列是全集最大（STU0477 在原始順序最後一列，不在前 100 列內），仍只顯示 100 列
+    await codeTh.locator('button.th-sort').click();
+    await expect(codeTh).toHaveAttribute('aria-sort', 'descending');
+    await expect(table.locator('tbody tr')).toHaveCount(100);
+    await expect(table.locator('tbody tr').first()).toContainText('STU0477');
+    // 序號欄不可排序
+    await expect(table.locator('thead th', { hasText: '序號' }).locator('button.th-sort')).toHaveCount(0);
+  });
+
   test('UX124：視窗寬高規格與 390×844 無水平捲動', async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 900 });
     await page.goto('/imports');
