@@ -6,6 +6,8 @@ import { DeductionsResponse } from '@/application/schedule-deductions';
 import { PreviewClass, PreviewRow, PreviewRowGroup } from '@/application/schedule-preview';
 import { CareStatus, combineCareStatuses } from '@/application/care-status';
 import { HeaderFilter, FilterChips, type FilterSection, type ChipItem } from '@/components/filters/header-filter';
+import { columnLabels, type ColumnDef } from '@/components/tables/column-def';
+import TableHeaderCell from '@/components/tables/table-header-cell';
 import {
   BLANK,
   DEDUCTION_FILTER_FIELDS,
@@ -32,16 +34,18 @@ import {
  * 標「尚未匯入學生，可先檢查扣天」——不得宣告帳單已對帳正確。
  */
 
-export const classDeductionsColumns = [
-  '班級',
-  '老師',
-  '上課時間',
-  '安親原始扣除',
-  '安親實際扣除',
-  '課輔原始扣除',
-  '課輔實際扣除',
-  '狀態',
-] as const;
+const CLASS_DEDUCTION_COLUMN_DEFS = [
+  { key: 'class', label: '班級', filterKey: 'dClass' },
+  { key: 'teacher', label: '老師', filterKey: 'dTeacher' },
+  { key: 'time', label: '上課時間' },
+  { key: 'anqinRaw', label: '安親原始扣除', className: 'number cblue' },
+  { key: 'anqinActual', label: '安親實際扣除', className: 'number cblue' },
+  { key: 'tutoringRaw', label: '課輔原始扣除', className: 'number cblue' },
+  { key: 'tutoringActual', label: '課輔實際扣除', className: 'number cblue' },
+  { key: 'status', label: '狀態', filterKey: 'dStatus' },
+] as const satisfies readonly ColumnDef[];
+
+export const classDeductionsColumns = columnLabels(CLASS_DEDUCTION_COLUMN_DEFS);
 
 /** 扣除值 → 正量字串；原始三位小數、實際半天單位。domain 負值在此轉為正量顯示。 */
 export function formatDeduction(v: number | null, digits: 0 | 3): string {
@@ -194,15 +198,14 @@ export function ClassDeductionsPanel({ data, onEditClass, expandedClassKey, unav
         <table className="data-table deductions-table">
           <thead>
             <tr>
-              {classDeductionsColumns.map((c, i) => (
-                <th key={c} className={i >= 3 && i <= 6 ? 'number cblue' : undefined}>
-                  {c}
-                  {i >= 3 && i <= 6 ? <span className="th-unit">天</span> : null}
-                  {c === '班級' ? filterFor('dClass', '班級') : null}
-                  {c === '老師' ? filterFor('dTeacher', '老師') : null}
-                  {c === '狀態' ? filterFor('dStatus', '狀態') : null}
-                </th>
-              ))}
+              {CLASS_DEDUCTION_COLUMN_DEFS.map((c) => {
+                const numeric = 'className' in c;
+                return (
+                  <TableHeaderCell key={c.key} column={c} filter={'filterKey' in c ? filterFor(c.filterKey, c.label) : null}>
+                    {numeric ? <span className="th-unit">天</span> : null}
+                  </TableHeaderCell>
+                );
+              })}
             </tr>
           </thead>
           <tbody>

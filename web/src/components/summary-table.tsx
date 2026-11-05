@@ -7,6 +7,8 @@ import { applicableRateForClass, type RunClassCategorySnapshot } from '@/applica
 import { parseTagDiscounts } from '@/domain/billing/discount-rules';
 import { InfoTip } from './ui/info-tip';
 import { issueLabel } from '@/lib/issue-copy';
+import { columnLabels, type ColumnDef } from './tables/column-def';
+import TableHeaderCell from './tables/table-header-cell';
 
 /**
  * 學生總表（09 §5.1）。
@@ -23,21 +25,27 @@ import { issueLabel } from '@/lib/issue-copy';
  * 重複說明（合計折扣與指定課程的差別）只放在表頭 tooltip，不逐列重複（O01）。
  */
 
-/** 預設欄位（順序即規格順序；匯入此表以維持欄位定義唯一來源）。 */
-export const STUDENT_TABLE_COLUMNS = [
-  '姓名',
-  '年級',
-  '所屬班級',
-  '安親天數',
-  '課輔天數',
-  '額外扣天',
-  '合計折扣',
-  '已補科數',
-  '兄弟姊妹折扣',
-  '特殊折扣',
-  '園內生',
-  '需確認',
-] as const;
+/** 預設欄位定義（順序即規格順序；欄名清單由此推導，維持欄位定義唯一來源）。 */
+const STUDENT_COLUMN_DEFS = [
+  { key: 'name', label: '姓名', className: 'sticky-name' },
+  { key: 'grade', label: '年級', filterKey: 'grade' },
+  { key: 'enrollment', label: '所屬班級', filterKey: 'enrollment' },
+  { key: 'anqinDays', label: '安親天數', className: 'cblue', filterKey: 'anqinDays' },
+  { key: 'tutoringDays', label: '課輔天數', className: 'cblue', filterKey: 'tutoringDays' },
+  { key: 'extra', label: '額外扣天', filterKey: 'extra' },
+  { key: 'baseDiscount', label: '合計折扣', filterKey: 'baseDiscount' },
+  { key: 'supplement', label: '已補科數' },
+  { key: 'sibling', label: '兄弟姊妹折扣', filterKey: 'sibling' },
+  { key: 'special', label: '特殊折扣', filterKey: 'special' },
+  { key: 'internal', label: '園內生', filterKey: 'internal' },
+  { key: 'review', label: '需確認', filterKey: 'review' },
+] as const satisfies readonly ColumnDef[];
+
+const APPLICABLE_COLUMN: ColumnDef = { key: 'applicable', label: '本班適用折扣', filterKey: 'applicable' };
+
+const colDef = (key: (typeof STUDENT_COLUMN_DEFS)[number]['key']) => STUDENT_COLUMN_DEFS.find((d) => d.key === key)!;
+
+export const STUDENT_TABLE_COLUMNS = columnLabels(STUDENT_COLUMN_DEFS);
 
 /** 表頭篩選觸發鈕的欄位代號（由呼叫端決定要放哪個篩選元件）。 */
 export type StudentColumnKey =
@@ -182,27 +190,27 @@ export default function SummaryTable({
         <table className="data-table results-table">
           <thead>
             <tr>
-              <th className="sticky-name">姓名</th>
-              <th>年級{f('grade')}</th>
-              <th>所屬班級{f('enrollment')}</th>
-              <th className="cblue">安親天數{f('anqinDays')}</th>
-              <th className="cblue">課輔天數{f('tutoringDays')}</th>
-              <th>額外扣天{f('extra')}</th>
-              <th>
-                合計折扣 <InfoTip label="合計折扣說明">對應基本率；指定課程可能另有調整</InfoTip>
-                {f('baseDiscount')}
-              </th>
+              <TableHeaderCell column={colDef('name')} />
+              <TableHeaderCell column={colDef('grade')} filter={f('grade')} />
+              <TableHeaderCell column={colDef('enrollment')} filter={f('enrollment')} />
+              <TableHeaderCell column={colDef('anqinDays')} filter={f('anqinDays')} />
+              <TableHeaderCell column={colDef('tutoringDays')} filter={f('tutoringDays')} />
+              <TableHeaderCell column={colDef('extra')} filter={f('extra')} />
+              <TableHeaderCell column={colDef('baseDiscount')} filter={f('baseDiscount')}>
+                {' '}
+                <InfoTip label="合計折扣說明">對應基本率；指定課程可能另有調整</InfoTip>
+              </TableHeaderCell>
               {singleClass !== null && (
-                <th>
-                  本班適用折扣 <InfoTip label="本班適用折扣說明">這個班適用的最終折扣，與合計折扣並列、不取代它。「未設定」＝這個班尚未設定適用折扣（不是 100%）；「—」＝這位學生無法判定。</InfoTip>
-                  {f('applicable')}
-                </th>
+                <TableHeaderCell column={APPLICABLE_COLUMN} filter={f('applicable')}>
+                  {' '}
+                  <InfoTip label="本班適用折扣說明">這個班適用的最終折扣，與合計折扣並列、不取代它。「未設定」＝這個班尚未設定適用折扣（不是 100%）；「—」＝這位學生無法判定。</InfoTip>
+                </TableHeaderCell>
               )}
-              <th>已補科數</th>
-              <th>兄弟姊妹折扣{f('sibling')}</th>
-              <th>特殊折扣{f('special')}</th>
-              <th>園內生{f('internal')}</th>
-              <th>需確認{f('review')}</th>
+              <TableHeaderCell column={colDef('supplement')} />
+              <TableHeaderCell column={colDef('sibling')} filter={f('sibling')} />
+              <TableHeaderCell column={colDef('special')} filter={f('special')} />
+              <TableHeaderCell column={colDef('internal')} filter={f('internal')} />
+              <TableHeaderCell column={colDef('review')} filter={f('review')} />
             </tr>
           </thead>
           <tbody>
