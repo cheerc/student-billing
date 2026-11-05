@@ -69,6 +69,7 @@ describe('Rework B1 實質斷言：被略過的資料列在 UI 看得見（真�
     const html = renderToStaticMarkup(
       React.createElement(ImportsWorkflow, {
         initialStage: 'preview',
+        initialReviewTab: 'changes',
         initialPreview: preview,
         currentRevision: 0,
         lastScheduleSavedAt: null,
@@ -98,6 +99,7 @@ describe('Rework B1 實質斷言：被略過的資料列在 UI 看得見（真�
     const html = renderToStaticMarkup(
       React.createElement(ImportsWorkflow, {
         initialStage: 'preview',
+        initialReviewTab: 'changes',
         initialPreview: preview,
         currentRevision: 0,
         lastScheduleSavedAt: null,
