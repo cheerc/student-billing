@@ -349,7 +349,7 @@ Playwright 最小完整旅程：
 |UX113（#189 D62 新增）|未處理列持續保留且無批次／略過控制項（Operator Q1）|只同步其中一列並儲存、重新載入後，未處理列（例：交通車）仍留在差異表；畫面上不存在「全部同步／批次同步／一鍵合併／略過／隱藏」控制項。測試：`class-name-sync-panel.test.tsx`、`class-name-sync.spec.ts`|unit/E2E|
 |UX114（#189 D62 新增；課表橫幅展示由 Operator 2026-11-02 核准方向／Issue #203 取代）|課表頂端資訊精簡、上層班名同步入口保留、類型頁籤幾何與鍵盤操作|課表頁不顯示窗口摘要列或 ScheduleGrid 班名不一致橫幅／其同步按鈕；班名同步頁籤及其不一致數量徽章、差異列表、匯入預覽摘要卡與 `/settings?tab=mapping` 相容行為保留。五個課程類型頁籤保持固定順序與 0 班頁籤；桌面距卡片左右 20px、窄螢幕 16px、按鈕左右 padding 12px；D63 落地前頁籤底線至搜尋工具列外框固定單一 8 CSS px 間距（桌面與窄螢幕相同），移除工具列後改依 UX115 驗收；班名視覺層級高於數量／待補數；窄螢幕只有頁籤容器橫捲、整頁不溢位；Arrow／Home／End、ARIA 與可見焦點保留；不改共用 `.tabs`。測試：`settings-schedule-grid-ui.test.ts`、`class-name-sync-banner-impact.test.tsx`、`class-name-sync.spec.ts`、`schedule-class-type-tabs.spec.ts`、`schedule-grid-workflow.spec.ts`|unit/E2E/視覺|
 
-**D64／D65（Issue #219／#220）目標驗收（決策已接受；實作拆分見 [19](19-import-redesign-and-table-sort-plan.md)，P0 docs 僅寫契約，UX121–UX128 實作前皆為目標列，**不等於已完成**）**：UX121–UX124 為 D64 匯入頁重設，UX125–UX128 為 D65 表頭排序；UX47 已由 D64 改寫。
+**D64／D65（Issue #219／#220）目標驗收（決策已接受；實作拆分見 [19](19-import-redesign-and-table-sort-plan.md)，P0 docs 僅寫契約，UX121–UX128 實作前皆為目標列，**不等於已完成**）**：UX121–UX124 為 D64 匯入頁重設，UX125–UX128 為 D65 表頭排序；UX47 已由 D64 改寫。 進度：UX127、UX128（B3 學生總表 server 排序與 keyset cursor）已由 PR B3 實作；其餘列仍為目標列。
 
 **D63／Issue #208 目標驗收（已接受；PR-1、PR-2、PR-3 已全數交付 UX115–UX120，PR #211、PR #214、PR #215 已合併，Close #208）**：行為契約以 09 §3.1.1 為準。UX106 五類欄位與 UX108 待補流程不變；UX109 的課表新增類型選單改為 UX117，班名同步新增仍依 D62；UX114 的舊工具列間距改為 UX115。各階段標記完成範圍，不把下表視為已通過報告。
 

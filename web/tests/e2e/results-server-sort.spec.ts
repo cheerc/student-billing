@@ -5,7 +5,7 @@ import { ensureB2Activated, allStudents } from './helpers/b2-roster';
 const sortButton = (page: Page, label: string) => page.locator('.results-table thead th').filter({ hasText: label }).getByRole('button', { name: new RegExp(`^${label}( [▲▼])?$`) });
 const header = (page: Page, label: string) => page.locator('.results-table thead th').filter({ hasText: label });
 
-type S = { name: string; anqinDays: number | null };
+type S = { name: string; anqinDays?: number | null };
 async function firstRowDays(page: Page, students: S[]): Promise<number | null | undefined> {
   const name = await firstRowName(page);
   return students.find((s) => s.name === name)?.anqinDays;
