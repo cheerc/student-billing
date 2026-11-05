@@ -1679,6 +1679,9 @@ dialog.add-class-dialog::backdrop {
 }
 
 .step-hint-link {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
   color: var(--primary-color);
   font-weight: 600;
   text-decoration: none;

@@ -36,7 +36,7 @@ import {
 const FIXTURE = path.resolve(__dirname, '../fixtures/conforming-erp-fixture.xlsx');
 
 /** scan() 呼叫次數（每個頁面狀態一次，標籤不得重複）。 */
-const EXPECTED_STATES = 39; // #112 PR-1C/PR-2 原為 49；#155 移除 2 處課程類型切換確認對話框掃描（非安親轉安親、安親轉非安親）→ 47
+const EXPECTED_STATES = 41; // D64／A2：新增「查看異動視窗」「預覽名單視窗」2 個掃描狀態（39→41）。以下為歷史： #112 PR-1C/PR-2 原為 49；#155 移除 2 處課程類型切換確認對話框掃描（非安親轉安親、安親轉非安親）→ 47
 
 /** 09 §7 文案表 ＋ 任務清單：日常介面不得出現。 */
 const FORBIDDEN: Array<{ term: string; re: RegExp }> = [

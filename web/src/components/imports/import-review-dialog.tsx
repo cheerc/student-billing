@@ -44,13 +44,15 @@ export function ImportReviewDialog({
   const dialogRef = useRef<HTMLDialogElement>(null);
   const openerRef = useRef<HTMLElement | null>(null);
 
-  // 記住觸發元素；宣告順序須在 showModal 的 effect 之前（那時 activeElement 仍是被點的按鈕）。
+  // 記住觸發元素：本元件每次開啟都是全新掛載，故於首次 render（showModal 之前）擷取 activeElement。
+  // 不放進 effect：dev StrictMode 會重跑 effect，那時焦點已被 showModal 移進視窗內，會誤記成視窗內的按鈕。
+  if (openerRef.current === null && isOpen && typeof document !== 'undefined') {
+    openerRef.current = document.activeElement as HTMLElement | null;
+  }
   useEffect(() => {
     if (!isOpen) return;
-    openerRef.current = document.activeElement as HTMLElement | null;
     return () => restoreFocusToOpener(openerRef.current);
   }, [isOpen]);
-
   useEffect(() => {
     const dialog = dialogRef.current;
     if (isOpen && dialog && !dialog.open) dialog.showModal();

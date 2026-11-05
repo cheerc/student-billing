@@ -112,8 +112,6 @@ test.describe('班名比對報告（D1，D62 併入「班名同步」）', () =>
 
     // 完整清單：課表設定「班名同步」（已啟用的現行名單，不需 ?import=）
     await expect(page).toHaveURL(/\/settings\?tab=sync$/);
-    // 完整清單：課表設定「班名同步」
-    await expect(page).toHaveURL(/\/settings\?tab=sync&import=/);
     const panel = panelOf(page);
     await expect(panel).toBeVisible({ timeout: 15000 });
 
