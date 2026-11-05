@@ -5,7 +5,6 @@ import Link from 'next/link';
 import { ImportPreviewResult } from '@/application/import-preview';
 import type { RosterChange } from '@/application/roster-changes';
 import { StudentSnapshot } from '@/domain/students';
-import { RosterChangesDetails } from './roster-changes-details';
 import {
   describeActivateError,
   describeImportUploadError,
@@ -14,7 +13,7 @@ import {
   type UserFacingError,
 } from '@/lib/user-messages';
 import { ErrorNotice } from '@/components/ui/error-notice';
-import { ClassNameReportSummaryCard } from '@/components/imports/class-name-report-summary';
+import { ImportReviewDialog, type ReviewTab, type StudentFilterMode } from '@/components/imports/import-review-dialog';
 import type { ClassNameReportSummary } from '@/application/class-name-match-report';
 import { formatDateTime, todayInTaipei } from '@/lib/datetime';
 import { ImportSteps } from '@/components/imports/import-steps';
@@ -30,7 +29,7 @@ import { announceImportActivated } from '@/lib/import-success-guide';
  * 但 #83 起畫面不消費：米豆奶每次匯出的檔名固定，「已經上傳過同名檔案」只會讓行政人員
  * 誤以為上傳失敗或選錯舊檔。詳見 preview route 的說明。
  */
-type PreviewWithDiff = ImportPreviewResult & {
+export type PreviewWithDiff = ImportPreviewResult & {
   isDuplicate?: boolean;
   duplicateReason?: 'same_file' | 'same_content';
   rosterDiff?: {
@@ -63,6 +62,8 @@ export function resolveActivationImportId(preview: { previewId: string; batchId?
 interface ImportsWorkflowProps {
   initialStage?: 'upload' | 'preview' | 'success';
   initialPreview?: PreviewWithDiff | null;
+  /** 初始開啟的浮動視窗頁籤（預設關閉；測試與 SSR 用）。 */
+  initialReviewTab?: ReviewTab | null;
   activatedCount?: number;
   currentRevision: number;
   lastScheduleSavedAt?: string | null;
@@ -71,6 +72,7 @@ interface ImportsWorkflowProps {
 export function ImportsWorkflow({
   initialStage = 'upload',
   initialPreview = null,
+  initialReviewTab = null,
   activatedCount: defaultActivatedCount = 0,
   currentRevision,
   lastScheduleSavedAt = null,
@@ -99,7 +101,9 @@ export function ImportsWorkflow({
 
   // 篩選與搜尋狀態
   const [searchQuery, setSearchQuery] = useState('');
-  const [filterMode, setFilterMode] = useState<'all' | 'with-class' | 'no-class' | 'withdrawn'>('all');
+  const [filterMode, setFilterMode] = useState<StudentFilterMode>('all');
+  // 浮動視窗：null＝關閉；開啟時為目前頁籤（D64 G3）
+  const [reviewTab, setReviewTab] = useState<ReviewTab | null>(initialReviewTab);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -309,7 +313,10 @@ export function ImportsWorkflow({
                 </span>
                 <span className="stat-sub">請至米豆奶辦理離籍</span>
                 {preview.stats.studentsWithoutClass > 0 && (
-                  <button type="button" className="link-button" onClick={() => setFilterMode('no-class')}>
+                  <button type="button" className="link-button" onClick={() => {
+                      setFilterMode('no-class');
+                      setReviewTab('list');
+                    }}>
                     只看無課程的學生
                   </button>
                 )}
@@ -323,162 +330,22 @@ export function ImportsWorkflow({
               </div>
             </div>
 
-            {/* 相對於現行名單的差異統計（specs/09 §4：需 API 真實提供；異動以計算結果判定） */}
-            {preview.rosterDiff && preview.rosterDiff.baseImportId !== null && (
-              <>
-                <div className="roster-diff-bar" role="status">
-                  <span className="roster-diff-label">與目前名單相比</span>
-                  <span className="roster-diff-item" data-diff="new">
-                    新增 <strong>{preview.rosterDiff.newStudents}</strong> 人
-                  </span>
-                  <span className="roster-diff-item" data-diff="changed">
-                    異動 <strong>{preview.rosterDiff.changedStudents}</strong> 人
-                  </span>
-                  <span className="roster-diff-item" data-diff="not-appeared">
-                    未出現 <strong>{preview.rosterDiff.notAppearedStudents}</strong> 人
-                  </span>
-                </div>
-                <div className="roster-changes-wrap">
-                  <RosterChangesDetails changes={preview.rosterDiff.changes ?? []} />
-                </div>
-              </>
-            )}
+            {/* 一行計數提示：與目前名單相比的異動數字與略過資料列數；略過 > 0 時以 warning 樣式提醒（UX124） */}
+            <p className={`import-count-hint${preview.issues.length > 0 ? ' is-warning' : ''}`}>
+              {preview.rosterDiff && preview.rosterDiff.baseImportId !== null
+                ? `與目前名單相比：新增 ${preview.rosterDiff.newStudents} 人、異動 ${preview.rosterDiff.changedStudents} 人、未出現 ${preview.rosterDiff.notAppearedStudents} 人；`
+                : ''}
+              {`略過資料列 ${preview.issues.length} 筆`}
+            </p>
 
-            {/*
-              匯入注意事項（Rework B1，PR #31 REJECTED）：
-              erp-reader 對空白人員代碼等狀況會記 issue 後略過該列，該列不進名冊。
-              這裡必須照實呈現（含列號／欄名／原因），否則畫面只顯示總人數、
-              使用者無從得知有學生被略過而未計入（違反 D17 照實呈現、specs/09 §4）。
-              刻意放在班名同步摘要卡之前：被略過的資料列比班名差異更需要優先處理。
-            */}
-            {preview.issues.length > 0 && (
-              <div className="alert alert-warning issues-alert" style={{ margin: '16px 20px 0' }}>
-                <strong>匯入注意事項：</strong>
-                <ul style={{ paddingLeft: '20px', marginTop: '6px' }}>
-                  {preview.issues.map((issue, idx) => (
-                    <li key={idx}>{issue}</li>
-                  ))}
-                </ul>
-              </div>
-            )}
-
-            {/* pendingClasses 仍是 03 §5.2.4 的預覽 API 欄位；UI 只呈現這張摘要卡，不重複顯示警示。 */}
-            {preview.classNameReport && <ClassNameReportSummaryCard summary={preview.classNameReport} />}
-
-            {/* 學生名單表格與篩選操作 */}
-            <div style={{ padding: '16px 20px 0' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
-                <div style={{ fontWeight: 600, fontSize: '14px' }}>
-                  名單預覽 ({filteredStudents.length} / {preview.students.length})
-                </div>
-                <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                  <input
-                    type="text"
-                    placeholder="搜尋姓名或代碼..."
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    className="search"
-                    style={{ width: '200px' }}
-                    aria-label="搜尋預覽學生"
-                  />
-                  <select
-                    value={filterMode}
-                    onChange={(e) => setFilterMode(e.target.value as 'all' | 'with-class' | 'no-class' | 'withdrawn')}
-                    aria-label="篩選學生狀態"
-                  >
-                    <option value="all">全部學生 ({preview.stats.totalStudents})</option>
-                    <option value="with-class">有班級 ({preview.stats.studentsWithClass})</option>
-                    <option value="no-class">無課程 ({preview.stats.studentsWithoutClass})</option>
-                    <option value="withdrawn">有離班標記 ({preview.stats.withdrawnStudentsCount})</option>
-                  </select>
-                </div>
-              </div>
-
-              <div className="scroll table-scroll-container" style={{ maxHeight: '420px', border: '1px solid var(--border-color)', borderRadius: '6px' }}>
-                <table className="data-table">
-                  <thead>
-                    <tr>
-                      <th style={{ width: '48px' }}>序號</th>
-                      <th>人員代碼</th>
-                      <th>姓名</th>
-                      <th>年級</th>
-                      <th>所屬分校</th>
-                      <th>報名班級</th>
-                      <th>標籤</th>
-                      <th>備註</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {filteredStudents.slice(0, 100).map((stu, idx) => (
-                      <tr key={stu.personCode}>
-                        <td style={{ color: 'var(--text-muted)' }}>{idx + 1}</td>
-                        <td className="code-text" style={{ fontWeight: 600 }}>{stu.personCode}</td>
-                        <td style={{ fontWeight: 600 }}>{stu.name}</td>
-                        <td>
-                          {stu.grade ? (
-                            <span>{stu.grade} 年級</span>
-                          ) : (
-                            <span style={{ color: 'var(--text-muted)' }}>{stu.gradeRaw || '未識別'}</span>
-                          )}
-                        </td>
-                        <td style={{ color: 'var(--text-secondary)' }}>{stu.branch || '-'}</td>
-                        <td>
-                          {stu.enrollments.length > 0 ? (
-                            <div className="token-list">
-                              {stu.enrollments.map((enr, eIdx) => (
-                                <div key={eIdx} className="token-item">
-                                  <span className="badge badge-class">{enr.rawToken}</span>
-                                  {enr.previewErpBillingTier !== undefined && enr.previewErpBillingTier !== null && (
-                                    <span className="badge badge-tier">
-                                      設定預覽級距: {enr.previewErpBillingTier} 天
-                                      {/*
-                                        Rework B2：(預設) 表示該級距是解析失敗後採用的預設值，
-                                        非 米豆奶 原始登記值。移除此標記會讓使用者把預設值
-                                        誤認為實登值，直接影響級距差異的判讀基礎。
-                                      */}
-                                      {enr.previewTierParseStatus === 'defaulted' ? ' (預設)' : ''}
-                                    </span>
-                                  )}
-                                  {enr.previewErpBillingTier === null && enr.previewTierParseStatus === 'unavailable' && (
-                                    <span className="badge badge-warn">級距待設定／無法判定</span>
-                                  )}
-                                  {/*
-                                    Rework B2：離班徽章。篩選器與統計卡雖有離班資訊，
-                                    但表格必須看得出是哪幾位學生離班。
-                                  */}
-                                  {enr.withdrawalDate && (
-                                    <span className="badge badge-withdrawal">
-                                      離班: {enr.withdrawalDate}
-                                    </span>
-                                  )}
-                                </div>
-                              ))}
-                            </div>
-                          ) : (
-                            <span style={{ color: 'var(--text-muted)' }}>無班級</span>
-                          )}
-                        </td>
-                        <td>
-                          {stu.tagsRaw ? (
-                            <span style={{ fontSize: '0.75rem', color: '#1d4ed8' }}>{stu.tagsRaw}</span>
-                          ) : (
-                            '-'
-                          )}
-                        </td>
-                        <td>
-                          {stu.notesRaw ? (
-                            <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
-                              {stu.notesRaw}
-                            </span>
-                          ) : (
-                            '-'
-                          )}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+            {/* 兩個按鈕開同一個浮動視窗（異動／名單頁籤） */}
+            <div className="import-review-actions">
+              <button type="button" className="btn-secondary" onClick={() => setReviewTab('changes')}>
+                查看異動
+              </button>
+              <button type="button" className="btn-secondary" onClick={() => setReviewTab('list')}>
+                預覽名單
+              </button>
             </div>
 
             {/* 底部啟用操作列 */}
@@ -505,6 +372,21 @@ export function ImportsWorkflow({
               </button>
             </div>
           </div>
+
+          {reviewTab !== null && (
+            <ImportReviewDialog
+              isOpen
+              tab={reviewTab}
+              onTabChange={setReviewTab}
+              onClose={() => setReviewTab(null)}
+              preview={preview}
+              searchQuery={searchQuery}
+              onSearchChange={setSearchQuery}
+              filterMode={filterMode}
+              onFilterModeChange={setFilterMode}
+              filteredStudents={filteredStudents}
+            />
+          )}
         </div>
       )}
 
@@ -525,6 +407,16 @@ export function ImportsWorkflow({
           <p className="note" style={{ fontSize: '14px', marginBottom: '28px' }}>
             系統已依最新課表完成排課衝堂與天數扣除計算，請前往「03 核對結果」查看各班天數與折扣。
           </p>
+
+          {/* D64 G1／UX122：啟用前預覽回應仍有未對應班名時，完成後才引導前往班名同步（此時新名單已是現行名單，不帶 ?import=）。 */}
+          {(preview?.classNameReport?.unmappedCount ?? 0) > 0 && (
+            <p className="note" style={{ fontSize: '14px', marginBottom: '20px' }}>
+              名冊有班名尚未對應課表，可到課表設定的「班名同步」逐列處理。{' '}
+              <Link href="/settings?tab=sync" className="step-hint-link">
+                前往班名同步 →
+              </Link>
+            </p>
+          )}
 
           <div style={{ display: 'flex', justifyContent: 'center' }}>
             <Link href="/" className="btn-primary" style={{ padding: '10px 20px', fontSize: '15px' }}>

@@ -3,6 +3,7 @@ import fs from 'fs';
 import JSZip from 'jszip';
 import { FIXTURE, ensureClassTypeTab, xlsxUpload } from './helpers/c-batch';
 import { resetSeedSettings } from './helpers/d2c-settings';
+import { uploadPreviewAndGetReportPath } from './helpers/import-review';
 
 /**
  * N09／R3-F02（issue #55；specs/04 §8 UX70／UX46；#189 D62 Phase 2 改寫）：
@@ -137,12 +138,11 @@ test.describe('N09／R3-F02：儲存後差異表、摘要列與頁籤即時同�
 
     // 上傳未啟用名單 B
     await page.goto('/imports');
-    await page.locator('input[type="file"]').setInputFiles(xlsxUpload('variant-roster.xlsx', await buildVariantRoster()));
-    const summary = page.getByRole('region', { name: '班名同步摘要' });
-    await expect(summary).toBeVisible({ timeout: 15000 });
-    const link = summary.getByRole('link', { name: '前往班名同步 →' });
-    await expect(link).toBeVisible();
-    const href = (await link.getAttribute('href'))!;
+    // 啟用前無連結（D64／UX121）：由預覽 API 回應取得這份未啟用名單的報告路徑
+    const href = await uploadPreviewAndGetReportPath(
+      page,
+      xlsxUpload('variant-roster.xlsx', await buildVariantRoster()),
+    );
     const importB = new URL(href, 'http://local.test').searchParams.get('import')!;
 
     // 開啟 ?import=B

@@ -174,9 +174,12 @@ test.describe('UX29 無課程提示', () => {
     await expect(card).toContainText(String(B2.NO_COURSE));
     await expect(card).toContainText('請至米豆奶辦理離籍');
     await card.getByRole('button', { name: '只看無課程的學生' }).click();
-    await expect(page.getByText(`名單預覽 (${B2.NO_COURSE} / ${B2.SIZE})`)).toBeVisible();
-    for (const i of [0, 1, 2]) await expect(page.locator('tbody')).toContainText(code(i));
-    for (const i of [3, 4, 5]) await expect(page.locator('tbody')).not.toContainText(code(i));
+    // D64：按鈕開啟浮動視窗的「名單」頁籤並套用「無課程」篩選
+    const dialog = page.locator('dialog.import-review-dialog');
+    await expect(dialog).toBeVisible();
+    await expect(dialog.getByText(`名單預覽 (${B2.NO_COURSE} / ${B2.SIZE})`)).toBeVisible();
+    for (const i of [0, 1, 2]) await expect(dialog.locator('tbody')).toContainText(code(i));
+    for (const i of [3, 4, 5]) await expect(dialog.locator('tbody')).not.toContainText(code(i));
   });
 });
 

@@ -298,23 +298,25 @@ describe('R3 匯入頁工作流程與 UI 元件（RED 測試）', () => {
 
   describe('確認名單階段：頁內「使用這份名單」直接啟用', () => {
 
-    it('預覽階段顯示單一班名同步摘要、不重複提示，並保留略過資料列提醒', () => {
+    const previewWithReport = {
+      ...mockPreview,
+      classNameReport: {
+        importId: 'imp_mock_123',
+        mismatchCount: 2,
+        unmappedCount: 1,
+        unmappedStudents: 2,
+        reportPath: '/settings?tab=sync&import=imp_mock_123',
+        rosterOnlyClassCount: 1,
+        rosterOnlyStudentCount: 2,
+        systemOnlyClassCount: 0,
+      },
+    };
+
+    it('UX121／UX124：預覽階段只有一張確認卡——無班名同步連結、無名單表，有「查看異動」「預覽名單」兩鈕與略過資料列計數', () => {
       const html = renderToStaticMarkup(
         React.createElement(ImportsWorkflow, {
           initialStage: 'preview',
-          initialPreview: {
-            ...mockPreview,
-            classNameReport: {
-              importId: 'imp_mock_123',
-              mismatchCount: 2,
-              unmappedCount: 1,
-              unmappedStudents: 2,
-              reportPath: '/settings?tab=sync&import=imp_mock_123',
-              rosterOnlyClassCount: 1,
-              rosterOnlyStudentCount: 2,
-              systemOnlyClassCount: 0,
-            },
-          },
+          initialPreview: previewWithReport,
           currentRevision: 0,
           lastScheduleSavedAt: '2026-09-29T10:00:00.000Z',
         })
@@ -323,20 +325,23 @@ describe('R3 匯入頁工作流程與 UI 元件（RED 測試）', () => {
       // 人數統計（3 列資料中 1 列被略過 → 總人數 2，不含該列）
       expect(html).toContain('學生總人數');
       expect(html).toContain('有報名班級人數');
-      // 無課程（D38／UX29）：零報名人數，附離籍提示，可篩出
       expect(html).toContain('無課程');
       expect(html).toContain('請至米豆奶辦理離籍');
       expect(html).toContain('只看無課程的學生');
       expect(html).not.toContain('477');
 
-      // 班名資訊只以一張摘要卡呈現；計數由 summary read model 的三個欄位各自提供。
-      expect(html).toContain('aria-label="班名同步摘要"');
-      expect(html).toContain('名冊有 2 個班名與課表不一致（其中 1 個尚未對應，影響 2 位學生）');
-      expect(html).toContain('前往班名同步 →');
-      expect(html).toContain('href="/settings?tab=sync&amp;import=imp_mock_123"');
+      // UX121：啟用前沒有任何導向班名同步的連結，也沒有名單表、逐人明細、注意事項全文
+      expect(html).not.toContain('href="/settings?tab=sync');
+      expect(html).not.toContain('前往班名同步');
+      expect(html).not.toContain('<table');
+      expect(html).not.toContain('第 4 列未填寫人員代碼，已略過。');
       expect(html).not.toContain('個班名待確認');
-      expect(html).toContain('匯入注意事項：');
-      expect(html).toContain('第 4 列未填寫人員代碼，已略過。');
+
+      // UX124：兩個按鈕＋一行計數提示（略過 1 筆資料列 → warning 樣式）
+      expect(html).toContain('查看異動');
+      expect(html).toContain('預覽名單');
+      expect(html).toMatch(/class="import-count-hint[^"]*is-warning[^"]*"/);
+      expect(html).toContain('略過資料列 1 筆');
 
       // 核對基準日與主按鈕
       expect(html).toContain('核對基準日');
@@ -351,6 +356,57 @@ describe('R3 匯入頁工作流程與 UI 元件（RED 測試）', () => {
      * 「已經上傳過同名檔案」會讓行政人員誤以為自己上傳失敗或選錯舊檔，造成不必要的困惑。
      * 同名是正常操作，不是問題：畫面不因此跳出任何警示。
      */
+    it('UX124：略過資料列為 0 時計數提示不是 warning 樣式', () => {
+      const html = renderToStaticMarkup(
+        React.createElement(ImportsWorkflow, {
+          initialStage: 'preview',
+          initialPreview: { ...mockPreview, issues: [] },
+          currentRevision: 0,
+          lastScheduleSavedAt: null,
+        })
+      );
+      expect(html).toContain('略過資料列 0 筆');
+      expect(html).toMatch(/class="import-count-hint"/);
+      expect(html).not.toContain('is-warning');
+    });
+
+    it('UX124：「異動」頁籤含班名 N／M／K 純文字、無連結；略過資料列警告在視窗內', () => {
+      const html = renderToStaticMarkup(
+        React.createElement(ImportsWorkflow, {
+          initialStage: 'preview',
+          initialPreview: previewWithReport,
+          initialReviewTab: 'changes',
+          currentRevision: 0,
+          lastScheduleSavedAt: null,
+        })
+      );
+      expect(html).toContain('<dialog');
+      expect(html).toContain('名冊有 2 個班名與課表不一致（其中 1 個尚未對應，影響 2 位學生）');
+      expect(html).not.toContain('href="/settings?tab=sync');
+      expect(html).not.toContain('前往班名同步');
+      expect(html).toContain('匯入注意事項：');
+      expect(html).toContain('第 4 列未填寫人員代碼，已略過。');
+    });
+
+    it('UX124：「名單」頁籤標題為「名單預覽 (N / M)」並保留 100 列上限', () => {
+      const many = Array.from({ length: 130 }, (_, i) => ({
+        ...mockPreview.students[0],
+        personCode: `SYN${String(i).padStart(4, '0')}`,
+        name: `合成${i}`,
+      }));
+      const html = renderToStaticMarkup(
+        React.createElement(ImportsWorkflow, {
+          initialStage: 'preview',
+          initialPreview: { ...mockPreview, students: many as any, stats: { ...mockPreview.stats, totalStudents: 130 } },
+          initialReviewTab: 'list',
+          currentRevision: 0,
+          lastScheduleSavedAt: null,
+        })
+      );
+      expect(html).toContain('名單預覽 (130 / 130)');
+      expect((html.match(/<tbody>[\s\S]*?<\/tbody>/)?.[0].match(/<tr/g) ?? []).length).toBe(100);
+    });
+
     it('#83：重傳同名檔案時不跳出同名／重複警示（ERP 固定檔名是正常操作）', () => {
       const html = renderToStaticMarkup(
         React.createElement(ImportsWorkflow, {
@@ -427,11 +483,61 @@ describe('R3 匯入頁工作流程與 UI 元件（RED 測試）', () => {
    * 使用者只看到總人數而無警告，實際有學生被丟棄（違反 D17 照實呈現、specs/09 §4）。
    * 斷言的不只是「有渲染」，而是「該列的列號出現在警告中」且「總人數不含該列」。
    */
+  describe('UX122：完成畫面班名同步引導（D64 G1）', () => {
+    const successHtml = (unmappedCount: number, mismatchCount: number) =>
+      renderToStaticMarkup(
+        React.createElement(ImportsWorkflow, {
+          initialStage: 'success',
+          initialPreview: {
+            ...mockPreview,
+            classNameReport: {
+              importId: 'imp_mock_123',
+              mismatchCount,
+              unmappedCount,
+              unmappedStudents: unmappedCount,
+              reportPath: '/settings?tab=sync&import=imp_mock_123',
+              rosterOnlyClassCount: unmappedCount,
+              rosterOnlyStudentCount: unmappedCount,
+              systemOnlyClassCount: 0,
+            },
+          },
+          activatedCount: 2,
+          currentRevision: 1,
+          lastScheduleSavedAt: null,
+        })
+      );
+
+    it('unmappedCount>0 → 含「前往班名同步 →」連到 /settings?tab=sync（不帶 import=）', () => {
+      const html = successHtml(12, 12);
+      expect(html).toContain('前往班名同步 →');
+      expect(html).toContain('href="/settings?tab=sync"');
+      expect(html).not.toContain('import=');
+    });
+
+    it('unmappedCount=0（不一致班名全由舊別名涵蓋）→ 不顯示連結', () => {
+      expect(successHtml(0, 3)).not.toContain('前往班名同步');
+    });
+
+    it('無 classNameReport → 不顯示連結', () => {
+      const html = renderToStaticMarkup(
+        React.createElement(ImportsWorkflow, {
+          initialStage: 'success',
+          initialPreview: mockPreview,
+          activatedCount: 2,
+          currentRevision: 1,
+          lastScheduleSavedAt: null,
+        })
+      );
+      expect(html).not.toContain('前往班名同步');
+    });
+  });
+
   describe('Rework B1：匯入注意事項（preview.issues）必須可見且含列號', () => {
     it('有 issues 時渲染「匯入注意事項：」並逐條列出（含列號／欄名／修正方式）', () => {
       const html = renderToStaticMarkup(
         React.createElement(ImportsWorkflow, {
           initialStage: 'preview',
+          initialReviewTab: 'changes',
           initialPreview: mockPreview,
           currentRevision: 0,
           lastScheduleSavedAt: null,
@@ -447,6 +553,7 @@ describe('R3 匯入頁工作流程與 UI 元件（RED 測試）', () => {
       const html = renderToStaticMarkup(
         React.createElement(ImportsWorkflow, {
           initialStage: 'preview',
+          initialReviewTab: 'changes',
           initialPreview: { ...mockPreview, issues: [] },
           currentRevision: 0,
           lastScheduleSavedAt: null,
@@ -468,6 +575,7 @@ describe('R3 匯入頁工作流程與 UI 元件（RED 測試）', () => {
       const html = renderToStaticMarkup(
         React.createElement(ImportsWorkflow, {
           initialStage: 'preview',
+          initialReviewTab: 'list',
           initialPreview: mockPreview,
           currentRevision: 0,
           lastScheduleSavedAt: null,
@@ -482,6 +590,7 @@ describe('R3 匯入頁工作流程與 UI 元件（RED 測試）', () => {
       const withDefault = renderToStaticMarkup(
         React.createElement(ImportsWorkflow, {
           initialStage: 'preview',
+          initialReviewTab: 'list',
           initialPreview: mockPreview,
           currentRevision: 0,
           lastScheduleSavedAt: null,
@@ -492,6 +601,7 @@ describe('R3 匯入頁工作流程與 UI 元件（RED 測試）', () => {
       const parsed = renderToStaticMarkup(
         React.createElement(ImportsWorkflow, {
           initialStage: 'preview',
+          initialReviewTab: 'list',
           initialPreview: {
             ...mockPreview,
             students: [
@@ -528,6 +638,7 @@ describe('R3 匯入頁工作流程與 UI 元件（RED 測試）', () => {
       renderToStaticMarkup(
         React.createElement(ImportsWorkflow, {
           initialStage: 'preview',
+          initialReviewTab: 'changes',
           initialPreview: preview as any,
           currentRevision: 0,
           lastScheduleSavedAt: null,
