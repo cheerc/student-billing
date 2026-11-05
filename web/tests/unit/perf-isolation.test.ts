@@ -29,14 +29,15 @@ describe('獨立效能量測契約', () => {
     }
   });
 
-  it('四條路徑涵蓋多值、options、contextual options 與選班 mismatch', () => {
-    expect(PERF_PATHS.map((route) => route.name)).toEqual(['multivalue', 'options', 'options-mismatch', 'class-mismatch']);
+  it('五條路徑涵蓋多值、options、contextual options、選班 mismatch 與 D65 排序', () => {
+    expect(PERF_PATHS.map((route) => route.name)).toEqual(['multivalue', 'options', 'options-mismatch', 'class-mismatch', 'sort-anqin-desc']);
     expect(new URLSearchParams(PERF_PATHS[0].pairs).getAll('grade')).toEqual(['1', '2']);
     expect(new URLSearchParams(PERF_PATHS[0].pairs).getAll('branch')).toEqual(['北校', '南校']);
     expect(new URLSearchParams(PERF_PATHS[2].pairs).get('tierMismatch')).toBe('true');
     expect(new URLSearchParams(PERF_PATHS[2].pairs).get('options')).toBe('true');
     expect(new URLSearchParams(PERF_PATHS[3].pairs).get('enrollmentKey')).toBe('國小輔導-一A');
     expect(new URLSearchParams(PERF_PATHS[3].pairs).get('tierMismatch')).toBe('true');
+    expect(new URLSearchParams(PERF_PATHS[4].pairs).get('sort')).toBe('-anqinDays');
   });
 
   it('專用 config 單檔、單 worker、無 retry、不重用服務，使用 next start 與 loopback', async () => {
