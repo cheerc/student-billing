@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { closeReviewDialog, openReviewDialog, reviewDialog } from './helpers/import-review';
 import path from 'path';
 import fs from 'fs';
 import JSZip from 'jszip';
@@ -65,6 +66,7 @@ test.describe('Imports Page E2E Test (R3 匯入頁一次完成使用名單)', ()
       return { texts, circles };
     });
     expect(metrics.texts).toHaveLength(3);
+    expect(metrics.circles).toHaveLength(3);
     for (const px of metrics.texts) expect(px).toBeGreaterThanOrEqual(15);
     for (const px of metrics.circles) expect(px).toBeGreaterThanOrEqual(32);
 
@@ -85,16 +87,22 @@ test.describe('Imports Page E2E Test (R3 匯入頁一次完成使用名單)', ()
     await expect(page.locator('.stat-card', { hasText: '無課程' })).toContainText('93');
     await expect(page.locator('.stat-card', { hasText: '無課程' })).toContainText('請至米豆奶辦理離籍');
 
-    // 驗證表格資料渲染
-    const table = page.locator('.data-table');
+    // UX124：主畫面只有確認卡，沒有名單表；「預覽名單」開啟浮動視窗的「名單」頁籤
+    await expect(page.locator('.data-table')).toHaveCount(0);
+    const dialog = await openReviewDialog(page, 'list');
+    // 計數標籤＝篩選後／全部（fixture 477 列）；顯示上限仍為 100 列
+    await expect(dialog.getByText('名單預覽 (477 / 477)')).toBeVisible();
+    const table = dialog.locator('.data-table');
     await expect(table).toBeVisible();
-    await expect(table.locator('tbody tr')).toHaveCount(100); // 前 100 筆預覽
+    await expect(table.locator('tbody tr')).toHaveCount(100);
 
-    // 驗證搜尋功能
-    const searchInput = page.locator('input[placeholder*="搜尋"]');
+    // 驗證搜尋功能（在視窗內）
+    const searchInput = dialog.locator('input[placeholder*="搜尋"]');
     await searchInput.fill('STU0001');
+    await expect(dialog.getByText('名單預覽 (1 / 477)')).toBeVisible();
     await expect(table.locator('tbody tr')).toHaveCount(1);
     await expect(table.locator('tbody tr')).toContainText('STU0001');
+    await closeReviewDialog(page);
 
     // 驗證核對基準日欄位存在
     const asOfDateInput = page.locator('input[type="date"]');
@@ -186,7 +194,8 @@ test.describe('Imports Page E2E Test (R3 匯入頁一次完成使用名單)', ()
     });
     await expect(page.locator('.stats-grid')).toBeVisible({ timeout: 15000 });
 
-    // 三個數字（來自 API 的 before/after 計算結果）
+    // 三個數字（來自 API 的 before/after 計算結果）在「查看異動」視窗內
+    await openReviewDialog(page, 'changes');
     const bar = page.locator('.roster-diff-bar');
     await expect(bar).toBeVisible();
     await expect(bar.locator('[data-diff="new"] strong')).toHaveText('1');
@@ -217,11 +226,21 @@ test.describe('Imports Page E2E Test (R3 匯入頁一次完成使用名單)', ()
     await expect(table.locator('tbody tr[data-status="not-appeared"]')).toContainText('STU0477');
   });
 
-  test('匯入預覽只顯示單一班名同步摘要，N/M/K 與課表 badge 對齊', async ({ page }) => {
+  test('UX121／UX122／UX124：啟用前無班名同步連結（N/M/K 純文字於「查看異動」視窗）；啟用後完成畫面才引導前往班名同步', async ({ page }) => {
     await page.goto('/imports');
     await page.locator('input[type="file"]').setInputFiles(path.resolve(__dirname, '../fixtures/conforming-erp-fixture.xlsx'));
-    const summary = page.getByRole('region', { name: '班名同步摘要' });
-    await expect(summary).toBeVisible({ timeout: 15000 });
+    await expect(page.locator('.stats-grid')).toBeVisible({ timeout: 15000 });
+
+    // UX121：預覽主畫面完全沒有班名同步連結或摘要
+    await expect(page.getByRole('link', { name: /前往班名同步/ })).toHaveCount(0);
+    await expect(page.locator('.class-name-report-summary')).toHaveCount(0);
+    // 確認卡：計數提示行存在（不含全文）
+    await expect(page.locator('.import-count-hint')).toBeVisible();
+
+    // UX124：「查看異動」開啟視窗；Esc 關閉且焦點回到觸發鈕
+    const trigger = page.getByRole('button', { name: '查看異動', exact: true });
+    await trigger.focus();
+    const dialog = await openReviewDialog(page, 'changes');
 
     /**
      * 獨立合成 fixture 盤點（不讀 `getClassNameMatchReport`／summary API 的輸出作 expected）：
@@ -230,22 +249,52 @@ test.describe('Imports Page E2E Test (R3 匯入頁一次完成使用名單)', ()
      * 54 個不同名冊班名中 42 個完全同名、12 個不一致；12 個皆未對應；含任一不一致班名的不同人員代碼 191 位。
      * 對應規則手算：N=54−42=12，M=12（alias 集合空），K=符合上述 roster-row predicate 的 distinct personCode=191。
      */
+    const summary = dialog.getByRole('region', { name: '班名同步摘要' });
     await expect(summary).toContainText('名冊有 12 個班名與課表不一致（其中 12 個尚未對應，影響 191 位學生）');
-    await expect(summary.getByRole('link', { name: '前往班名同步 →' })).toHaveAttribute(
-      'href',
-      /^\/settings\?tab=sync&import=.+/
-    );
-    await expect(page.locator('.class-name-report-summary')).toHaveCount(1);
+    await expect(dialog.getByRole('link', { name: /前往班名同步/ })).toHaveCount(0);
     await expect(page.getByText(/本次匯入名冊中發現 .*個班名待確認/)).toHaveCount(0);
 
+    await page.keyboard.press('Escape');
+    await expect(reviewDialog(page)).toHaveCount(0);
+    await expect(trigger).toBeFocused();
+
+    // 預覽名單開同一個視窗但切到「名單」頁籤
+    const listDialog = await openReviewDialog(page, 'list');
+    await expect(listDialog.getByRole('tab', { name: '名單', selected: true })).toBeVisible();
+    await closeReviewDialog(page);
+
+    // UX122：啟用後完成畫面才出現「前往班名同步 →」，連到 /settings?tab=sync
     await page.locator('button', { hasText: '使用這份名單' }).click();
     await expect(page.locator('.success-stage-card')).toBeVisible({ timeout: 15000 });
+    const syncLink = page.getByRole('link', { name: '前往班名同步 →' });
+    await expect(syncLink).toHaveAttribute('href', '/settings?tab=sync');
+    await syncLink.click();
+    await expect(page).toHaveURL(/\/settings\?tab=sync$/);
 
-    await page.goto('/settings');
     await expect(page.locator('h1', { hasText: '課表設定' })).toBeVisible({ timeout: 10000 });
     // fresh seed 沒有 alias，預覽的 12 個 mismatch 等於班名同步 badge 的差異列數。
     const pillText = await page.locator('button[role="tab"]', { hasText: '班名同步' }).locator('.pill.warn').innerText();
     expect(Number(pillText), '課表設定的班名同步頁籤應顯示 12 個不一致班名').toBe(12);
+  });
+
+  test('UX124：視窗寬高規格與 390×844 無水平捲動', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto('/imports');
+    await page.locator('input[type="file"]').setInputFiles(path.resolve(__dirname, '../fixtures/conforming-erp-fixture.xlsx'));
+    await expect(page.locator('.stats-grid')).toBeVisible({ timeout: 15000 });
+    const dialog = await openReviewDialog(page, 'list');
+    const box = await dialog.evaluate((el) => {
+      const r = el.getBoundingClientRect();
+      return { w: r.width, h: r.height, vh: window.innerHeight, vw: window.innerWidth };
+    });
+    expect(box.w).toBeGreaterThanOrEqual(Math.min(1100, box.vw - 32) - 1);
+    expect(box.h).toBeLessThanOrEqual(box.vh * 0.9 + 1);
+    await closeReviewDialog(page);
+
+    await page.setViewportSize({ width: 390, height: 844 });
+    await openReviewDialog(page, 'changes');
+    const overflow = await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth);
+    expect(overflow, '390×844 預覽視窗不得造成水平捲動').toBe(false);
   });
 
   test('PR-1 footer CSS stays scoped to schedule grid', async ({ page }) => {

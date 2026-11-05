@@ -2,14 +2,16 @@ import { test, expect, type Page, type Route } from '@playwright/test';
 import fs from 'fs';
 import JSZip from 'jszip';
 import { FIXTURE, xlsxUpload } from './helpers/c-batch';
+import { openReviewDialog, uploadPreviewAndGetReportPath } from './helpers/import-review';
 import { resetSeedSettings } from './helpers/d2c-settings';
 
 /**
  * D1 班名比對報告（specs/11 §3 D1、04 §8 UX44–UX47；operator ruling d-20260930112930661160-25 Q12-b）
  * 於 #189 D62 Phase 2 改寫：完整報告併入「班名同步」差異表（specs/09 §3.3）。
  * 使用者實際操作驗證：
- *   1. 匯入預覽在「使用這份名單」之前只顯示一張 N/M/K 班名同步摘要卡，且沒有重複的 pendingClasses 警示；
- *   2. 摘要連到完整班名同步差異表，底部收合區列出「課表有、本次名冊沒有的班級」與其課程類型／時段數／舊別名來源；
+ *   1. 匯入預覽啟用前，N/M/K 班名同步摘要只以純文字出現在「查看異動」視窗、沒有連結（D64，UX121）；
+ *      啟用後完成畫面才引導前往班名同步（UX122）；
+ *   2. 完整班名同步差異表，底部收合區列出「課表有、本次名冊沒有的班級」與其課程類型／時段數／舊別名來源；
  *   3. 儲存後同頁差異表即時刷新（F3），已同步的列立即消失。
  * 全部使用合成 fixture（不含真實名單）；每個 spec 檔用全新隔離 DB（npm run test:e2e:isolated）。
  *
@@ -82,35 +84,34 @@ async function reportApi(page: Page, importId?: string) {
 }
 
 test.describe('班名比對報告（D1，D62 併入「班名同步」）', () => {
-  test('匯入預覽：使用這份名單之前顯示單一卡片 N/M/K 並連到班名同步；同步頁呈現同一批事實', async ({
+  test('匯入預覽：啟用前 N/M/K 為視窗內純文字且無連結；啟用後完成畫面連到班名同步；同步頁呈現同一批事實', async ({
     page,
   }) => {
     await page.goto('/imports');
     await page.locator('input[type="file"]').setInputFiles(FIXTURE);
     await expect(page.locator('.stats-grid')).toBeVisible({ timeout: 15000 });
 
-    // 單一卡片在「使用這份名單」之前（DOM 順序），且不用展開就看得到。
+    // UX121：主畫面沒有班名同步摘要或連結；摘要在「查看異動」視窗的「異動」頁籤，純文字。
     // 數字的獨立盤點與資料來源見 imports.spec.ts 的 fixture inventory 註記。
+    await expect(summaryOf(page)).toHaveCount(0);
+    const dialog = await openReviewDialog(page, 'changes');
     const summary = summaryOf(page);
     await expect(summary).toBeVisible();
     await expect(summary).toContainText('名冊有 12 個班名與課表不一致（其中 12 個尚未對應，影響 191 位學生）');
     await expect(page.locator('.class-name-report-summary')).toHaveCount(1);
+    await expect(dialog.getByRole('link', { name: /前往班名同步/ })).toHaveCount(0);
     await expect(page.getByText(/本次匯入名冊中發現 .*個班名待確認/)).toHaveCount(0);
+    await page.keyboard.press('Escape');
 
-    const useBtn = page.locator('button', { hasText: '使用這份名單' });
-    await expect(useBtn).toBeVisible();
-    const summaryBeforeButton = await page.evaluate(
-      ([s, b]) => Boolean((s as Node).compareDocumentPosition(b as Node) & Node.DOCUMENT_POSITION_FOLLOWING),
-      [await summary.elementHandle(), await useBtn.elementHandle()] as const
-    );
-    expect(summaryBeforeButton, '班名同步摘要要出現在「使用這份名單」之前').toBe(true);
-
-    // 連到完整清單（尚未啟用的這批名單也能看；D62 路由改為 ?tab=sync）
-    const link = summary.getByRole('link', { name: '前往班名同步 →' });
-    await expect(link).toBeVisible();
-    await expect(link).toHaveAttribute('href', /^\/settings\?tab=sync&import=.+/);
+    // UX122：啟用後完成畫面才有連結（/settings?tab=sync，不帶 import=）
+    await page.locator('button', { hasText: '使用這份名單' }).click();
+    await expect(page.locator('.success-stage-card')).toBeVisible({ timeout: 15000 });
+    const link = page.getByRole('link', { name: '前往班名同步 →' });
+    await expect(link).toHaveAttribute('href', '/settings?tab=sync');
     await link.click();
 
+    // 完整清單：課表設定「班名同步」（已啟用的現行名單，不需 ?import=）
+    await expect(page).toHaveURL(/\/settings\?tab=sync$/);
     // 完整清單：課表設定「班名同步」
     await expect(page).toHaveURL(/\/settings\?tab=sync&import=/);
     const panel = panelOf(page);
@@ -155,14 +156,17 @@ test.describe('班名比對報告（D1，D62 併入「班名同步」）', () =>
 
     // 再上傳標準 fixture（本次沒有「國小輔導-四年級」）
     await page.goto('/imports');
-    await page.locator('input[type="file"]').setInputFiles(FIXTURE);
+    const reportPath = await uploadPreviewAndGetReportPath(page, FIXTURE);
     await expect(page.locator('.stats-grid')).toBeVisible({ timeout: 15000 });
 
+    await openReviewDialog(page, 'changes');
     const summary = summaryOf(page);
     await expect(summary).toBeVisible();
     await expect(summary).toContainText('名冊有 12 個班名與課表不一致（其中 12 個尚未對應，影響 191 位學生）');
+    await page.keyboard.press('Escape');
 
-    await summary.getByRole('link', { name: '前往班名同步 →' }).click();
+    // 啟用前無連結（UX121）；以預覽 API 的報告路徑查看這份尚未啟用的名單
+    await page.goto(reportPath);
     const details = systemOnlyOf(page);
     await expect(details).toBeVisible({ timeout: 15000 });
     await details.locator('summary').click();
@@ -203,10 +207,10 @@ test.describe('班名比對報告（D1，D62 併入「班名同步」）', () =>
 
     // 再上傳變體（STU0001 多報 seed 班「國小輔導-四年級」）當作尚未啟用的預覽批次 B，取其完整報告連結
     await page.goto('/imports');
-    await page.locator('input[type="file"]').setInputFiles(xlsxUpload('variant-roster.xlsx', await buildPreviousRoster()));
-    const link = summaryOf(page).getByRole('link', { name: '前往班名同步 →' });
-    await expect(link).toBeVisible({ timeout: 15000 });
-    const href = (await link.getAttribute('href'))!;
+    const href = await uploadPreviewAndGetReportPath(
+      page,
+      xlsxUpload('variant-roster.xlsx', await buildPreviousRoster()),
+    );
     const importB = new URL(href, 'http://local.test').searchParams.get('import')!;
     expect(importB, '完整報告連結要帶預覽批次 B 的 import').toBeTruthy();
 
