@@ -277,7 +277,8 @@ describe('R3 匯入頁工作流程與 UI 元件（RED 測試）', () => {
       expect(items).toHaveLength(3);
       expect(items[1]).toContain('aria-current="step"');
       expect(items[0]).not.toContain('aria-current');
-      const firstLi = html.slice(html.indexOf(items[0]), html.indexOf('</li>', html.indexOf(items[0])));
+      const start = html.indexOf(items[0]!);
+      const firstLi = html.slice(start, html.indexOf('</li>', start));
       expect(firstLi).toContain('✓');
       expect(firstLi).not.toMatch(/<span class="step-number"[^>]*>1<\/span>/);
     });

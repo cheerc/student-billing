@@ -17,6 +17,7 @@ import { ErrorNotice } from '@/components/ui/error-notice';
 import { ClassNameReportSummaryCard } from '@/components/imports/class-name-report-summary';
 import type { ClassNameReportSummary } from '@/application/class-name-match-report';
 import { formatDateTime, todayInTaipei } from '@/lib/datetime';
+import { ImportSteps } from '@/components/imports/import-steps';
 import { announceImportActivated } from '@/lib/import-success-guide';
 
 /**
@@ -101,11 +102,6 @@ export function ImportsWorkflow({
   const [filterMode, setFilterMode] = useState<'all' | 'with-class' | 'no-class' | 'withdrawn'>('all');
 
   const fileInputRef = useRef<HTMLInputElement>(null);
-
-  // 課表儲存時間：全站統一 Asia/Taipei、YYYY-MM-DD HH:mm（O02）
-  const scheduleTimeLabel = lastScheduleSavedAt
-    ? `${formatDateTime(lastScheduleSavedAt)} 已儲存`
-    : '已載入初始課表，請確認';
 
   // 檔案上傳與預覽處理
   const handleFileUpload = async (file: File) => {
@@ -217,44 +213,18 @@ export function ImportsWorkflow({
 
   return (
     <div className="imports-workflow-container">
-      {/* 頁面標頭與課表連結 */}
-      <header className="page-header" style={{ marginBottom: '20px' }}>
+      {/* 頁首：只留標題與一句說明（D64 G2） */}
+      <header className="page-header import-page-header">
         <div>
           <h1 style={{ fontSize: '24px', fontWeight: 700, margin: '0 0 6px' }}>匯入學生</h1>
           <p className="note" style={{ margin: 0 }}>
             上傳米豆奶名單，更新學生的收費資料。
           </p>
         </div>
-        <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
-          <Link href="/settings?tab=schedule" className="btn-secondary">
-            查看課表 →
-          </Link>
-        </div>
       </header>
 
-      {/* 流程三步驟標示 */}
-      <div className="step-indicator" role="navigation" aria-label="匯入進度步驟">
-        <div className={`step-item ${stage === 'upload' ? 'step-active' : 'step-done'}`}>
-          <span className="step-number">1</span>
-          <span className="step-text">選擇檔案</span>
-        </div>
-        <div className="step-divider" aria-hidden="true" />
-        <div className={`step-item ${stage === 'preview' ? 'step-active' : stage === 'success' ? 'step-done' : ''}`}>
-          <span className="step-number">2</span>
-          <span className="step-text">確認名單</span>
-        </div>
-        <div className="step-divider" aria-hidden="true" />
-        <div className={`step-item ${stage === 'success' ? 'step-active' : ''}`}>
-          <span className="step-number">3</span>
-          <span className="step-text">完成</span>
-        </div>
-      </div>
-
-      {/* 目前課表儲存時間提示 */}
-      <div className="schedule-meta-note">
-        <span className="dot dot-clean" aria-hidden="true" style={{ width: '7px', height: '7px' }} />
-        <span>目前課表：{scheduleTimeLabel}</span>
-      </div>
+      {/* 引導式步驟條（含課表儲存時間與課表連結） */}
+      <ImportSteps stage={stage} scheduleSavedAt={lastScheduleSavedAt} />
 
       {/* 錯誤警示 */}
       {error && (
