@@ -42,6 +42,7 @@ UI 重設（先課表 → 匯入 → 核對）R0–R5 已交付並合併，驗�
 14. [課程類型分類與課表設定重構 Plan](./14-class-type-settings-plan.md)：課表設定改為依課程類型的分頁籤（安親課輔班／非安親課輔班）；固定 5 天旗標與課程學費折扣解耦。
 17. [班名同步重構 Plan](./17-class-name-sync-plan.md)：D62 決策落實，名冊班名與課表班名改採嚴格同名比對，差異一次一列由使用者選擇合併或新增，不建立新別名、不提供批次同步。
 18. [夜間全量 E2E 復原 Plan](./18-nightly-e2e-d61-recovery-plan.md)：Issue #188 的 D61 契約落差修復，族 A 導覽 helper、族 B 淘汰選取器、族 C 幾何前提、族 D 空白星期契約，並以「失敗集合」而非重跑綠燈驗收。
+19. [匯入頁重設與資料表表頭排序 Plan](./19-import-redesign-and-table-sort-plan.md)：D64／D65 的 P0 docs 與 A1／A2／B1／B2／B3 分批；驗收列 UX121–UX128 在 [04 §8](./04-tdd-acceptance.md)。
 
 15／16 兩份計畫草稿未合併進 `main`；其決策內容由 [06](./06-handoff-decisions.md) D60／D61 完整承接，仍為第 1 層權威。檔號保留不重用，避免與既有引用撞號。
 
