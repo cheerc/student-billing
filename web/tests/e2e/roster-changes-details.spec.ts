@@ -48,6 +48,8 @@ test('逐人明細：真入口匯入、啟用、第二份預覽與八種異動�
   await page.goto('/imports');
   await page.locator('input[type="file"]').setInputFiles({ name: 'variant.xlsx', mimeType: XLSX_MIME, buffer: await workbook(true) });
   await expect(page.locator('.stats-grid')).toBeVisible({ timeout: 20_000 });
+  await page.getByRole('button', { name: '查看異動', exact: true }).click();
+  await expect(page.locator('dialog.import-review-dialog')).toBeVisible();
   const details = page.locator('.roster-changes-details');
   await details.locator('summary').click();
   const table = details.locator('.roster-changes-table');

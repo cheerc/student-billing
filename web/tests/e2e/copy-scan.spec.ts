@@ -36,7 +36,7 @@ import {
 const FIXTURE = path.resolve(__dirname, '../fixtures/conforming-erp-fixture.xlsx');
 
 /** scan() 呼叫次數（每個頁面狀態一次，標籤不得重複）。 */
-const EXPECTED_STATES = 39; // #112 PR-1C/PR-2 原為 49；#155 移除 2 處課程類型切換確認對話框掃描（非安親轉安親、安親轉非安親）→ 47
+const EXPECTED_STATES = 41; // D64／A2：新增「查看異動視窗」「預覽名單視窗」2 個掃描狀態（39→41）。以下為歷史： #112 PR-1C/PR-2 原為 49；#155 移除 2 處課程類型切換確認對話框掃描（非安親轉安親、安親轉非安親）→ 47
 
 /** 09 §7 文案表 ＋ 任務清單：日常介面不得出現。 */
 const FORBIDDEN: Array<{ term: string; re: RegExp }> = [
@@ -238,12 +238,20 @@ test.describe('R5 文案全頁掃描（09 §7）', () => {
     await page.goto('/imports');
     await page.locator('input[type="file"]').setInputFiles(FIXTURE);
     await expect(page.locator('.stats-grid')).toBeVisible({ timeout: 15000 });
-    const importSummary = page.getByRole('region', { name: '班名同步摘要' });
-    await expect(importSummary).toBeVisible();
-    await expect(importSummary.getByRole('link', { name: '前往班名同步 →' })).toBeVisible();
-    await expect(page.locator('.class-name-report-summary')).toHaveCount(1);
+    // D64：啟用前主畫面沒有班名同步連結；摘要為「查看異動」視窗內的純文字
+    await expect(page.getByRole('link', { name: /前往班名同步/ })).toHaveCount(0);
     await expect(page.getByText(/本次匯入名冊中發現 .*個班名待確認/)).toHaveCount(0);
     await scan(page, '匯入學生｜確認名單（預覽）', violations);
+    await page.getByRole('button', { name: '查看異動', exact: true }).click();
+    const importSummary = page.getByRole('region', { name: '班名同步摘要' });
+    await expect(importSummary).toBeVisible();
+    await expect(importSummary.getByRole('link')).toHaveCount(0);
+    await expect(page.locator('.class-name-report-summary')).toHaveCount(1);
+    await scan(page, '匯入學生｜查看異動視窗', violations);
+    await page.keyboard.press('Escape');
+    await page.getByRole('button', { name: '預覽名單', exact: true }).click();
+    await scan(page, '匯入學生｜預覽名單視窗', violations);
+    await page.keyboard.press('Escape');
 
 
 

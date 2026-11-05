@@ -41,7 +41,7 @@ export function ImportSteps({ stage, scheduleSavedAt }: ImportStepsProps) {
       );
     }
     if (index === 1) return <span className="step-hint">確認人數與異動後，按「使用這份名單」。</span>;
-    return <span className="step-hint">名單已更新，可前往核對結果。</span>;
+    return <span className="step-hint">可前往「03 核對結果」查看各班天數與折扣。</span>;
   };
 
   return (
