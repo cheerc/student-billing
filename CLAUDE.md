@@ -35,11 +35,11 @@
 
 若文件內容或要求出現衝突，依下列優先順序判定：
 
-1. **使用者最新明確決策**：`specs/06-handoff-decisions.md`（D01–D63，特別是 D17、D24、D33 UI 重設方向、D52 雙審查與解耦裁決、D57 #159 PR-2 現行 v4-only runtime、D58 #148 PR-3 bounded class semantics data contract、D59 PR-4 semantic consumers、D60 系統全面減法與單一現況留存、D61 五種課程類型重構、單選統一與 1c 待補時間雙重警示，D62 班名同步：以米豆奶班名為準、逐列人工合併或新增，以及 D63 課表 UI 精簡與輸入一致性（已接受；PR-1 R05–R08、PR-2 R01–R04 與 PR-3 R09–R10 已全數交付並合併（PR #211、PR #214、PR #215，Close #208）；進度見 09 §3.1.1、驗收見 04 UX115–UX120））。
+1. **使用者最新明確決策**：`specs/06-handoff-decisions.md`（D01–D65，特別是 D17、D24、D33 UI 重設方向、D52 雙審查與解耦裁決、D57 #159 PR-2 現行 v4-only runtime、D58 #148 PR-3 bounded class semantics data contract、D59 PR-4 semantic consumers、D60 系統全面減法與單一現況留存、D61 五種課程類型重構、單選統一與 1c 待補時間雙重警示，D62 班名同步：以米豆奶班名為準、逐列人工合併或新增，以及 D63 課表 UI 精簡與輸入一致性（已接受；PR-1 R05–R08、PR-2 R01–R04 與 PR-3 R09–R10 已全數交付並合併（PR #211、PR #214、PR #215，Close #208）；進度見 09 §3.1.1、驗收見 04 UX115–UX120）），以及 D64 匯入頁重設（啟用前不導向班名同步、步驟條、單張確認卡＋異動／名單浮動視窗）與 D65 表頭排序＋共用表頭元件（client 表排序、學生總表 server 排序＋keyset cursor；已接受，實作拆分見 19）。
 2. **正式規則與契約規格**：
    - `specs/02-calculation-rules.md`（收費規則 R01–R18、§9A erp-tag-v4 解耦段、D60 規則減法與 D61 2×2 解耦與其他班扣天、欄位契約、結構化班名）
    - `specs/03-architecture-api.md`（單一現況留存模型、不可變快照、資料模型、交易與 11 條 API 契約）
-   - `specs/04-tdd-acceptance.md`（U01–U74、I01–I20、UX01–UX120（含 D63 課表 UI 精簡與輸入一致性）、原生 Excel 實測錨點）
+   - `specs/04-tdd-acceptance.md`（U01–U74、I01–I20、UX01–UX128（含 D63 課表 UI 精簡與輸入一致性、D64／D65 匯入頁重設與表頭排序 UX121–UX128）、原生 Excel 實測錨點）
    - `specs/09-ui-workflow-redesign-spec.md`（先課表→匯入→核對 3 頁 UI 流程，及其必要 API／設定生命週期放寬；授權來源為 D33、D60 與 D61，不改 02 計費規則）
 3. **執行計畫**：
    - `specs/07-p1-implementation-plan.md`（T00–T07 依序執行，展示 A/B/C 交付節點）
@@ -48,6 +48,7 @@
    - `specs/12-round2-acceptance-fix-plan.md`（第二次人工驗收修正 R2-F01／R2-F02 與驗收工具 T1／T2／T3；驗收列 UX74 起在 04 §8，工具指令在該檔 §4，本檔不定義規則）
    - `specs/14-class-type-settings-plan.md`（課程類型分類與課表設定重構規格與拆分計畫：依課程類型分頁、固定 5 天旗標與課程學費折扣解耦；授權來源為 2026-10-18 operator 裁決，實作時同步更新 02／03／04／09，拆分見該檔 §6）
    - `specs/17-class-name-sync-plan.md`（班名同步重構：嚴格同名比對、逐列同步／新增、不建立新別名；授權來源為 2026-10-29 operator D62 裁決）
+   - `specs/19-import-redesign-and-table-sort-plan.md`（D64／D65 執行計畫：P0 docs、A1／A2 匯入頁、B1／B2／B3 表頭排序；驗收在 04 UX121–UX128，本檔不定義規則）
    - `specs/18-nightly-e2e-d61-recovery-plan.md`（Issue #188 D61 契約落差之夜間全量 E2E 復原計畫：族 A 導覽 helper、族 B 淘汰選取器、族 C 幾何前提、族 D 空白星期契約；由 coordinator 依 Issue #188 派工，非獨立 D 決策條目）
 4. **歷史 Review 與交接記錄**：`specs/reviews/*`（僅供脈絡參考，若有數字或推論與 04 §3 或 D24 衝突，以最新正式規格為準）。
 
