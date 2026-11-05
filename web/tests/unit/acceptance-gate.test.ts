@@ -45,11 +45,23 @@ function makeTemporaryRoot(prefix: string): string {
   return root;
 }
 
-afterEach(() => {
+/**
+ * #224：清理成本 ≈ 刪除一份完整 node_modules 複本（約 595MB、數萬檔）加上 `.next`。
+ * 無負載時約 0.4s，但全量 vitest 並行（其他檔同時在做 IO）時實測 14–29s
+ * （本機 4 核 + 6 路並行 cp -R 壓力下 4 個 case 的清理依序為 14.6／20.6／15.5／29.4s），
+ * 超過 vitest 預設 hookTimeout 10s 而使 afterEach 逾時。
+ *
+ * 處置：(1) 改 async `fs.promises.rm`，不再同步阻塞 worker 主執行緒（與 build() 改用
+ * spawn 同一理由：避免擋住 vitest RPC 心跳）；(2) 此 hook 明確指定 timeout，取實測最壞
+ * 值約 4 倍餘裕。不調整全域 hookTimeout（CLAUDE.md §8）。清理內容不變，仍完整刪除。
+ */
+const CLEANUP_TIMEOUT_MS = 120_000;
+
+afterEach(async () => {
   for (const root of temporaryRoots.splice(0)) {
-    fs.rmSync(root, { recursive: true, force: true });
+    await fs.promises.rm(root, { recursive: true, force: true });
   }
-});
+}, CLEANUP_TIMEOUT_MS);
 
 /** 真實的型別錯誤：字串賦給 number，tsc 必報 TS2322。 */
 const TYPE_ERROR_PROBE = 'export const __typeErrProbe: number = "not a number";\n';
