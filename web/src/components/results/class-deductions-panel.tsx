@@ -8,6 +8,7 @@ import { CareStatus, combineCareStatuses } from '@/application/care-status';
 import { HeaderFilter, FilterChips, type FilterSection, type ChipItem } from '@/components/filters/header-filter';
 import { columnLabels, type ColumnDef } from '@/components/tables/column-def';
 import TableHeaderCell from '@/components/tables/table-header-cell';
+import { useClientSort } from '@/components/tables/use-client-sort';
 import {
   BLANK,
   DEDUCTION_FILTER_FIELDS,
@@ -34,16 +35,21 @@ import {
  * 標「尚未匯入學生，可先檢查扣天」——不得宣告帳單已對帳正確。
  */
 
+type DeductionClass = DeductionsResponse['classes'][number];
+
+/** 扣除欄依畫面顯示值（正量）排序；null（不適用）排最後。 */
+const absOrNull = (v: number | null): number | null => (v === null ? null : Math.abs(v));
+
 const CLASS_DEDUCTION_COLUMN_DEFS = [
-  { key: 'class', label: '班級', filterKey: 'dClass' },
-  { key: 'teacher', label: '老師', filterKey: 'dTeacher' },
+  { key: 'class', label: '班級', filterKey: 'dClass', sort: { type: 'text', accessor: (c: DeductionClass) => c.classKey } },
+  { key: 'teacher', label: '老師', filterKey: 'dTeacher', sort: { type: 'text', accessor: (c: DeductionClass) => c.teacher || null } },
   { key: 'time', label: '上課時間' },
-  { key: 'anqinRaw', label: '安親原始扣除', className: 'number cblue' },
-  { key: 'anqinActual', label: '安親實際扣除', className: 'number cblue' },
-  { key: 'tutoringRaw', label: '課輔原始扣除', className: 'number cblue' },
-  { key: 'tutoringActual', label: '課輔實際扣除', className: 'number cblue' },
-  { key: 'status', label: '狀態', filterKey: 'dStatus' },
-] as const satisfies readonly ColumnDef[];
+  { key: 'anqinRaw', label: '安親原始扣除', className: 'number cblue', unit: '天', sort: { type: 'number', accessor: (c: DeductionClass) => absOrNull(c.anqin.raw) } },
+  { key: 'anqinActual', label: '安親實際扣除', className: 'number cblue', unit: '天', sort: { type: 'number', accessor: (c: DeductionClass) => absOrNull(c.anqin.rounded) } },
+  { key: 'tutoringRaw', label: '課輔原始扣除', className: 'number cblue', unit: '天', sort: { type: 'number', accessor: (c: DeductionClass) => absOrNull(c.tutoring.raw) } },
+  { key: 'tutoringActual', label: '課輔實際扣除', className: 'number cblue', unit: '天', sort: { type: 'number', accessor: (c: DeductionClass) => absOrNull(c.tutoring.rounded) } },
+  { key: 'status', label: '狀態', filterKey: 'dStatus', sort: { type: 'text', accessor: (c: DeductionClass) => statusLabel(classStatus(c)) } },
+] as const satisfies readonly ColumnDef<DeductionClass>[];
 
 export const classDeductionsColumns = columnLabels(CLASS_DEDUCTION_COLUMN_DEFS);
 
@@ -116,6 +122,7 @@ const wireOf = (v: string | null | undefined): string => (v === null || v === un
 
 export function ClassDeductionsPanel({ data, onEditClass, expandedClassKey, unavailable, filters = {}, onFiltersChange }: ClassDeductionsPanelProps) {
   const [expanded, setExpanded] = useState<string | null>(expandedClassKey ?? null);
+  const columnSort = useClientSort<DeductionClass>(CLASS_DEDUCTION_COLUMN_DEFS);
 
   const rowsWithFacets = useMemo(
     () =>
@@ -159,7 +166,7 @@ export function ClassDeductionsPanel({ data, onEditClass, expandedClassKey, unav
       return wires.includes(facets[f.key]);
     });
 
-  const classes = rowsWithFacets.filter((r) => matches(r.facets)).map((r) => r.c);
+  const classes = columnSort.apply(rowsWithFacets.filter((r) => matches(r.facets)).map((r) => r.c));
 
   const apply = (next: DeductionFilters) => {
     const merged: DeductionFilters = {};
@@ -198,14 +205,16 @@ export function ClassDeductionsPanel({ data, onEditClass, expandedClassKey, unav
         <table className="data-table deductions-table">
           <thead>
             <tr>
-              {CLASS_DEDUCTION_COLUMN_DEFS.map((c) => {
-                const numeric = 'className' in c;
-                return (
-                  <TableHeaderCell key={c.key} column={c} filter={'filterKey' in c ? filterFor(c.filterKey, c.label) : null}>
-                    {numeric ? <span className="th-unit">天</span> : null}
-                  </TableHeaderCell>
-                );
-              })}
+              {(CLASS_DEDUCTION_COLUMN_DEFS as readonly ColumnDef<DeductionClass>[]).map((c) => (
+                <TableHeaderCell
+                  key={c.key}
+                  column={c}
+                  sort={columnSort.headerSort(c.key)}
+                  filter={c.filterKey ? filterFor(c.filterKey as DeductionFilterKey, c.label) : null}
+                >
+                  {c.unit ? <span className="th-unit">{c.unit}</span> : null}
+                </TableHeaderCell>
+              ))}
             </tr>
           </thead>
           <tbody>

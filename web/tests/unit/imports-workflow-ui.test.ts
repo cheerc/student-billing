@@ -518,6 +518,10 @@ describe('R3 匯入頁工作流程與 UI 元件（RED 測試）', () => {
       expect(successHtml(0, 3)).not.toContain('前往班名同步');
     });
 
+    it('UX122 (c)：mismatchCount=0 且 unmappedCount=0（無任何不一致）→ 不顯示連結', () => {
+      expect(successHtml(0, 0)).not.toContain('前往班名同步');
+    });
+
     it('無 classNameReport → 不顯示連結', () => {
       const html = renderToStaticMarkup(
         React.createElement(ImportsWorkflow, {

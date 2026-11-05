@@ -1,4 +1,7 @@
 import React from 'react';
+import TableHeaderCell from '@/components/tables/table-header-cell';
+import { useClientSort } from '@/components/tables/use-client-sort';
+import type { ColumnDef } from '@/components/tables/column-def';
 import type {
   RosterChange,
   ClassBreakdown,
@@ -100,6 +103,16 @@ function classDiscountText(item: ClassDiscountChange): { values: string; reason:
   };
 }
 
+/** 逐人明細欄位（D65 G5）：學生、狀態、天數可排序（天數取「後」值，不適用排最後）；多行文字欄不排序。 */
+const ROSTER_COLUMNS: readonly ColumnDef<RosterChange>[] = [
+  { key: 'student', label: '學生', sort: { type: 'text', accessor: (c) => c.name } },
+  { key: 'status', label: '狀態', sort: { type: 'text', accessor: (c) => statusOf(c).label } },
+  { key: 'enrollment', label: '報名異動' },
+  { key: 'classDiscount', label: '折扣變動' },
+  { key: 'anqinDays', label: '安親天數', sort: { type: 'number', accessor: (c) => c.dayChange?.afterAnqinDays ?? null } },
+  { key: 'tutoringDays', label: '課輔天數', sort: { type: 'number', accessor: (c) => c.dayChange?.afterTutoringDays ?? null } },
+];
+
 function BreakdownList({ rows }: { rows: ClassBreakdown[] }) {
   return (
     <ul className="roster-change-classes">
@@ -118,6 +131,7 @@ function BreakdownList({ rows }: { rows: ClassBreakdown[] }) {
 }
 
 export function RosterChangesDetails({ changes }: { changes: RosterChange[] }) {
+  const columnSort = useClientSort<RosterChange>(ROSTER_COLUMNS);
   if (changes.length === 0) return null;
   return (
     <details className="roster-changes-details">
@@ -126,16 +140,13 @@ export function RosterChangesDetails({ changes }: { changes: RosterChange[] }) {
         <table className="roster-changes-table">
           <thead>
             <tr>
-              <th>學生</th>
-              <th>狀態</th>
-              <th>報名異動</th>
-              <th>折扣變動</th>
-              <th>安親天數</th>
-              <th>課輔天數</th>
+              {ROSTER_COLUMNS.map((c) => (
+                <TableHeaderCell key={c.key} column={c} sort={columnSort.headerSort(c.key)} />
+              ))}
             </tr>
           </thead>
           <tbody>
-            {changes.map((c) => {
+            {columnSort.apply(changes).map((c) => {
               const status = statusOf(c);
               // 新學生／已不在名單沒有「前後」可比：報名異動與折扣變動都顯示「—」（-76 一）
               const oneSided = c.isNew || c.isRemoved;
