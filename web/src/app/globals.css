@@ -1707,6 +1707,100 @@ dialog.add-class-dialog::backdrop {
   }
 }
 
+/* 確認卡計數提示與浮動視窗觸發（D64 G3，UX124） */
+.import-count-hint {
+  margin: 0;
+  padding: 12px 20px 0;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.import-count-hint.is-warning {
+  margin: 12px 20px 0;
+  padding: 10px 14px;
+  background: var(--warning-bg);
+  color: var(--warning-text);
+  border-radius: 8px;
+}
+
+.import-review-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 12px 20px 16px;
+}
+
+dialog.import-review-dialog {
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  padding: 0;
+  width: min(1100px, calc(100vw - 32px));
+  max-width: calc(100vw - 32px);
+  max-height: 90vh;
+  box-shadow: 0 20px 80px rgba(15, 23, 42, 0.25);
+  margin: auto;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--bg-card);
+}
+
+dialog.import-review-dialog[open] {
+  display: flex;
+}
+
+dialog.import-review-dialog::backdrop {
+  background: rgba(15, 23, 42, 0.5);
+  backdrop-filter: blur(2px);
+}
+
+.import-review-dialog .dialoghead {
+  flex: none;
+}
+
+.import-review-dialog .dialoghead h2 {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.import-review-tabs {
+  flex: none;
+  margin: 0;
+  padding: 0 24px;
+}
+
+.import-review-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  padding: 8px 0 24px;
+}
+
+.import-review-body .roster-diff-bar,
+.import-review-body .roster-changes-wrap,
+.import-review-body .class-name-report-summary {
+  margin-left: 24px;
+  margin-right: 24px;
+}
+
+.import-review-body .issues-alert {
+  margin: 16px 24px 0;
+}
+
+.import-review-list-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 12px 24px;
+}
+
+.import-review-body .table-scroll-container {
+  margin: 0 24px;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+}
+
 /* Upload Dropzone */
 .upload-dropzone {
   padding: 64px 24px;
