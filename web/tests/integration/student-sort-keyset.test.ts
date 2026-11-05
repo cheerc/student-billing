@@ -144,6 +144,39 @@ describe('D65 B3 學生總表 server 排序與 keyset cursor', () => {
     expect((await run(runId, [['cursor', v1]])).status).toBe(400);
   });
 
+  it('N1：形狀與 sort 不符的偽造 v2 cursor 一律 400 指名 cursor（不得 500）', async () => {
+    const real = (await run(runId, [['sort', 'anqinDays'], ['limit', '2']])).body.nextCursor as string;
+    const body = JSON.parse(Buffer.from(real, 'base64').toString('utf8'));
+    const forge = (patch: Record<string, unknown>, drop: string[] = []) => {
+      const next: Record<string, unknown> = { ...body, ...patch };
+      for (const k of drop) delete next[k];
+      return Buffer.from(JSON.stringify(next)).toString('base64');
+    };
+    const cases: Array<[string, Array<[string, string]>, string]> = [
+      ['sort 下缺 v/n', [['sort', 'anqinDays']], forge({}, ['v', 'n'])],
+      ['數值欄帶字串 v', [['sort', 'anqinDays']], forge({ v: 'x' }, ['n'])],
+      ['sort 欄帶布林 v', [['sort', 'anqinDays']], forge({ v: true }, ['n'])],
+      ['未排序卻帶 v', [], forge({ v: 1 })],
+    ];
+    for (const [label, pairs, cursor] of cases) {
+      const r = await run(runId, [...pairs, ['cursor', cursor]]);
+      // identity 綁 sort：未排序案例的 identity 不同，同樣必須 400 而非 500
+      expect(r.status, label).toBe(400);
+      expect(JSON.stringify(r.body), label).toContain('cursor');
+    }
+    // 文字欄（name）帶數值 v、數值欄（grade）帶字串 v：以各自 sort 的真實 identity 偽造
+    const nameCur = JSON.parse(Buffer.from((await run(runId, [['sort', 'name'], ['limit', '2']])).body.nextCursor, 'base64').toString('utf8'));
+    const gradeCur = JSON.parse(Buffer.from((await run(runId, [['sort', 'grade'], ['limit', '2']])).body.nextCursor, 'base64').toString('utf8'));
+    const enc = (o: unknown) => Buffer.from(JSON.stringify(o)).toString('base64');
+    expect((await run(runId, [['sort', 'name'], ['cursor', enc({ ...nameCur, v: 7 })]])).status).toBe(400);
+    expect((await run(runId, [['sort', 'grade'], ['cursor', enc({ ...gradeCur, v: 'abc' })]])).status).toBe(400);
+    const pCur = JSON.parse(Buffer.from((await preview([['sort', 'name'], ['limit', '2']])).body.nextCursor, 'base64').toString('utf8'));
+    expect((await preview([['sort', 'name'], ['cursor', enc({ ...pCur, v: 7 })]])).status).toBe(400);
+    const missing = { ...pCur }; delete missing.v; delete missing.n;
+    const pr = await preview([['sort', 'name'], ['cursor', enc(missing)]]);
+    expect(pr.status).toBe(400);
+  });
+
   it('UX127(f)：preview 僅接受 name／grade；anqinDays 回 400 指名 sort', async () => {
     expect(codes((await preview([['sort', 'name']])).body)).toEqual(BY_NAME);
     expect(codes((await preview([['sort', '-grade']])).body)).toEqual(BY_GRADE_DESC);
