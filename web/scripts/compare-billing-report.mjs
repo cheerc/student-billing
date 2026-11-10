@@ -79,6 +79,7 @@ const REPORT_SUBJECTS = { tuition: '學費', discount: '折扣' };
 const CATEGORIES = defineCategories([
   { id: 'MATCH', label: '完全一致', summaryKey: 'match', badge: 'badge-ok', needsHuman: false, tab: 'MATCH', tabOrder: 30, insightGroup: 'none' },
   { id: 'DAY_DIFF', label: '天數差異', summaryKey: 'day', badge: 'badge-tier', needsHuman: false, tab: 'DAY_DIFF', tabOrder: 10, insightGroup: 'mismatch' },
+  { id: 'ROSTER_NOT_BILLED', label: '在席未開單需確認', summaryKey: 'rosterNotBilled', badge: 'badge-withdrawal', needsHuman: true, tab: 'ROSTER_NOT_BILLED', tabOrder: 12, insightGroup: 'rosterNotBilled' },
   { id: 'DISCOUNT_DIFF', label: '折扣差異', summaryKey: 'discount', badge: 'badge-warn', needsHuman: false, tab: 'DISCOUNT_DIFF', tabOrder: 20, insightGroup: 'none' },
   { id: 'BOTH_DIFF', label: '天數與折扣皆差異', summaryKey: 'both', badge: 'badge-withdrawal', needsHuman: false, insightGroup: 'mismatch' },
   { id: 'NOT_IN_WEB', label: '名單已無此人', summaryKey: 'notInWeb', badge: 'badge-class', needsHuman: true, insightGroup: 'notInWeb' },
@@ -257,6 +258,16 @@ function buildNotes({ statusCategory, excel, web, careCategory }) {
       ],
     });
   }
+  if (statusCategory === 'ROSTER_NOT_BILLED') {
+    return finish({
+      tone: 'warn',
+      notes: [
+        `名單在席（${excel.className ?? '-'}），但報表無學費列，請確認是否漏開單。`,
+      ],
+      tags: ['在席未開單'],
+    });
+  }
+
   // 報表折扣格式無法解析：不可宣稱一致（review F-NEW-4）
   if (statusCategory === 'WEB_RATE_NOT_CONFIGURED') {
     return finish({
@@ -448,10 +459,16 @@ function RATE_INPUT_FIELDS(s) {
 export function compare(reportStudents, webStudents, asOfDate, rateContext = undefined) {
   const { map: webByName, duplicates } = indexByName(webStudents);
   const records = [];
+  const billedStudentsSet = new Set();
+  const billedCareClasses = new Set();
 
   for (const entry of reportStudents.values()) {
     const reportHead = (entry.tuition || '').split(' - ')[0]?.trim() ?? '';
     const reportBaseName = reportHead ? parseSingleClassToken(reportHead).baseName : '';
+    if (entry.tuition && reportBaseName) {
+      billedStudentsSet.add(normalizeName(entry.name));
+      billedCareClasses.add(reportBaseName);
+    }
     const reportSemantics = reportBaseName ? classSemanticsForRun(reportBaseName, rateContext) : undefined;
     const tuition = parseTuition(entry.tuition, reportSemantics);
     const discount = parseDiscounts(entry.discounts);
@@ -609,6 +626,59 @@ export function compare(reportStudents, webStudents, asOfDate, rateContext = und
     });
   }
 
+  // 反向在席查核 (Reverse Roster Pass)
+  for (const w of webStudents ?? []) {
+    const enrollmentSemantics = enrollmentProjection(w, rateContext);
+    const careEnrollments = enrollmentSemantics.filter((e) => e.category === 'care');
+    if (!careEnrollments.length) continue;
+
+    for (const careEnrollment of careEnrollments) {
+      if (careEnrollment.withdrawalDate != null) continue; // 已離班退費，排除
+
+      const careBaseName = parseSingleClassToken(careEnrollment.rawToken || careEnrollment.baseName || '').baseName;
+      if (!careBaseName || !billedCareClasses.has(careBaseName)) continue;
+
+      const normName = normalizeName(w.name);
+      if (billedStudentsSet.has(normName)) continue;
+
+      const grade = w.grade;
+      const isAnqin = grade !== null && grade <= 2;
+      const isTutoring = grade !== null && grade >= 3;
+      const careCategory = isAnqin ? '安親 (低年級)' : (isTutoring ? '課輔 (中高年級)' : '其他');
+
+      const category = 'ROSTER_NOT_BILLED';
+      const excel = {
+        days: null,
+        daysLabel: '未開單',
+        className: careEnrollment.rawToken || careBaseName,
+        sessions: null,
+        rateBps: 10000,
+        rateDetail: null,
+        tierStatus: 'none',
+        rateParseStatus: 'none',
+        extraDiscounts: [],
+        otherItems: [],
+        billNo: null,
+        billDate: null,
+        billStatus: null,
+      };
+
+      records.push({
+        name: w.name,
+        personCode: w.personCode ?? '-',
+        grade: w.gradeRaw ?? grade ?? '-',
+        careCategory,
+        statusCategory: category,
+        statusLabel: STATUS_LABEL[category],
+        excel,
+        web: null,
+        asOfDate,
+        note: buildNotes({ statusCategory: category, excel, web: { asOfDate }, careCategory }),
+      });
+      billedStudentsSet.add(normName);
+    }
+  }
+
   // 差異在前，其餘依姓名排序
   records.sort((a, b) => {
     const aDiff = a.statusCategory !== 'MATCH';
@@ -646,6 +716,12 @@ const INSIGHT_GROUPS = [
     title: '名單重複報名同類別班級',
     filter: (r) => r.note.dupIssues?.length > 0,
     hint: '同一學生同時存在多個同類別班級（常見於換班未清舊班）。依 D17 原則不由公式自動修正，實際開單交由人工判斷。',
+  },
+  {
+    key: 'rosterNotBilled',
+    title: '在席未開單（需確認是否漏開單）',
+    filter: (r) => r.statusCategory === 'ROSTER_NOT_BILLED',
+    hint: '學生在名單中為在席狀態（未標記離班），且所屬班級已於本次報表開單，但報表中無該生之學費列。請確認是否漏開單或期中退費未標記。',
   },
   {
     key: 'withdrawal',
