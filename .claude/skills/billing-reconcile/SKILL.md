@@ -126,10 +126,10 @@ npm run billing:compare:sessions -- --xlsx "<財務報表.xlsx>" [--out "<報告
 
 ```bash
 # billing:compare（國小輔導）
-{ total, match, day, discount, both, notInWeb, noTuition, unpairable, tierUnparsed, rateUnparsed }
+{ total, match, day, rosterNotBilled, discount, both, notInWeb, noTuition, unpairable, tierUnparsed, rateUnparsed, webRateNotConfigured }
 
 # billing:compare:sessions（按堂計價）
-{ total, match, discount, nonStandard, rateUnparsed, unknownClass,
+{ total, match, discount, nonStandard, sessionAnomaly, rosterNotBilled, rateUnparsed, unknownClass,
   webRateNotConfigured, notInWeb, noTuition, unpairable }
 ```
 
@@ -137,13 +137,28 @@ npm run billing:compare:sessions -- --xlsx "<財務報表.xlsx>" [--out "<報告
 
 - **match** — 兩邊一致。若 `match` 為 0 而報表不是空檔，先確認沒跑錯工具。
 - **day / discount / both**（僅輔導）— 天數差、折扣差、兩者皆差。
+- **rosterNotBilled**（兩台皆有）— 在席未開單需確認。學生在名單中為在席狀態（未標記離班），且所屬班級已於本次報表開單，但報表中無該生之學費列。提示操作員人工確認是否漏開單。
+- **sessionAnomaly**（僅按堂計價）— 堂數或單價異常需確認。包含同班堂數偏離常規眾數（例如全班多數 16 堂、少數 8 堂），或學費金額除以堂數無法整除（商數具小數點）。
 - **nonStandard**（僅按堂計價）— 報表有非「課程費 NN折」格式但帶金額算式的明細，
   多為期中補加收。**該生兩邊折價率可能完全一致**，正是光看數字看不出問題的那種，
   所以獨立列為需人工確認。工具刻意不把它併入折價率。
 - **tierUnparsed / rateUnparsed** — 報表格式不在工具認得的範圍。**不要代為猜測**，
   這是需要人工確認報表的訊號，不是 bug。
 - **unknownClass**（僅按堂計價）— 班級不屬美語／數學／輔導，需人工歸類。
+- **webRateNotConfigured** — 系統端無適用折扣值（例如缺班級快照）。
 - **notInWeb / noTuition / unpairable** — 名單已無此人、報表無學費項、姓名無法唯一配對。
+
+### 本機 TUI 即時待查清單與個資安全邊界
+
+執行完畢後，終端機會在差異統計下方直接格式化輸出「需人工確認明細（本機 TUI 檢視）」：
+```text
+需人工確認明細（本機 TUI 檢視）：
+  - [在席未開單需確認] 測試生甲 (S001) - 兒童美語-Dommie: 名單在席但報表無學費列
+  - [堂數或單價異常需確認] 測試生乙 (S002) - 兒童美語-Archy: 學費 $7,350 除以 16 堂無法整除（459.38 元）
+```
+
+- **本機檢視**：終端機輸出真實姓名與代碼是為了現場操作員肉眼快速核對，屬於本機臨時 stdout。
+- **公開邊界（個資零容忍）**：Git commit message、PR 說明、CI 輸出與儲存於 repo 內之任何測試檔案**絕對禁止**出現任何真實姓名、身分證或電話等個資。回報時僅能以來源座標（如「列 205」）或匿名代碼指涉。
 
 **回報時要做的事**：把 HTML 路徑與各類差異筆數回報給使用者。
 
@@ -151,17 +166,15 @@ npm run billing:compare:sessions -- --xlsx "<財務報表.xlsx>" [--out "<報告
 差異不預設任一來源為正確 —— 這是專案最高原則 D17。列出差異與資料可佐證的可能成因，
 最終正確性由使用者判斷。
 
-## 需要注意的兩個已知限制
+## 需要注意的已知限制
 
 **按堂計價工具不計算單價。** 報表有堂數與學費金額，但系統端沒有對應欄位（issue #118），
 報告上那兩欄標為「不可驗證」。若使用者問「單價對不對」「金額怎麼算」，答案是：
 系統目前沒有這個概念，這也是 #118 要解決的；不要用「金額 ÷ 堂數」反推單價再宣稱比對過。
 
-**固定 5 天對本班折扣的影響隨規則版本不同（#112）。** 兩台工具都把 run 的
-`classCategories` 快照傳入產品端 `applicableRateForClass`（issue #122 起），並一併傳入該 run 的
-`ruleSetVersion`：`erp-tag-v3` 下固定 5 天的班本班折扣顯示 100%（Q7-A）；**`erp-tag-v4` 起改為
-完全依 `category` 決定**，`none` 班（即使固定 5 天）標為「無法判定」。若同一份 run 的畫面與工具
-讀數不同，先確認是否有人手動改過班級類別。細節見 CLAUDE.md §9.3。
+**D60 單一現行規則與單一現況留存。** 系統全面採 `erp-tag-v4`（D60 Migration 0012/0013），
+資料庫僅留存單一 active run、單一現況名單與單一課表版本。固定 5 天在 `erp-tag-v4` 下
+不影響折扣，折扣完全由 `category` 決定（02 §9A.3）。兩台工具一律以 active run 快照傳入產品讀模型。
 
 ## 其他
 

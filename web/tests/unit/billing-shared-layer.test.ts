@@ -7,7 +7,7 @@ import { fileURLToPath } from 'url';
 import { normalizeName, indexByName } from '../../scripts/shared/name-matching';
 import { noteFlags, EMPTY_NOTE } from '../../scripts/shared/notes';
 import type { Note, NoteTierMismatch } from '../../scripts/shared/notes.ts';
-import { defineCategories, formatCategorySummary, CategorySpecError } from '../../scripts/shared/category-registry';
+import { defineCategories, formatCategorySummary, formatHumanReviewList, CategorySpecError } from '../../scripts/shared/category-registry';
 import { assertProjectRoot, assertOutputOutsideProject } from '../../scripts/shared/project-guard';
 import { parseDiscounts, bpsToLabel, readReport, RATE_PATTERNS } from '../../scripts/shared/report-xlsx';
 import type { ExcelRowLike, WorksheetLike } from '../../scripts/shared/report-xlsx.ts';
@@ -629,6 +629,47 @@ describe('共用層：主控台統計欄位', () => {
       { id: 'X', label: '甲', summaryKey: 'x', badge: 'badge-ok', needsHuman: false, insightGroup: 'none' },
     ]);
     expect(bare.summaryKeys['X']).toBe('x');
+  });
+});
+
+describe('共用層：本機 TUI 待查清單格式化 (formatHumanReviewList)', () => {
+  const reg = defineCategories(BILLING_SPECS);
+
+  it('無 needsHuman 紀錄時回傳空字串', () => {
+    const records = [
+      { name: '合成甲', personCode: 'S01', statusCategory: 'MATCH' },
+      { name: '合成乙', personCode: 'S02', statusCategory: 'DAY_DIFF' },
+    ];
+    expect(formatHumanReviewList(records, reg)).toBe('');
+  });
+
+  it('有 needsHuman 紀錄時格式化輸出標題與明細項（包含班名與備註）', () => {
+    const records = [
+      { name: '正常生', personCode: 'S01', statusCategory: 'MATCH' },
+      {
+        name: '未開單生',
+        personCode: 'S02',
+        statusCategory: 'ROSTER_NOT_BILLED',
+        excel: { className: '兒童美語-Dommie' },
+        note: { notes: ['名單在席但報表無學費列'] },
+      },
+    ];
+    const output = formatHumanReviewList(records, reg);
+    expect(output).toContain('需人工確認明細（本機 TUI 檢視）：');
+    expect(output).toContain('- [在席未開單需確認] 未開單生 (S02) - 兒童美語-Dommie: 名單在席但報表無學費列');
+    expect(output).not.toContain('正常生');
+  });
+
+  it('無 className 或無 notes 時仍正常產生輸出', () => {
+    const records = [
+      {
+        name: '離班生',
+        personCode: 'S03',
+        statusCategory: 'NOT_IN_WEB',
+      },
+    ];
+    const output = formatHumanReviewList(records, reg);
+    expect(output).toContain('- [名單已無此人] 離班生 (S03)');
   });
 });
 

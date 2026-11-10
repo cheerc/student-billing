@@ -47,7 +47,7 @@ import {
   snapshotRowFor,
 } from './shared/rate-context.ts';
 import { normalizeName, indexByName } from './shared/name-matching.ts';
-import { defineCategories, formatCategorySummary } from './shared/category-registry.ts';
+import { defineCategories, formatCategorySummary, formatHumanReviewList } from './shared/category-registry.ts';
 import { renderShell, escapeHtml } from './shared/report-shell.ts';
 import { assertProjectRoot, assertOutputOutsideProject } from './shared/project-guard.ts';
 
@@ -956,6 +956,10 @@ async function main() {
     byCategory: count,
   });
   console.log('差異統計：', summary);
+  const humanList = formatHumanReviewList(records, CATEGORIES);
+  if (humanList) {
+    console.log('\n' + humanList);
+  }
   console.log('報告已輸出：', outputPath);
 }
 
