@@ -343,6 +343,46 @@ describe('帳務比對工具：報表解析契約', () => {
       expect(r.statusCategory).toBe('MATCH');
     });
 
+    it('U08: 安親/課輔在席生班級已開單，但報表無學費列 → 產出 ROSTER_NOT_BILLED (needsHuman)', () => {
+      const report = [
+        reportStudent('開單生', { tuition: '115國小輔導-一A[團] - 40 堂課' }),
+      ];
+      const roster = [
+        webStudent('開單生', {
+          enrollments: [{ rawToken: '115國小輔導-一A[團]', baseName: '115國小輔導-一A', erpBillingTier: 5, withdrawalDate: null }],
+        }),
+        webStudent('未開單在席生', {
+          personCode: 'P-SYNTH-0002',
+          enrollments: [{ rawToken: '115國小輔導-一A[團]', baseName: '115國小輔導-一A', erpBillingTier: 5, withdrawalDate: null }],
+        }),
+      ];
+      const { records } = compare(new Map(report.map(r => [r.name as string, r])), roster as never[], '2026-10-14', LEGACY_V2_CONTEXT);
+      const notBilled = records.find(r => r.name === '未開單在席生');
+      expect(notBilled).toBeDefined();
+      expect(notBilled?.statusCategory).toBe('ROSTER_NOT_BILLED');
+      expect(notBilled?.statusLabel).toBe('在席未開單需確認');
+      expect(notBilled?.note.notes.join('')).toContain('名單在席');
+      expect(notBilled?.note.tags).toContain('在席未開單');
+    });
+
+    it('離班生（withdrawalDate 非空）未在報表開單 → 不得產出 ROSTER_NOT_BILLED', () => {
+      const report = [
+        reportStudent('開單生', { tuition: '115國小輔導-一A[團] - 40 堂課' }),
+      ];
+      const roster = [
+        webStudent('開單生', {
+          enrollments: [{ rawToken: '115國小輔導-一A[團]', baseName: '115國小輔導-一A', erpBillingTier: 5, withdrawalDate: null }],
+        }),
+        webStudent('離班退費生', {
+          personCode: 'P-SYNTH-0003',
+          enrollments: [{ rawToken: '115國小輔導-一A[團]', baseName: '115國小輔導-一A', erpBillingTier: 5, withdrawalDate: '2026-10-15' }],
+        }),
+      ];
+      const { records } = compare(new Map(report.map(r => [r.name as string, r])), roster as never[], '2026-10-14', LEGACY_V2_CONTEXT);
+      const notBilled = records.find(r => r.name === '離班退費生');
+      expect(notBilled).toBeUndefined();
+    });
+
     // review F-NEW-3：新增類別若沒接進 BADGES，第一次出現就會渲染 undefined
     it('BADGES 涵蓋所有分類，不得有 undefined', () => {
       const cats = ['MATCH', 'DAY_DIFF', 'DISCOUNT_DIFF', 'BOTH_DIFF', 'NOT_IN_WEB',

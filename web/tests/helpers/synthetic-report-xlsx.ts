@@ -1,7 +1,7 @@
 import ExcelJS from 'exceljs';
 
 /**
- * 合成財務報表 fixture（issue #140 第 1 項）。
+ * 合成財務報表 fixture（issue #140 第 1 項、#231 Phase 1 擴充）。
  *
  * ## 為什麼不用真實報表
  *
@@ -15,6 +15,7 @@ import ExcelJS from 'exceljs';
  *
  * 1=姓名、2=單號、3=日期、4=明細、7=科目、8=狀態（米豆奶財務報表固定版面，
  * 見 `scripts/shared/report-xlsx.ts` 的 `collectEntries`）。第 1 列為表頭。
+ * 欄 9 起為班別金額欄與「非學費費用」欄。
  *
  * 本檔產生的內容全部是 `測試生` 這類明顯合成的字串，不含任何真實姓名。
  */
@@ -90,5 +91,75 @@ export async function writeSyntheticSessionsReport(
     grid.push([name, 'B0001', '2026-10-01', detail, null, null, SUBJECT_TUITION, '已開單']);
   }
   grid.push([name, 'B0001', '2026-10-01', rateDetail, null, null, SUBJECT_DISCOUNT, '已開單']);
+  await writeSyntheticReportGrid(grid, filePath);
+}
+
+export interface SyntheticStudentEntry {
+  name: string;
+  billNo?: string;
+  billDate?: string;
+  billStatus?: string;
+  tuitionRows?: Array<{ detail: string; amount?: number | null; className?: string }>;
+  discounts?: string[];
+  ancillaryRows?: Array<{ subject: string; detail: string; amount?: number | null }>;
+}
+
+/**
+ * 產生包含多位學生、學費欄位、非學費項目（書籍費、商品）之完整合成報表。
+ */
+export async function writeSyntheticMultiStudentReport(
+  filePath: string,
+  students: SyntheticStudentEntry[],
+  options: {
+    classHeadings?: string[];
+    nonTuitionHeading?: string;
+  } = {}
+): Promise<void> {
+  const classHeadings = options.classHeadings ?? [];
+  const nonTuitionHeading = options.nonTuitionHeading ?? '非學費費用';
+  const headers: CellValue[] = [
+    '姓名', '單號', '日期', '明細', null, null, '科目', '狀態',
+    ...classHeadings,
+    nonTuitionHeading,
+  ];
+
+  const grid: CellValue[][] = [headers];
+  const nonTuitionColIdx = 8 + classHeadings.length; // 0-based in grid
+
+  for (const s of students) {
+    const billNo = s.billNo ?? 'B0001';
+    const billDate = s.billDate ?? '2026-10-01';
+    const billStatus = s.billStatus ?? '已開單';
+
+    // 學費列
+    for (const t of s.tuitionRows ?? []) {
+      const row: CellValue[] = [s.name, billNo, billDate, t.detail, null, null, SUBJECT_TUITION, billStatus];
+      for (const h of classHeadings) {
+        if (t.className && h === t.className && t.amount != null) {
+          row.push(t.amount);
+        } else {
+          row.push(null);
+        }
+      }
+      row.push(null); // non-tuition column
+      grid.push(row);
+    }
+
+    // 折扣列
+    for (const d of s.discounts ?? []) {
+      const row: CellValue[] = [s.name, billNo, billDate, d, null, null, SUBJECT_DISCOUNT, billStatus];
+      for (let i = 0; i <= classHeadings.length; i++) row.push(null);
+      grid.push(row);
+    }
+
+    // 附加費用列（書籍費、教材、商品等）
+    for (const a of s.ancillaryRows ?? []) {
+      const row: CellValue[] = [s.name, billNo, billDate, a.detail, null, null, a.subject, billStatus];
+      for (let i = 0; i < classHeadings.length; i++) row.push(null);
+      row.push(a.amount ?? null);
+      grid.push(row);
+    }
+  }
+
   await writeSyntheticReportGrid(grid, filePath);
 }
