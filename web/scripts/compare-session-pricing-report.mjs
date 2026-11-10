@@ -42,7 +42,7 @@ import { parseDiscounts, bpsToLabel, readMultiTuitionReport, collectAncillaryFee
 import { fetchRunStudents, fetchRun } from './shared/roster-api.ts';
 import { normalizeName, indexByName } from './shared/name-matching.ts';
 import { toApplicableRateContext, snapshotRowFor, classSemanticsForRun, buildRunSnapshotContext, shouldWarnMissingSnapshot } from './shared/rate-context.ts';
-import { defineCategories, formatCategorySummary } from './shared/category-registry.ts';
+import { defineCategories, formatCategorySummary, formatHumanReviewList } from './shared/category-registry.ts';
 import { renderShell, escapeHtml } from './shared/report-shell.ts';
 import { assertProjectRoot, assertOutputOutsideProject } from './shared/project-guard.ts';
 import { RATE_PATTERNS } from './shared/report-xlsx.ts';
@@ -465,16 +465,6 @@ function buildNotes({ statusCategory, excel, web }) {
         `報表有帳單，但 ${web?.asOfDate} 名單已無此學生（期中離班或退費）。`,
         ...(items.length ? [`帳單項目：${items.join('、')}。`] : []),
       ],
-    });
-  }
-
-  if (statusCategory === 'SESSION_ANOMALY') {
-    return finish({
-      tone: 'warn',
-      notes: [
-        '堂數或單價異常需確認（請確認是否為插班、扣款或非標準計價）。',
-      ],
-      tags: [],
     });
   }
 
@@ -1159,7 +1149,7 @@ async function main() {
       ? '規則版本未知：適用率不推測'
       : rateContext?.usesClassCategorySnapshot
         ? `類別快照（${Array.isArray(rateContext.classCategories) ? rateContext.classCategories.length : 0} 班，與畫面同源）`
-        : '歷史 run：依凍結的歷史類別映射',
+        : '舊版相容（測試 fixture）：依歷史類別映射',
     billAnchorDate: billDates[Math.floor(billDates.length / 2)] || '—',
     duplicateNames: duplicates,
     amountColumns: amounts.classHeadings.length
@@ -1178,6 +1168,10 @@ async function main() {
     byCategory: count,
   });
   console.log('差異統計：', summary);
+  const humanList = formatHumanReviewList(records, CATEGORIES);
+  if (humanList) {
+    console.log('\n' + humanList);
+  }
   console.log('報告已輸出：', outputPath);
 }
 

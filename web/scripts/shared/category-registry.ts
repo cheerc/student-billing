@@ -253,3 +253,34 @@ export function formatCategorySummary(
   }
   return summary;
 }
+
+/** 需檢視的紀錄形狀。 */
+export interface ReviewRecordLike {
+  name: string;
+  personCode: string;
+  statusCategory: string;
+  statusLabel?: string;
+  excel?: { className?: string | null };
+  note?: { notes?: string[] };
+}
+
+/**
+ * 格式化需人工確認的學生待查清單，供本機 TUI 終端機檢視。
+ */
+export function formatHumanReviewList(
+  records: readonly ReviewRecordLike[],
+  registry: CategoryRegistry
+): string {
+  const needsHumanSet = new Set(registry.needsHuman);
+  const items = records.filter(r => needsHumanSet.has(r.statusCategory));
+  if (items.length === 0) return '';
+
+  const lines = items.map(r => {
+    const label = r.statusLabel ?? registry.labels[r.statusCategory] ?? r.statusCategory;
+    const className = r.excel?.className ? ` - ${r.excel.className}` : '';
+    const noteText = r.note?.notes && r.note.notes.length > 0 ? `: ${r.note.notes.join('；')}` : '';
+    return `  - [${label}] ${r.name} (${r.personCode})${className}${noteText}`;
+  });
+
+  return `需人工確認明細（本機 TUI 檢視）：\n${lines.join('\n')}`;
+}

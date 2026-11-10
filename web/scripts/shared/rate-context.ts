@@ -16,6 +16,13 @@
 
 import type { ApplicableRateContext, RunClassCategorySnapshot } from '../../src/application/applicable-rate.ts';
 
+/**
+ * 規則版本能力表。
+ *
+ * 系統依 D60 單一現況留存模型（Migration 0012/0013），正式運行環境全面採用 `erp-tag-v4`
+ * 且僅留存單一 active run。保留歷史版本定義是為了在合成測試 fixture 中能完整解碼
+ * 與驗證相容性契約。
+ */
 const VERSION_CAPABILITIES: Record<string, { known: boolean; hasClassCategorySnapshot: boolean; hasClassSemanticsSnapshot: boolean; isV3Run: boolean }> = {
   'erp-tag-v1': { known: true, hasClassCategorySnapshot: false, hasClassSemanticsSnapshot: false, isV3Run: false },
   'erp-tag-v2': { known: true, hasClassCategorySnapshot: false, hasClassSemanticsSnapshot: false, isV3Run: false },
