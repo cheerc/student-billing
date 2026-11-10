@@ -153,6 +153,7 @@ describe('共用層：Note 形狀與旗標', () => {
 const BILLING_SPECS = [
   { id: 'MATCH', label: '完全一致', summaryKey: 'match', badge: 'badge-ok', needsHuman: false, tab: 'MATCH', tabOrder: 30, insightGroup: 'none' },
   { id: 'DAY_DIFF', label: '天數差異', summaryKey: 'day', badge: 'badge-tier', needsHuman: false, tab: 'DAY_DIFF', tabOrder: 10, insightGroup: 'mismatch' },
+  { id: 'ROSTER_NOT_BILLED', label: '在席未開單需確認', summaryKey: 'rosterNotBilled', badge: 'badge-withdrawal', needsHuman: true, tab: 'ROSTER_NOT_BILLED', tabOrder: 12, insightGroup: 'rosterNotBilled' },
   { id: 'DISCOUNT_DIFF', label: '折扣差異', summaryKey: 'discount', badge: 'badge-warn', needsHuman: false, tab: 'DISCOUNT_DIFF', tabOrder: 20, insightGroup: 'none' },
   { id: 'BOTH_DIFF', label: '天數與折扣皆差異', summaryKey: 'both', badge: 'badge-withdrawal', needsHuman: false, insightGroup: 'mismatch' },
   { id: 'NOT_IN_WEB', label: '名單已無此人', summaryKey: 'notInWeb', badge: 'badge-class', needsHuman: true, insightGroup: 'notInWeb' },
@@ -177,7 +178,7 @@ describe('共用層：defineCategories 的衍生與不變式', () => {
   it('needsHuman 只包含宣告為 true 的分類，且順序即宣告順序', () => {
     const reg = defineCategories(BILLING_SPECS);
     expect(reg.needsHuman).toEqual([
-      'NOT_IN_WEB', 'EXCEL_NO_TUITION', 'UNPAIRABLE', 'TIER_UNPARSED', 'RATE_UNPARSED', 'WEB_RATE_NOT_CONFIGURED',
+      'ROSTER_NOT_BILLED', 'NOT_IN_WEB', 'EXCEL_NO_TUITION', 'UNPAIRABLE', 'TIER_UNPARSED', 'RATE_UNPARSED', 'WEB_RATE_NOT_CONFIGURED',
     ]);
     // 反向：非 needsHuman 者不得出現
     for (const id of reg.ids) {
@@ -206,12 +207,12 @@ describe('共用層：defineCategories 的衍生與不變式', () => {
     }
     // 本組宣告中實際使用的群組 key 都應有人認領，避免留下孤兒群組
     const used = new Set(reg.tabs.map(t => t.value));
-    expect(used.size).toBe(4);
+    expect(used.size).toBe(5);
   });
 
   it('分頁按鈕依 tabOrder 排序，且未指定者排在最後', () => {
     const reg = defineCategories(BILLING_SPECS);
-    expect(reg.tabs.map(t => t.value)).toEqual(['DAY_DIFF', 'WEB_RATE_NOT_CONFIGURED', 'DISCOUNT_DIFF', 'MATCH']);
+    expect(reg.tabs.map(t => t.value)).toEqual(['DAY_DIFF', 'ROSTER_NOT_BILLED', 'WEB_RATE_NOT_CONFIGURED', 'DISCOUNT_DIFF', 'MATCH']);
   });
 
   it('categoryJs 與 badges／needsHuman 同源，注入頁面腳本不會與 UI 不同步', () => {
@@ -514,7 +515,7 @@ describe('共用層：報表科目解析', () => {
 describe('共用層：主控台統計欄位', () => {
   /** 分類 id → 預期統計鍵名。用索引簽名讓 `reg.ids`（readonly string[]）可索引。 */
   const keyMirror: Record<string, string> = {
-    MATCH: 'match', DAY_DIFF: 'day', DISCOUNT_DIFF: 'discount', BOTH_DIFF: 'both',
+    MATCH: 'match', DAY_DIFF: 'day', ROSTER_NOT_BILLED: 'rosterNotBilled', DISCOUNT_DIFF: 'discount', BOTH_DIFF: 'both',
     NOT_IN_WEB: 'notInWeb', EXCEL_NO_TUITION: 'noTuition', UNPAIRABLE: 'unpairable',
     TIER_UNPARSED: 'tierUnparsed', RATE_UNPARSED: 'rateUnparsed',
     WEB_RATE_NOT_CONFIGURED: 'webRateNotConfigured',
@@ -527,7 +528,7 @@ describe('共用層：主控台統計欄位', () => {
       byCategory: (id) => ({ MATCH: 184, DAY_DIFF: 5 }[id] ?? 0),
     });
     expect(Object.keys(summary)).toEqual([
-      'total', 'match', 'day', 'discount', 'both',
+      'total', 'match', 'day', 'rosterNotBilled', 'discount', 'both',
       'notInWeb', 'noTuition', 'unpairable', 'tierUnparsed', 'rateUnparsed', 'webRateNotConfigured',
     ]);
     expect(summary.match).toBe(184);

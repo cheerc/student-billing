@@ -554,6 +554,161 @@ describe('按堂計價帳務比對工具：報表解析契約', () => {
     });
   });
 
+  describe('compare：反向在席查核 (ROSTER_NOT_BILLED)', () => {
+    it('U05: 在席生所屬班級於報表有開單，但報表無學費列 → 產出 ROSTER_NOT_BILLED (needsHuman)', () => {
+      const report = [
+        reportStudent('開單生', {
+          tuitionRows: ['兒童美語-Dommie[團][W9] - 16 堂課'],
+        }),
+      ];
+      const roster = [
+        webStudent('開單生', {
+          enrollments: [{ rawToken: '兒童美語-Dommie[團][W9]', baseName: '兒童美語-Dommie', withdrawalDate: null }],
+        }),
+        webStudent('未開單在席生', {
+          personCode: 'P-SYNTH-0002',
+          enrollments: [{ rawToken: '兒童美語-Dommie[團][W9]', baseName: '兒童美語-Dommie', withdrawalDate: null }],
+        }),
+      ];
+      const records = runCompare(report, roster);
+      const notBilled = records.find(r => r.name === '未開單在席生');
+      expect(notBilled).toBeDefined();
+      expect(notBilled?.statusCategory).toBe('ROSTER_NOT_BILLED');
+      expect(notBilled?.statusLabel).toBe('在席未開單需確認');
+      expect(notBilled?.note.notes.join('')).toContain('名單在席');
+      expect(notBilled?.note.tags).toContain('在席未開單');
+    });
+
+    it('U06: 已離班學生（withdrawalDate 非空）未在報表開單 → 不得產出 ROSTER_NOT_BILLED', () => {
+      const report = [
+        reportStudent('開單生', {
+          tuitionRows: ['兒童美語-Dommie[團][W9] - 16 堂課'],
+        }),
+      ];
+      const roster = [
+        webStudent('開單生', {
+          enrollments: [{ rawToken: '兒童美語-Dommie[團][W9]', baseName: '兒童美語-Dommie', withdrawalDate: null }],
+        }),
+        webStudent('離班退費生', {
+          personCode: 'P-SYNTH-0003',
+          enrollments: [{ rawToken: '兒童美語-Dommie[團][W9]', baseName: '兒童美語-Dommie', withdrawalDate: '2026-10-15' }],
+        }),
+      ];
+      const records = runCompare(report, roster);
+      const notBilled = records.find(r => r.name === '離班退費生');
+      expect(notBilled).toBeUndefined();
+    });
+
+    it('U07: 在席生報名其他班級（如國小數學），但報表未開該班學費列 → 不得跨科目產生 ROSTER_NOT_BILLED', () => {
+      const report = [
+        reportStudent('開單生', {
+          tuitionRows: ['兒童美語-Dommie[團][W9] - 16 堂課'],
+        }),
+      ];
+      const roster = [
+        webStudent('開單生', {
+          enrollments: [{ rawToken: '兒童美語-Dommie[團][W9]', baseName: '兒童美語-Dommie', withdrawalDate: null }],
+        }),
+        webStudent('數學在席生', {
+          personCode: 'P-SYNTH-0004',
+          enrollments: [{ rawToken: '115國小數學-三A[團]', baseName: '115國小數學-三A', withdrawalDate: null }],
+        }),
+      ];
+      const records = runCompare(report, roster);
+      const notBilled = records.find(r => r.name === '數學在席生');
+      expect(notBilled).toBeUndefined();
+    });
+  });
+
+  describe('compare：堂數單價檢驗與異常標記 (SESSION_ANOMALY)', () => {
+    it('學費不可整除堂數 (7350 / 16) → 判定 SESSION_ANOMALY 並提示無法整除', () => {
+      const report = [
+        reportStudent('學生A', {
+          tuitionRows: ['兒童美語-Dommie[團][W9] - 16 堂課'],
+        }),
+      ];
+      const roster = [
+        webStudent('學生A', {
+          applicableEnglishBps: 10000,
+          enrollments: [{ rawToken: '兒童美語-Dommie[團][W9]', baseName: '兒童美語-Dommie', withdrawalDate: null }],
+        }),
+      ];
+      const amountLookup = {
+        getAmount: () => ({
+          tuitionAmount: 7350,
+          amountColumnHeading: '兒童美語-Dommie[團][W9]',
+          amountRoute: 'class-column',
+        }),
+      };
+      const records = compare(
+        new Map(report.map(s => [s.name, s])),
+        roster,
+        '2026-10-01',
+        amountLookup,
+        LEGACY_V2_CONTEXT
+      ).records;
+      expect(records[0]?.statusCategory).toBe('SESSION_ANOMALY');
+      expect(records[0]?.statusLabel).toBe('堂數或單價異常需確認');
+      expect(records[0]?.note.notes.join('')).toContain('無法整除');
+    });
+
+    it('同班多數 16 堂、少數 8 堂 → 8 堂者標記堂數偏離與 SESSION_ANOMALY', () => {
+      const names = ['生1', '生2', '生3', '生4', '偏離生'];
+      const report = names.map((name, i) =>
+        reportStudent(name, {
+          tuitionRows: [`兒童美語-Dommie[團][W9] - ${i === 4 ? 8 : 16} 堂課`],
+        })
+      );
+      const roster = names.map((name) =>
+        webStudent(name, {
+          applicableEnglishBps: 10000,
+          enrollments: [{ rawToken: '兒童美語-Dommie[團][W9]', baseName: '兒童美語-Dommie', withdrawalDate: null }],
+        })
+      );
+      const records = runCompare(report, roster);
+      const outlier = records.find(r => r.name === '偏離生');
+      expect(outlier?.statusCategory).toBe('SESSION_ANOMALY');
+      expect(outlier?.note.notes.join('')).toContain('堂數偏離');
+      expect(outlier?.note.tags).toContain('堂數偏離');
+    });
+  });
+
+  describe('compare：附加費用同班常模偵測', () => {
+    it('同班多數收取書籍費 $1000，未收取者於 note 提示書籍費偏離常模', () => {
+      const names = ['生1', '生2', '生3', '生4', '未收生'];
+      const report = names.map((name) =>
+        reportStudent(name, {
+          tuitionRows: ['兒童美語-Dommie[團][W9] - 16 堂課'],
+        })
+      );
+      const roster = names.map((name) =>
+        webStudent(name, {
+          applicableEnglishBps: 10000,
+          enrollments: [{ rawToken: '兒童美語-Dommie[團][W9]', baseName: '兒童美語-Dommie', withdrawalDate: null }],
+        })
+      );
+      const ancillaryFees = new Map([
+        ['生1', [{ subject: '書籍費', detail: '教材', amount: 1000 }]],
+        ['生2', [{ subject: '書籍費', detail: '教材', amount: 1000 }]],
+        ['生3', [{ subject: '書籍費', detail: '教材', amount: 1000 }]],
+        ['生4', [{ subject: '書籍費', detail: '教材', amount: 1000 }]],
+        ['未收生', []],
+      ]);
+      const records = compare(
+        new Map(report.map(s => [s.name, s])),
+        roster,
+        '2026-10-01',
+        undefined,
+        LEGACY_V2_CONTEXT,
+        ancillaryFees
+      ).records;
+      const uncharged = records.find(r => r.name === '未收生');
+      expect(uncharged?.note.notes.join('')).toContain('書籍費');
+      expect(uncharged?.note.notes.join('')).toContain('未收取');
+      expect(uncharged?.note.tags).toContain('書籍費偏離常模');
+    });
+  });
+
   /** 分類完整性：新增分類若沒接進 badge／needsHuman，第一次出現就會渲染錯誤。 */
   describe('分類註冊完整性', () => {
     it('BADGES 涵蓋全部分類，不得有 undefined', () => {
@@ -567,6 +722,7 @@ describe('按堂計價帳務比對工具：報表解析契約', () => {
       expect(SESSION_NEEDS_HUMAN).toEqual(expect.arrayContaining([
         'NON_STANDARD_DISCOUNT', 'RATE_UNPARSED', 'UNKNOWN_CLASS',
         'WEB_RATE_NOT_CONFIGURED', 'NOT_IN_WEB', 'UNPAIRABLE', 'EXCEL_NO_TUITION',
+        'SESSION_ANOMALY', 'ROSTER_NOT_BILLED',
       ]));
     });
 

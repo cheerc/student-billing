@@ -42,6 +42,13 @@ export interface DiscountParse {
   extraDiscounts: CellText[];
 }
 
+/** 報表中非學費項目的金額明細。 */
+export interface ReportAncillaryFee {
+  subject: string;
+  detail: string;
+  amount: number | null;
+}
+
 /** 一名學生在報表中的彙整結果。 */
 export interface ReportStudentEntry {
   name: string;
@@ -53,6 +60,8 @@ export interface ReportStudentEntry {
   other: CellText[];
   /** 折扣科目內非「課程費 NN折」的獨立優惠項。 */
   otherDiscounts: CellText[];
+  /** 非學費項目的結構化明細與金額。 */
+  ancillaryFees: ReportAncillaryFee[];
   billNo: ReportField;
   billDate: ReportField;
   billStatus: ReportField;
@@ -158,6 +167,7 @@ interface CollectedEntry {
   discounts: CellText[];
   otherDiscounts: CellText[];
   other: CellText[];
+  ancillaryFees: ReportAncillaryFee[];
   billNo: ReportField;
   billDate: ReportField;
   billStatus: ReportField;
@@ -175,12 +185,25 @@ function collectEntries(
   subjects: ReportSubjects,
 ): Map<string, CollectedEntry> {
   const students = new Map<string, CollectedEntry>();
+  const headerMap = new Map<string, number>();
+
   worksheet.eachRow((row, rowNumber) => {
-    if (rowNumber === 1) return; // 第 1 列為表頭
+    if (rowNumber === 1) {
+      // 掃描表頭欄位（至多 50 欄）
+      for (let i = 1; i <= 50; i++) {
+        try {
+          const t = row.getCell(i)?.text?.trim();
+          if (t) headerMap.set(t, i);
+        } catch {
+          break;
+        }
+      }
+      return;
+    }
     const name = row.getCell(1).text?.trim();
     if (!name) return;
     const entry: CollectedEntry = students.get(name) ?? {
-      name, tuitionRows: [], discounts: [], otherDiscounts: [], other: [],
+      name, tuitionRows: [], discounts: [], otherDiscounts: [], other: [], ancillaryFees: [],
       billNo: null, billDate: null, billStatus: null,
     };
     const detail = row.getCell(4).text?.trim();
@@ -196,6 +219,33 @@ function collectEntries(
       if (detail && !hitsRatePattern(detail)) entry.otherDiscounts.push(detail);
     } else {
       entry.other.push(detail);
+      if (subject) {
+        let amount: number | null = null;
+        const targetCol = headerMap.get(subject) ?? headerMap.get('非學費費用');
+        if (targetCol !== undefined) {
+          const val = row.getCell(targetCol)?.value;
+          if (typeof val === 'number') amount = val;
+          else if (typeof val === 'string' && /^-?\d+(\.\d+)?$/.test(val.trim())) amount = parseFloat(val.trim());
+        }
+        if (amount === null) {
+          for (let i = 9; i <= 30; i++) {
+            try {
+              const val = row.getCell(i)?.value;
+              if (typeof val === 'number') {
+                amount = val;
+                break;
+              }
+            } catch {
+              break;
+            }
+          }
+        }
+        entry.ancillaryFees.push({
+          subject,
+          detail: detail ?? '',
+          amount,
+        });
+      }
     }
     students.set(name, entry);
   });
@@ -217,6 +267,7 @@ export interface MultiTuitionReportEntry {
   discounts: CellText[];
   otherDiscounts: CellText[];
   other: CellText[];
+  ancillaryFees: ReportAncillaryFee[];
   billNo: ReportField;
   billDate: ReportField;
   billStatus: ReportField;
@@ -258,10 +309,25 @@ export function readReport(
       discounts: e.discounts,
       other: e.other,
       otherDiscounts: e.otherDiscounts,
+      ancillaryFees: e.ancillaryFees,
       billNo: e.billNo,
       billDate: e.billDate,
       billStatus: e.billStatus,
     });
   }
   return students;
+}
+
+/**
+ * 收集全表非學費費用明細。
+ */
+export function collectAncillaryFees(
+  worksheet: WorksheetLike,
+  subjects: ReportSubjects = { tuition: '學費', discount: '折扣' },
+): Map<string, ReportAncillaryFee[]> {
+  const map = new Map<string, ReportAncillaryFee[]>();
+  for (const [name, entry] of collectEntries(worksheet, subjects).entries()) {
+    map.set(name, entry.ancillaryFees);
+  }
+  return map;
 }

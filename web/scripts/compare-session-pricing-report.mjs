@@ -38,7 +38,7 @@ import { fileURLToPath } from 'url';
 import { applicableRateForClass } from '../src/application/applicable-rate.ts';
 import { parseSingleClassToken } from '../src/domain/students/token-parser.ts';
 
-import { parseDiscounts, bpsToLabel, readMultiTuitionReport } from './shared/report-xlsx.ts';
+import { parseDiscounts, bpsToLabel, readMultiTuitionReport, collectAncillaryFees } from './shared/report-xlsx.ts';
 import { fetchRunStudents, fetchRun } from './shared/roster-api.ts';
 import { normalizeName, indexByName } from './shared/name-matching.ts';
 import { toApplicableRateContext, snapshotRowFor, classSemanticsForRun, buildRunSnapshotContext, shouldWarnMissingSnapshot } from './shared/rate-context.ts';
@@ -46,6 +46,7 @@ import { defineCategories, formatCategorySummary } from './shared/category-regis
 import { renderShell, escapeHtml } from './shared/report-shell.ts';
 import { assertProjectRoot, assertOutputOutsideProject } from './shared/project-guard.ts';
 import { RATE_PATTERNS } from './shared/report-xlsx.ts';
+import { checkTuitionDivisibility, analyzeClassSessions, analyzeClassAncillaryNorms } from './shared/heuristics.ts';
 
 const SHEET_NAME = '班級營收狀況';
 
@@ -78,6 +79,8 @@ const CATEGORIES = defineCategories([
   { id: 'MATCH', label: '折扣一致', summaryKey: 'match', badge: 'badge-ok', needsHuman: false, tab: 'MATCH', tabOrder: 30, insightGroup: 'none' },
   { id: 'DISCOUNT_DIFF', label: '折扣差異', summaryKey: 'discount', badge: 'badge-warn', needsHuman: false, tab: 'DISCOUNT_DIFF', tabOrder: 20, insightGroup: 'none' },
   { id: 'NON_STANDARD_DISCOUNT', label: '非標準折扣需人工確認', summaryKey: 'nonStandard', badge: 'badge-tier', needsHuman: true, tab: 'NON_STANDARD_DISCOUNT', tabOrder: 10, insightGroup: 'nonStandard' },
+  { id: 'SESSION_ANOMALY', label: '堂數或單價異常需確認', summaryKey: 'sessionAnomaly', badge: 'badge-tier', needsHuman: true, tab: 'SESSION_ANOMALY', tabOrder: 11, insightGroup: 'sessionAnomaly' },
+  { id: 'ROSTER_NOT_BILLED', label: '在席未開單需確認', summaryKey: 'rosterNotBilled', badge: 'badge-withdrawal', needsHuman: true, tab: 'ROSTER_NOT_BILLED', tabOrder: 12, insightGroup: 'rosterNotBilled' },
   { id: 'RATE_UNPARSED', label: '報表折扣無法解析', summaryKey: 'rateUnparsed', badge: 'badge-warn', needsHuman: true, tab: 'RATE_UNPARSED', tabOrder: 15, insightGroup: 'unparsed' },
   { id: 'UNKNOWN_CLASS', label: '班級非美語／數學', summaryKey: 'unknownClass', badge: 'badge-class', needsHuman: true, tab: 'UNKNOWN_CLASS', tabOrder: 16, insightGroup: 'unparsed' },
   { id: 'WEB_RATE_NOT_CONFIGURED', label: '系統無適用折扣值', summaryKey: 'webRateNotConfigured', badge: 'badge-class', needsHuman: true, insightGroup: 'unparsed' },
@@ -465,6 +468,26 @@ function buildNotes({ statusCategory, excel, web }) {
     });
   }
 
+  if (statusCategory === 'SESSION_ANOMALY') {
+    return finish({
+      tone: 'warn',
+      notes: [
+        '堂數或單價異常需確認（請確認是否為插班、扣款或非標準計價）。',
+      ],
+      tags: [],
+    });
+  }
+
+  if (statusCategory === 'ROSTER_NOT_BILLED') {
+    return finish({
+      tone: 'warn',
+      notes: [
+        `名單在席（${excel.className ?? '-'}），但報表無學費列，請確認是否漏開單。`,
+      ],
+      tags: ['在席未開單'],
+    });
+  }
+
   if (statusCategory === 'EXCEL_NO_TUITION') {
     const items = [...excel.nonStandardDiscounts, ...excel.otherItems];
     return finish({
@@ -519,16 +542,20 @@ function buildNotes({ statusCategory, excel, web }) {
  * @param reportStudents readMultiTuitionReport 的輸出（學費列為陣列）
  * @param webStudents    API 名單
  * @param asOfDate       名單基準日
- * @param amountLookup   可選：`{ getAmount(name, className) }`。學費金額必須在
- *                       讀表階段就依班名解析（比對邏輯拿不到儲存格），故由呼叫端
- *                       預先解析後以「姓名＋班名」為鍵查回；省略則金額皆為 null。
- * @param rateContext    所選 `/runs/{id}` 的版本 metadata 與類別／語意快照；unknown、omitted
- *                       或應有快照缺失時 fail closed。僅明確 v1-v3 formal Runs 使用凍結歷史投影。
+ * @param {{ getAmount?: (name: string, className?: string | null) => { tuitionAmount: number | null; amountColumnHeading: string | null; amountRoute: string } } | undefined} [amountLookup]
+ *        可選：`{ getAmount(name, className) }`。學費金額必須在讀表階段就依班名解析。
  * @param {(Partial<import('./shared/rate-context.ts').RunSnapshotPayload> & Pick<import('./shared/rate-context.ts').RunSnapshotPayload, 'isV3Run' | 'classCategories'>) | undefined} [rateContext]
+ *        所選 `/runs/{id}` 的版本 metadata 與類別／語意快照；unknown、omitted 或應有快照缺失時 fail closed。
+ * @param {Map<string, import('./shared/heuristics.ts').AncillaryItem[]> | undefined} [ancillaryFeesByStudent]
  */
-export function compare(reportStudents, webStudents, asOfDate, amountLookup = undefined, rateContext = undefined) {
+export function compare(reportStudents, webStudents, asOfDate, amountLookup = undefined, rateContext = undefined, ancillaryFeesByStudent = undefined) {
   const { map: webByName, duplicates } = indexByName(webStudents);
   const records = [];
+
+  const activeBilledClasses = new Set();
+  const billedStudentsByClass = new Set();
+  const recordsByClass = new Map();
+  const ancillaryByClass = new Map();
 
   for (const entry of reportStudents.values()) {
     // 查詢端必須與索引端使用同一個正規化，否則含括號英文名的學生會整批配對失敗
@@ -582,6 +609,17 @@ export function compare(reportStudents, webStudents, asOfDate, amountLookup = un
       const routed = resolveApplicableRate(scopedClassName, w, rateContext);
       const rateCategoryLabel = routed.category ? CATEGORY_LABEL[routed.category] ?? routed.category : '—';
       const routedField = routed.category ? (RATE_FIELD_BY_CATEGORY[routed.category] ?? null) : null;
+
+      if (scopedClassName) {
+        activeBilledClasses.add(scopedClassName);
+        billedStudentsByClass.add(`${normalizeName(entry.name)}\u0000${scopedClassName}`);
+
+        const studentAncillaries = ancillaryFeesByStudent?.get(entry.name) ?? entry.ancillaryFees ?? [];
+        if (!ancillaryByClass.has(scopedClassName)) {
+          ancillaryByClass.set(scopedClassName, new Map());
+        }
+        ancillaryByClass.get(scopedClassName).set(entry.name, studentAncillaries);
+      }
 
       // 折扣依**本筆學費的班**分派：報表的折扣列在班名尾端掛著折價率或用途標記
       // （`…[W9][9.5折]`），去掉標記後即可與學費列的班名對應。
@@ -688,6 +726,135 @@ export function compare(reportStudents, webStudents, asOfDate, amountLookup = un
         asOfDate,
         note: buildNotes({ statusCategory, excel, web }),
       });
+
+      if (scopedClassName) {
+        if (!recordsByClass.has(scopedClassName)) {
+          recordsByClass.set(scopedClassName, []);
+        }
+        recordsByClass.get(scopedClassName).push({ index: records.length - 1, sessions: tuition.sessions });
+      }
+    }
+  }
+
+  // 堂數一致性分析與整除性檢驗
+  for (const classItems of recordsByClass.values()) {
+    const sessionAnalysis = analyzeClassSessions(classItems);
+    for (const item of classItems) {
+      const rec = records[item.index];
+      const sessionCheck = sessionAnalysis.checkSession(item.sessions);
+      const divisibility = checkTuitionDivisibility(rec.excel.tuitionAmount, rec.excel.sessions);
+
+      const hasSessionOutlier = sessionCheck.isOutlier;
+      const hasDivisibilityAnomaly = !divisibility.isDivisible;
+
+      if (hasSessionOutlier || hasDivisibilityAnomaly) {
+        if (rec.statusCategory === 'MATCH') {
+          rec.statusCategory = 'SESSION_ANOMALY';
+          rec.statusLabel = STATUS_LABEL['SESSION_ANOMALY'];
+        }
+        rec.note.tone = 'warn';
+        if (hasSessionOutlier) {
+          rec.note.tags = rec.note.tags || [];
+          if (!rec.note.tags.includes('堂數偏離')) rec.note.tags.push('堂數偏離');
+          for (const n of sessionCheck.notes) {
+            if (!rec.note.notes.includes(n)) rec.note.notes.push(n);
+          }
+        }
+        if (hasDivisibilityAnomaly && divisibility.note) {
+          if (!rec.note.notes.includes(divisibility.note)) rec.note.notes.push(divisibility.note);
+        }
+      }
+    }
+  }
+
+  // 附加費用同班常模分析
+  for (const [className, studentFeesMap] of ancillaryByClass.entries()) {
+    const normResultsMap = analyzeClassAncillaryNorms(studentFeesMap);
+    for (const [studentName, normResults] of normResultsMap.entries()) {
+      for (const normRes of normResults) {
+        if (normRes.isAnomaly) {
+          const matchingRecs = records.filter(r => r.name === studentName && baseClassName(r.excel.className) === className);
+          for (const rec of matchingRecs) {
+            rec.note.tone = 'warn';
+            if (normRes.note && !rec.note.notes.includes(normRes.note)) {
+              rec.note.notes.push(normRes.note);
+            }
+            rec.note.tags = rec.note.tags || [];
+            const tag = `${normRes.subject}偏離常模`;
+            if (!rec.note.tags.includes(tag)) rec.note.tags.push(tag);
+          }
+        } else if (normRes.note) {
+          const matchingRecs = records.filter(r => r.name === studentName && baseClassName(r.excel.className) === className);
+          for (const rec of matchingRecs) {
+            if (!rec.note.notes.includes(normRes.note)) {
+              rec.note.notes.push(normRes.note);
+            }
+          }
+        }
+      }
+    }
+  }
+
+  // 反向在席查核 (Reverse Roster Pass)
+  for (const w of webStudents ?? []) {
+    for (const e of w.enrollments ?? []) {
+      if (e.withdrawalDate != null) continue; // 已離班退費，排除
+      const enrollmentBaseName = baseClassName(e.className ?? e.rawToken ?? '');
+      if (!enrollmentBaseName || !activeBilledClasses.has(enrollmentBaseName)) continue; // 該班未在當次報表開課，不跨科目誤報
+
+      const billedKey = `${normalizeName(w.name)}\u0000${enrollmentBaseName}`;
+      if (billedStudentsByClass.has(billedKey)) continue; // 已開單
+
+      const category = 'ROSTER_NOT_BILLED';
+      const excel = {
+        className: enrollmentBaseName,
+        sessions: null,
+        tuitionAmount: null,
+        amountColumnHeading: null,
+        amountRoute: 'none',
+        rateBps: 10000,
+        rateDetail: null,
+        rateCategory: null,
+        rateParseStatus: 'none',
+        extraDiscounts: [],
+        nonStandardDiscounts: [],
+        otherItems: [],
+        billNo: null,
+        billDate: null,
+        billStatus: null,
+      };
+      const web = {
+        rateBps: null,
+        rateField: null,
+        rateCategory: null,
+        rateFromSnapshot: false,
+        asOfDate,
+        baseDiscountBps: w.baseDiscountBps ?? null,
+        rawTags: w.trace?.rawTags || '',
+        tokens: (w.enrollments ?? []).map(en => en.rawToken),
+      };
+
+      records.push({
+        name: w.name,
+        personCode: w.personCode ?? '-',
+        grade: w.gradeRaw ?? w.grade ?? '-',
+        rateCategoryLabel: '—',
+        statusCategory: category,
+        statusLabel: STATUS_LABEL[category],
+        excel,
+        web,
+        asOfDate,
+        note: {
+          tone: 'warn',
+          notes: [`名單在席（${enrollmentBaseName}），但報表無學費列，請確認是否漏開單。`],
+          tags: ['在席未開單'],
+          homework: false,
+          withdrawal: false,
+          dupIssues: [],
+          mismatches: [],
+        },
+      });
+      billedStudentsByClass.add(billedKey);
     }
   }
 
@@ -724,6 +891,18 @@ export const INSIGHT_GROUPS = [
     key: 'nonStandard',
     title: '非標準折扣明細（需人工確認，工具不代為併入折價率）',
     hint: '這些明細未含「課程費 NN折」格式，多為期中補加收或轉班補差。折價率兩邊可能完全一致，因此光看數字看不出問題；請逐筆人工核對後開單（延續 D17，工具不代為判斷哪一邊正確）。',
+    variant: 'alert-warning',
+  },
+  {
+    key: 'sessionAnomaly',
+    title: '堂數或單價異常（需人工確認）',
+    hint: '包含堂數偏離同班常規眾數、或學費金額除以堂數無法整除。請確認是否為插班、請假扣款或單價計費特例。',
+    variant: 'alert-warning',
+  },
+  {
+    key: 'rosterNotBilled',
+    title: '在席未開單（需確認是否漏開單）',
+    hint: '學生在名單中為在席狀態（未標記離班），且所屬班級已於本次報表開單，但報表中無該生之學費列。請確認是否漏開單或期中退費未標記。',
     variant: 'alert-warning',
   },
   {
@@ -847,7 +1026,7 @@ function renderHtml(records, meta) {
       { label: '差異筆數', value: diffCount, sub: '含需人工確認者', tone: 'diff' },
       { label: '折扣差異', value: discCount, sub: '報表與系統折價率不同', tone: 'diff' },
       { label: '非標準折扣', value: nonStandardCount, sub: '需人工確認', tone: 'plain' },
-      { label: '需人工判讀', value: needsHumanCount, tone: 'neutral', sub: `非標準 ${nonStandardCount}・無法自動比對 ${unparsedCount}・同名 ${count('UNPAIRABLE')}・無學費 ${count('EXCEL_NO_TUITION')}` },
+      { label: '需人工判讀', value: needsHumanCount, tone: 'neutral', sub: `非標準 ${nonStandardCount}・異常 ${count('SESSION_ANOMALY')}・未開單 ${count('ROSTER_NOT_BILLED')}・無法自動比對 ${unparsedCount}・同名 ${count('UNPAIRABLE')}・無學費 ${count('EXCEL_NO_TUITION')}` },
     ],
     insightHtml: renderInsightGroups(records, CATEGORIES),
     extraInsights: [],
@@ -964,9 +1143,10 @@ async function main() {
     console.warn('警告：此 run 的規則版本或類別快照不完整；本報告不以當前班名補推適用率，相關列將標示為無法判定（issue #122／#148）。');
   }
 
+  const ancillaryFees = collectAncillaryFees(ws, REPORT_SUBJECTS);
   const { records, duplicates } = compare(reportStudents, students, asOfDate, {
     getAmount: (name, className) => amounts.getAmount(name, className),
-  }, rateContext);
+  }, rateContext, ancillaryFees);
 
   const billDates = [...reportStudents.values()].map(s => s.billDate).filter(Boolean).sort();
   const html = renderHtml(records, {
