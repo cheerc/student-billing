@@ -907,10 +907,12 @@ describe('按堂計價帳務比對工具：報表解析契約', () => {
       ruleSetVersion: 'erp-tag-v2', numericPolicy: 'synthetic', rateSource: 'synthetic',
       billAnchorDate: '2026-10-01', duplicateNames: [] as string[], amountColumns: '（合成）',
     };
+    type AncillaryItem = { subject: string; detail: string; amount: number | null };
+    type AncillaryMap = Map<string, AncillaryItem[]>;
     const run = (
       sessionsByName: Record<string, number>,
       bpsByName: Record<string, number> = {},
-      fees?: Map<string, { subject: string; detail: string; amount: number | null }[]>,
+      fees?: AncillaryMap,
     ) => {
       const names = Object.keys(sessionsByName);
       const report = names.map((n) => reportStudent(n, { tuitionRows: [`${CLASS_TOKEN} - ${sessionsByName[n]} 堂課`] }));
@@ -936,8 +938,8 @@ describe('按堂計價帳務比對工具：報表解析契約', () => {
     });
 
     it('MATCH 列的學雜費偏離常模 → 升級為 SESSION_ANOMALY（計入需人工、差異筆數）', () => {
-      const fees = new Map(
-        ['生1', '生2', '生3', '生4'].map((n) => [n, [{ subject: '書籍費', detail: '教材', amount: 1000 }]] as const),
+      const fees: AncillaryMap = new Map(
+        ['生1', '生2', '生3', '生4'].map((n): [string, AncillaryItem[]] => [n, [{ subject: '書籍費', detail: '教材', amount: 1000 }]]),
       );
       fees.set('偏離生', []);
       const records = run({ 生1: 16, 生2: 16, 生3: 16, 生4: 16, 偏離生: 16 }, {}, fees);
@@ -948,8 +950,8 @@ describe('按堂計價帳務比對工具：報表解析契約', () => {
     });
 
     it('非 MATCH 列的學雜費偏離 → 分類不變、仍計入需人工判讀', () => {
-      const fees = new Map(
-        ['生1', '生2', '生3', '生4'].map((n) => [n, [{ subject: '書籍費', detail: '教材', amount: 1000 }]] as const),
+      const fees: AncillaryMap = new Map(
+        ['生1', '生2', '生3', '生4'].map((n): [string, AncillaryItem[]] => [n, [{ subject: '書籍費', detail: '教材', amount: 1000 }]]),
       );
       fees.set('偏離生', []);
       const records = run({ 生1: 16, 生2: 16, 生3: 16, 生4: 16, 偏離生: 16 }, { 偏離生: 9000 }, fees);
