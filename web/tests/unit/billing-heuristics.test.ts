@@ -197,4 +197,77 @@ describe('帳務比對啟發式檢驗模組 (heuristics.ts)', () => {
       expect(resA?.note).toContain('300');
     });
   });
+
+  /**
+   * Issue #236 擁有者裁決 2：學雜費常模與學生合計**不含車資項**。
+   * 辨識規則（Ruling）：品項的科目或明細文字含「車資」即為車資項；不寫死任何學生資料。
+   *
+   * 手算：5 人同班，學雜費常規 $500。
+   *  - 學生E 另有車資 $300：排除車資後合計 $500 = 常模 → 無偏離（含車資會是 $800 ≠ $500）。
+   *  - 學生F（另一情境）學雜費 $600 + 車資 $300：排除車資後 $600 ≠ 500 → 偏離，且訊息列 $600 而非 $900。
+   */
+  describe('analyzeClassAncillaryNorms: 排除車資項（Issue #236）', () => {
+    const base = (): Map<string, AncillaryItem[]> => new Map<string, AncillaryItem[]>([
+      ['學生A', [{ subject: '學雜費', detail: '學雜費', amount: 500 }]],
+      ['學生B', [{ subject: '學雜費', detail: '學雜費', amount: 500 }]],
+      ['學生C', [{ subject: '學雜費', detail: '學雜費', amount: 500 }]],
+      ['學生D', [{ subject: '學雜費', detail: '學雜費', amount: 500 }]],
+    ]);
+
+    it('學雜費科目內的車資明細不計入學生合計：500 + 車資 300 = 500，無偏離', () => {
+      const fees = base();
+      fees.set('學生E', [
+        { subject: '學雜費', detail: '學雜費', amount: 500 },
+        { subject: '學雜費', detail: '車資 單趟', amount: 300 },
+      ]);
+      const e = analyzeClassAncillaryNorms(fees).get('學生E')!.find((r) => r.subject === '學雜費')!;
+      expect(e.studentAmount).toBe(500);
+      expect(e.normAmount).toBe(500);
+      expect(e.isAnomaly).toBe(false);
+    });
+
+    it('車資不參與常模：多數人另收車資時，常模仍為 500 而非 800', () => {
+      const fees = new Map<string, AncillaryItem[]>(
+        ['學生A', '學生B', '學生C'].map((n): [string, AncillaryItem[]] => [n, [
+          { subject: '學雜費', detail: '學雜費', amount: 500 },
+          { subject: '學雜費', detail: '車資', amount: 300 },
+        ]]),
+      );
+      fees.set('學生D', [{ subject: '學雜費', detail: '學雜費', amount: 500 }]);
+      const d = analyzeClassAncillaryNorms(fees).get('學生D')!.find((r) => r.subject === '學雜費')!;
+      expect(d.normAmount).toBe(500);
+      expect(d.isAnomaly).toBe(false);
+    });
+
+    it('車資自成科目（科目文字含車資）→ 不產生任何常模或明細結果', () => {
+      const fees = base();
+      fees.set('學生E', [
+        { subject: '學雜費', detail: '學雜費', amount: 500 },
+        { subject: '車資', detail: '接送', amount: 300 },
+      ]);
+      const results = analyzeClassAncillaryNorms(fees).get('學生E')!;
+      expect(results.some((r) => r.subject === '車資')).toBe(false);
+    });
+
+    it('真正偏離仍被抓出，且訊息金額為扣除車資後的 600', () => {
+      const fees = base();
+      fees.set('學生F', [
+        { subject: '學雜費', detail: '學雜費', amount: 600 },
+        { subject: '學雜費', detail: '車資', amount: 300 },
+      ]);
+      const f = analyzeClassAncillaryNorms(fees).get('學生F')!.find((r) => r.subject === '學雜費')!;
+      expect(f.studentAmount).toBe(600);
+      expect(f.isAnomaly).toBe(true);
+      expect(f.note).toContain('600');
+      expect(f.note).not.toContain('900');
+    });
+
+    it('只有車資、沒有其他學雜費的學生 → 學雜費合計 0（未收取），不因車資而當作已收', () => {
+      const fees = base();
+      fees.set('學生G', [{ subject: '學雜費', detail: '車資', amount: 300 }]);
+      const g = analyzeClassAncillaryNorms(fees).get('學生G')!.find((r) => r.subject === '學雜費')!;
+      expect(g.studentAmount).toBe(0);
+      expect(g.isAnomaly).toBe(true);
+    });
+  });
 });

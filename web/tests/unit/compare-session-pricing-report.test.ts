@@ -981,6 +981,22 @@ describe('按堂計價帳務比對工具：報表解析契約', () => {
       expect(lines[0]).toContain('堂數偏離');
     });
 
+    it('學雜費含車資項：扣除車資後等於常模 → 不偏離、仍為 MATCH（Issue #236 裁決 2）', () => {
+      // 手算：5 人學雜費皆 500；車資生另有車資 300，排除後仍 500 = 常模
+      const fees: AncillaryMap = new Map(
+        ['生1', '生2', '生3', '生4'].map((n): [string, AncillaryItem[]] => [n, [{ subject: '學雜費', detail: '學雜費', amount: 500 }]]),
+      );
+      fees.set('車資生', [
+        { subject: '學雜費', detail: '學雜費', amount: 500 },
+        { subject: '學雜費', detail: '車資', amount: 300 },
+      ]);
+      const records = run({ 生1: 16, 生2: 16, 生3: 16, 生4: 16, 車資生: 16 }, {}, fees);
+      const bus = records.find((r) => r.name === '車資生')!;
+      expect(bus.statusCategory).toBe('MATCH');
+      expect(bus.note.tags ?? []).not.toContain('學雜費偏離常模');
+      expect(isNeedsHumanRecord(bus)).toBe(false);
+    });
+
     it('無偏離、無需人工分類 → 需人工判讀為 0，TUI 清單為空', () => {
       const records = run({ 生1: 16, 生2: 16, 生3: 16 });
       expect(stat(renderHtml(records, META), '需人工判讀')).toBe(0);
