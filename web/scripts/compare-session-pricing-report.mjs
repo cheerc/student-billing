@@ -1126,7 +1126,7 @@ export function renderHtml(records, meta) {
   // 需人工判讀的總數（非直接比大小者），單獨一張卡，避免散在多張卡而看不出全貌
   const needsHumanCount = records.filter(isNeedsHumanRecord).length;
   // 帶偏離旗標、但分類本身不屬 needsHuman 者（例如折扣差異＋堂數偏離），單獨列出以便加總對得上
-  const deviationOnlyCount = records.filter(r => r.deviation === true && !NEEDS_HUMAN_CATEGORIES.includes(r.statusCategory)).length;
+  const deviationOnlyCount = records.filter(isDeviationOnlyRecord).length;
   const diffCount = total - matchCount;
   const rate = total ? ((matchCount / total) * 100).toFixed(1) : '0.0';
 
@@ -1193,7 +1193,17 @@ export function renderHtml(records, meta) {
  * （`rec.deviation`：堂數偏離、單價不一致／無法整除、學雜費偏離常模）。
  */
 export function isNeedsHumanRecord(rec) {
-  return NEEDS_HUMAN_CATEGORIES.includes(rec.statusCategory) || rec.deviation === true;
+  return isNeedsHumanCategoryRecord(rec) || rec.deviation === true;
+}
+
+/** 分類本身屬 needsHuman（`isNeedsHumanRecord` 的第一個來源）。 */
+function isNeedsHumanCategoryRecord(rec) {
+  return NEEDS_HUMAN_CATEGORIES.includes(rec.statusCategory);
+}
+
+/** 帶偏離旗標、但分類本身不屬 needsHuman（`isNeedsHumanRecord` 的第二個來源獨有者）。 */
+function isDeviationOnlyRecord(rec) {
+  return rec.deviation === true && !isNeedsHumanCategoryRecord(rec);
 }
 
 /** 本機 TUI 的需人工確認明細；與 HTML 統計卡共用同一份 registry。 */
