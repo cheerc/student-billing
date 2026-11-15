@@ -1015,7 +1015,7 @@ function renderRow(r, idx) {
   </tr>`;
 }
 
-function renderHtml(records, meta) {
+export function renderHtml(records, meta) {
   const total = records.length;
   const count = (cat) => records.filter(r => r.statusCategory === cat).length;
   const matchCount = count('MATCH');
@@ -1023,7 +1023,7 @@ function renderHtml(records, meta) {
   const nonStandardCount = count('NON_STANDARD_DISCOUNT');
   const unparsedCount = count('RATE_UNPARSED') + count('UNKNOWN_CLASS') + count('WEB_RATE_NOT_CONFIGURED');
   // 需人工判讀的總數（非直接比大小者），單獨一張卡，避免散在多張卡而看不出全貌
-  const needsHumanCount = records.filter(r => NEEDS_HUMAN_CATEGORIES.includes(r.statusCategory)).length;
+  const needsHumanCount = records.filter(isNeedsHumanRecord).length;
   const diffCount = total - matchCount;
   const rate = total ? ((matchCount / total) * 100).toFixed(1) : '0.0';
 
@@ -1080,6 +1080,16 @@ function renderHtml(records, meta) {
     diffCount,
     needsHumanCount,
   });
+}
+
+/** 此筆紀錄是否屬需人工判讀。統計卡、分頁、歸納清單與 TUI 清單共用同一判斷。 */
+export function isNeedsHumanRecord(rec) {
+  return NEEDS_HUMAN_CATEGORIES.includes(rec.statusCategory);
+}
+
+/** 本機 TUI 的需人工確認明細；與 HTML 統計卡共用同一份 registry。 */
+export function buildHumanReviewList(records) {
+  return formatHumanReviewList(records, CATEGORIES);
 }
 
 // ---------------------------------------------------------------- main
@@ -1206,7 +1216,7 @@ async function main() {
     byCategory: count,
   });
   console.log('差異統計：', summary);
-  const humanList = formatHumanReviewList(records, CATEGORIES);
+  const humanList = buildHumanReviewList(records);
   if (humanList) {
     console.log('\n' + humanList);
   }
