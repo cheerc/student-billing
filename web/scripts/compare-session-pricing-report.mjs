@@ -48,7 +48,7 @@ import { defineCategories, formatCategorySummary, formatHumanReviewList } from '
 import { renderShell, escapeHtml } from './shared/report-shell.ts';
 import { assertProjectRoot, assertOutputOutsideProject } from './shared/project-guard.ts';
 import { RATE_PATTERNS } from './shared/report-xlsx.ts';
-import { checkTuitionDivisibility, analyzeClassSessions, analyzeClassUnitPrices, analyzeClassAncillaryNorms } from './shared/heuristics.ts';
+import { checkTuitionDivisibility, analyzeClassSessions, analyzeClassUnitPrices, analyzeClassAncillaryNorms, isFareItem } from './shared/heuristics.ts';
 
 const SHEET_NAME = '班級營收狀況';
 
@@ -582,6 +582,8 @@ function markDeviation(rec) {
 export function compare(reportStudents, webStudents, asOfDate, amountLookup = undefined, rateContext = undefined, ancillaryFeesByStudent = undefined) {
   const { map: webByName, duplicates } = indexByName(webStudents);
   const records = [];
+  /** 車資明細列（Issue #241）：資訊列，不參與分類、差異筆數與需人工判讀。 */
+  const fareItems = [];
 
   const activeBilledClasses = new Set();
   const billedStudentsByClass = new Set();
@@ -595,6 +597,23 @@ export function compare(reportStudents, webStudents, asOfDate, amountLookup = un
     // undefined = 名單無此姓名（離班／退費）；null = 名單有此姓名但對應多人
     const ambiguous = matched === null;
     const w = matched ?? null;
+
+    // 車資明細：辨識一律走 `isFareItem`（單一規則），名目與金額原樣保留，不判定對錯（D17）。
+    // 班級取該生學費列的班名（車資項本身不帶班級欄）；無學費列者以 null 表示。
+    const fareClassName = [...new Set((entry.tuitionRows ?? [])
+      .map(row => parseSessionTuition(row).className)
+      .filter(Boolean))].join('、') || null;
+    for (const item of (ancillaryFeesByStudent?.get(entry.name) ?? entry.ancillaryFees ?? [])) {
+      if (!isFareItem(item)) continue;
+      fareItems.push({
+        name: entry.name,
+        personCode: ambiguous ? '（同名多人）' : (w?.personCode ?? '-'),
+        className: fareClassName,
+        subject: item.subject,
+        detail: item.detail,
+        amount: item.amount,
+      });
+    }
 
     // 無學費列者：一筆 EXCEL_NO_TUITION。不可因為「沒有學費列」而略過該生——
     // 略過會讓報表上的收費項目在報告裡完全消失。
@@ -919,7 +938,7 @@ export function compare(reportStudents, webStudents, asOfDate, amountLookup = un
     return (a.excel.className ?? '').localeCompare(b.excel.className ?? '', 'zh-Hant');
   });
 
-  return { records, duplicates };
+  return { records, duplicates, fareItems };
 }
 
 // ---------------------------------------------------------------- HTML
@@ -1043,6 +1062,60 @@ function renderRow(r, idx) {
   </tr>`;
 }
 
+/**
+ * 車資明細區塊（Issue #241）。獨立於比對主表：不帶 `data-cat`，不參與分頁過濾、
+ * 差異筆數與需人工判讀。名目（科目／明細）與金額照報表原樣呈現，不判定車資對錯（D17）。
+ * 金額讀不到（null）的列仍列出、不計入合計，並於表尾註明筆數，不靜默略過。
+ */
+function renderFareSection(fareItems) {
+  const items = fareItems ?? [];
+  if (!items.length) {
+    return `
+  <section class="insight-group" id="fare-detail">
+    <h2>車資明細</h2>
+    <p class="hint">本次報表無車資項目。</p>
+  </section>`;
+  }
+  const total = items.reduce((sum, f) => sum + (f.amount ?? 0), 0);
+  const unread = items.filter(f => f.amount === null).length;
+  const rows = items.map((f, i) => `
+        <tr>
+          <td class="number">${i + 1}</td>
+          <td class="sticky-name">${escapeHtml(f.name)}</td>
+          <td class="mono">${escapeHtml(f.personCode)}</td>
+          <td>${escapeHtml(f.className ?? '—')}</td>
+          <td>${escapeHtml(f.subject)}</td>
+          <td class="note-text">${escapeHtml(f.detail)}</td>
+          <td class="number">${f.amount === null ? '—' : escapeHtml(f.amount.toLocaleString('zh-TW'))}</td>
+        </tr>`).join('');
+  return `
+  <section class="insight-group" id="fare-detail">
+    <h2>車資明細</h2>
+    <p class="hint">列出報表中科目或明細含「車資」的項目，名目與金額照報表原樣呈現；僅供核對，不判定對錯，亦不計入差異筆數。</p>
+    <div class="table-container">
+      <div class="table-scroll">
+        <table id="fare-table" class="data-table">
+          <thead><tr>
+            <th class="number">#</th>
+            <th class="sticky-name">姓名</th>
+            <th>人員代碼</th>
+            <th>班級</th>
+            <th>科目</th>
+            <th>名目（報表明細原文）</th>
+            <th class="number">金額</th>
+          </tr></thead>
+          <tbody>${rows}
+          </tbody>
+          <tfoot><tr>
+            <td colspan="6"><strong>共 ${items.length} 筆</strong>${unread ? `<span class="muted">（其中 ${unread} 筆金額未讀到，未計入合計）</span>` : ''}</td>
+            <td class="number"><strong>${escapeHtml(total.toLocaleString('zh-TW'))}</strong></td>
+          </tr></tfoot>
+        </table>
+      </div>
+    </div>
+  </section>`;
+}
+
 export function renderHtml(records, meta) {
   const total = records.length;
   const count = (cat) => records.filter(r => r.statusCategory === cat).length;
@@ -1053,7 +1126,7 @@ export function renderHtml(records, meta) {
   // 需人工判讀的總數（非直接比大小者），單獨一張卡，避免散在多張卡而看不出全貌
   const needsHumanCount = records.filter(isNeedsHumanRecord).length;
   // 帶偏離旗標、但分類本身不屬 needsHuman 者（例如折扣差異＋堂數偏離），單獨列出以便加總對得上
-  const deviationOnlyCount = records.filter(r => r.deviation === true && !NEEDS_HUMAN_CATEGORIES.includes(r.statusCategory)).length;
+  const deviationOnlyCount = records.filter(isDeviationOnlyRecord).length;
   const diffCount = total - matchCount;
   const rate = total ? ((matchCount / total) * 100).toFixed(1) : '0.0';
 
@@ -1084,7 +1157,7 @@ export function renderHtml(records, meta) {
       { label: '差異筆數', value: diffCount, sub: '含需人工確認者', tone: 'diff' },
       { label: '折扣差異', value: discCount, sub: '報表與系統折價率不同', tone: 'diff' },
       { label: '非標準折扣', value: nonStandardCount, sub: '需人工確認', tone: 'plain' },
-      { label: '需人工判讀', value: needsHumanCount, tone: 'neutral', sub: `非標準 ${nonStandardCount}・異常 ${count('SESSION_ANOMALY')}・偏離（分類在他處）${deviationOnlyCount}・未開單 ${count('ROSTER_NOT_BILLED')}・無法自動比對 ${unparsedCount}・同名 ${count('UNPAIRABLE')}・無學費 ${count('EXCEL_NO_TUITION')}` },
+      { label: '需人工判讀', value: needsHumanCount, tone: 'neutral', sub: `非標準 ${nonStandardCount}・異常 ${count('SESSION_ANOMALY')}・偏離（分類在他處）${deviationOnlyCount}・未開單 ${count('ROSTER_NOT_BILLED')}・名單已無 ${count('NOT_IN_WEB')}・無法自動比對 ${unparsedCount}・同名 ${count('UNPAIRABLE')}・無學費 ${count('EXCEL_NO_TUITION')}` },
     ],
     insightHtml: renderInsightGroups(records, CATEGORIES),
     extraInsights: [],
@@ -1103,6 +1176,7 @@ export function renderHtml(records, meta) {
       { key: 'note', heading: '差異說明與可能成因' },
     ],
     rowsHtml: records.map(renderRow).join(''),
+    afterTableHtml: renderFareSection(meta.fareItems),
     duplicateNames: meta.duplicateNames,
     tabs,
     registry: CATEGORIES,
@@ -1119,7 +1193,17 @@ export function renderHtml(records, meta) {
  * （`rec.deviation`：堂數偏離、單價不一致／無法整除、學雜費偏離常模）。
  */
 export function isNeedsHumanRecord(rec) {
-  return NEEDS_HUMAN_CATEGORIES.includes(rec.statusCategory) || rec.deviation === true;
+  return isNeedsHumanCategoryRecord(rec) || rec.deviation === true;
+}
+
+/** 分類本身屬 needsHuman（`isNeedsHumanRecord` 的第一個來源）。 */
+function isNeedsHumanCategoryRecord(rec) {
+  return NEEDS_HUMAN_CATEGORIES.includes(rec.statusCategory);
+}
+
+/** 帶偏離旗標、但分類本身不屬 needsHuman（`isNeedsHumanRecord` 的第二個來源獨有者）。 */
+function isDeviationOnlyRecord(rec) {
+  return rec.deviation === true && !isNeedsHumanCategoryRecord(rec);
 }
 
 /** 本機 TUI 的需人工確認明細；與 HTML 統計卡共用同一份 registry。 */
@@ -1217,7 +1301,7 @@ async function main() {
   }
 
   const ancillaryFees = collectAncillaryFees(ws, REPORT_SUBJECTS);
-  const { records, duplicates } = compare(reportStudents, students, asOfDate, {
+  const { records, duplicates, fareItems } = compare(reportStudents, students, asOfDate, {
     getAmount: (name, className) => amounts.getAmount(name, className),
   }, rateContext, ancillaryFees);
 
@@ -1235,6 +1319,7 @@ async function main() {
         : '舊版相容（測試 fixture）：依歷史類別映射',
     billAnchorDate: billDates[Math.floor(billDates.length / 2)] || '—',
     duplicateNames: duplicates,
+    fareItems,
     amountColumns: amounts.classHeadings.length
       ? `${amounts.classHeadings.join('、')}、${NON_TUITION_HEADING}`
       : '（未偵測到）',
