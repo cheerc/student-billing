@@ -515,6 +515,32 @@ describe('按堂計價帳務比對工具：報表解析契約', () => {
         expect(r.note.notes.filter((n: string) => n.includes('報表另有非課程費折扣項')).join()).not.toContain('15*40=600');
       });
 
+      it('NOT_IN_WEB：名單已無此人但報表有其他折扣明細 → 說明列出該項（PR #240 review）', () => {
+        const [r] = runCompare(
+          [reportStudent('合成辰', {
+            tuitionRows: ['兒童美語-Dommie[團][W9] - 16 堂課'],
+            discounts: [ENGLISH_DISCOUNT_9, BUS_FEE],
+            otherDiscounts: [BUS_FEE],
+          })],
+          [webStudent('其他人')],
+        );
+        expect(r.statusCategory).toBe('NOT_IN_WEB');
+        expect(r.note.notes).toContain(NOTE_BUS_FEE);
+      });
+
+      it('EXCEL_NO_TUITION：無學費列但有其他折扣明細 → 說明列出該項（PR #240 review）', () => {
+        const [r] = runCompare(
+          [reportStudent('合成巳', {
+            tuitionRows: [],
+            discounts: [BUS_FEE],
+            otherDiscounts: [BUS_FEE],
+          })],
+          [webStudent('合成巳')],
+        );
+        expect(r.statusCategory).toBe('EXCEL_NO_TUITION');
+        expect(r.note.notes).toContain(NOTE_BUS_FEE);
+      });
+
       it('MATCH 且無其他折扣 → 不出現其他折扣句', () => {
         const [r] = runCompare(
           [reportStudent('合成卯', {
