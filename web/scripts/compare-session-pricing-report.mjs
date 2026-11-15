@@ -480,6 +480,7 @@ function buildNotes({ statusCategory, excel, web }) {
       notes: [
         `報表有帳單，但 ${web?.asOfDate} 名單已無此學生（期中離班或退費）。`,
         ...(items.length ? [`帳單項目：${items.join('、')}。`] : []),
+        ...extraDiscountNotes(excel, excel.nonStandardDiscounts),
       ],
     });
   }
@@ -500,6 +501,7 @@ function buildNotes({ statusCategory, excel, web }) {
       tone: 'neutral',
       notes: [
         `報表無正式學費項${items.length ? `，僅有：${items.join('、')}` : ''}；本工具僅比對有學費列的班別。`,
+        ...extraDiscountNotes(excel, excel.nonStandardDiscounts),
       ],
     });
   }
