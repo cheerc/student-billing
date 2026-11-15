@@ -16,19 +16,16 @@ description: 核對米豆奶財務報表與網頁計算結果時使用 —— �
 
 **兩台的比對科目互斥，跑錯的那台不會報錯，只會讓整份報告變成雜訊。**
 
-這不是推測，是本 repo 實測出來的行為：
+這不是推測，是本 repo 實測出來的行為（2026-10 以一份全輔導、一份全美語報表各跑兩台；
+下表只記量級，不記筆數 —— 筆數隨報表與 active run 而變，拿來直接比對沒有意義）：
 
-| 報表 | `billing:compare` | `billing:compare:sessions` |
+| 報表內容 | `billing:compare` | `billing:compare:sessions` |
 |---|---|---|
-| 9–10 月（含輔導） | `total: 195, match: 184, day: 5, discount: 3` ✓ | `total: 195, match: 0, unknownClass: 192` ✗ 全是雜訊 |
-| 10–11 月（含美語） | `total: 37, match: 0, tierUnparsed: 37` ✗ 全是雜訊 | `total: 37, match: 36, nonStandard: 1` ✓ |
+| 全部國小輔導 | ✓ `match` 佔絕大多數，其餘為少數 `day`／`discount` | ✗ `match` 為 0，幾乎全部 `unknownClass` |
+| 全部兒童美語／國小數學 | ✗ `match` 為 0，全部 `tierUnparsed` | ✓ `match` 佔絕大多數，其餘為少數 `nonStandard` 等 |
 
-> **上表的具體筆數綁定特定 run**（`run_1791981611504`，名單 asOf 2026-10-14）。兩支工具
-> 永遠讀 **active run** 且沒有 `--run` 參數，所以重新匯入名單後筆數就會變 —— 實測：同一份
-> 9–10 月報表在 asOf 2026-10-16 的 active run 上得 `match 182 / day 7`。
->
-> **要看的不是絕對數字，而是量級**：`match` 為 0 就代表跑錯工具 —— 那這個訊號在換 run 後
-> 依然成立。自己的數字與上表不同是正常的，不代表工具壞了。
+兩支工具永遠讀 **active run** 且沒有 `--run` 參數，重新匯入名單後筆數就會變。
+**要看的是量級**：`match` 為 0 就代表跑錯工具 —— 這個訊號在換報表、換 run 後依然成立。
 
 注意兩台**都沒有**「依班名過濾」。輔導工具會把報表裡的每一筆學費列都吃下去，遇到
 沒有級距修飾的美語班就標 `tierUnparsed`；sessions 工具則把輔導班標 `UNKNOWN_CLASS`。
@@ -44,43 +41,67 @@ description: 核對米豆奶財務報表與網頁計算結果時使用 —— �
 | 只說「幫我對帳」，沒說科目 | **先問使用者**，或兩台都跑（皆唯讀、互不影響） |
 
 判斷的最快依據是**報表裡開了哪些班**。拿報表檔問使用者不如自己確認 —— 開 Excel 或用
-下面這段讀一次科目與班名，比問一輪更快也更準。
+下面這段讀一次，比問一輪更快也更準。它同時印出後面驗算要用的**學費列數**與**帳單日期範圍**。
 
-把它存成 `web/probe-classes.mjs` 再跑（`npx tsx -e` 不行：它用 cjs 輸出、不支援
-top-level await，會直接報 `Top-level await is currently not supported`）：
-
-```js
-// web/probe-classes.mjs —— 用完刪掉，別留在專案裡
-import ExcelJS from 'exceljs';
-const wb = new ExcelJS.Workbook();
-await wb.xlsx.readFile(process.argv[2]);
-const ws = wb.getWorksheet('班級營收狀況');
-const byHead = new Map();
-ws.eachRow((row, n) => {
-  if (n === 1) return;
-  if (row.getCell(7).text?.trim() !== '學費') return;
-  const h = (row.getCell(4).text?.trim() || '').split(' - ')[0].trim();
-  byHead.set(h, (byHead.get(h) ?? 0) + 1);
-});
-console.log([...byHead.entries()].map(([k, v]) => `${k} (${v})`).join('\n'));
-```
+腳本必須放在 `web/` 內才解析得到 `exceljs`，且必須是檔案（`npx tsx -e` 不行：它用 cjs 輸出、
+不支援 top-level await，會報 `Top-level await is currently not supported`）。整段在一個
+subshell 內建立、執行、刪除，`trap` 保證**無論成功或失敗都會刪掉**，不會殘留在專案裡：
 
 ```bash
-cd web            # 若已在專案根；若在別處請先 cd 到專案根
-npx tsx probe-classes.mjs "<報表.xlsx>"
+cd web            # 從專案根執行
+( trap 'rm -f probe-classes.mjs' EXIT
+cat > probe-classes.mjs <<'EOF'
+import ExcelJS from 'exceljs';
+const [xlsx, asOf] = process.argv.slice(2);   // asOf 可省略，格式 YYYY-MM-DD
+const wb = new ExcelJS.Workbook();
+await wb.xlsx.readFile(xlsx);
+const ws = wb.getWorksheet('班級營收狀況') || wb.worksheets[0];
+const toIso = (cell) => {
+  if (cell.value instanceof Date) return cell.value.toISOString().slice(0, 10);
+  const m = (cell.text || '').match(/(\d{4})\D(\d{1,2})\D(\d{1,2})/);
+  return m ? `${m[1]}-${m[2].padStart(2, '0')}-${m[3].padStart(2, '0')}` : null;
+};
+const byHead = new Map(); const dates = []; let rows = 0; let badDate = 0;
+ws.eachRow((row, n) => {
+  if (n === 1 || !row.getCell(1).text?.trim()) return;      // 表頭與無姓名列，與工具同規則
+  if (row.getCell(7).text?.trim() !== '學費') return;
+  rows += 1;
+  const h = (row.getCell(4).text?.trim() || '').split(' - ')[0].trim();
+  byHead.set(h, (byHead.get(h) ?? 0) + 1);
+  const d = toIso(row.getCell(3)); if (d) dates.push(d); else badDate += 1;
+});
+dates.sort();
+console.log([...byHead.entries()].map(([k, v]) => `${k} (${v})`).join('\n'));
+console.log(`學費列 ${rows} 筆；帳單日期 ${dates[0] ?? '—'} ~ ${dates.at(-1) ?? '—'}（無法解析 ${badDate}）`);
+if (asOf) console.log(`帳單日期晚於 asOf ${asOf}：${dates.filter((d) => d > asOf).length} / ${rows}`);
+EOF
+npx tsx probe-classes.mjs "<報表.xlsx>" "<asOfDate>" )
+git status --short probe-classes.mjs   # 應無輸出
 ```
 
-實測輸出：
+輸出格式（班名為示意）：
 
 ```
-# 9-10 月報表 → 全部國小輔導
-115國小輔導-三年級[團][3] (11) / 115國小輔導-寫功課[團][六年級] (3) / …
-
-# 10-11 月報表 → 全部兒童美語
-兒童美語-Dommie[團][W9] (14) / 兒童美語-Archy[團][W7] (9) / 兒童美語-Gino[團][Starter] (14)
+115國小輔導-三年級[團][3] (n) / 兒童美語-某班[團][W9] (n) / …
+學費列 N 筆；帳單日期 YYYY-MM-DD ~ YYYY-MM-DD（無法解析 0）
+帳單日期晚於 asOf YYYY-MM-DD：k / N
 ```
 
 班名含「國小輔導」→ 輔導；含「兒童美語」或「國小數學」→ 按堂計價。
+
+### 混合科目報表（兩種班都有）
+
+兩台工具都**沒有**班別篩選參數（只有 `--xlsx`、`--out`、`--base`、`--help`），報表裡另一科目的列
+不會被略過，而是進入差異：輔導工具標 `tierUnparsed`；按堂計價工具標 `unknownClass`，而且它的
+在席反查以「報表上有開單的班」為準，會對另一科目的班也推出 `rosterNotBilled`。這些都會灌進
+差異筆數與需人工判讀。工具端篩選另案裁決（#239 範圍外），目前擇一處理：
+
+1. **拆分報表（建議）**：在 Excel 把報表另存兩份，各只保留一科的列（保留第 1 列表頭與工作表名
+   `班級營收狀況`；同一學生的折扣、雜費列跟著該生的學費列走），再各跑對應的工具。
+   拆出的檔案含個資，同樣放專案外。
+2. **整份跑兩台、只讀對應科目**：每份報告只看該工具科目的班；另一科目班的 `tierUnparsed`／
+   `unknownClass`／`rosterNotBilled` 視為雜訊，不計入回報。此時統計卡的差異筆數、需人工判讀與
+   主控台 `total` 都含雜訊，**不可直接引用**，回報時要自行扣除並說明扣了什麼。
 
 ## 跑之前必須確認
 
@@ -97,9 +118,16 @@ npx tsx probe-classes.mjs "<報表.xlsx>"
    curl -s http://127.0.0.1:3000/api/v1/runs/current | python3 -c "import sys,json; d=json.load(sys.stdin); r=d.get('run') or {}; print(r.get('asOfDate'), r.get('ruleSetVersion'), r.get('status'))"
    ```
 
-**注意 `asOfDate` 與報表的帳期會有落差** —— 名單是某一時間點的快照，報表是整段期間的開單。
-這是差異的正常成因之一，不是工具出錯。落差通常會讓部分學生落入「名單已無此人」
-（期中離班／換班），數量不多就屬正常。
+**比對報表帳單日期範圍與 `asOfDate`**（跑之前做，結果寫進回報）。名單是 `asOfDate` 當下的
+快照，報表是一段期間的開單；兩者落差是差異的正常成因之一，不是工具出錯。落差**不一定**表現為
+「名單已無此人」—— 實測（2026-11 一份按堂計價報表，多數學費列的帳單日期晚於 `asOfDate`）
+`notInWeb` 為 0，落差表現在 `rosterNotBilled` 與 `discount`。三者都可能出現，不預設哪一種。
+
+1. 用上面的探測腳本帶入 `asOfDate`，取得帳單日期範圍與「晚於 asOf」的學費列數。
+   HTML 報告的中繼資訊也並列「網頁系統名單」（asOfDate）與「核定發單日」（各生帳單日期的中位數）。
+2. **`asOfDate` 落在帳單日期範圍之外，或過半學費列的帳單日期晚於 `asOfDate`** → 在回報開頭
+   警示時間落差（列出兩個日期與比例），說明在席未開單、折扣差異、名單已無此人可能因此產生，
+   並建議使用者考慮重新匯入較接近帳單日期的名單後再跑。**仍照樣產出報告，不代為判斷哪邊正確**（D17）。
 
 ## 執行
 
@@ -133,24 +161,62 @@ npm run billing:compare:sessions -- --xlsx "<財務報表.xlsx>" [--out "<報告
   webRateNotConfigured, notInWeb, noTuition, unpairable }
 ```
 
-各欄意義：
+### 計數口徑：先驗算再回報
+
+主控台的 `total` 是**紀錄數**（各分類加總），不是報表列數：
+
+- **按堂計價**：紀錄數＝學費列紀錄＋`rosterNotBilled`＋`noTuition`。HTML 的「報科學費筆數」卡
+  只計學費列，應**等於**探測腳本印出的學費列數 —— 不等就先停下來回報，不要繼續解讀。
+  分頁「全部」、「差異筆數」與「折扣一致」百分比的分母都是紀錄數（含 `rosterNotBilled`），
+  所以「全部」會比「報科學費筆數」多出 `rosterNotBilled`＋`noTuition`。
+- **國小輔導**：一生一筆；`total` 與「報表學生總數」卡都含 `rosterNotBilled`（名單反查推入，
+  報表上沒有此人）。報表學生數＝`total` − `rosterNotBilled`。
+
+回報時寫清楚引用的是哪一個數字（學費列數或紀錄數）。
+
+### 各欄意義
 
 - **match** — 兩邊一致。若 `match` 為 0 而報表不是空檔，先確認沒跑錯工具。
-- **day / discount / both**（僅輔導）— 天數差、折扣差、兩者皆差。
+- **day / both**（僅輔導）— 天數差、天數與折扣皆差。
+- **discount** — 折扣差（兩邊折價率不同）。按堂計價工具中，折價率不同時歸此類**優先於**非標準折扣；
+  若該列另有非標準明細，仍會留在需人工判讀（統計卡副標「非標準（分類在他處）」）。
 - **rosterNotBilled**（兩台皆有）— 在席未開單需確認。學生在名單中為在席狀態（未標記離班），且所屬班級已於本次報表開單，但報表中無該生之學費列。提示操作員人工確認是否漏開單。
-- **sessionAnomaly**（僅按堂計價）— 堂數或單價異常需確認。包含同班堂數偏離常規眾數（例如全班多數 16 堂、少數 8 堂）、學費金額除以堂數無法整除（商數具小數點），或學費可整除但**同班每堂單價不一致**（以學費列、折扣前金額計；標籤「單價不一致」）。以上檢驗只對按堂計價班（美語、數學）執行，安親課輔等月費班不檢查。
+- **sessionAnomaly**（僅按堂計價）— 堂數或單價異常需確認：**原本兩邊一致、但帶有偏離**的學費列。偏離有四種：
+  - 只對按堂計價班（類別快照為美語、數學）檢查：同班**堂數偏離**常規眾數（例如全班多數 16 堂、少數 8 堂；標籤「堂數偏離」）、學費除以堂數**無法整除**、可整除但**同班每堂單價不一致**（以折扣前學費列計；標籤「單價不一致」）。安親課輔等月費班不檢查；類別無法判定者不檢查並在說明寫「未執行」。
+  - 報表上所有有學費列的班都檢查：**學雜費偏離同班常模**（同班半數以上學生收同一非零金額即為常模；標籤「<科目>偏離常模」）。車資項不計入常模。
+  - 已是其他分類（例如 `discount`、`nonStandard`）的列有偏離時**不改分類**，只帶偏離旗標；它仍計入需人工判讀（統計卡副標「偏離（分類在他處）」）與 HTML「堂數或單價異常」群組，但**不計入** `sessionAnomaly` 的數字。
 - **nonStandard**（僅按堂計價）— 報表有非「課程費 NN折」格式但帶金額算式的明細，
-  多為期中補加收。**該生兩邊折價率可能完全一致**，正是光看數字看不出問題的那種，
+  多為期中補加收，且兩邊折價率一致（或報表折價率無法判定）。**正因為數字一致才看不出問題**，
   所以獨立列為需人工確認。工具刻意不把它併入折價率。
 - **tierUnparsed / rateUnparsed** — 報表格式不在工具認得的範圍。**不要代為猜測**，
   這是需要人工確認報表的訊號，不是 bug。
-- **unknownClass**（僅按堂計價）— 班級不屬美語／數學／輔導，需人工歸類。
+- **unknownClass**（僅按堂計價）— 班級不屬美語／數學（含輔導班），需人工歸類。
 - **webRateNotConfigured** — 系統端無適用折扣值（例如缺班級快照）。
 - **notInWeb / noTuition / unpairable** — 名單已無此人、報表無學費項、姓名無法唯一配對。
 
-### 本機 TUI 即時待查清單與個資安全邊界
+**車資明細**（僅按堂計價 HTML 報告）：主表下方獨立一區，列出科目或明細含「車資」的項目
+（學生、班級、名目原文、金額，表尾筆數與合計）。這是**資訊列**：不計入差異筆數、不計入需人工
+判讀、不判定對錯；車資也不計入學雜費常模。使用者問車資時從這裡讀。
 
-執行完畢後，終端機會在差異統計下方直接格式化輸出「需人工確認明細（本機 TUI 檢視）」：
+### 待查項要看哪裡
+
+**「需人工判讀」不等於全部待查。** 兩種待查項要分開看：
+
+1. **需人工判讀集合** —— 統計卡「需人工判讀」、HTML 分頁「需人工判讀」、本機 TUI 待查清單三者
+   是同一集合、數字相同。按堂計價工具的集合包含：需人工分類（`sessionAnomaly`、`nonStandard`、
+   `rosterNotBilled`、`unknownClass`、`notInWeb` …）、帶偏離旗標的列、以及帶非標準明細的折扣差異列。
+   國小輔導工具沒有旗標，集合就是需人工分類。
+2. **純折扣差異**（以及輔導的 `day`／`both`）—— 兩邊數字不同的硬性差異，**不在**上面的集合，
+   **不會**出現在 TUI，只在 HTML 對應分頁。
+
+**完整待查範圍＝HTML「僅差異」分頁＝「差異筆數」**（紀錄數 − `match`），它同時涵蓋 1 和 2。
+回報時以「差異筆數」為總量，再拆成「需人工判讀 n 筆」與「其餘硬性差異 m 筆」。
+
+### 本機 TUI 待查清單與個資安全邊界
+
+執行完畢後，終端機會在差異統計下方直接格式化輸出「需人工確認明細（本機 TUI 檢視）」，
+內容是上一節的**需人工判讀集合**（不含純折扣差異）。帶旗標而分類在他處的列以原分類標示
+（例如 `[折扣差異]`），成因寫在說明裡：
 ```text
 需人工確認明細（本機 TUI 檢視）：
   - [在席未開單需確認] 測試生甲 (S001) - 兒童美語-Dommie: 名單在席但報表無學費列
@@ -160,7 +226,8 @@ npm run billing:compare:sessions -- --xlsx "<財務報表.xlsx>" [--out "<報告
 - **本機檢視**：終端機輸出真實姓名與代碼是為了現場操作員肉眼快速核對，屬於本機臨時 stdout。
 - **公開邊界（個資零容忍）**：Git commit message、PR 說明、CI 輸出與儲存於 repo 內之任何測試檔案**絕對禁止**出現任何真實姓名、身分證或電話等個資。回報時僅能以來源座標（如「列 205」）或匿名代碼指涉。
 
-**回報時要做的事**：把 HTML 路徑與各類差異筆數回報給使用者。
+**回報時要做的事**：把 HTML 路徑、計數驗算結果（學費列數是否對得上）、時間落差警示（若有）、
+差異筆數與其拆分（需人工判讀／其餘硬性差異）回報給使用者；混合報表要說明扣除了哪些雜訊。
 
 **回報時不要做的事**：不要代使用者判斷「哪一邊才對」。報表與名單存在時間差，
 差異不預設任一來源為正確 —— 這是專案最高原則 D17。列出差異與資料可佐證的可能成因，
