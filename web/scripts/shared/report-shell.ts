@@ -404,6 +404,11 @@ export interface RenderShellOptions {
   columns: readonly ColumnSpec[];
   /** <tbody> 的內容，由工具端 renderRow 產生。 */
   rowsHtml: string;
+  /**
+   * 主表之後、</main> 之前的額外區塊（例如按堂計價的車資明細表）。省略時輸出與
+   * 未加此欄位前逐位元組相同；該區塊不得使用 `#cmp` 或 `data-cat`，以免被主表過濾腳本吞掉。
+   */
+  afterTableHtml?: string;
   /** 名單重名警告；空陣列時不渲染。 */
   duplicateNames: readonly string[];
   /** 工具端自算的計數，供固定按鈕標籤使用。 */
@@ -533,7 +538,7 @@ ${opts.extraInsights.map(a => `    ${a}`).join('\n')}
         <tbody>${opts.rowsHtml}</tbody>
       </table>
     </div>
-  </div>
+  </div>${opts.afterTableHtml ?? ''}
 </main>
 <script>
   // 分類清單由 Node 端注入，與 badge／統計／歸納群組同源，不在此另寫一份

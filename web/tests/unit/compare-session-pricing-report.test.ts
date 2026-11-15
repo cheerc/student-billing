@@ -1095,7 +1095,10 @@ describe('按堂計價帳務比對工具：報表解析契約', () => {
       expect(html).toContain('共 4 筆');
       expect(html).toContain('1,050');
       expect(html).toContain('1 筆金額未讀到');
-      expect(html).not.toContain('教材');
+      // 非車資項（書籍費／教材）不得進車資表；主表的「其他科目」仍可出現，故只檢查車資區塊
+      const section = html.slice(html.indexOf('id="fare-detail"'), html.indexOf('</section>', html.indexOf('id="fare-detail"')));
+      expect(section).not.toContain('教材');
+      expect(section).not.toContain('1,000');
     });
 
     it('車資列為資訊列：不影響需人工判讀、差異筆數與列標記', () => {
