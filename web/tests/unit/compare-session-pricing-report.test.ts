@@ -724,6 +724,131 @@ describe('按堂計價帳務比對工具：報表解析契約', () => {
     });
   });
 
+  /**
+   * Issue #238 擁有者裁決（暫行例外，#118 新增每堂單價欄位後重新評估）：
+   *  - 同班可整除的學費列，每堂單價應相同；不同 → 需人工確認（不判定哪邊正確，D17）。
+   *  - 只適用按堂計價班（美語／數學）。安親課輔等月費班不做「學費 ÷ 堂數」檢查。
+   * 預期值皆手算：7360÷16=460、7200÷16=450、7350÷16 無法整除。
+   */
+  describe('compare：同班每堂單價一致性與月費班排除 (Issue #238)', () => {
+    const TOKEN = '兒童美語-Dommie[團][W9]';
+    const ENROLL = [{ rawToken: TOKEN, baseName: '兒童美語-Dommie', withdrawalDate: null }];
+
+    /** 依學生名查金額的 lookup；未列者回 null。 */
+    const lookupByName = (amounts: Record<string, number>) => ({
+      getAmount: (name: string) => ({
+        tuitionAmount: amounts[name] ?? null,
+        amountColumnHeading: TOKEN,
+        amountRoute: 'class-column',
+      }),
+    });
+
+    const run = (
+      amounts: Record<string, number>,
+      sessionsByName: Record<string, number>,
+      context: unknown = LEGACY_V2_CONTEXT,
+      className = TOKEN,
+      enrollments: unknown = ENROLL,
+    ) => {
+      const names = Object.keys(sessionsByName);
+      const report = names.map((n) => reportStudent(n, { tuitionRows: [`${className} - ${sessionsByName[n]} 堂課`] }));
+      const roster = names.map((n) => webStudent(n, { enrollments }));
+      return compare(
+        new Map(report.map((r) => [r.name as string, r])) as never,
+        roster as never[],
+        '2026-10-14',
+        lookupByName(amounts) as never,
+        context as never,
+      ).records;
+    };
+
+    it('同班 5 人，4 人 460 元／堂、1 人 450 元／堂 → 僅偏離者標 SESSION_ANOMALY 並列出兩個單價', () => {
+      const records = run(
+        { 生1: 7360, 生2: 7360, 生3: 7360, 生4: 7360, 偏離生: 7200 },
+        { 生1: 16, 生2: 16, 生3: 16, 生4: 16, 偏離生: 16 },
+      );
+      const odd = records.find((r) => r.name === '偏離生');
+      expect(odd?.statusCategory).toBe('SESSION_ANOMALY');
+      expect(odd?.note.tags).toContain('單價不一致');
+      const text = odd?.note.notes.join('') ?? '';
+      expect(text).toContain('450');
+      expect(text).toContain('460');
+      for (const r of records.filter((x) => x.name !== '偏離生')) {
+        expect(r.statusCategory).toBe('MATCH');
+        expect(r.note.notes.join('')).not.toContain('單價');
+      }
+    });
+
+    it('同班只有兩人且單價不同（460 vs 450，無多數） → 兩列都標需人工確認', () => {
+      const records = run({ 甲: 7360, 乙: 7200 }, { 甲: 16, 乙: 16 });
+      expect(records.map((r) => r.statusCategory)).toEqual(['SESSION_ANOMALY', 'SESSION_ANOMALY']);
+    });
+
+    it('同班單價全部相同 → 不產生單價異常', () => {
+      const records = run({ 甲: 7360, 乙: 7360, 丙: 7360 }, { 甲: 16, 乙: 16, 丙: 16 });
+      expect(records.every((r) => r.statusCategory === 'MATCH')).toBe(true);
+    });
+
+    it('無法整除的列不參與單價比較：4 人 460、1 人 7350（不可整除）→ 僅該列有「無法整除」，無單價不一致說明', () => {
+      const records = run(
+        { 生1: 7360, 生2: 7360, 生3: 7360, 生4: 7360, 不整除生: 7350 },
+        { 生1: 16, 生2: 16, 生3: 16, 生4: 16, 不整除生: 16 },
+      );
+      const odd = records.find((r) => r.name === '不整除生');
+      expect(odd?.statusCategory).toBe('SESSION_ANOMALY');
+      expect(odd?.note.notes.join('')).toContain('無法整除');
+      expect(odd?.note.tags ?? []).not.toContain('單價不一致');
+      expect(records.filter((r) => r.name !== '不整除生').every((r) => r.statusCategory === 'MATCH')).toBe(true);
+    });
+
+    it('月費班（名稱含國小輔導，v2 名稱映射判為 care）→ 不做整除與堂數偏離檢查', () => {
+      const care = '115國小輔導-三年級[團][3]';
+      const records = run(
+        { 生1: 7350, 生2: 7360, 生3: 7360, 生4: 7360 },
+        { 生1: 16, 生2: 16, 生3: 16, 生4: 8 },
+        LEGACY_V2_CONTEXT,
+        care,
+        [{ rawToken: care, baseName: '115國小輔導-三年級', withdrawalDate: null }],
+      );
+      for (const r of records) {
+        const text = r.note.notes.join('');
+        expect(text).not.toContain('無法整除');
+        expect(text).not.toContain('單價');
+        expect(r.note.tags ?? []).not.toContain('堂數偏離');
+      }
+    });
+
+    it('類別以 run 快照為準而非班名：班名像美語但快照為 care → 不做檢查', () => {
+      const context = buildRunSnapshotContext({
+        ruleSetVersion: 'erp-tag-v4',
+        classCategories: [{ base_name: '兒童美語-Dommie', category: 'care', fixed_five_days: 0, class_type: 'care' }],
+      })!;
+      const records = run({ 甲: 7350, 乙: 7200 }, { 甲: 16, 乙: 16 }, context);
+      for (const r of records) {
+        expect(r.note.notes.join('')).not.toContain('無法整除');
+        expect(r.note.notes.join('')).not.toContain('單價');
+      }
+    });
+
+    it('快照類別為 english 時照常檢查（快照路徑可觸發單價異常）', () => {
+      const context = buildRunSnapshotContext({
+        ruleSetVersion: 'erp-tag-v4',
+        classCategories: [{ base_name: '兒童美語-Dommie', category: 'english', fixed_five_days: 0, class_type: 'english' }],
+      })!;
+      const records = run({ 甲: 7360, 乙: 7200 }, { 甲: 16, 乙: 16 }, context);
+      expect(records.some((r) => r.note.tags?.includes('單價不一致'))).toBe(true);
+    });
+
+    it('類別無法判定（快照缺該班）→ 不執行也不靜默：保持需人工狀態並說明未檢驗', () => {
+      const context = buildRunSnapshotContext({ ruleSetVersion: 'erp-tag-v4', classCategories: [] })!;
+      const [r] = run({ 甲: 7350 }, { 甲: 16 }, context);
+      expect(r.statusCategory).toBe('WEB_RATE_NOT_CONFIGURED');
+      const text = r.note.notes.join('');
+      expect(text).not.toContain('無法整除');
+      expect(text).toContain('未執行');
+    });
+  });
+
   describe('compare：附加費用同班常模偵測', () => {
     it('同班多數收取書籍費 $1000，未收取者於 note 提示書籍費偏離常模', () => {
       const names = ['生1', '生2', '生3', '生4', '未收生'];

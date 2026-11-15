@@ -9,6 +9,21 @@ export interface DivisibilityResult {
   note: string | null;
 }
 
+export interface UnitPriceRow {
+  tuitionAmount: number | null;
+  sessions: number | null;
+}
+
+export interface UnitPriceCheck {
+  /** 此列是否為可整除、參與單價比較的列。 */
+  compared: boolean;
+  unitPrice: number | null;
+  /** 同班常見單價；無單一多數時為 null。 */
+  modeUnitPrice: number | null;
+  isMismatch: boolean;
+  note: string | null;
+}
+
 export interface SessionUniformityResult {
   classModeSessions: number | null;
   modeCount: number;
@@ -73,6 +88,53 @@ export function checkTuitionDivisibility(
     unitPrice,
     note,
   };
+}
+
+/**
+ * 同班每堂單價一致性（Issue #238 擁有者裁決，暫行例外，#118 新增每堂單價欄位後重新評估）。
+ *
+ * 只比較**可整除**的學費列（不可整除者另由 `checkTuitionDivisibility` 標示）；
+ * 呼叫端須只傳入按堂計價班的學費列（折扣前金額）。同班可比較列的單價應全部相同，
+ * 不同即各自標為需人工確認。本函式只列出差異，不判定哪個單價才正確（D17）。
+ * 若某單價恰為唯一最多且佔可比較列 >= 50%，僅偏離者被標示；否則（無多數）全部可比較列都標示。
+ */
+export function analyzeClassUnitPrices(rows: UnitPriceRow[]): UnitPriceCheck[] {
+  const unitPriceOf = (r: UnitPriceRow): number | null => {
+    if (r.tuitionAmount == null || r.sessions == null || r.sessions <= 0) return null;
+    return r.tuitionAmount % r.sessions === 0 ? r.tuitionAmount / r.sessions : null;
+  };
+  const prices = rows.map(unitPriceOf);
+  const freq = new Map<number, number>();
+  for (const p of prices) {
+    if (p !== null) freq.set(p, (freq.get(p) ?? 0) + 1);
+  }
+  const compared = prices.filter((p) => p !== null).length;
+
+  let modeUnitPrice: number | null = null;
+  if (freq.size > 1) {
+    const sorted = [...freq.entries()].sort((a, b) => b[1] - a[1]);
+    const [topPrice, topCount] = sorted[0];
+    if (sorted[1][1] < topCount && topCount / compared >= 0.5) modeUnitPrice = topPrice;
+  }
+
+  const fmt = (n: number) => n.toLocaleString('zh-TW');
+  const summary = [...freq.entries()]
+    .sort((a, b) => b[1] - a[1] || a[0] - b[0])
+    .map(([price, count]) => `${fmt(price)} 元（${count} 列）`)
+    .join('、');
+
+  return prices.map((unitPrice) => {
+    if (unitPrice === null) {
+      return { compared: false, unitPrice: null, modeUnitPrice: null, isMismatch: false, note: null };
+    }
+    const isMismatch = freq.size > 1 && (modeUnitPrice === null || unitPrice !== modeUnitPrice);
+    const note = isMismatch
+      ? modeUnitPrice !== null
+        ? `同班每堂單價應相同：此列 ${fmt(unitPrice)} 元，同班較多數為 ${fmt(modeUnitPrice)} 元（同班各單價：${summary}），請人工確認。`
+        : `同班每堂單價應相同，但同班各單價不一（${summary}），無單一多數，請人工確認。`
+      : null;
+    return { compared: true, unitPrice, modeUnitPrice, isMismatch, note };
+  });
 }
 
 /**

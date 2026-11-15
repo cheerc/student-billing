@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   checkTuitionDivisibility,
+  analyzeClassUnitPrices,
   analyzeClassSessions,
   analyzeClassAncillaryNorms,
   type AncillaryItem,
@@ -36,6 +37,68 @@ describe('帳務比對啟發式檢驗模組 (heuristics.ts)', () => {
       expect(checkTuitionDivisibility(7360, null).isDivisible).toBe(true);
       expect(checkTuitionDivisibility(null, null).isDivisible).toBe(true);
       expect(checkTuitionDivisibility(7360, 0).isDivisible).toBe(true);
+    });
+  });
+
+  describe('analyzeClassUnitPrices: 同班每堂單價一致性 (Issue #238)', () => {
+    it('單價全同（7360÷16 = 7360÷16 = 460）→ 無不一致', () => {
+      const res = analyzeClassUnitPrices([
+        { tuitionAmount: 7360, sessions: 16 },
+        { tuitionAmount: 7360, sessions: 16 },
+      ]);
+      expect(res.every((r) => !r.isMismatch)).toBe(true);
+      expect(res[0].unitPrice).toBe(460);
+    });
+
+    it('不同堂數但單價相同（3680÷8 = 7360÷16 = 460）→ 無不一致', () => {
+      const res = analyzeClassUnitPrices([
+        { tuitionAmount: 3680, sessions: 8 },
+        { tuitionAmount: 7360, sessions: 16 },
+      ]);
+      expect(res.every((r) => !r.isMismatch)).toBe(true);
+    });
+
+    it('3 列 460、1 列 450 → 多數 460，僅 450 列不一致', () => {
+      const res = analyzeClassUnitPrices([
+        { tuitionAmount: 7360, sessions: 16 },
+        { tuitionAmount: 7360, sessions: 16 },
+        { tuitionAmount: 7360, sessions: 16 },
+        { tuitionAmount: 7200, sessions: 16 },
+      ]);
+      expect(res.map((r) => r.isMismatch)).toEqual([false, false, false, true]);
+      expect(res[3].modeUnitPrice).toBe(460);
+      expect(res[3].note).toContain('450');
+      expect(res[3].note).toContain('460');
+    });
+
+    it('460 與 450 各 1 列（無單一多數）→ 兩列皆不一致，modeUnitPrice 為 null', () => {
+      const res = analyzeClassUnitPrices([
+        { tuitionAmount: 7360, sessions: 16 },
+        { tuitionAmount: 7200, sessions: 16 },
+      ]);
+      expect(res.map((r) => r.isMismatch)).toEqual([true, true]);
+      expect(res[0].modeUnitPrice).toBeNull();
+    });
+
+    it('2 列 460、2 列 450（並列最多）→ 無多數，四列皆不一致', () => {
+      const res = analyzeClassUnitPrices([
+        { tuitionAmount: 7360, sessions: 16 },
+        { tuitionAmount: 7360, sessions: 16 },
+        { tuitionAmount: 7200, sessions: 16 },
+        { tuitionAmount: 7200, sessions: 16 },
+      ]);
+      expect(res.every((r) => r.isMismatch)).toBe(true);
+    });
+
+    it('不可整除、缺金額或缺堂數的列不參與比較（compared: false）', () => {
+      const res = analyzeClassUnitPrices([
+        { tuitionAmount: 7360, sessions: 16 },
+        { tuitionAmount: 7350, sessions: 16 },
+        { tuitionAmount: null, sessions: 16 },
+        { tuitionAmount: 7360, sessions: null },
+      ]);
+      expect(res.map((r) => r.compared)).toEqual([true, false, false, false]);
+      expect(res.every((r) => !r.isMismatch)).toBe(true);
     });
   });
 
