@@ -1144,8 +1144,23 @@ function renderFareSection(fareItems) {
   </section>`;
 }
 
+/**
+ * 沒有對應報表學費列的紀錄類型（Issue #235）。
+ * - ROSTER_NOT_BILLED：反向在席查核推入，報表根本沒有此人此班。
+ * - EXCEL_NO_TUITION：報表有此人，但只有非學費項目。
+ * 其餘分類（含 NOT_IN_WEB／UNPAIRABLE）都由學費列逐列產生，故每筆都對應一列學費。
+ */
+const NO_TUITION_ROW_CATEGORIES = ['ROSTER_NOT_BILLED', 'EXCEL_NO_TUITION'];
+
+/** 此筆紀錄是否來自報表的一列學費。 */
+function isTuitionRowRecord(rec) {
+  return !NO_TUITION_ROW_CATEGORIES.includes(rec.statusCategory);
+}
+
 export function renderHtml(records, meta) {
-  const total = records.length;
+  // 兩個分母刻意分開命名：紀錄數＝表格列數（含無學費列的紀錄），學費列數＝報表學費列。
+  const recordCount = records.length;
+  const tuitionRowCount = records.filter(isTuitionRowRecord).length;
   const count = (cat) => records.filter(r => r.statusCategory === cat).length;
   const matchCount = count('MATCH');
   const discCount = count('DISCOUNT_DIFF');
@@ -1157,8 +1172,9 @@ export function renderHtml(records, meta) {
   const deviationOnlyCount = records.filter(isDeviationOnlyRecord).length;
   // 分類為折扣差異、另帶非標準明細者（Issue #234），同樣單獨列出以便加總對得上
   const nonStandardElsewhereCount = records.filter(isNonStandardElsewhereRecord).length;
-  const diffCount = total - matchCount;
-  const rate = total ? ((matchCount / total) * 100).toFixed(1) : '0.0';
+  // 差異筆數、一致率與分頁計數對應表格列（「僅差異」＝非 MATCH 的列），故以紀錄數為分母
+  const diffCount = recordCount - matchCount;
+  const rate = recordCount ? ((matchCount / recordCount) * 100).toFixed(1) : '0.0';
 
   // 分頁按鈕的**清單**來自 defineCategories（新增帶 tab 的分類即自動出現按鈕），
   // 這裡只補上計數文字。顯示順序由 tabOrder 決定：先看需人工確認的，再看一致。
@@ -1182,7 +1198,7 @@ export function renderHtml(records, meta) {
       },
     ],
     stats: [
-      { label: '報科學費筆數', value: total, sub: '每筆學費列一筆；雙科學生會有兩筆', tone: 'plain' },
+      { label: '報科學費筆數', value: tuitionRowCount, sub: '每筆學費列一筆；雙科學生會有兩筆', tone: 'plain' },
       { label: '折扣一致', value: matchCount, sub: `${rate}%`, tone: 'match' },
       { label: '差異筆數', value: diffCount, sub: '含需人工確認者', tone: 'diff' },
       { label: '折扣差異', value: discCount, sub: '報表與系統折價率不同', tone: 'diff' },
@@ -1210,7 +1226,7 @@ export function renderHtml(records, meta) {
     duplicateNames: meta.duplicateNames,
     tabs,
     registry: CATEGORIES,
-    total,
+    total: recordCount,
     diffCount,
     needsHumanCount,
   });
@@ -1371,6 +1387,7 @@ async function main() {
   // 統計中，不會漏報；鍵名走各 spec 的 summaryKey。
   const count = (cat) => records.filter(r => r.statusCategory === cat).length;
   const summary = formatCategorySummary(CATEGORIES, {
+    // 主控台統計的 total 是紀錄數（各分類加總），與 HTML「報科學費筆數」不同
     total: records.length,
     byCategory: count,
   });
