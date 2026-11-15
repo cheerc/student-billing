@@ -478,6 +478,145 @@ describe('按堂計價帳務比對工具：報表解析契約', () => {
     });
 
     /**
+     * Issue #234：非標準分支的「一致／不一致」必須由兩邊折價率實際比較產生。
+     *
+     * 預期值手算（Coordinator Ruling）：
+     *  - 報表折價率 ≠ 網頁折價率（且兩邊都可判定）→ 歸 DISCOUNT_DIFF（硬性差異優先，
+     *    計入折扣差異與差異筆數），說明**同時**列出非標準明細，不得丟失；仍計入需人工判讀。
+     *  - 兩邊相等 → 維持 NON_STANDARD_DISCOUNT，說明寫「一致」。
+     *  - 任一邊無法判定 → 維持 NON_STANDARD_DISCOUNT（需人工）；說明不得寫「一致」。
+     * bps → 標籤：9500 → `9.5折 (95%)`、9000 → `9折 (90%)`（bpsToLabel）。
+     */
+    describe('非標準折扣的折價率比較（Issue #234）', () => {
+      const MAKE_UP = '兒童美語-Dommie[團][W9][折扣] - 補收 學費 15*40=600';
+      const TUITION = '兒童美語-Dommie[團][W9] - 16 堂課';
+      const META = {
+        runId: 'run-synth', asOfDate: '2026-10-14', xlsxPath: '/synthetic/report.xlsx',
+        ruleSetVersion: 'erp-tag-v2', numericPolicy: 'synthetic', rateSource: 'synthetic',
+        billAnchorDate: '2026-10-01', duplicateNames: [] as string[], amountColumns: '（合成）',
+      };
+      const stat = (html: string, label: string) =>
+        html.match(new RegExp(`<span class="stat-label">${label}</span>\\s*<span class="stat-value[^"]*">(\\d+)</span>`))?.[1];
+
+      it('報表 9.5 折 vs 網頁 9 折且有補加收 → DISCOUNT_DIFF，說明不含「一致」、同時列出補加收明細', () => {
+        const [r] = runCompare(
+          [reportStudent('合成乙一', {
+            tuitionRows: [TUITION],
+            discounts: [ENGLISH_DISCOUNT_95, MAKE_UP],
+            otherDiscounts: [MAKE_UP],
+          })],
+          [webStudent('合成乙一', { applicableEnglishBps: 9000 })],
+        );
+        expect(r.statusCategory).toBe('DISCOUNT_DIFF');
+        const text = r.note.notes.join('\n');
+        expect(text).not.toContain('一致');
+        expect(text).toContain('9.5折 (95%)');
+        expect(text).toContain('9折 (90%)');
+        // 非標準明細不得因改歸折扣差異而消失
+        expect(text).toContain(MAKE_UP);
+      });
+
+      it('折價率不同的非標準列：計入折扣差異、差異筆數與需人工判讀，不計入非標準卡', () => {
+        const { records } = compare(
+          new Map([reportStudent('合成乙二', {
+            tuitionRows: [TUITION],
+            discounts: [ENGLISH_DISCOUNT_95, MAKE_UP],
+            otherDiscounts: [MAKE_UP],
+          })].map((r) => [r.name as string, r])) as never,
+          [webStudent('合成乙二', { applicableEnglishBps: 9000 })] as never[],
+          '2026-10-14', undefined, LEGACY_V2_CONTEXT,
+        );
+        const [r] = records;
+        expect(isNeedsHumanRecord(r)).toBe(true);
+        expect(buildHumanReviewList(records)).toContain('合成乙二');
+        const html = renderHtml(records, META);
+        expect(stat(html, '折扣差異')).toBe('1');
+        expect(stat(html, '差異筆數')).toBe('1');
+        expect(stat(html, '非標準折扣')).toBe('0');
+        expect(stat(html, '需人工判讀')).toBe('1');
+        // 「需人工判讀」分頁以 data-human 篩列：必須帶標記，否則該列在分頁中消失
+        expect(html).toContain('data-human="1"');
+        // 補加收仍列在歸納的「非標準折扣明細」群組，而非「堂數或單價異常」
+        const group = html.slice(html.indexOf('非標準折扣明細（需人工確認'), html.indexOf('堂數或單價異常（需人工確認'));
+        expect(group).toContain('合成乙二');
+      });
+
+      it('需人工判讀卡副標各項加總 = 卡片數值（含「非標準（分類在他處）」）', () => {
+        const { records } = compare(
+          new Map([reportStudent('合成乙三', {
+            tuitionRows: [TUITION],
+            discounts: [ENGLISH_DISCOUNT_95, MAKE_UP],
+            otherDiscounts: [MAKE_UP],
+          })].map((r) => [r.name as string, r])) as never,
+          [webStudent('合成乙三', { applicableEnglishBps: 9000 })] as never[],
+          '2026-10-14', undefined, LEGACY_V2_CONTEXT,
+        );
+        const html = renderHtml(records, META);
+        const m = html.match(/<span class="stat-label">需人工判讀<\/span>\s*<span class="stat-value[^"]*">(\d+)<\/span>\s*<span class="stat-sub">([^<]*)<\/span>/);
+        expect(Number(m![1])).toBe(1);
+        const sum = (m![2]!.match(/\d+/g) ?? []).reduce((a, n) => a + Number(n), 0);
+        expect(sum).toBe(1);
+      });
+
+      it('報表只有補加收、無課程費折扣（讀為無折扣）vs 網頁 9 折 → DISCOUNT_DIFF，保留補加收明細', () => {
+        const [r] = runCompare(
+          [reportStudent('合成乙四', {
+            tuitionRows: [TUITION],
+            discounts: [MAKE_UP],
+            otherDiscounts: [MAKE_UP],
+          })],
+          [webStudent('合成乙四', { applicableEnglishBps: 9000 })],
+        );
+        expect(r.statusCategory).toBe('DISCOUNT_DIFF');
+        expect(r.note.notes.join('\n')).toContain(MAKE_UP);
+        expect(r.note.notes.join('\n')).not.toContain('一致');
+      });
+
+      it('折價率相同且有補加收 → 維持 NON_STANDARD_DISCOUNT，說明寫「與網頁 9折 (90%) 一致」', () => {
+        const [r] = runCompare(
+          [reportStudent('合成乙五', {
+            tuitionRows: [TUITION],
+            discounts: [ENGLISH_DISCOUNT_9, MAKE_UP],
+            otherDiscounts: [MAKE_UP],
+          })],
+          [webStudent('合成乙五', { applicableEnglishBps: 9000 })],
+        );
+        expect(r.statusCategory).toBe('NON_STANDARD_DISCOUNT');
+        expect(r.note.notes.join('\n')).toContain('報表折價率仍讀為 9折 (90%)，與網頁 9折 (90%) 一致');
+      });
+
+      it('報表折扣格式無法解析且有補加收（數字巧合相同）→ 維持 NON_STANDARD_DISCOUNT，說明不得寫「一致」', () => {
+        const [r] = runCompare(
+          [reportStudent('合成乙六', {
+            tuitionRows: [TUITION],
+            discounts: ['兒童美語-Dommie[團][W9][88折] - 課程費88折', MAKE_UP],
+            otherDiscounts: ['兒童美語-Dommie[團][W9][88折] - 課程費88折', MAKE_UP],
+          })],
+          [webStudent('合成乙六', { applicableEnglishBps: 10000 })],
+        );
+        expect(r.excel.rateParseStatus).toBe('unknown');
+        expect(r.statusCategory).toBe('NON_STANDARD_DISCOUNT');
+        const text = r.note.notes.join('\n');
+        expect(text).not.toContain('一致');
+        expect(text).toContain('無法確定');
+        expect(isNeedsHumanRecord(r)).toBe(true);
+      });
+
+      it('報表折扣格式無法解析且有補加收、數字也不同 → 仍維持 NON_STANDARD_DISCOUNT（未知不宣稱一致或不一致）', () => {
+        const [r] = runCompare(
+          [reportStudent('合成乙七', {
+            tuitionRows: [TUITION],
+            discounts: ['兒童美語-Dommie[團][W9][88折] - 課程費88折', MAKE_UP],
+            otherDiscounts: ['兒童美語-Dommie[團][W9][88折] - 課程費88折', MAKE_UP],
+          })],
+          [webStudent('合成乙七', { applicableEnglishBps: 9000 })],
+        );
+        expect(r.statusCategory).toBe('NON_STANDARD_DISCOUNT');
+        expect(r.note.notes.join('\n')).not.toContain('一致');
+      });
+    });
+
+    /**
      * Issue #237：「其他折扣」（非課程費、無金額算式的折扣明細，例如扣車資）會顯示在 HTML 標籤，
      * 說明文字必須與折扣差異分支同一措辭列出，不可只有標籤、說明裡卻不提。
      * 預期句型依 Issue #237 與折扣差異分支既有措辭手寫：`報表另有非課程費折扣項：<明細>。`
