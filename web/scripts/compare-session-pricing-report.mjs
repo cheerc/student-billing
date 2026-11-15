@@ -384,6 +384,20 @@ function extraDiscountNotes(excel, alreadyListed = []) {
 }
 
 /**
+ * 非標準分支的折價率比較句（Issue #234）。「一致／不一致」只能來自兩邊數值的實際比較：
+ * 報表折扣格式認不出來（`rateParseStatus === 'unknown'`）或網頁端無值時，報表讀數不可信，
+ * 不得宣稱任何一種結論。
+ */
+function nonStandardRateComparison(excel, web) {
+  const webBps = web?.rateBps;
+  if (excel.rateParseStatus === 'unknown' || webBps === null || webBps === undefined) {
+    return `報表折價率因折扣格式無法解析或網頁無適用值而無法確定，未與網頁 ${bpsToLabel(webBps)} 比較，請人工確認。`;
+  }
+  const verdict = excel.rateBps === webBps ? '一致' : '不一致';
+  return `報表折價率仍讀為 ${bpsToLabel(excel.rateBps)}，與網頁 ${bpsToLabel(webBps)} ${verdict}。`;
+}
+
+/**
  * 由資料推導可能成因，不預設哪一邊正確（延續 D17）。
  */
 function buildNotes({ statusCategory, excel, web }) {
@@ -418,7 +432,7 @@ function buildNotes({ statusCategory, excel, web }) {
       tone: 'warn',
       notes: [
         `報表折扣含非標準明細：${excel.nonStandardDiscounts.join('、')}。`,
-        `該明細未含「課程費 NN折」格式，故未計入折價率；報表折價率仍讀為 ${bpsToLabel(excel.rateBps)}，與網頁 ${bpsToLabel(web?.rateBps)} 一致。`,
+        `該明細未含「課程費 NN折」格式，故未計入折價率；${nonStandardRateComparison(excel, web)}`,
         '此類明細（期中補加收、轉班補差等）常見於期中去補，無法由折價率自動判斷正確與否，請人工確認後開單。',
         ...extraDiscountNotes(excel, excel.nonStandardDiscounts),
       ],
@@ -520,7 +534,11 @@ function buildNotes({ statusCategory, excel, web }) {
     } else if (web.rateBps === 10000) {
       notes.push(`報表有課程費折扣 ${bpsToLabel(excel.rateBps)}，網頁端 ${categoryText} 無適用折扣。`);
     }
-    notes.push(...extraDiscountNotes(excel));
+    // 折價率不同的同時帶非標準明細（Issue #234）：分類讓位給硬性差異，明細在此列出，不得丟失
+    if (excel.nonStandardDiscounts.length > 0) {
+      notes.push(`報表另有非標準明細（未計入折價率，需人工確認）：${excel.nonStandardDiscounts.join('、')}。`);
+    }
+    notes.push(...extraDiscountNotes(excel, excel.nonStandardDiscounts));
     const webStudentTags = String(web.rawTags || '').split('\n').map(t => t.trim()).filter(Boolean);
     if (webStudentTags.length) notes.push(`名單標籤：${webStudentTags.join('、')}。`);
     notes.push(`報表 ${bpsToLabel(excel.rateBps)} vs 網頁 ${bpsToLabel(web.rateBps)}（基本折扣 ${bpsToLabel(web.baseDiscountBps)}）。`);
@@ -736,6 +754,9 @@ export function compare(reportStudents, webStudents, asOfDate, amountLookup = un
         tokens: (w.enrollments ?? []).map(e => e.rawToken),
       };
 
+      // Issue #234：折價率兩邊皆可判定且不同＝硬性差異，優先於非標準分類（否則被遮蔽）。
+      const rateDiffersComparably = discount.rateParseStatus !== 'unknown' && discount.rateBps !== routed.bps;
+
       let statusCategory;
       if (routed.status === 'not_configured') {
         // v3 run 缺該班快照（或該生的適用側無法判定）→ 03 §5.3.4：嚴禁以當前
@@ -752,8 +773,9 @@ export function compare(reportStudents, webStudents, asOfDate, amountLookup = un
         statusCategory = 'UNKNOWN_CLASS';
       } else if (routed.bps === null) {
         statusCategory = 'WEB_RATE_NOT_CONFIGURED';
-      } else if (nonStandardDiscounts.length > 0) {
-        // 非標準折扣優先於數字比對：數字一致時尤其需要人看到那筆補加收。
+      } else if (nonStandardDiscounts.length > 0 && !rateDiffersComparably) {
+        // 非標準折扣優先於「數字一致」：一致時尤其需要人看到那筆補加收。
+        // 報表折扣格式認不出來時折價率不可比，也留在此分類（需人工），不歸折扣差異。
         statusCategory = 'NON_STANDARD_DISCOUNT';
       } else if (discount.rateBps !== routed.bps) {
         statusCategory = 'DISCOUNT_DIFF';
@@ -775,6 +797,9 @@ export function compare(reportStudents, webStudents, asOfDate, amountLookup = un
         web,
         asOfDate,
         note: buildNotes({ statusCategory, excel, web }),
+        // 非標準明細存在但分類已讓位給折扣差異：DISCOUNT_DIFF 本身不屬 needsHuman，
+        // 以此旗標把該列留在需人工判讀集合（見 `isNeedsHumanRecord`）。
+        ...(nonStandardDiscounts.length > 0 && statusCategory === 'DISCOUNT_DIFF' ? { nonStandardPending: true } : {}),
       });
 
       // 堂數／整除／單價檢驗只對**按堂計價班**（美語、數學）執行（Issue #238）。
@@ -958,6 +983,8 @@ export function compare(reportStudents, webStudents, asOfDate, amountLookup = un
  */
 /** 偏離旗標列所歸入的群組 key（該群組同時收分類成員與帶旗標者）。 */
 const DEVIATION_GROUP_KEY = 'sessionAnomaly';
+/** 「分類讓位給折扣差異、但帶非標準明細」者所歸入的群組 key（Issue #234）。 */
+const NON_STANDARD_GROUP_KEY = 'nonStandard';
 
 export const INSIGHT_GROUPS = [
   {
@@ -1005,7 +1032,8 @@ function renderInsightGroups(records, registry) {
       const memberIds = registry.ids.filter(id => registry.groupOf[id] === g.key);
       // 帶偏離旗標但分類在別處（如折扣差異）者，同樣列入「堂數或單價異常」群組（Issue #236）
       const hits = records.filter(r => memberIds.includes(r.statusCategory)
-        || (g.key === DEVIATION_GROUP_KEY && r.deviation === true));
+        || (g.key === DEVIATION_GROUP_KEY && r.deviation === true)
+        || (g.key === NON_STANDARD_GROUP_KEY && r.nonStandardPending === true));
       if (!hits.length) return '';
       const list = hits
         .map(r => `<li><strong>${escapeHtml(r.name)}</strong>（${escapeHtml(r.personCode)}${r.excel.className ? `・${escapeHtml(r.excel.className)}` : ''}）：${escapeHtml(r.note.notes.join('；'))}</li>`)
@@ -1039,7 +1067,7 @@ function renderRow(r, idx) {
     : (r.excel.amountColumnHeading ? `<span class="muted">${escapeHtml(r.excel.amountColumnHeading)}</span>` : '');
 
   return `
-  <tr class="${isDiff ? 'row-diff' : ''}" data-cat="${r.statusCategory}"${r.deviation === true ? ' data-human="1"' : ''}>
+  <tr class="${isDiff ? 'row-diff' : ''}" data-cat="${r.statusCategory}"${r.deviation === true || r.nonStandardPending === true ? ' data-human="1"' : ''}>
     <td class="number">${idx + 1}</td>
     <td class="sticky-name">${escapeHtml(r.name)}</td>
     <td class="mono">${escapeHtml(r.personCode)}</td>
@@ -1127,6 +1155,8 @@ export function renderHtml(records, meta) {
   const needsHumanCount = records.filter(isNeedsHumanRecord).length;
   // 帶偏離旗標、但分類本身不屬 needsHuman 者（例如折扣差異＋堂數偏離），單獨列出以便加總對得上
   const deviationOnlyCount = records.filter(isDeviationOnlyRecord).length;
+  // 分類為折扣差異、另帶非標準明細者（Issue #234），同樣單獨列出以便加總對得上
+  const nonStandardElsewhereCount = records.filter(isNonStandardElsewhereRecord).length;
   const diffCount = total - matchCount;
   const rate = total ? ((matchCount / total) * 100).toFixed(1) : '0.0';
 
@@ -1157,7 +1187,7 @@ export function renderHtml(records, meta) {
       { label: '差異筆數', value: diffCount, sub: '含需人工確認者', tone: 'diff' },
       { label: '折扣差異', value: discCount, sub: '報表與系統折價率不同', tone: 'diff' },
       { label: '非標準折扣', value: nonStandardCount, sub: '需人工確認', tone: 'plain' },
-      { label: '需人工判讀', value: needsHumanCount, tone: 'neutral', sub: `非標準 ${nonStandardCount}・異常 ${count('SESSION_ANOMALY')}・偏離（分類在他處）${deviationOnlyCount}・未開單 ${count('ROSTER_NOT_BILLED')}・名單已無 ${count('NOT_IN_WEB')}・無法自動比對 ${unparsedCount}・同名 ${count('UNPAIRABLE')}・無學費 ${count('EXCEL_NO_TUITION')}` },
+      { label: '需人工判讀', value: needsHumanCount, tone: 'neutral', sub: `非標準 ${nonStandardCount}・非標準（分類在他處）${nonStandardElsewhereCount}・異常 ${count('SESSION_ANOMALY')}・偏離（分類在他處）${deviationOnlyCount}・未開單 ${count('ROSTER_NOT_BILLED')}・名單已無 ${count('NOT_IN_WEB')}・無法自動比對 ${unparsedCount}・同名 ${count('UNPAIRABLE')}・無學費 ${count('EXCEL_NO_TUITION')}` },
     ],
     insightHtml: renderInsightGroups(records, CATEGORIES),
     extraInsights: [],
@@ -1190,10 +1220,11 @@ export function renderHtml(records, meta) {
  * 此筆紀錄是否屬需人工判讀。統計卡、分頁、歸納清單與 TUI 清單共用同一判斷。
  *
  * 兩個來源（Issue #236 擁有者裁決 a）：分類本身屬 needsHuman，或帶有**偏離旗標**
- * （`rec.deviation`：堂數偏離、單價不一致／無法整除、學雜費偏離常模）。
+ * （`rec.deviation`：堂數偏離、單價不一致／無法整除、學雜費偏離常模）；
+ * Issue #234 起另有第三個來源 `rec.nonStandardPending`：折價率不同而歸折扣差異、但仍帶非標準明細者。
  */
 export function isNeedsHumanRecord(rec) {
-  return isNeedsHumanCategoryRecord(rec) || rec.deviation === true;
+  return isNeedsHumanCategoryRecord(rec) || rec.deviation === true || rec.nonStandardPending === true;
 }
 
 /** 分類本身屬 needsHuman（`isNeedsHumanRecord` 的第一個來源）。 */
@@ -1204,6 +1235,14 @@ function isNeedsHumanCategoryRecord(rec) {
 /** 帶偏離旗標、但分類本身不屬 needsHuman（`isNeedsHumanRecord` 的第二個來源獨有者）。 */
 function isDeviationOnlyRecord(rec) {
   return rec.deviation === true && !isNeedsHumanCategoryRecord(rec);
+}
+
+/**
+ * 分類不屬 needsHuman、僅因 `nonStandardPending` 計入需人工判讀者。
+ * 與 `isDeviationOnlyRecord` 互斥（同時帶兩旗標者只計入偏離），副標各項加總才等於卡片數值。
+ */
+function isNonStandardElsewhereRecord(rec) {
+  return rec.nonStandardPending === true && !isNeedsHumanCategoryRecord(rec) && rec.deviation !== true;
 }
 
 /** 本機 TUI 的需人工確認明細；與 HTML 統計卡共用同一份 registry。 */
