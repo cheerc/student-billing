@@ -3,7 +3,11 @@ import { spawnSync } from 'child_process';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
-import { writeSyntheticBillingReport, writeSyntheticSessionsReport } from '../helpers/synthetic-report-xlsx';
+import {
+  writeSyntheticBillingReport,
+  writeSyntheticMultiStudentReport,
+  writeSyntheticSessionsReport,
+} from '../helpers/synthetic-report-xlsx';
 
 /**
  * issue #140 第 1 項：`main()` 的快照接線。
@@ -260,5 +264,40 @@ describe('issue #140 第 1 項：`main()` 的快照接線（按堂計價工具�
       tmp
     );
     expect(statusCategories(html)).toEqual(['WEB_RATE_NOT_CONFIGURED']);
+  });
+
+  /**
+   * PR #244 review Nit：車資明細靠 `main()` 的 `compare()` → `meta.fareItems` 接線才進得了 HTML
+   * （compare-session-pricing-report.mjs 的 `const { records, duplicates, fareItems } = compare(…)`
+   * 與 `renderHtml(records, { …, fareItems })`）。單元測試恆自己把 `fareItems` 餵給 `renderHtml`，
+   * 接線漏掉任一端都不會有測試轉紅；這裡跑真正的 `main()`。
+   *
+   * 手算：1 名學生、1 筆學費列、1 筆車資項（金額 600）→ 車資表 1 筆、合計 600。
+   */
+  it('main()：報表中的車資列經 compare() → renderHtml 的 fareItems 接線出現在 HTML 車資明細', async () => {
+    const FARE_DETAIL = '車資 20趟*30=600';
+    await writeSyntheticMultiStudentReport(reportPath(), [
+      {
+        name: '測試生',
+        tuitionRows: [{ detail: `${ENGLISH_CLASS}[團] - 16 堂課` }],
+        discounts: [`${ENGLISH_CLASS}[團] - ${REPORT_RATE_DETAIL}`],
+        ancillaryRows: [{ subject: '車資', detail: FARE_DETAIL, amount: 600 }],
+      },
+    ]);
+    const stub = path.join(tmp, 'sessions-stub-fare.mjs');
+    writeFetchStub(stub, runV3Body(OVERRIDDEN_ROWS), [rosterStudent([ENGLISH_CLASS])]);
+
+    const { html } = runTool(
+      'compare-session-pricing-report.mjs',
+      ['--xlsx', reportPath(), '--base', 'http://127.0.0.1:1'],
+      stub,
+      tmp
+    );
+    const start = html.indexOf('id="fare-detail"');
+    expect(start).toBeGreaterThan(-1);
+    const section = html.slice(start, html.indexOf('</section>', start));
+    expect(section).toContain(FARE_DETAIL);
+    expect(section).toContain('共 1 筆');
+    expect(section).toContain('600');
   });
 });
