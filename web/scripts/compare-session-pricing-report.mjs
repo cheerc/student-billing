@@ -368,6 +368,17 @@ const CATEGORY_LABEL = {
 // ---------------------------------------------------------------- 差異原因推導
 
 /**
+ * 「其他折扣」（非課程費、無法換成折價率的折扣明細，例如扣車資）的說明句。
+ * MATCH／非標準／折扣差異三條分支共用同一措辭，避免 HTML 標籤有、說明文字沒有。
+ * `alreadyListed`：該分支已另行列出的明細（例如非標準補加收），不重複列入此句。
+ * 無可列項目時回傳空陣列，供呼叫端直接展開。
+ */
+function extraDiscountNotes(excel, alreadyListed = []) {
+  const items = (excel.extraDiscounts ?? []).filter((d) => !alreadyListed.includes(d));
+  return items.length > 0 ? [`報表另有非課程費折扣項：${items.join('、')}。`] : [];
+}
+
+/**
  * 由資料推導可能成因，不預設哪一邊正確（延續 D17）。
  */
 function buildNotes({ statusCategory, excel, web }) {
@@ -392,6 +403,7 @@ function buildNotes({ statusCategory, excel, web }) {
       notes: [
         `${categoryText}：報表 ${bpsToLabel(excel.rateBps)} 與網頁一致。`,
         ...(extras.length ? [`報表另有其他項目（不影響課程費折扣比對）：${extras.join('、')}。`] : []),
+        ...extraDiscountNotes(excel),
       ],
     });
   }
@@ -403,6 +415,7 @@ function buildNotes({ statusCategory, excel, web }) {
         `報表折扣含非標準明細：${excel.nonStandardDiscounts.join('、')}。`,
         `該明細未含「課程費 NN折」格式，故未計入折價率；報表折價率仍讀為 ${bpsToLabel(excel.rateBps)}，與網頁 ${bpsToLabel(web?.rateBps)} 一致。`,
         '此類明細（期中補加收、轉班補差等）常見於期中去補，無法由折價率自動判斷正確與否，請人工確認後開單。',
+        ...extraDiscountNotes(excel, excel.nonStandardDiscounts),
       ],
     });
   }
@@ -500,9 +513,7 @@ function buildNotes({ statusCategory, excel, web }) {
     } else if (web.rateBps === 10000) {
       notes.push(`報表有課程費折扣 ${bpsToLabel(excel.rateBps)}，網頁端 ${categoryText} 無適用折扣。`);
     }
-    if (excel.extraDiscounts.length > 0) {
-      notes.push(`報表另有非課程費折扣項：${excel.extraDiscounts.join('、')}。`);
-    }
+    notes.push(...extraDiscountNotes(excel));
     const webStudentTags = String(web.rawTags || '').split('\n').map(t => t.trim()).filter(Boolean);
     if (webStudentTags.length) notes.push(`名單標籤：${webStudentTags.join('、')}。`);
     notes.push(`報表 ${bpsToLabel(excel.rateBps)} vs 網頁 ${bpsToLabel(web.rateBps)}（基本折扣 ${bpsToLabel(web.baseDiscountBps)}）。`);
