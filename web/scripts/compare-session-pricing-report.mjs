@@ -22,12 +22,14 @@
  * 複寫必然漂移——國小輔導工具曾在自建白名單裡漏掉 `[5]`、把 `[Starter]`
  * 默默當成 5 天（review F-NEW-2）。此處同樣只保有一份真相。
  *
- * ## 不計算單價與金額（issue #118）
+ * ## 單價與金額：僅暫行例外，不比對系統（issue #118／#238）
  *
- * 報表有「16 堂課」與學費金額，但**系統端沒有對應欄位**，因此本檔只把兩者
- * 當**顯示值**帶出，不做任何換算、不驗證。工具若自行以金額 ÷ 堂數推出單價
- * 並拿去比對，等於替系統斷言一個系統並未持有的事實——正是 CLAUDE.md §9.0
- * 禁止的「代為猜測」。故兩欄皆標為不可驗證並指向 #118。
+ * 報表有「16 堂課」與學費金額，但**系統端沒有對應欄位**，因此兩者只當**顯示值**帶出，
+ * 不拿來與系統比對，也不判定哪邊正確（D17）。
+ *
+ * 暫行例外（#238 擁有者裁決，**#118 新增每堂單價欄位後失效並重新評估**）：僅用報表自身數字
+ * 篩出需人工檢查的項目——學費除不盡堂數、同班每堂單價不一致，且只限按堂計價班（美語、數學）。
+ * 這只是列出待確認項目，不是單價比對。範圍與界線見 CLAUDE.md §9.3。
  */
 import ExcelJS from 'exceljs';
 import fs from 'fs';
@@ -480,6 +482,7 @@ function buildNotes({ statusCategory, excel, web }) {
       notes: [
         `報表有帳單，但 ${web?.asOfDate} 名單已無此學生（期中離班或退費）。`,
         ...(items.length ? [`帳單項目：${items.join('、')}。`] : []),
+        ...extraDiscountNotes(excel, excel.nonStandardDiscounts),
       ],
     });
   }
@@ -500,6 +503,7 @@ function buildNotes({ statusCategory, excel, web }) {
       tone: 'neutral',
       notes: [
         `報表無正式學費項${items.length ? `，僅有：${items.join('、')}` : ''}；本工具僅比對有學費列的班別。`,
+        ...extraDiscountNotes(excel, excel.nonStandardDiscounts),
       ],
     });
   }
@@ -527,6 +531,29 @@ function buildNotes({ statusCategory, excel, web }) {
   }
 
   return finish({ notes });
+}
+
+// ---------------------------------------------------------------- 偏離標記
+
+/**
+ * 標記一筆紀錄「有偏離」（Issue #236 擁有者裁決 a）。
+ *
+ * ## 機制（Ruling）：MATCH 升級分類＋非 MATCH 帶旗標
+ *
+ * - 原為 MATCH 者升級為 `SESSION_ANOMALY`（已在 defineCategories 宣告、needsHuman），
+ *   差異筆數（= 總數 − MATCH）自然把它算進去。
+ * - 已是其他分類者（折扣差異、非標準折扣…）**不改分類**——改了會讓該列從「折扣差異」
+ *   計數與分頁消失，丟掉比分類更基本的事實（D17：照實呈現）。改設 `rec.deviation = true`，
+ *   由 `isNeedsHumanRecord` 與 `needsHuman` 分類合併計入同一個需人工判讀集合，
+ *   統計卡、分頁、歸納群組、TUI 清單都走這個函式，不會各算各的。
+ */
+function markDeviation(rec) {
+  rec.deviation = true;
+  if (rec.statusCategory === 'MATCH') {
+    rec.statusCategory = 'SESSION_ANOMALY';
+    rec.statusLabel = STATUS_LABEL['SESSION_ANOMALY'];
+  }
+  rec.note.tone = 'warn';
 }
 
 // ---------------------------------------------------------------- 比對主流程
@@ -771,11 +798,7 @@ export function compare(reportStudents, webStudents, asOfDate, amountLookup = un
       const hasUnitPriceMismatch = unitPriceCheck.isMismatch;
 
       if (hasSessionOutlier || hasDivisibilityAnomaly || hasUnitPriceMismatch) {
-        if (rec.statusCategory === 'MATCH') {
-          rec.statusCategory = 'SESSION_ANOMALY';
-          rec.statusLabel = STATUS_LABEL['SESSION_ANOMALY'];
-        }
-        rec.note.tone = 'warn';
+        markDeviation(rec);
         if (hasSessionOutlier) {
           rec.note.tags = rec.note.tags || [];
           if (!rec.note.tags.includes('堂數偏離')) rec.note.tags.push('堂數偏離');
@@ -803,7 +826,7 @@ export function compare(reportStudents, webStudents, asOfDate, amountLookup = un
         if (normRes.isAnomaly) {
           const matchingRecs = records.filter(r => r.name === studentName && baseClassName(r.excel.className) === className);
           for (const rec of matchingRecs) {
-            rec.note.tone = 'warn';
+            markDeviation(rec);
             if (normRes.note && !rec.note.notes.includes(normRes.note)) {
               rec.note.notes.push(normRes.note);
             }
@@ -914,6 +937,9 @@ export function compare(reportStudents, webStudents, asOfDate, amountLookup = un
  * `groupOf` 拼錯時，`renderInsightGroups` 會把該分類的記錄**同時從所有群組中丟棄**
  * ——不報錯、不計數、不留痕跡。沒有這個守衛，那正是「看起來有歸納、實際少一筆」。
  */
+/** 偏離旗標列所歸入的群組 key（該群組同時收分類成員與帶旗標者）。 */
+const DEVIATION_GROUP_KEY = 'sessionAnomaly';
+
 export const INSIGHT_GROUPS = [
   {
     key: 'nonStandard',
@@ -924,7 +950,7 @@ export const INSIGHT_GROUPS = [
   {
     key: 'sessionAnomaly',
     title: '堂數或單價異常（需人工確認）',
-    hint: '包含堂數偏離同班常規眾數、或學費金額除以堂數無法整除。請確認是否為插班、請假扣款或單價計費特例。',
+    hint: '包含堂數偏離同班常規眾數、學費金額除以堂數無法整除、同班每堂單價不一致，以及學雜費偏離同班常模。已歸入其他分類（如折扣差異）但帶有偏離者也列在此。請確認是否為插班、請假扣款或單價計費特例。',
     variant: 'alert-warning',
   },
   {
@@ -958,7 +984,9 @@ function renderInsightGroups(records, registry) {
     .map((g) => {
       // 分群完全由 registry.groupOf 推導：不在此比對任何分類字面值
       const memberIds = registry.ids.filter(id => registry.groupOf[id] === g.key);
-      const hits = records.filter(r => memberIds.includes(r.statusCategory));
+      // 帶偏離旗標但分類在別處（如折扣差異）者，同樣列入「堂數或單價異常」群組（Issue #236）
+      const hits = records.filter(r => memberIds.includes(r.statusCategory)
+        || (g.key === DEVIATION_GROUP_KEY && r.deviation === true));
       if (!hits.length) return '';
       const list = hits
         .map(r => `<li><strong>${escapeHtml(r.name)}</strong>（${escapeHtml(r.personCode)}${r.excel.className ? `・${escapeHtml(r.excel.className)}` : ''}）：${escapeHtml(r.note.notes.join('；'))}</li>`)
@@ -992,7 +1020,7 @@ function renderRow(r, idx) {
     : (r.excel.amountColumnHeading ? `<span class="muted">${escapeHtml(r.excel.amountColumnHeading)}</span>` : '');
 
   return `
-  <tr class="${isDiff ? 'row-diff' : ''}" data-cat="${r.statusCategory}">
+  <tr class="${isDiff ? 'row-diff' : ''}" data-cat="${r.statusCategory}"${r.deviation === true ? ' data-human="1"' : ''}>
     <td class="number">${idx + 1}</td>
     <td class="sticky-name">${escapeHtml(r.name)}</td>
     <td class="mono">${escapeHtml(r.personCode)}</td>
@@ -1015,7 +1043,7 @@ function renderRow(r, idx) {
   </tr>`;
 }
 
-function renderHtml(records, meta) {
+export function renderHtml(records, meta) {
   const total = records.length;
   const count = (cat) => records.filter(r => r.statusCategory === cat).length;
   const matchCount = count('MATCH');
@@ -1023,7 +1051,9 @@ function renderHtml(records, meta) {
   const nonStandardCount = count('NON_STANDARD_DISCOUNT');
   const unparsedCount = count('RATE_UNPARSED') + count('UNKNOWN_CLASS') + count('WEB_RATE_NOT_CONFIGURED');
   // 需人工判讀的總數（非直接比大小者），單獨一張卡，避免散在多張卡而看不出全貌
-  const needsHumanCount = records.filter(r => NEEDS_HUMAN_CATEGORIES.includes(r.statusCategory)).length;
+  const needsHumanCount = records.filter(isNeedsHumanRecord).length;
+  // 帶偏離旗標、但分類本身不屬 needsHuman 者（例如折扣差異＋堂數偏離），單獨列出以便加總對得上
+  const deviationOnlyCount = records.filter(r => r.deviation === true && !NEEDS_HUMAN_CATEGORIES.includes(r.statusCategory)).length;
   const diffCount = total - matchCount;
   const rate = total ? ((matchCount / total) * 100).toFixed(1) : '0.0';
 
@@ -1054,7 +1084,7 @@ function renderHtml(records, meta) {
       { label: '差異筆數', value: diffCount, sub: '含需人工確認者', tone: 'diff' },
       { label: '折扣差異', value: discCount, sub: '報表與系統折價率不同', tone: 'diff' },
       { label: '非標準折扣', value: nonStandardCount, sub: '需人工確認', tone: 'plain' },
-      { label: '需人工判讀', value: needsHumanCount, tone: 'neutral', sub: `非標準 ${nonStandardCount}・異常 ${count('SESSION_ANOMALY')}・未開單 ${count('ROSTER_NOT_BILLED')}・無法自動比對 ${unparsedCount}・同名 ${count('UNPAIRABLE')}・無學費 ${count('EXCEL_NO_TUITION')}` },
+      { label: '需人工判讀', value: needsHumanCount, tone: 'neutral', sub: `非標準 ${nonStandardCount}・異常 ${count('SESSION_ANOMALY')}・偏離（分類在他處）${deviationOnlyCount}・未開單 ${count('ROSTER_NOT_BILLED')}・無法自動比對 ${unparsedCount}・同名 ${count('UNPAIRABLE')}・無學費 ${count('EXCEL_NO_TUITION')}` },
     ],
     insightHtml: renderInsightGroups(records, CATEGORIES),
     extraInsights: [],
@@ -1080,6 +1110,21 @@ function renderHtml(records, meta) {
     diffCount,
     needsHumanCount,
   });
+}
+
+/**
+ * 此筆紀錄是否屬需人工判讀。統計卡、分頁、歸納清單與 TUI 清單共用同一判斷。
+ *
+ * 兩個來源（Issue #236 擁有者裁決 a）：分類本身屬 needsHuman，或帶有**偏離旗標**
+ * （`rec.deviation`：堂數偏離、單價不一致／無法整除、學雜費偏離常模）。
+ */
+export function isNeedsHumanRecord(rec) {
+  return NEEDS_HUMAN_CATEGORIES.includes(rec.statusCategory) || rec.deviation === true;
+}
+
+/** 本機 TUI 的需人工確認明細；與 HTML 統計卡共用同一份 registry。 */
+export function buildHumanReviewList(records) {
+  return formatHumanReviewList(records, CATEGORIES, isNeedsHumanRecord);
 }
 
 // ---------------------------------------------------------------- main
@@ -1206,7 +1251,7 @@ async function main() {
     byCategory: count,
   });
   console.log('差異統計：', summary);
-  const humanList = formatHumanReviewList(records, CATEGORIES);
+  const humanList = buildHumanReviewList(records);
   if (humanList) {
     console.log('\n' + humanList);
   }

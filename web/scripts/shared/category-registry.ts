@@ -267,12 +267,14 @@ export interface ReviewRecordLike {
 /**
  * 格式化需人工確認的學生待查清單，供本機 TUI 終端機檢視。
  */
-export function formatHumanReviewList(
-  records: readonly ReviewRecordLike[],
-  registry: CategoryRegistry
+export function formatHumanReviewList<R extends ReviewRecordLike>(
+  records: readonly R[],
+  registry: CategoryRegistry,
+  /** 省略時只看分類的 needsHuman；工具若另有分類以外的需人工條件（偏離旗標）可自帶判斷。 */
+  isNeedsHuman?: (record: R) => boolean,
 ): string {
   const needsHumanSet = new Set(registry.needsHuman);
-  const items = records.filter(r => needsHumanSet.has(r.statusCategory));
+  const items = records.filter(r => (isNeedsHuman ? isNeedsHuman(r) : needsHumanSet.has(r.statusCategory)));
   if (items.length === 0) return '';
 
   const lines = items.map(r => {

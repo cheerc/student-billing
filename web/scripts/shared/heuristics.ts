@@ -217,8 +217,20 @@ export function analyzeClassSessions(
 }
 
 /**
+ * 是否為車資項（Issue #236 擁有者裁決 2）。
+ *
+ * 辨識規則：品項的**科目或明細文字含「車資」**。取自報表品項文字，不寫死任何學生資料；
+ * 不猜測其他寫法（如「車費」「交通」）——報表出現新寫法時在此一處補規則。
+ */
+export function isFareItem(item: Pick<AncillaryItem, 'subject' | 'detail'>): boolean {
+  return (item.subject ?? '').includes('車資') || (item.detail ?? '').includes('車資');
+}
+
+/**
  * 同班附加費用常模統計與偏離檢驗。
  * 若同班有 >= 50% 學生收取特定非零金額，該金額即為常模。
+ *
+ * 車資項（`isFareItem`）不計入學生合計與常模；車資另表呈現（#241）。
  */
 export function analyzeClassAncillaryNorms(
   classStudentFees: Map<string, AncillaryItem[]>
@@ -234,7 +246,7 @@ export function analyzeClassAncillaryNorms(
   for (const [studentName, items] of classStudentFees.entries()) {
     const subjectMap = new Map<string, { totalAmount: number; details: string[] }>();
     for (const item of items) {
-      if (!item.subject) continue;
+      if (!item.subject || isFareItem(item)) continue;
       allSubjects.add(item.subject);
       const existing = subjectMap.get(item.subject) ?? { totalAmount: 0, details: [] };
       existing.totalAmount += item.amount ?? 0;

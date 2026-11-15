@@ -552,7 +552,7 @@ ${opts.extraInsights.map(a => `    ${a}`).join('\n')}
       const cat = row.dataset.cat;
       const okType = filter === 'all' ? true
         : filter === 'diff' ? cat !== 'MATCH'
-        : filter === 'needsHuman' ? CATEGORIES.needsHuman.includes(cat)
+        : filter === 'needsHuman' ? (CATEGORIES.needsHuman.includes(cat) || row.dataset.human === '1')
         : cat === filter;
       const ok = okType && (!q || row.innerText.toLowerCase().includes(q));
       row.style.display = ok ? '' : 'none';

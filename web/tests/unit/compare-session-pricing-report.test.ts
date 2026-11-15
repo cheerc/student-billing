@@ -6,6 +6,9 @@ import {
   findNonStandardDiscounts,
   routeRateField,
   compare,
+  renderHtml,
+  buildHumanReviewList,
+  isNeedsHumanRecord,
   SESSION_CATEGORY_REGISTRY,
   INSIGHT_GROUPS,
   BADGES as SESSION_BADGES,
@@ -512,6 +515,32 @@ describe('按堂計價帳務比對工具：報表解析契約', () => {
         expect(r.note.notes.filter((n: string) => n.includes('報表另有非課程費折扣項')).join()).not.toContain('15*40=600');
       });
 
+      it('NOT_IN_WEB：名單已無此人但報表有其他折扣明細 → 說明列出該項（PR #240 review）', () => {
+        const [r] = runCompare(
+          [reportStudent('合成辰', {
+            tuitionRows: ['兒童美語-Dommie[團][W9] - 16 堂課'],
+            discounts: [ENGLISH_DISCOUNT_9, BUS_FEE],
+            otherDiscounts: [BUS_FEE],
+          })],
+          [webStudent('其他人')],
+        );
+        expect(r.statusCategory).toBe('NOT_IN_WEB');
+        expect(r.note.notes).toContain(NOTE_BUS_FEE);
+      });
+
+      it('EXCEL_NO_TUITION：無學費列但有其他折扣明細 → 說明列出該項（PR #240 review）', () => {
+        const [r] = runCompare(
+          [reportStudent('合成巳', {
+            tuitionRows: [],
+            discounts: [BUS_FEE],
+            otherDiscounts: [BUS_FEE],
+          })],
+          [webStudent('合成巳')],
+        );
+        expect(r.statusCategory).toBe('EXCEL_NO_TUITION');
+        expect(r.note.notes).toContain(NOTE_BUS_FEE);
+      });
+
       it('MATCH 且無其他折扣 → 不出現其他折扣句', () => {
         const [r] = runCompare(
           [reportStudent('合成卯', {
@@ -882,6 +911,122 @@ describe('按堂計價帳務比對工具：報表解析契約', () => {
       expect(uncharged?.note.notes.join('')).toContain('書籍費');
       expect(uncharged?.note.notes.join('')).toContain('未收取');
       expect(uncharged?.note.tags).toContain('書籍費偏離常模');
+    });
+  });
+
+  /**
+   * Issue #236 擁有者裁決（a）：偏離列計入「需人工判讀」。
+   *
+   * 預期值手算（合成 fixture，不取工具輸出）：
+   *  - 班「兒童美語-Dommie[團][W9]」5 人，4 人 16 堂、1 人 8 堂 → 常規堂數 16（4/5=80% ≥ 50%），
+   *    8 堂者為堂數偏離。
+   *  - 系統適用率 9000、報表無折扣明細（讀為 10000）→ 該列 DISCOUNT_DIFF。
+   *  - 其餘 4 人系統 10000、報表無折扣 → MATCH，且無任何偏離。
+   *  - 因此：差異筆數 = 1、折扣差異 = 1、需人工判讀 = 1（偏離列）、MATCH = 4。
+   *  - 附加費用：4 人收書籍費 1000、1 人未收 → 常模 1000（4/5），未收者偏離（金額 0 ≠ 1000）。
+   */
+  describe('偏離列計入需人工判讀（Issue #236）', () => {
+    const CLASS_TOKEN = '兒童美語-Dommie[團][W9]';
+    const enroll = [{ rawToken: CLASS_TOKEN, baseName: '兒童美語-Dommie', withdrawalDate: null }];
+    const META = {
+      runId: 'run-synth', asOfDate: '2026-10-14', xlsxPath: '/synthetic/report.xlsx',
+      ruleSetVersion: 'erp-tag-v2', numericPolicy: 'synthetic', rateSource: 'synthetic',
+      billAnchorDate: '2026-10-01', duplicateNames: [] as string[], amountColumns: '（合成）',
+    };
+    type AncillaryItem = { subject: string; detail: string; amount: number | null };
+    type AncillaryMap = Map<string, AncillaryItem[]>;
+    const run = (
+      sessionsByName: Record<string, number>,
+      bpsByName: Record<string, number> = {},
+      fees?: AncillaryMap,
+    ) => {
+      const names = Object.keys(sessionsByName);
+      const report = names.map((n) => reportStudent(n, { tuitionRows: [`${CLASS_TOKEN} - ${sessionsByName[n]} 堂課`] }));
+      const roster = names.map((n) => webStudent(n, { applicableEnglishBps: bpsByName[n] ?? 10000, enrollments: enroll }));
+      return compare(
+        new Map(report.map((r) => [r.name as string, r])) as never,
+        roster as never[], '2026-10-14', undefined, LEGACY_V2_CONTEXT, fees,
+      ).records;
+    };
+    const stat = (html: string, label: string) => {
+      const m = html.match(new RegExp(`<span class="stat-label">${label}</span>\\s*<span class="stat-value[^"]*">(\\d+)</span>`));
+      return m ? Number(m[1]) : null;
+    };
+    const SESSIONS = { 生1: 16, 生2: 16, 生3: 16, 生4: 16, 偏離生: 8 };
+
+    it('已是 DISCOUNT_DIFF 的列另有堂數偏離 → 分類不變，但計入需人工判讀', () => {
+      const records = run(SESSIONS, { 偏離生: 9000 });
+      const odd = records.find((r) => r.name === '偏離生')!;
+      expect(odd.statusCategory).toBe('DISCOUNT_DIFF');
+      expect(odd.note.tags).toContain('堂數偏離');
+      expect(isNeedsHumanRecord(odd)).toBe(true);
+      expect(records.filter((r) => r.name !== '偏離生').every((r) => !isNeedsHumanRecord(r))).toBe(true);
+    });
+
+    it('MATCH 列的學雜費偏離常模 → 升級為 SESSION_ANOMALY（計入需人工、差異筆數）', () => {
+      const fees: AncillaryMap = new Map(
+        ['生1', '生2', '生3', '生4'].map((n): [string, AncillaryItem[]] => [n, [{ subject: '書籍費', detail: '教材', amount: 1000 }]]),
+      );
+      fees.set('偏離生', []);
+      const records = run({ 生1: 16, 生2: 16, 生3: 16, 生4: 16, 偏離生: 16 }, {}, fees);
+      const odd = records.find((r) => r.name === '偏離生')!;
+      expect(odd.note.tags).toContain('書籍費偏離常模');
+      expect(odd.statusCategory).toBe('SESSION_ANOMALY');
+      expect(isNeedsHumanRecord(odd)).toBe(true);
+    });
+
+    it('非 MATCH 列的學雜費偏離 → 分類不變、仍計入需人工判讀', () => {
+      const fees: AncillaryMap = new Map(
+        ['生1', '生2', '生3', '生4'].map((n): [string, AncillaryItem[]] => [n, [{ subject: '書籍費', detail: '教材', amount: 1000 }]]),
+      );
+      fees.set('偏離生', []);
+      const records = run({ 生1: 16, 生2: 16, 生3: 16, 生4: 16, 偏離生: 16 }, { 偏離生: 9000 }, fees);
+      const odd = records.find((r) => r.name === '偏離生')!;
+      expect(odd.statusCategory).toBe('DISCOUNT_DIFF');
+      expect(isNeedsHumanRecord(odd)).toBe(true);
+    });
+
+    it('HTML：統計卡「需人工判讀」、分頁按鈕、列標記、歸納群組與差異筆數一致', () => {
+      const records = run(SESSIONS, { 偏離生: 9000 });
+      const html = renderHtml(records, META);
+      expect(stat(html, '差異筆數')).toBe(1);
+      expect(stat(html, '折扣差異')).toBe(1);
+      expect(stat(html, '需人工判讀')).toBe(1);
+      expect(html).toContain('需人工判讀 (1)');
+      // 需人工判讀分頁的列過濾依據：偏離列必須帶標記，其餘列不得帶
+      expect(html.match(/data-human="1"/g) ?? []).toHaveLength(1);
+      expect(html).toMatch(/堂數或單價異常（需人工確認）（1 筆）/);
+    });
+
+    it('TUI 需人工確認明細列出偏離列，且筆數與統計卡相同', () => {
+      const records = run(SESSIONS, { 偏離生: 9000 });
+      const list = buildHumanReviewList(records);
+      const lines = list.split('\n').filter((l: string) => l.startsWith('  - '));
+      expect(lines).toHaveLength(1);
+      expect(lines[0]).toContain('偏離生');
+      expect(lines[0]).toContain('堂數偏離');
+    });
+
+    it('學雜費含車資項：扣除車資後等於常模 → 不偏離、仍為 MATCH（Issue #236 裁決 2）', () => {
+      // 手算：5 人學雜費皆 500；車資生另有車資 300，排除後仍 500 = 常模
+      const fees: AncillaryMap = new Map(
+        ['生1', '生2', '生3', '生4'].map((n): [string, AncillaryItem[]] => [n, [{ subject: '學雜費', detail: '學雜費', amount: 500 }]]),
+      );
+      fees.set('車資生', [
+        { subject: '學雜費', detail: '學雜費', amount: 500 },
+        { subject: '學雜費', detail: '車資', amount: 300 },
+      ]);
+      const records = run({ 生1: 16, 生2: 16, 生3: 16, 生4: 16, 車資生: 16 }, {}, fees);
+      const bus = records.find((r) => r.name === '車資生')!;
+      expect(bus.statusCategory).toBe('MATCH');
+      expect(bus.note.tags ?? []).not.toContain('學雜費偏離常模');
+      expect(isNeedsHumanRecord(bus)).toBe(false);
+    });
+
+    it('無偏離、無需人工分類 → 需人工判讀為 0，TUI 清單為空', () => {
+      const records = run({ 生1: 16, 生2: 16, 生3: 16 });
+      expect(stat(renderHtml(records, META), '需人工判讀')).toBe(0);
+      expect(buildHumanReviewList(records)).toBe('');
     });
   });
 
