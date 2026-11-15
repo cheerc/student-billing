@@ -1294,6 +1294,123 @@ describe('按堂計價帳務比對工具：報表解析契約', () => {
     });
   });
 
+  /**
+   * Issue #235：「報科學費筆數」＝報表實際的學費列數。
+   *
+   * 預期值手算（合成 fixture）：
+   *  - 無學費列的紀錄類型有兩種：ROSTER_NOT_BILLED（反向在席查核，報表無此人此班）、
+   *    EXCEL_NO_TUITION（報表有此人但無學費列）；兩者都不得計入。
+   *  - NOT_IN_WEB 等其餘分類皆由學費列產生（每筆學費列一筆），照常計入。
+   *  - 「全部」分頁、「顯示 N 筆」、差異筆數與折扣一致率的分母仍是**紀錄數**（含上述兩類），
+   *    因為它們對應表格實際列數與「僅差異」分頁（cat !== MATCH）。
+   */
+  describe('報科學費筆數只計學費列（Issue #235）', () => {
+    const META = {
+      runId: 'run-synth', asOfDate: '2026-10-14', xlsxPath: '/synthetic/report.xlsx',
+      ruleSetVersion: 'erp-tag-v2', numericPolicy: 'synthetic', rateSource: 'synthetic',
+      billAnchorDate: '2026-10-01', duplicateNames: [] as string[], amountColumns: '（合成）',
+    };
+    const TUITION = '兒童美語-Dommie[團][W9] - 16 堂課';
+    const stat = (html: string, label: string) =>
+      html.match(new RegExp(`<span class="stat-label">${label}</span>\\s*<span class="stat-value[^"]*">(\\d+)</span>`))?.[1];
+    const sub = (html: string, label: string) =>
+      html.match(new RegExp(`<span class="stat-label">${label}</span>\\s*<span class="stat-value[^"]*">\\d+</span>\\s*<span class="stat-sub">([^<]*)</span>`))?.[1];
+
+    it('在席未開單紀錄不計入：1 學費列 + 1 未開單 → 報科學費筆數 1，其餘仍以紀錄數 2 計', () => {
+      const records = runCompare(
+        [reportStudent('開單生', { tuitionRows: [TUITION], discounts: [] })],
+        [
+          webStudent('開單生'),
+          webStudent('未開單在席生', { personCode: 'P-SYNTH-0002' }),
+        ],
+      );
+      expect(records.map(r => r.statusCategory).sort()).toEqual(['MATCH', 'ROSTER_NOT_BILLED']);
+      const html = renderHtml(records, META);
+      expect(stat(html, '報科學費筆數')).toBe('1');
+      // 未開單紀錄仍可見、仍計入差異筆數與需人工判讀
+      expect(stat(html, '差異筆數')).toBe('1');
+      expect(stat(html, '需人工判讀')).toBe('1');
+      expect(sub(html, '需人工判讀')).toContain('未開單 1');
+      // 表格列數與「全部」分頁、折扣一致率分母＝紀錄數 2（1/2 = 50.0%）
+      expect(html).toContain('全部 (2)');
+      expect(html).toContain('顯示 2 筆');
+      expect(sub(html, '折扣一致')).toBe('50.0%');
+    });
+
+    it('報表無學費列的紀錄（EXCEL_NO_TUITION）不計入；NOT_IN_WEB 由學費列產生，照常計入', () => {
+      // 手算：甲 MATCH（1 學費列）、乙 NOT_IN_WEB（1 學費列）、丙 EXCEL_NO_TUITION（0 學費列）、
+      // 未開單 ROSTER_NOT_BILLED（0 學費列）→ 紀錄 4、學費列 2
+      const records = runCompare(
+        [
+          reportStudent('甲', { tuitionRows: [TUITION] }),
+          reportStudent('乙', { tuitionRows: [TUITION] }),
+          reportStudent('丙', { tuitionRows: [] }),
+        ],
+        [
+          webStudent('甲'),
+          webStudent('丙', { enrollments: [] }),
+          webStudent('未開單在席生', { personCode: 'P-SYNTH-0002' }),
+        ],
+      );
+      expect(records.map(r => r.statusCategory).sort()).toEqual(
+        ['EXCEL_NO_TUITION', 'MATCH', 'NOT_IN_WEB', 'ROSTER_NOT_BILLED'],
+      );
+      const html = renderHtml(records, META);
+      expect(stat(html, '報科學費筆數')).toBe('2');
+      expect(stat(html, '差異筆數')).toBe('3');
+      expect(html).toContain('全部 (4)');
+      expect(html).toContain('顯示 4 筆');
+    });
+
+    it('雙科學生兩筆學費列 → 計 2 筆（副標「雙科學生會有兩筆」仍成立）', () => {
+      const records = runCompare(
+        [reportStudent('雙科生', {
+          tuitionRows: [TUITION, '兒童美語-Gino[團][W9] - 16 堂課'],
+        })],
+        [webStudent('雙科生', {
+          enrollments: [
+            { rawToken: '兒童美語-Dommie[團][W9]', baseName: '兒童美語-Dommie', withdrawalDate: null },
+            { rawToken: '兒童美語-Gino[團][W9]', baseName: '兒童美語-Gino', withdrawalDate: null },
+          ],
+        })],
+      );
+      expect(records).toHaveLength(2);
+      expect(stat(renderHtml(records, META), '報科學費筆數')).toBe('2');
+    });
+
+    /** 承 PR #245 審查 Nit：同時帶 nonStandardPending 與 deviation 者只計一次。 */
+    it('同一筆同時帶 nonStandardPending 與 deviation → 需人工判讀只計 1，副標加總 = 1', () => {
+      // 手算：生1–生4 皆 16 堂（眾數、無偏離）；偏離生 8 堂 → 堂數偏離；
+      // 偏離生報表 9.5 折 vs 網頁 9 折且有補加收 → DISCOUNT_DIFF + nonStandardPending。
+      const MAKE_UP = '兒童美語-Dommie[團][W9][折扣] - 補收 學費 15*40=600';
+      const names = ['生1', '生2', '生3', '生4'];
+      const report = [
+        ...names.map(n => reportStudent(n, { tuitionRows: [TUITION] })),
+        reportStudent('偏離生', {
+          tuitionRows: ['兒童美語-Dommie[團][W9] - 8 堂課'],
+          discounts: ['兒童美語-Dommie[團][W9][9.5折] - 課程費95折', MAKE_UP],
+          otherDiscounts: [MAKE_UP],
+        }),
+      ];
+      const roster = [
+        ...names.map(n => webStudent(n, { applicableEnglishBps: 10000 })),
+        webStudent('偏離生', { applicableEnglishBps: 9000 }),
+      ];
+      const records = runCompare(report, roster);
+      const odd = records.find(r => r.name === '偏離生')!;
+      expect(odd.statusCategory).toBe('DISCOUNT_DIFF');
+      expect((odd as { deviation?: boolean }).deviation).toBe(true);
+      expect((odd as { nonStandardPending?: boolean }).nonStandardPending).toBe(true);
+      const html = renderHtml(records, META);
+      expect(stat(html, '需人工判讀')).toBe('1');
+      const parts = sub(html, '需人工判讀')!;
+      expect((parts.match(/\d+/g) ?? []).reduce((a, n) => a + Number(n), 0)).toBe(1);
+      // 兩旗標互斥歸屬：只計入「偏離（分類在他處）」，不重複計入「非標準（分類在他處）」
+      expect(parts).toContain('偏離（分類在他處）1');
+      expect(parts).toContain('非標準（分類在他處）0');
+    });
+  });
+
   /** 分類完整性：新增分類若沒接進 badge／needsHuman，第一次出現就會渲染錯誤。 */
   describe('分類註冊完整性', () => {
     it('BADGES 涵蓋全部分類，不得有 undefined', () => {
