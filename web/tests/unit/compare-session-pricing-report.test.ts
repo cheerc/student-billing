@@ -1030,6 +1030,128 @@ describe('按堂計價帳務比對工具：報表解析契約', () => {
     });
   });
 
+  /**
+   * Issue #241：車資明細表。
+   *
+   * 預期值手算（合成 fixture，不取工具輸出）：
+   *  - 甲（Dommie 班）：車資 600（名目含算式）→ 1 列。
+   *  - 乙（Dommie 班）：學雜費科目、明細「車資」300；科目「車資」明細「單趟車資」150；
+   *    另有書籍費 1000（非車資，不得入表）→ 2 列。
+   *  - 丙：只有書籍費 → 0 列。
+   *  - 丁（Gino 班）：車資、金額讀不到（null）→ 1 列，金額不計入合計。
+   *  - 因此：筆數 4、金額合計 600 + 300 + 150 = 1050、金額未讀到 1 筆。
+   */
+  describe('車資明細表（Issue #241）', () => {
+    const DOMMIE = '兒童美語-Dommie[團][W9]';
+    const GINO = '兒童美語-Gino[團][Starter]';
+    const META = {
+      runId: 'run-synth', asOfDate: '2026-10-14', xlsxPath: '/synthetic/report.xlsx',
+      ruleSetVersion: 'erp-tag-v2', numericPolicy: 'synthetic', rateSource: 'synthetic',
+      billAnchorDate: '2026-10-01', duplicateNames: [] as string[], amountColumns: '（合成）',
+    };
+    type Fee = { subject: string; detail: string; amount: number | null };
+    const FARE_A = '車資 20趟*30=600 & 加收';
+    const fees = new Map<string, Fee[]>([
+      ['甲', [{ subject: '車資', detail: FARE_A, amount: 600 }]],
+      ['乙', [
+        { subject: '學雜費', detail: '車資', amount: 300 },
+        { subject: '書籍費', detail: '教材', amount: 1000 },
+        { subject: '車資', detail: '單趟車資', amount: 150 },
+      ]],
+      ['丙', [{ subject: '書籍費', detail: '教材', amount: 1000 }]],
+      ['丁', [{ subject: '車資', detail: '車資待確認', amount: null }]],
+    ]);
+    const classOf: Record<string, string> = { 甲: DOMMIE, 乙: DOMMIE, 丙: DOMMIE, 丁: GINO };
+    const build = (f: Map<string, Fee[]> | undefined) => {
+      const names = ['甲', '乙', '丙', '丁'];
+      const report = names.map((n) => reportStudent(n, { tuitionRows: [`${classOf[n]} - 16 堂課`] }));
+      const roster = names.map((n) => webStudent(n, {
+        personCode: `P-${n}`,
+        applicableEnglishBps: 10000,
+        enrollments: [{ rawToken: classOf[n], baseName: classOf[n]!.replace(/\[.*$/, ''), withdrawalDate: null }],
+      }));
+      return compare(
+        new Map(report.map((r) => [r.name as string, r])) as never,
+        roster as never[], '2026-10-14', undefined, LEGACY_V2_CONTEXT, f,
+      );
+    };
+
+    it('compare 回傳車資列：只含車資項，依報表順序，保留名目原文與班級', () => {
+      const { fareItems } = build(fees);
+      expect(fareItems).toHaveLength(4);
+      expect(fareItems.map((f: { name: string }) => f.name)).toEqual(['甲', '乙', '乙', '丁']);
+      expect(fareItems[0]).toMatchObject({
+        name: '甲', personCode: 'P-甲', className: DOMMIE, subject: '車資', detail: FARE_A, amount: 600,
+      });
+      expect(fareItems[1]).toMatchObject({ subject: '學雜費', detail: '車資', amount: 300 });
+      expect(fareItems[3]).toMatchObject({ name: '丁', className: GINO, amount: null });
+    });
+
+    it('HTML：車資明細表列出每列原文與金額，表尾有筆數與合計（1,050），未讀到金額者另註', () => {
+      const { records, fareItems } = build(fees);
+      const html = renderHtml(records, { ...META, fareItems });
+      expect(html).toContain('車資明細');
+      expect(html).toContain('車資 20趟*30=600 &amp; 加收');
+      expect(html).toContain('共 4 筆');
+      expect(html).toContain('1,050');
+      expect(html).toContain('1 筆金額未讀到');
+      expect(html).not.toContain('教材');
+    });
+
+    it('車資列為資訊列：不影響需人工判讀、差異筆數與列標記', () => {
+      const { records, fareItems } = build(fees);
+      const stat = (h: string, label: string) =>
+        h.match(new RegExp(`<span class="stat-label">${label}</span>\\s*<span class="stat-value[^"]*">(\\d+)</span>`))?.[1];
+      const withFare = renderHtml(records, { ...META, fareItems });
+      const without = renderHtml(records, META);
+      for (const label of ['需人工判讀', '差異筆數', '報科學費筆數']) {
+        expect(stat(withFare, label)).toBe(stat(without, label));
+      }
+      expect(withFare.match(/data-human="1"/g)?.length ?? 0).toBe(without.match(/data-human="1"/g)?.length ?? 0);
+    });
+
+    it('無車資項 → 顯示空狀態，不出現合計', () => {
+      const { records, fareItems } = build(new Map([['丙', [{ subject: '書籍費', detail: '教材', amount: 1000 }]]]));
+      expect(fareItems).toEqual([]);
+      const html = renderHtml(records, { ...META, fareItems });
+      expect(html).toContain('車資明細');
+      expect(html).toContain('本次報表無車資項目');
+      expect(html).not.toContain('共 0 筆');
+    });
+  });
+
+  /**
+   * 「需人工判讀」統計卡副標各項加總必須等於卡片數值（Issue #241 附帶；PR #243 審查發現
+   * 副標漏列 NOT_IN_WEB）。手算：甲（名單有）→ MATCH 不計；乙（名單無此人）→ NOT_IN_WEB 1；
+   * 丙（報表無學費列）→ EXCEL_NO_TUITION 1；丙在名單中有 Dommie 在席報名但該班已開單、
+   * 丙無學費列 → 另有 ROSTER_NOT_BILLED 1 → 卡片 3，副標各數字加總也須為 3。
+   */
+  describe('需人工判讀統計卡副標加總', () => {
+    it('含「名單已無此人」時，副標各項加總 = 卡片數值', () => {
+      const META = {
+        runId: 'run-synth', asOfDate: '2026-10-14', xlsxPath: '/synthetic/report.xlsx',
+        ruleSetVersion: 'erp-tag-v2', numericPolicy: 'synthetic', rateSource: 'synthetic',
+        billAnchorDate: '2026-10-01', duplicateNames: [] as string[], amountColumns: '（合成）',
+      };
+      const report = [
+        reportStudent('甲', { tuitionRows: ['兒童美語-Dommie[團][W9] - 16 堂課'] }),
+        reportStudent('乙', { tuitionRows: ['兒童美語-Dommie[團][W9] - 16 堂課'] }),
+        reportStudent('丙', { tuitionRows: [] }),
+      ];
+      const roster = [webStudent('甲', { applicableEnglishBps: 10000 }), webStudent('丙', { applicableEnglishBps: 10000 })];
+      const { records } = compare(
+        new Map(report.map((r) => [r.name as string, r])) as never,
+        roster as never[], '2026-10-14', undefined, LEGACY_V2_CONTEXT,
+      );
+      const html = renderHtml(records, META);
+      const m = html.match(/<span class="stat-label">需人工判讀<\/span>\s*<span class="stat-value[^"]*">(\d+)<\/span>\s*<span class="stat-sub">([^<]*)<\/span>/);
+      expect(m).not.toBeNull();
+      expect(Number(m![1])).toBe(3);
+      const sum = (m![2]!.match(/\d+/g) ?? []).reduce((a, n) => a + Number(n), 0);
+      expect(sum).toBe(3);
+    });
+  });
+
   /** 分類完整性：新增分類若沒接進 badge／needsHuman，第一次出現就會渲染錯誤。 */
   describe('分類註冊完整性', () => {
     it('BADGES 涵蓋全部分類，不得有 undefined', () => {
