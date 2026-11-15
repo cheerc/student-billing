@@ -46,7 +46,7 @@ import { defineCategories, formatCategorySummary, formatHumanReviewList } from '
 import { renderShell, escapeHtml } from './shared/report-shell.ts';
 import { assertProjectRoot, assertOutputOutsideProject } from './shared/project-guard.ts';
 import { RATE_PATTERNS } from './shared/report-xlsx.ts';
-import { checkTuitionDivisibility, analyzeClassSessions, analyzeClassAncillaryNorms } from './shared/heuristics.ts';
+import { checkTuitionDivisibility, analyzeClassSessions, analyzeClassUnitPrices, analyzeClassAncillaryNorms } from './shared/heuristics.ts';
 
 const SHEET_NAME = '班級營收狀況';
 
@@ -357,6 +357,9 @@ export function resolveApplicableRate(className, student, context) {
   }
   return { status: 'not_configured', bps: null, category: null, fromSnapshot: false };
 }
+
+/** 按堂計價的類別（Issue #238）：只有這些類別的學費列會做堂數／整除／單價檢驗。 */
+const SESSION_PRICED_CATEGORIES = new Set(['english', 'math']);
 
 /** 類別的中文顯示名（用於表格欄位與說明）。 */
 const CATEGORY_LABEL = {
@@ -728,27 +731,46 @@ export function compare(reportStudents, webStudents, asOfDate, amountLookup = un
         note: buildNotes({ statusCategory, excel, web }),
       });
 
+      // 堂數／整除／單價檢驗只對**按堂計價班**（美語、數學）執行（Issue #238）。
+      // 類別取自上方 `resolveApplicableRate` 的快照路徑，不以班名猜測（§9.0）：
+      // 安親課輔（care）與不適用班（none）是月費或非按堂計價，不得做「學費 ÷ 堂數」；
+      // 類別無法判定（null／unset）時不執行也不靜默——該列已是需人工的分類，另補一句說明。
       if (scopedClassName) {
-        if (!recordsByClass.has(scopedClassName)) {
-          recordsByClass.set(scopedClassName, []);
+        if (SESSION_PRICED_CATEGORIES.has(routed.category)) {
+          if (!recordsByClass.has(scopedClassName)) {
+            recordsByClass.set(scopedClassName, []);
+          }
+          recordsByClass.get(scopedClassName).push({
+            index: records.length - 1,
+            sessions: tuition.sessions,
+            tuitionAmount: excel.tuitionAmount,
+          });
+        } else if (routed.category === null || routed.category === 'unset') {
+          records[records.length - 1].note.notes.push(
+            '班級類別無法判定是否按堂計價，未執行堂數／整除／單價檢驗，請人工確認。',
+          );
         }
-        recordsByClass.get(scopedClassName).push({ index: records.length - 1, sessions: tuition.sessions });
       }
     }
   }
 
-  // 堂數一致性分析與整除性檢驗
+  // 堂數一致性分析、整除性檢驗與同班單價一致性（僅按堂計價班）
   for (const classItems of recordsByClass.values()) {
     const sessionAnalysis = analyzeClassSessions(classItems);
-    for (const item of classItems) {
+    const unitPriceChecks = analyzeClassUnitPrices(
+      classItems.map((i) => ({ tuitionAmount: i.tuitionAmount, sessions: i.sessions })),
+    );
+    for (const [itemIndex, item] of classItems.entries()) {
+      const unitPriceCheck = unitPriceChecks[itemIndex];
       const rec = records[item.index];
       const sessionCheck = sessionAnalysis.checkSession(item.sessions);
       const divisibility = checkTuitionDivisibility(rec.excel.tuitionAmount, rec.excel.sessions);
 
       const hasSessionOutlier = sessionCheck.isOutlier;
       const hasDivisibilityAnomaly = !divisibility.isDivisible;
+      const hasUnitPriceMismatch = unitPriceCheck.isMismatch;
 
-      if (hasSessionOutlier || hasDivisibilityAnomaly) {
+      if (hasSessionOutlier || hasDivisibilityAnomaly || hasUnitPriceMismatch) {
         if (rec.statusCategory === 'MATCH') {
           rec.statusCategory = 'SESSION_ANOMALY';
           rec.statusLabel = STATUS_LABEL['SESSION_ANOMALY'];
@@ -763,6 +785,11 @@ export function compare(reportStudents, webStudents, asOfDate, amountLookup = un
         }
         if (hasDivisibilityAnomaly && divisibility.note) {
           if (!rec.note.notes.includes(divisibility.note)) rec.note.notes.push(divisibility.note);
+        }
+        if (hasUnitPriceMismatch && unitPriceCheck.note) {
+          rec.note.tags = rec.note.tags || [];
+          if (!rec.note.tags.includes('單價不一致')) rec.note.tags.push('單價不一致');
+          if (!rec.note.notes.includes(unitPriceCheck.note)) rec.note.notes.push(unitPriceCheck.note);
         }
       }
     }
