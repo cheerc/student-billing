@@ -475,6 +475,57 @@ describe('按堂計價帳務比對工具：報表解析契約', () => {
     });
 
     /**
+     * Issue #237：「其他折扣」（非課程費、無金額算式的折扣明細，例如扣車資）會顯示在 HTML 標籤，
+     * 說明文字必須與折扣差異分支同一措辭列出，不可只有標籤、說明裡卻不提。
+     * 預期句型依 Issue #237 與折扣差異分支既有措辭手寫：`報表另有非課程費折扣項：<明細>。`
+     */
+    describe('其他折扣（extraDiscounts）在說明中列出（Issue #237）', () => {
+      const BUS_FEE = '兒童美語-Dommie[團][W9][折扣] - 扣車資';
+      const NOTE_BUS_FEE = `報表另有非課程費折扣項：${BUS_FEE}。`;
+
+      it('MATCH：報表有其他折扣明細 → 說明列出該項', () => {
+        const [r] = runCompare(
+          [reportStudent('合成丑', {
+            tuitionRows: ['兒童美語-Dommie[團][W9] - 16 堂課'],
+            discounts: [ENGLISH_DISCOUNT_9, BUS_FEE],
+            otherDiscounts: [BUS_FEE],
+          })],
+          [webStudent('合成丑', { applicableEnglishBps: 9000 })],
+        );
+        expect(r.statusCategory).toBe('MATCH');
+        expect(r.note.notes).toContain(NOTE_BUS_FEE);
+      });
+
+      it('NON_STANDARD_DISCOUNT：除補加收外另有其他折扣明細 → 說明另列該項（補加收不重複列在此句）', () => {
+        const makeUp = '兒童美語-Dommie[團][W9][折扣] - 補收 學費 15*40=600';
+        const [r] = runCompare(
+          [reportStudent('合成寅', {
+            tuitionRows: ['兒童美語-Dommie[團][W9] - 16 堂課'],
+            discounts: [ENGLISH_DISCOUNT_9, makeUp, BUS_FEE],
+            otherDiscounts: [makeUp, BUS_FEE],
+          })],
+          [webStudent('合成寅', { applicableEnglishBps: 9000 })],
+        );
+        expect(r.statusCategory).toBe('NON_STANDARD_DISCOUNT');
+        expect(r.note.notes).toContain(NOTE_BUS_FEE);
+        // 補加收已由「非標準明細」句列出，不得再混進其他折扣句
+        expect(r.note.notes.filter((n: string) => n.includes('報表另有非課程費折扣項')).join()).not.toContain('15*40=600');
+      });
+
+      it('MATCH 且無其他折扣 → 不出現其他折扣句', () => {
+        const [r] = runCompare(
+          [reportStudent('合成卯', {
+            tuitionRows: ['兒童美語-Dommie[團][W9] - 16 堂課'],
+            discounts: [ENGLISH_DISCOUNT_9],
+          })],
+          [webStudent('合成卯', { applicableEnglishBps: 9000 })],
+        );
+        expect(r.statusCategory).toBe('MATCH');
+        expect(r.note.notes.join('')).not.toContain('非課程費折扣項');
+      });
+    });
+
+    /**
      * 雙科展開：同一名學生同時有美語與數學學費列 → 兩筆紀錄，各自路由到自己的系統欄位。
      *
      * 真實 10-11 月報表無此情形，故只能以合成 fixture 驗證。
