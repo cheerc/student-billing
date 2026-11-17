@@ -183,3 +183,59 @@ describe('加強班折扣區塊的 HTML', () => {
     expect(html).toContain('本次報表無加強班項目');
   });
 });
+
+/**
+ * PR #250 r1 rework（F1／F3）。全部為合成 fixture；預期值由規格手算。
+ */
+describe('F1：附加費用前綴必須是該生實際開單的班才算「可歸屬」', () => {
+  // 4 位數學學生各繳教材費 200（明細皆帶班名前綴），其中一位的明細前綴是「教材費」（不是班名）。
+  // 同班常模 = 200（4/4），四人皆為 200 → 無人偏離，四筆都該是 MATCH。
+  // 手算：未知前綴「教材費」不是任何班名 → 不可歸屬 → 維持原行為（掛到該生每一班）→ 該生合計仍為 200。
+  const names = ['甲', '乙', '丙', '丁'];
+  const build = (firstDetail: string) => {
+    const reports = new Map<string, any>(names.map((n) => [n, rep(n, [`${MATH_TOKEN} - 18堂課`])]));
+    const fees = new Map<string, any[]>(
+      names.map((n) => [n, [item(n === '甲' ? firstDetail : `${MATH_TOKEN}[雜費] - 教材費`, 200)]]),
+    );
+    const roster = names.map((n) => web(n, [MATH_TOKEN]));
+    return compare(reports as never, roster as never[], '2026-10-14', undefined, context as never, fees as never) as any;
+  };
+
+  it('明細前綴為非班名（「教材費 - 第一冊」）：不被丟棄，四筆皆 MATCH', () => {
+    const { records } = build('教材費 - 第一冊');
+    expect(records).toHaveLength(4);
+    expect(records.map((r: any) => r.statusCategory)).toEqual(['MATCH', 'MATCH', 'MATCH', 'MATCH']);
+    expect(records.some((r: any) => r.deviation)).toBe(false);
+  });
+
+  it('對照：前綴是班名時仍依班歸屬（四筆皆 MATCH）', () => {
+    const { records } = build(`${MATH_TOKEN}[雜費] - 教材費`);
+    expect(records.map((r: any) => r.statusCategory)).toEqual(['MATCH', 'MATCH', 'MATCH', 'MATCH']);
+  });
+});
+
+describe('F3：「該生國小數學折扣」只收快照類別為 math 的班', () => {
+  const ENG = '兒童美語-六B';
+  const ENG_TOKEN = '115兒童美語-六B[團]';
+  const ctx = buildRunSnapshotContext({
+    ruleSetVersion: 'erp-tag-v4',
+    classCategories: [
+      { base_name: MATH, category: 'math', fixed_five_days: 0, class_type: 'math' },
+      { base_name: ENG, category: 'english', fixed_five_days: 0, class_type: 'english' },
+      { base_name: ENH, category: 'none', fixed_five_days: 0, class_type: 'other' },
+    ],
+  })!;
+  const go = (classes: string[]) => {
+    const reports = new Map<string, any>([['甲', rep('甲', classes.map((t) => `${t} - 12堂課`))]]);
+    const r = compare(reports as never, [web('甲', classes)] as never[], '2026-10-14', undefined, ctx as never, new Map() as never) as any;
+    return r.enhancement[0].otherClassRates.map((x: any) => x.className);
+  };
+
+  it('加強班＋美語＋數學 → 只列數學班', () => {
+    expect(go([ENH_TOKEN, ENG_TOKEN, MATH_TOKEN])).toEqual([MATH]);
+  });
+
+  it('加強班＋美語（無數學）→ 欄位為空', () => {
+    expect(go([ENH_TOKEN, ENG_TOKEN])).toEqual([]);
+  });
+});
