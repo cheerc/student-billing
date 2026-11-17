@@ -271,13 +271,16 @@ function ancillaryClassName(item) {
  *
  * 舊行為是把「整個學生」的全部項目掛到他修的每一個班，導致同時修兩班者的學雜費
  * 合計混入另一班的扣款（例如加強班 -340 併入國小數學的 +200 成 -140），被誤判為
- * 「學雜費偏離同班常模」。無法歸屬（沒有班名前綴）者維持原行為、掛到每一班，
- * 不靜默丟棄。
+ * 「學雜費偏離同班常模」。
+ *
+ * 前綴只有在**等於該生實際開單的某一班**（`billedClasses`，去修飾後的基礎班名）時才算
+ * 可歸屬。沒有前綴、或前綴不是任何已開單班名（例如「教材費 - 第一冊」，「 - 」只是
+ * 明細自己的分隔符）者視為無法歸屬，維持原行為、掛到每一班，不靜默丟棄。
  */
-function ancillaryForClass(items, className) {
+function ancillaryForClass(items, className, billedClasses) {
   return (items ?? []).filter((i) => {
     const c = ancillaryClassName(i);
-    return c === '' || c === className;
+    return c === '' || !billedClasses.has(c) || c === className;
   });
 }
 
@@ -726,6 +729,14 @@ export function compare(reportStudents, webStudents, asOfDate, amountLookup = un
       continue;
     }
 
+    // 該生實際開單的基礎班名集合：附加費用前綴須落在此集合內才算可歸屬（見 ancillaryForClass）。
+    const studentBilledClasses = new Set(
+      entry.tuitionRows
+        .map((row) => parseSessionTuition(row).className)
+        .filter(Boolean)
+        .map((n) => baseClassName(n)),
+    );
+
     for (const tuitionDetail of entry.tuitionRows) {
       const tuition = parseSessionTuition(tuitionDetail);
       // 快照的 base_name 存的是**名冊班名**，故查快照前先以產品端 `parseSingleClassToken`
@@ -742,6 +753,7 @@ export function compare(reportStudents, webStudents, asOfDate, amountLookup = un
         const studentAncillaries = ancillaryForClass(
           ancillaryFeesByStudent?.get(entry.name) ?? entry.ancillaryFees ?? [],
           scopedClassName,
+          studentBilledClasses,
         );
         if (!ancillaryByClass.has(scopedClassName)) {
           ancillaryByClass.set(scopedClassName, new Map());
@@ -784,6 +796,7 @@ export function compare(reportStudents, webStudents, asOfDate, amountLookup = un
           ancillaryFees: ancillaryForClass(
             ancillaryFeesByStudent?.get(entry.name) ?? entry.ancillaryFees ?? [],
             scopedClassName,
+            studentBilledClasses,
           ).map((i) => ({ detail: i.detail, amount: i.amount })),
         });
         continue;
@@ -1065,7 +1078,9 @@ export function compare(reportStudents, webStudents, asOfDate, amountLookup = un
   // 加強班區塊：有折扣者在前，其餘依姓名；並列該生的國小數學折扣供人工對照
   const enhancement = [...enhancementByStudent.values()].map((e) => {
     const otherClassRates = records
-      .filter((r) => r.name === e.name && r.excel.className && !isEnhancementClass(baseClassName(r.excel.className)))
+      // 只收 Run 快照類別為 math 者（rateCategory 取自快照，不以班名猜測，§9.0）；
+      // 類別無法判定（null／unset）與美語、安親等一律不列入此欄。
+      .filter((r) => r.name === e.name && r.excel.className && r.excel.rateCategory === 'math')
       .map((r) => ({
         className: baseClassName(r.excel.className),
         rateBps: r.excel.rateBps,
