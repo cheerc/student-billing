@@ -194,10 +194,18 @@ export function saveSettingsVersion(
   );
 }
 
-/** 將草稿轉為計算管線可用的 aliasMap。 */
+/**
+ * 將草稿轉為計算管線可用的 aliasMap。
+ *
+ * 同名優先：raw 名本身已是課表班級時，該別名不納入。否則計算端會把名冊班名改指到別處
+ * （目標可能根本不在課表），與班名同步頁（嚴格同名）、pending-classes 的判斷相反，
+ * 結果是同步頁顯示一致、計算卻把該班判為未對應。
+ */
 export function draftToAliasMap(draft: SettingsDraft): Map<string, string> {
+  const classNames = new Set(draft.classes.map((c) => c.baseName.trim()));
   const map = new Map<string, string>();
   for (const a of draft.aliases) {
+    if (classNames.has(a.rawBaseName.trim())) continue;
     map.set(a.rawBaseName, a.targetBaseName);
   }
   return map;
