@@ -1014,6 +1014,22 @@ describe('按堂計價帳務比對工具：報表解析契約', () => {
       const text = r.note.notes.join('');
       expect(text).not.toContain('無法整除');
       expect(text).toContain('未執行');
+      expect(text).toContain('沒有班級');
+    });
+
+    it('快照列存在但類別為 unset／none → 說明「類別未判定」，不可說成沒有快照', () => {
+      for (const category of ['unset', 'none']) {
+        const context = buildRunSnapshotContext({
+          ruleSetVersion: 'erp-tag-v4',
+          classCategories: [{ base_name: '兒童美語-Dommie', category, fixed_five_days: 0, class_type: null }],
+        })!;
+        const [r] = run({ 甲: 7350 }, { 甲: 16 }, context);
+        expect(r.statusCategory).toBe('WEB_RATE_NOT_CONFIGURED');
+        const text = r.note.notes.join('');
+        expect(text).not.toContain('沒有班級');
+        expect(text).toContain('快照存在');
+        expect(text).toContain(category);
+      }
     });
   });
 
