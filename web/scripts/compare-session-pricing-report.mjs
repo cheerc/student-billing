@@ -253,6 +253,47 @@ function baseClassName(head) {
 }
 
 /**
+ * 附加費用項目所屬的基礎班名；明細沒有「班名 - 內容」前綴時回傳空字串（無法歸屬）。
+ *
+ * 報表的「會計科目」欄對所有班都叫「學雜費」，班別只寫在明細文字前綴
+ * （`115小六數學加強班[團][小六][雜費] - 扣7/11颱風假停課`）。解析一律走 `baseClassName`
+ * （產品端 `parseSingleClassToken`），不自寫剝方括號的 regex（§9.0）。
+ */
+function ancillaryClassName(item) {
+  const detail = item?.detail ?? '';
+  if (!detail.includes(' - ')) return '';
+  const head = detail.split(' - ')[0].trim();
+  return head ? baseClassName(head) : '';
+}
+
+/**
+ * 某班的附加費用：只取明細前綴指向該班者。
+ *
+ * 舊行為是把「整個學生」的全部項目掛到他修的每一個班，導致同時修兩班者的學雜費
+ * 合計混入另一班的扣款（例如加強班 -340 併入國小數學的 +200 成 -140），被誤判為
+ * 「學雜費偏離同班常模」。無法歸屬（沒有班名前綴）者維持原行為、掛到每一班，
+ * 不靜默丟棄。
+ */
+function ancillaryForClass(items, className) {
+  return (items ?? []).filter((i) => {
+    const c = ancillaryClassName(i);
+    return c === '' || c === className;
+  });
+}
+
+/**
+ * 加強班（擁有者裁決：班名含「加強班」）。
+ *
+ * 加強班通常沒有折扣、只有專案報名時的手動登記折扣，系統端沒有可比對的參考依據，
+ * 因此不進國小數學的比對（否則整班變成「系統無適用折扣值」雜訊），改以「加強班折扣」
+ * 區塊逐生列出報表事實供人工核對（不判定對錯，D17）。
+ * 判斷吃**去修飾後的基礎班名**，與其他班名處理同一路徑（§9.0）。
+ */
+export function isEnhancementClass(baseName) {
+  return typeof baseName === 'string' && baseName.includes('加強班');
+}
+
+/**
  * 報表明細的班名部分 → 系統適用率欄位。
  *
  * 類別判定取自 run 類別快照。
@@ -462,10 +503,15 @@ function buildNotes({ statusCategory, excel, web }) {
     if (web?.rateFromSnapshot) {
       // issue #122：這是最容易被誤讀成一筆正常帳的情形——系統對這班沒有任何
       // 快照列的依據，而報表仍開了單。明文說出「無法判定」與下一步，不猜。
+      // 兩種成因要分開說：快照列根本不存在，與快照列存在但類別是 unset／none（課表未指定或
+      // 設為其他班），後者的處置是去課表改課程類型，而不是懷疑名單缺班。
+      const snapshotNote = excel.rateCategory
+        ? `系統這一版 run 的班級「${excel.className ?? '-'}」快照存在，但類別為 ${excel.rateCategory}（未指定或其他班），無法判定適用折扣（02 §9A.3）；請到課表確認該班的課程類型。`
+        : `系統這一版 run 沒有班級「${excel.className ?? '-'}」的類別快照，無法判定適用折扣（03 §5.3.4：不以當前班名猜測）。`;
       return finish({
         tone: 'warn',
         notes: [
-          `系統這一版 run 沒有班級「${excel.className ?? '-'}」的類別快照，無法判定適用折扣（03 §5.3.4：不以當前班名猜測）。`,
+          snapshotNote,
           `報表目前讀為 ${bpsToLabel(excel.rateBps)}，請人工確認該班是否應存在於本次名單後再開單。`,
         ],
       });
@@ -607,6 +653,17 @@ export function compare(reportStudents, webStudents, asOfDate, amountLookup = un
   const billedStudentsByClass = new Set();
   const recordsByClass = new Map();
   const ancillaryByClass = new Map();
+  /** 加強班折扣區塊：以學生為單位彙整，不參與分類、差異筆數與需人工判讀。 */
+  const enhancementByStudent = new Map();
+  const enhancementBilledClasses = new Set();
+  const enhancementBilledKeys = new Set();
+  const enhancementEntryFor = (name, personCode) => {
+    const key = normalizeName(name);
+    if (!enhancementByStudent.has(key)) {
+      enhancementByStudent.set(key, { name, personCode, classes: [] });
+    }
+    return enhancementByStudent.get(key);
+  };
 
   for (const entry of reportStudents.values()) {
     // 查詢端必須與索引端使用同一個正規化，否則含括號英文名的學生會整批配對失敗
@@ -678,11 +735,14 @@ export function compare(reportStudents, webStudents, asOfDate, amountLookup = un
       const rateCategoryLabel = routed.category ? CATEGORY_LABEL[routed.category] ?? routed.category : '—';
       const routedField = routed.category ? (RATE_FIELD_BY_CATEGORY[routed.category] ?? null) : null;
 
-      if (scopedClassName) {
+      if (scopedClassName && !isEnhancementClass(scopedClassName)) {
         activeBilledClasses.add(scopedClassName);
         billedStudentsByClass.add(`${normalizeName(entry.name)}\u0000${scopedClassName}`);
 
-        const studentAncillaries = ancillaryFeesByStudent?.get(entry.name) ?? entry.ancillaryFees ?? [];
+        const studentAncillaries = ancillaryForClass(
+          ancillaryFeesByStudent?.get(entry.name) ?? entry.ancillaryFees ?? [],
+          scopedClassName,
+        );
         if (!ancillaryByClass.has(scopedClassName)) {
           ancillaryByClass.set(scopedClassName, new Map());
         }
@@ -706,6 +766,27 @@ export function compare(reportStudents, webStudents, asOfDate, amountLookup = un
       if (amountLookup && typeof amountLookup.getAmount === 'function') {
         excelAmount = amountLookup.getAmount(entry.name, tuition.className)
           ?? { tuitionAmount: null, amountColumnHeading: null, amountRoute: 'none' };
+      }
+
+      if (isEnhancementClass(scopedClassName)) {
+        // 加強班：不進比對、不進在席反查的開課集合；改記入加強班區塊。
+        enhancementBilledClasses.add(scopedClassName);
+        enhancementBilledKeys.add(`${normalizeName(entry.name)}\u0000${scopedClassName}`);
+        enhancementEntryFor(entry.name, ambiguous ? '（同名多人）' : (w?.personCode ?? '-')).classes.push({
+          className: scopedClassName,
+          billed: true,
+          tuitionAmount: excelAmount.tuitionAmount,
+          sessions: tuition.sessions,
+          rateBps: discount.rateBps,
+          rateDetail: discount.rateDetail,
+          rateParseStatus: discount.rateParseStatus,
+          extraDiscounts: scopedExtraDiscounts,
+          ancillaryFees: ancillaryForClass(
+            ancillaryFeesByStudent?.get(entry.name) ?? entry.ancillaryFees ?? [],
+            scopedClassName,
+          ).map((i) => ({ detail: i.detail, amount: i.amount })),
+        });
+        continue;
       }
 
       const excel = {
@@ -895,6 +976,24 @@ export function compare(reportStudents, webStudents, asOfDate, amountLookup = un
     for (const e of w.enrollments ?? []) {
       if (e.withdrawalDate != null) continue; // 已離班退費，排除
       const enrollmentBaseName = baseClassName(e.className ?? e.rawToken ?? '');
+      if (isEnhancementClass(enrollmentBaseName)) {
+        // 加強班的在席未開單另列於加強班區塊（不進主表分類）；該班未在當次報表開課則不誤報
+        if (!enhancementBilledClasses.has(enrollmentBaseName)) continue;
+        if (enhancementBilledKeys.has(`${normalizeName(w.name)}\u0000${enrollmentBaseName}`)) continue;
+        enhancementEntryFor(w.name, w.personCode ?? '-').classes.push({
+          className: enrollmentBaseName,
+          billed: false,
+          tuitionAmount: null,
+          sessions: null,
+          rateBps: null,
+          rateDetail: null,
+          rateParseStatus: 'none',
+          extraDiscounts: [],
+          ancillaryFees: [],
+        });
+        enhancementBilledKeys.add(`${normalizeName(w.name)}\u0000${enrollmentBaseName}`);
+        continue;
+      }
       if (!enrollmentBaseName || !activeBilledClasses.has(enrollmentBaseName)) continue; // 該班未在當次報表開課，不跨科目誤報
 
       const billedKey = `${normalizeName(w.name)}\u0000${enrollmentBaseName}`;
@@ -963,7 +1062,25 @@ export function compare(reportStudents, webStudents, asOfDate, amountLookup = un
     return (a.excel.className ?? '').localeCompare(b.excel.className ?? '', 'zh-Hant');
   });
 
-  return { records, duplicates, fareItems };
+  // 加強班區塊：有折扣者在前，其餘依姓名；並列該生的國小數學折扣供人工對照
+  const enhancement = [...enhancementByStudent.values()].map((e) => {
+    const otherClassRates = records
+      .filter((r) => r.name === e.name && r.excel.className && !isEnhancementClass(baseClassName(r.excel.className)))
+      .map((r) => ({
+        className: baseClassName(r.excel.className),
+        rateBps: r.excel.rateBps,
+        rateDetail: r.excel.rateDetail,
+      }));
+    const hasDiscount = e.classes.some(
+      (c) => c.billed && (c.rateBps !== 10000 || c.rateParseStatus === 'unknown' || c.extraDiscounts.length > 0),
+    );
+    return { ...e, hasDiscount, otherClassRates };
+  }).sort((a, b) => {
+    if (a.hasDiscount !== b.hasDiscount) return a.hasDiscount ? -1 : 1;
+    return a.name.localeCompare(b.name, 'zh-Hant');
+  });
+
+  return { records, duplicates, fareItems, enhancement };
 }
 
 // ---------------------------------------------------------------- HTML
@@ -1088,6 +1205,82 @@ function renderRow(r, idx) {
     <td>${classes}</td>
     <td class="note-text ${r.note.tone === 'warn' ? 'is-warn' : ''}">${notes}</td>
   </tr>`;
+}
+
+/**
+ * 加強班折扣區塊。獨立於比對主表：不帶 `data-cat`，不參與分頁過濾、差異筆數與需人工判讀。
+ *
+ * 加強班在系統端沒有可比對的參考依據（通常無折扣，僅專案報名時的手動登記折扣），
+ * 故本區塊只把報表上的事實以學生為單位並列，供人工對照，**不判定對錯**（D17）。
+ * 有折扣者在前、其餘在後，皆在同一張表；在席未開單（名單在席但報表無該班學費列）也列於此。
+ */
+function renderEnhancementSection(enhancement) {
+  const items = enhancement ?? [];
+  if (!items.length) {
+    return `
+  <section class="insight-group" id="enhancement-detail">
+    <h2>加強班折扣</h2>
+    <p class="hint">本次報表無加強班項目。</p>
+  </section>`;
+  }
+  const rateText = (c) => {
+    if (!c.billed) return '—';
+    if (c.rateParseStatus === 'unknown') return `格式無法辨識：${c.rateDetail ?? ''}`;
+    return bpsToLabel(c.rateBps);
+  };
+  const money = (n) => (n === null || n === undefined ? '—' : n.toLocaleString('zh-TW'));
+  const rows = items.map((e, i) => {
+    const classCell = e.classes.map((c) => `<div>${escapeHtml(c.className)}${c.billed ? '' : ' <span class="badge badge-warn">在席未開單</span>'}</div>`).join('');
+    const rateCell = e.classes.map((c) => `<div>${escapeHtml(rateText(c))}</div>`).join('');
+    const amountCell = e.classes.map((c) => `<div>${escapeHtml(money(c.tuitionAmount))}</div>`).join('');
+    const extraCell = e.classes.flatMap((c) => [
+      ...c.extraDiscounts.map((d) => `<div>${escapeHtml(d)}</div>`),
+      ...c.ancillaryFees.map((f) => `<div>${escapeHtml(f.detail)}：${escapeHtml(money(f.amount))}</div>`),
+    ]).join('') || '<span class="muted">—</span>';
+    const mathCell = e.otherClassRates.length
+      ? e.otherClassRates.map((r) => `<div>${escapeHtml(r.className)}：${escapeHtml(bpsToLabel(r.rateBps))}</div>`).join('')
+      : '<span class="muted">—</span>';
+    return `
+        <tr>
+          <td class="number">${i + 1}</td>
+          <td class="sticky-name">${escapeHtml(e.name)}</td>
+          <td class="mono">${escapeHtml(e.personCode)}</td>
+          <td>${e.hasDiscount ? '有折扣' : '<span class="muted">無折扣</span>'}</td>
+          <td>${classCell}</td>
+          <td>${rateCell}</td>
+          <td class="number">${amountCell}</td>
+          <td class="note-text">${extraCell}</td>
+          <td class="note-text">${mathCell}</td>
+        </tr>`;
+  }).join('');
+  const withDiscount = items.filter((e) => e.hasDiscount).length;
+  return `
+  <section class="insight-group" id="enhancement-detail">
+    <h2>加強班折扣</h2>
+    <p class="hint">班名含「加強班」的列不進入國小數學比對，改在此以學生為單位列出報表上的折扣與費用，並並列該生的國小數學折扣供人工核對；系統端沒有加強班的參考依據，工具不判定對錯，亦不計入差異筆數。</p>
+    <div class="table-container">
+      <div class="table-scroll">
+        <table id="enhancement-table" class="data-table">
+          <thead><tr>
+            <th class="number">#</th>
+            <th class="sticky-name">姓名</th>
+            <th>人員代碼</th>
+            <th>折扣狀況</th>
+            <th>加強班</th>
+            <th>報表折扣</th>
+            <th class="number">學費（顯示值）</th>
+            <th>其他折扣與費用（報表明細原文）</th>
+            <th>該生國小數學折扣</th>
+          </tr></thead>
+          <tbody>${rows}
+          </tbody>
+          <tfoot><tr>
+            <td colspan="9"><strong>共 ${items.length} 位學生</strong><span class="muted">（有折扣 ${withDiscount} 位、無折扣 ${items.length - withDiscount} 位）</span></td>
+          </tr></tfoot>
+        </table>
+      </div>
+    </div>
+  </section>`;
 }
 
 /**
@@ -1222,7 +1415,7 @@ export function renderHtml(records, meta) {
       { key: 'note', heading: '差異說明與可能成因' },
     ],
     rowsHtml: records.map(renderRow).join(''),
-    afterTableHtml: renderFareSection(meta.fareItems),
+    afterTableHtml: renderFareSection(meta.fareItems) + renderEnhancementSection(meta.enhancement),
     duplicateNames: meta.duplicateNames,
     tabs,
     registry: CATEGORIES,
@@ -1356,7 +1549,7 @@ async function main() {
   }
 
   const ancillaryFees = collectAncillaryFees(ws, REPORT_SUBJECTS);
-  const { records, duplicates, fareItems } = compare(reportStudents, students, asOfDate, {
+  const { records, duplicates, fareItems, enhancement } = compare(reportStudents, students, asOfDate, {
     getAmount: (name, className) => amounts.getAmount(name, className),
   }, rateContext, ancillaryFees);
 
@@ -1375,6 +1568,7 @@ async function main() {
     billAnchorDate: billDates[Math.floor(billDates.length / 2)] || '—',
     duplicateNames: duplicates,
     fareItems,
+    enhancement,
     amountColumns: amounts.classHeadings.length
       ? `${amounts.classHeadings.join('、')}、${NON_TUITION_HEADING}`
       : '（未偵測到）',
@@ -1395,6 +1589,10 @@ async function main() {
   const humanList = buildHumanReviewList(records);
   if (humanList) {
     console.log('\n' + humanList);
+  }
+  if (enhancement.length) {
+    const withDiscount = enhancement.filter((e) => e.hasDiscount).length;
+    console.log(`加強班（不進比對，另列於 HTML「加強班折扣」區塊）：${enhancement.length} 位學生，有折扣 ${withDiscount} 位。`);
   }
   console.log('報告已輸出：', outputPath);
 }

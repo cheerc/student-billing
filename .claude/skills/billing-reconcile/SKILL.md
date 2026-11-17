@@ -89,6 +89,14 @@ git status --short probe-classes.mjs   # 應無輸出
 
 班名含「國小輔導」→ 輔導；含「兒童美語」或「國小數學」→ 按堂計價。
 
+### 加強班（按堂計價工具自動處理）
+
+ERP 撈資料只篩「數學」時常會連加強班一起帶出來。班名含「加強班」的列**不進比對**，改列在 HTML
+「加強班折扣」區塊：每位學生一列，有折扣者在前，無折扣者在後；並列該生的國小數學折扣、加強班的
+其他折扣與扣款明細；名單在席但報表無該班學費列者標「在席未開單」。系統端沒有加強班的參考依據，
+**工具不判定對錯**，由人工對照專案報名的手動折扣。附加費用依明細班名前綴歸屬，不會再把加強班的扣款
+併進國小數學的學雜費常模。
+
 ### 混合科目報表（兩種班都有）
 
 兩台工具都**沒有**班別篩選參數（只有 `--xlsx`、`--out`、`--base`、`--help`），報表裡另一科目的列
@@ -117,6 +125,16 @@ git status --short probe-classes.mjs   # 應無輸出
    ```bash
    curl -s http://127.0.0.1:3000/api/v1/runs/current | python3 -c "import sys,json; d=json.load(sys.stdin); r=d.get('run') or {}; print(r.get('asOfDate'), r.get('ruleSetVersion'), r.get('status'))"
    ```
+
+**比對報表班級與系統課程類型**（跑之前做）。報表裡的班若在系統是 `unset`／`none`，整班學生都會
+落成 `webRateNotConfigured`，這是課表設定問題，不是學生個別差異。用探測腳本印出的班名（去掉開頭
+年度數字與 `[…]` 修飾）對照：
+
+```bash
+curl -s http://127.0.0.1:3000/api/v1/classes | python3 -c "import sys,json; [print(i['baseName'], i['category'], i['mappingStatus']) for i in json.load(sys.stdin)['items'] if i['category'] in ('unset','none')]"
+```
+
+出現在報表裡的班又列在這份輸出中，就在回報開頭先說明，並提醒使用者先到課表處理再重跑。
 
 **比對報表帳單日期範圍與 `asOfDate`**（跑之前做，結果寫進回報）。名單是 `asOfDate` 當下的
 快照，報表是一段期間的開單；兩者落差是差異的正常成因之一，不是工具出錯。落差**不一定**表現為
@@ -169,6 +187,7 @@ npm run billing:compare:sessions -- --xlsx "<財務報表.xlsx>" [--out "<報告
   只計學費列，應**等於**探測腳本印出的學費列數 —— 不等就先停下來回報，不要繼續解讀。
   分頁「全部」、「差異筆數」與「折扣一致」百分比的分母都是紀錄數（含 `rosterNotBilled`），
   所以「全部」會比「報科學費筆數」多出 `rosterNotBilled`＋`noTuition`。
+- **加強班**（按堂計價工具）：班名含「加強班」的學費列已自動分流到 HTML「加強班折扣」區塊，不在 `total`、不在差異筆數。所以探測腳本的學費列數 ＝ 「報科學費筆數」卡 ＋ 加強班學費列數；主控台會另印加強班學生數與有折扣人數。
 - **國小輔導**：一生一筆；`total` 與「報表學生總數」卡都含 `rosterNotBilled`（名單反查推入，
   報表上沒有此人）。報表學生數＝`total` − `rosterNotBilled`。
 
@@ -191,7 +210,10 @@ npm run billing:compare:sessions -- --xlsx "<財務報表.xlsx>" [--out "<報告
 - **tierUnparsed / rateUnparsed** — 報表格式不在工具認得的範圍。**不要代為猜測**，
   這是需要人工確認報表的訊號，不是 bug。
 - **unknownClass**（僅按堂計價）— 班級不屬美語／數學（含輔導班），需人工歸類。
-- **webRateNotConfigured** — 系統端無適用折扣值（例如缺班級快照）。
+- **webRateNotConfigured** — 系統端無適用折扣值。成因有兩種，說明文字會分開寫，先看是哪一種：
+  快照列不存在（名單沒有該班）；或快照列存在但類別是 `unset`（課表沒指定課程類型，或名冊班名沒對應到
+  課表班）／`none`（課表設成「其他班」，`erp-tag-v4` 下一律無法判定）。後者要去課表改課程類型，
+  不是漏班。這類列常整班一起出現，先查 `/api/v1/classes` 該班的 `category`／`mappingStatus`。
 - **notInWeb / noTuition / unpairable** — 名單已無此人、報表無學費項、姓名無法唯一配對。
 
 **車資明細**（僅按堂計價 HTML 報告）：主表下方獨立一區，列出科目或明細含「車資」的項目
