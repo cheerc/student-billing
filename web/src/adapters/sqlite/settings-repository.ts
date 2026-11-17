@@ -200,12 +200,17 @@ export function saveSettingsVersion(
  * 同名優先：raw 名本身已是課表班級時，該別名不納入。否則計算端會把名冊班名改指到別處
  * （目標可能根本不在課表），與班名同步頁（嚴格同名）、pending-classes 的判斷相反，
  * 結果是同步頁顯示一致、計算卻把該班判為未對應。
+ *
+ * 「同名」必須是**完全字串相等**（不 trim），與下游查找一致：`buildClassSettingMap` 以原字串為 key、
+ * `resolveClassEnrollment` 以 `aliasMap.get(raw)`，班名同步報告（class-name-match-report）與
+ * pending-classes 亦為嚴格同名。若這裡 trim 而下游不 trim，課表班名「 X 」會把別名 X→Y 移除，
+ * 但名冊 X 又查不到「 X 」，結果變成未對應。
  */
 export function draftToAliasMap(draft: SettingsDraft): Map<string, string> {
-  const classNames = new Set(draft.classes.map((c) => c.baseName.trim()));
+  const classNames = new Set(draft.classes.map((c) => c.baseName));
   const map = new Map<string, string>();
   for (const a of draft.aliases) {
-    if (classNames.has(a.rawBaseName.trim())) continue;
+    if (classNames.has(a.rawBaseName)) continue;
     map.set(a.rawBaseName, a.targetBaseName);
   }
   return map;
