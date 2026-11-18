@@ -1,4 +1,5 @@
-import type { ColumnSpec } from './cell';
+import { BLANK_OPTION, nonBlankCells, type ColumnSpec, type TextCell } from './cell';
+import { compareCells } from './compare';
 
 export interface ColumnOption { value: string; count: number }
 
@@ -13,6 +14,25 @@ export function buildColumnOptions<Row, Ctx>(
   inScope: (row: Row) => boolean = () => true,
   rowKey: (row: Row, index: number) => string = (_row, index) => String(index),
 ): ColumnOption[] {
-  void rows; void spec; void ctx; void inScope; void rowKey;
-  return [];
+  const byText = new Map<string, { min: TextCell; keys: Set<string> }>();
+  const blankKeys = new Set<string>();
+  rows.forEach((row, index) => {
+    if (!inScope(row)) return;
+    const key = rowKey(row, index);
+    const present = nonBlankCells(spec.cells(row, ctx));
+    if (present.length === 0) { blankKeys.add(key); return; }
+    for (const c of present) {
+      const entry = byText.get(c.text);
+      if (!entry) byText.set(c.text, { min: c, keys: new Set([key]) });
+      else {
+        entry.keys.add(key);
+        if (compareCells(c, entry.min, 'asc') < 0) entry.min = c;
+      }
+    }
+  });
+  const options = [...byText.entries()]
+    .sort(([, a], [, b]) => compareCells(a.min, b.min, 'asc'))
+    .map(([text, entry]) => ({ value: text, count: entry.keys.size }));
+  if (blankKeys.size) options.push({ value: BLANK_OPTION, count: blankKeys.size });
+  return options;
 }

@@ -427,6 +427,9 @@ describe('cursor v3 編碼與解碼（03 §5.1 R8；UX131 (d) 單元部分）', 
     expectCursor400('not base64!!');
     expectCursor400(Buffer.from('not json').toString('base64'));
     expectCursor400('A'.repeat(4097));
-    expectCursor400(Buffer.from(JSON.stringify({ version: 3, identity: id, p: 'P1', n: true })).toString('base64').replace(/=+$/, ''));
+    // p:'P11' 使 JSON 長度 ≡ 1 (mod 3)，規範 base64 需 '==' 補位；去掉補位即非規範編碼
+    const padded = encodeColumnCursor(id, { personCode: 'P11', cell: null });
+    expect(padded.endsWith('==')).toBe(true);
+    expectCursor400(padded.replace(/=+$/, ''));
   });
 });

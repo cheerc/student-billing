@@ -22,19 +22,19 @@ export interface ColumnSpec<Row, Ctx = undefined> {
 
 export interface ColumnSelectionLike { texts: ReadonlySet<string>; blank: boolean; none: boolean }
 
-export function cell(value: CellValue, text?: string): TextCell {
-  void value; void text;
-  return { value: '', text: '' };
+export function cell(value: CellValue, text: string = String(value)): TextCell {
+  return { value, text };
 }
 
 /** 去掉 null 項目；回傳空陣列＝該列在此欄為空白。 */
 export function nonBlankCells(cells: readonly Cell[]): TextCell[] {
-  void cells;
-  return [];
+  return cells.filter((c): c is TextCell => c !== null);
 }
 
 /** 篩選：依顯示文字；`none`＝空集合（不命中任何列）；`blank` 只命中真正空白。 */
 export function matchesColumnSelection(cells: readonly Cell[], selection: ColumnSelectionLike): boolean {
-  void cells; void selection;
-  return false;
+  if (selection.none) return false;
+  const present = nonBlankCells(cells);
+  if (present.length === 0) return selection.blank;
+  return present.some((c) => selection.texts.has(c.text));
 }
