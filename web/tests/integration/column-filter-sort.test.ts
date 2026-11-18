@@ -293,3 +293,250 @@ describe('P-8：未帶 sort 依 personCode UTF-8 位元組序分頁（＝SQLite 
     }
   });
 });
+
+/**
+ * D66 P3b／UX131（03 §5.1 R3、R4、R8；取代 UX127 (c)）：所有 `sort` 走 application 層 compareCells，
+ * keyset `(value, text, personCode)`，cursor v3。expected 一律依 04 UX131 手算表寫死（不以待測函式輸出產生）。
+ */
+const chunk = <T,>(list: T[], size: number): T[][] => {
+  const out: T[][] = [];
+  for (let i = 0; i < list.length; i += size) out.push(list.slice(i, i + size));
+  return out;
+};
+
+async function pages(runId: string, base: Array<[string, string]>, limit: number): Promise<string[][]> {
+  const out: string[][] = [];
+  let cursor: string | null = null;
+  for (let guard = 0; guard < 40; guard++) {
+    const r: any = await get(runId, [...base, ['limit', String(limit)], ...(cursor ? [['cursor', cursor] as [string, string]] : [])]);
+    expect(r.status, JSON.stringify(base)).toBe(200);
+    out.push(codes(r.body));
+    cursor = r.body.nextCursor;
+    if (!cursor) break;
+  }
+  return out;
+}
+
+describe('UX131 (a) 年級排序（G13）：數值→文字（筆畫序）→空白，空白恆最後；limit=1/2/3 逐頁串接', () => {
+  let runId: string;
+  beforeEach(() => { runId = setup(G13); });
+  afterEach(teardown);
+
+  // 數值 1,1,3,3（P01,P02,P03,P04）→ 文字 7,小班,中班,未知,國一,國中（P10,P06,P05,P09,P08,P13）→ 空白 P11,P12
+  const ASC = ['P01', 'P02', 'P03', 'P04', 'P10', 'P06', 'P05', 'P09', 'P08', 'P13', 'P11', 'P12'];
+  // 降冪反轉 value 與 text：文字反序（國中,國一,未知,中班,小班,7）→ 數值 3,3,1,1（personCode 恆升冪）→ 空白仍最後
+  const DESC = ['P13', 'P08', 'P09', 'P05', 'P06', 'P10', 'P03', 'P04', 'P01', 'P02', 'P11', 'P12'];
+
+  it('sort=grade 一次取全與逐頁串接（limit 1、2、3）恆為同一順序，無重複無遺漏', async () => {
+    expect(codes((await get(runId, [['sort', 'grade'], ['limit', '200']])).body)).toEqual(ASC);
+    for (const limit of [1, 2, 3]) expect(await pages(runId, [['sort', 'grade']], limit), `limit=${limit}`).toEqual(chunk(ASC, limit));
+  });
+
+  it('sort=-grade：文字反序在前、數值大→小、空白仍最後；limit 1、2、3 逐頁串接', async () => {
+    expect(codes((await get(runId, [['sort', '-grade'], ['limit', '200']])).body)).toEqual(DESC);
+    for (const limit of [1, 2, 3]) expect(await pages(runId, [['sort', '-grade']], limit), `limit=${limit}`).toEqual(chunk(DESC, limit));
+  });
+
+  it('排序不改變 stats（最終集合人數）；與 col.* 並用時排序只作用在最終集合', async () => {
+    const r = await get(runId, [['sort', 'grade'], ['limit', '3']]);
+    expect(r.body.stats.totalStudents).toBe(12);
+    // col.grade=7／小班／~blank（P10,P06,P11,P12）：文字 7 < 小班 → 空白（P11,P12 依 personCode）
+    expect(codes((await get(runId, [['col.grade', '7'], ['col.grade', '小班'], ['col.grade', '~blank'], ['sort', 'grade'], ['limit', '200']])).body)).toEqual(['P10', 'P06', 'P11', 'P12']);
+    expect(codes((await get(runId, [['col.grade', '7'], ['col.grade', '小班'], ['col.grade', '~blank'], ['sort', '-grade'], ['limit', '200']])).body)).toEqual(['P06', 'P10', 'P11', 'P12']);
+  });
+});
+
+describe('UX131 (b) 姓名排序（N6）：筆畫序，明確不是碼點序', () => {
+  let runId: string;
+  // Q1 蔡一、Q2 黃一、Q3 林一、Q4 王一、Q5 吳一、Q6 丁一（總筆畫：丁一 3、王一 5、吳一 8、林一 9、黃一 12、蔡一 15，皆相異）
+  beforeEach(() => {
+    runId = setup([
+      snap('Q1', 1, '一年級', '班A', '蔡一'), snap('Q2', 1, '一年級', '班A', '黃一'), snap('Q3', 1, '一年級', '班A', '林一'),
+      snap('Q4', 1, '一年級', '班A', '王一'), snap('Q5', 1, '一年級', '班A', '吳一'), snap('Q6', 1, '一年級', '班A', '丁一'),
+    ]);
+  });
+  afterEach(teardown);
+
+  it('sort=name 升冪 Q6,Q4,Q5,Q3,Q2,Q1；sort=-name 降冪 Q1,Q2,Q3,Q5,Q4,Q6；非碼點序（碼點序為 Q6,Q5,Q3,Q4,Q1,Q2）', async () => {
+    const asc = ['Q6', 'Q4', 'Q5', 'Q3', 'Q2', 'Q1'];
+    const desc = ['Q1', 'Q2', 'Q3', 'Q5', 'Q4', 'Q6'];
+    const ascResult = codes((await get(runId, [['sort', 'name']])).body);
+    expect(ascResult).toEqual(asc);
+    // 碼點序：丁 U+4E01 < 吳 U+5433 < 林 U+6797 < 王 U+738B < 蔡 U+8521 < 黃 U+9EC3
+    expect(ascResult).not.toEqual(['Q6', 'Q5', 'Q3', 'Q4', 'Q1', 'Q2']);
+    expect(codes((await get(runId, [['sort', '-name']])).body)).toEqual(desc);
+    for (const limit of [1, 2, 3]) {
+      expect(await pages(runId, [['sort', 'name']], limit), `asc limit=${limit}`).toEqual(chunk(asc, limit));
+      expect(await pages(runId, [['sort', '-name']], limit), `desc limit=${limit}`).toEqual(chunk(desc, limit));
+    }
+  });
+});
+
+describe('UX131 (c) 合計折扣排序：bps 數值序 9000 < 9500 < 10000', () => {
+  let runId: string;
+  beforeEach(() => {
+    runId = setup([snap('C1', 1, '一年級', '班A'), snap('C2', 1, '一年級', '班A'), snap('C3', 1, '一年級', '班A')]);
+    const set = getDatabase().prepare('UPDATE student_calculations SET base_discount_bps = ? WHERE run_id = ? AND person_code = ?');
+    set.run(10000, runId, 'C1'); set.run(9000, runId, 'C2'); set.run(9500, runId, 'C3');
+  });
+  afterEach(teardown);
+
+  it('sort=baseDiscountBps 升冪 C2(9000),C3(9500),C1(10000)；降冪相反；limit=1/2 逐頁串接', async () => {
+    expect(codes((await get(runId, [['sort', 'baseDiscountBps']])).body)).toEqual(['C2', 'C3', 'C1']);
+    expect(codes((await get(runId, [['sort', '-baseDiscountBps']])).body)).toEqual(['C1', 'C3', 'C2']);
+    expect(await pages(runId, [['sort', 'baseDiscountBps']], 1)).toEqual([['C2'], ['C3'], ['C1']]);
+    expect(await pages(runId, [['sort', '-baseDiscountBps']], 2)).toEqual([['C1', 'C3'], ['C2']]);
+  });
+});
+
+describe('UX131 (f) 安親天數排序（A6）：同值 4 的 `4` 與 `4*額` 為兩組，keyset (value, text, personCode)', () => {
+  let runId: string;
+  // personCode → 安親天數值,顯示：K1→4,`4*額`；K2→4,`4`；K3→3.5,`3.5`；K4→4,`4*額`；K5→空白；K6→4.5,`4.5`
+  beforeEach(() => {
+    runId = setup(['K1', 'K2', 'K3', 'K4', 'K5', 'K6'].map((c) => snap(c, 1, '一年級', '班A')));
+    const set = getDatabase().prepare('UPDATE student_calculations SET anqin_days = ?, anqin_display = ? WHERE run_id = ? AND person_code = ?');
+    set.run(4, '4*額', runId, 'K1'); set.run(4, '4', runId, 'K2'); set.run(3.5, '3.5', runId, 'K3');
+    set.run(4, '4*額', runId, 'K4'); set.run(null, null, runId, 'K5'); set.run(4.5, '4.5', runId, 'K6');
+  });
+  afterEach(teardown);
+
+  const ASC = ['K3', 'K2', 'K1', 'K4', 'K6', 'K5'];
+  const DESC = ['K6', 'K1', 'K4', 'K2', 'K3', 'K5'];
+
+  it('升冪 K3,K2,K1,K4,K6,K5：limit=1 頁界落在 K2(`4`)｜K1(`4*額`)；limit=1/2 無重複無遺漏', async () => {
+    expect(codes((await get(runId, [['sort', 'anqinDays']])).body)).toEqual(ASC);
+    expect(await pages(runId, [['sort', 'anqinDays']], 1)).toEqual([['K3'], ['K2'], ['K1'], ['K4'], ['K6'], ['K5']]);
+    expect(await pages(runId, [['sort', 'anqinDays']], 2)).toEqual([['K3', 'K2'], ['K1', 'K4'], ['K6', 'K5']]);
+  });
+
+  it('降冪 K6,K1,K4,K2,K3,K5：limit=1 頁界落在 K4(`4*額`)｜K2(`4`)；空白仍最後', async () => {
+    expect(codes((await get(runId, [['sort', '-anqinDays']])).body)).toEqual(DESC);
+    expect(await pages(runId, [['sort', '-anqinDays']], 1)).toEqual([['K6'], ['K1'], ['K4'], ['K2'], ['K3'], ['K5']]);
+    expect(await pages(runId, [['sort', '-anqinDays']], 2)).toEqual([['K6', 'K1'], ['K4', 'K2'], ['K3', 'K5']]);
+  });
+
+  it('(d) cursor v3 形狀：v2、`v: true`、`n` 與 `v` 並存、非空白缺 `t`、換 sort、未排序沿用，皆 400 指名 cursor；真實 cursor 帶 v＋t', async () => {
+    const first = await get(runId, [['sort', 'anqinDays'], ['limit', '2']]);
+    expect(first.status).toBe(200);
+    const real = first.body.nextCursor as string;
+    const body = JSON.parse(Buffer.from(real, 'base64').toString('utf8'));
+    // 第 1 頁最後一列為 K2（4,`4`）：v3 keyset 帶底層值與顯示文字
+    expect(body).toMatchObject({ version: 3, p: 'K2', v: 4, t: '4' });
+    const enc = (o: unknown) => Buffer.from(JSON.stringify(o)).toString('base64');
+    const without = (...keys: string[]) => { const next = { ...body }; for (const k of keys) delete next[k]; return next; };
+    const forged: Array<[string, string, Array<[string, string]>]> = [
+      ['v2 cursor（無 t）', enc({ ...without('t'), version: 2 }), [['sort', 'anqinDays']]],
+      ['v2 cursor（保留 t）', enc({ ...body, version: 2 }), [['sort', 'anqinDays']]],
+      ['v: true', enc({ ...body, v: true }), [['sort', 'anqinDays']]],
+      ['n 與 v 並存', enc({ ...body, n: true }), [['sort', 'anqinDays']]],
+      ['非空白缺 t', enc(without('t')), [['sort', 'anqinDays']]],
+      ['缺 v 與 n', enc(without('v', 't')), [['sort', 'anqinDays']]],
+      ['換 sort 沿用 cursor', real, [['sort', '-anqinDays']]],
+      ['未排序沿用 sorted cursor', real, []],
+    ];
+    for (const [label, cursor, pairs] of forged) {
+      const r = await get(runId, [...pairs, ['limit', '2'], ['cursor', cursor]]);
+      expect(r.status, label).toBe(400);
+      expect(r.body.error, label).toContain('cursor');
+    }
+    // 對照：未被竄改的 cursor 仍可翻到下一頁（K1,K4）
+    const next = await get(runId, [['sort', 'anqinDays'], ['limit', '2'], ['cursor', real]]);
+    expect(next.status).toBe(200);
+    expect(codes(next.body)).toEqual(['K1', 'K4']);
+  });
+});
+
+describe('UX131 (d) 空白群頁界：G13 年級 limit=1 的 cursor 以 n: true 編碼並可續翻', () => {
+  let runId: string;
+  beforeEach(() => { runId = setup(G13); });
+  afterEach(teardown);
+
+  it('P11（空白）之後的 cursor＝{version:3, p:P11, n:true}，續翻得 P12', async () => {
+    const r = await get(runId, [['sort', 'grade'], ['limit', '11']]);
+    expect(codes(r.body).at(-1)).toBe('P11');
+    const body = JSON.parse(Buffer.from(r.body.nextCursor, 'base64').toString('utf8'));
+    expect(body).toMatchObject({ version: 3, p: 'P11', n: true });
+    expect('v' in body || 't' in body).toBe(false);
+    const next = await get(runId, [['sort', 'grade'], ['limit', '11'], ['cursor', r.body.nextCursor]]);
+    expect(codes(next.body)).toEqual(['P12']);
+    expect(next.body.nextCursor).toBeNull();
+  });
+
+  it('文字群→空白頁界：P13（國中）之後 cursor 帶 v＋t（文字值），續翻得 P11,P12', async () => {
+    const r = await get(runId, [['sort', 'grade'], ['limit', '10']]);
+    expect(codes(r.body).at(-1)).toBe('P13');
+    const body = JSON.parse(Buffer.from(r.body.nextCursor, 'base64').toString('utf8'));
+    expect(body).toMatchObject({ version: 3, p: 'P13', v: '國中', t: '國中' });
+    expect(codes((await get(runId, [['sort', 'grade'], ['limit', '10'], ['cursor', r.body.nextCursor]])).body)).toEqual(['P11', 'P12']);
+  });
+
+  it('數值→文字頁界：P04（3年級）之後 cursor 帶 v: 3、t: 3年級', async () => {
+    const r = await get(runId, [['sort', 'grade'], ['limit', '4']]);
+    expect(codes(r.body)).toEqual(['P01', 'P02', 'P03', 'P04']);
+    expect(JSON.parse(Buffer.from(r.body.nextCursor, 'base64').toString('utf8'))).toMatchObject({ version: 3, p: 'P04', v: 3, t: '3年級' });
+  });
+});
+
+describe('UX131 (e) 未帶 sort：與 person_code ASC 相同（UX128 不變）', () => {
+  let runId: string;
+  beforeEach(() => { runId = setup(G13); });
+  afterEach(teardown);
+
+  it('一次取全與逐頁串接皆為 P01…P13（P07 不存在）', async () => {
+    const expected = ['P01', 'P02', 'P03', 'P04', 'P05', 'P06', 'P08', 'P09', 'P10', 'P11', 'P12', 'P13'];
+    expect(codes((await get(runId, [['limit', '200']])).body)).toEqual(expected);
+    for (const limit of [1, 2, 3]) expect(await pages(runId, [], limit), `limit=${limit}`).toEqual(chunk(expected, limit));
+  });
+});
+
+describe('P3a 審查帶入 (1)：stats.mismatchCount 的班級範圍來自 col.enrollment（與語意 enrollmentKey 同值）', () => {
+  let runId: string;
+  beforeEach(() => {
+    runId = setup([snap('M1', 1, '一年級', '班A\n班B'), snap('M2', 1, '一年級', '班A\n班B'), snap('M3', 1, '一年級', '班B')]);
+    const set = getDatabase().prepare('UPDATE student_calculations SET tier_comparisons = ? WHERE run_id = ? AND person_code = ?');
+    const tc = (...pairs: Array<[string, string]>) => JSON.stringify(pairs.map(([baseName, status]) => ({ baseName, status, needsReview: false })));
+    // M1：班A match、班B mismatch；M2：班A mismatch、班B match；M3：班B match
+    set.run(tc(['班A', 'match'], ['班B', 'mismatch']), runId, 'M1');
+    set.run(tc(['班A', 'mismatch'], ['班B', 'match']), runId, 'M2');
+    set.run(tc(['班B', 'match']), runId, 'M3');
+  });
+  afterEach(teardown);
+
+  it('col.enrollment=班A → 1（只有 M2 在班A mismatch）；enrollmentKey=班A → 1；兩者並存 → 1；不帶班級 → 2（M1、M2）', async () => {
+    expect((await get(runId, [['col.enrollment', '班A']])).body.stats.mismatchCount).toBe(1);
+    expect((await get(runId, [['enrollmentKey', '班A']])).body.stats.mismatchCount).toBe(1);
+    expect((await get(runId, [['enrollmentKey', '班A'], ['col.enrollment', '班A']])).body.stats.mismatchCount).toBe(1);
+    expect((await get(runId, [])).body.stats.mismatchCount).toBe(2);
+    // 對照：班B 的 mismatch 只有 M1
+    expect((await get(runId, [['col.enrollment', '班B']])).body.stats.mismatchCount).toBe(1);
+    // 帶 sort 時 stats 不變
+    expect((await get(runId, [['col.enrollment', '班A'], ['sort', 'name']])).body.stats.mismatchCount).toBe(1);
+  });
+});
+
+describe('P3a 審查帶入 (2)：排序請求併用 col.*，cursor v3 逐頁取完', () => {
+  let runId: string;
+  beforeEach(() => {
+    // 班B：T1→5,`5`；T2→4,`4`；T3→4,`4*額`；T4→空白；T5→3,`3`；T7→空白。班A：T6→9,`9`（被 col.enrollment=班B 排除）
+    runId = setup([
+      snap('T1', 1, '一年級', '班B'), snap('T2', 1, '一年級', '班B'), snap('T3', 1, '一年級', '班B'), snap('T4', 1, '一年級', '班B'),
+      snap('T5', 1, '一年級', '班B'), snap('T6', 1, '一年級', '班A'), snap('T7', 1, '一年級', '班B'),
+    ]);
+    const set = getDatabase().prepare('UPDATE student_calculations SET anqin_days = ?, anqin_display = ? WHERE run_id = ? AND person_code = ?');
+    set.run(5, '5', runId, 'T1'); set.run(4, '4', runId, 'T2'); set.run(4, '4*額', runId, 'T3'); set.run(null, null, runId, 'T4');
+    set.run(3, '3', runId, 'T5'); set.run(9, '9', runId, 'T6'); set.run(null, null, runId, 'T7');
+  });
+  afterEach(teardown);
+
+  it('col.enrollment=班B&sort=-anqinDays&limit=1 逐頁：T1,T3,T2,T5,T4,T7（降冪 `4*額`(T3) 先於 `4`(T2)，personCode 不能反過來決定；空白群內依 personCode）', async () => {
+    const expected = ['T1', 'T3', 'T2', 'T5', 'T4', 'T7'];
+    expect(await pages(runId, [['col.enrollment', '班B'], ['sort', '-anqinDays']], 1)).toEqual(expected.map((c) => [c]));
+    expect(await pages(runId, [['col.enrollment', '班B'], ['sort', '-anqinDays']], 4)).toEqual([expected.slice(0, 4), expected.slice(4)]);
+    const first = await get(runId, [['col.enrollment', '班B'], ['sort', '-anqinDays'], ['limit', '1']]);
+    expect(first.body.stats).toMatchObject({ totalStudents: 6, classScopeTotal: 6 });
+    // 換 col.* 沿用舊 cursor → 400 指名 cursor
+    const other = await get(runId, [['col.enrollment', '班A'], ['sort', '-anqinDays'], ['limit', '1'], ['cursor', first.body.nextCursor]]);
+    expect(other.status).toBe(400);
+    expect(other.body.error).toContain('cursor');
+  });
+});
