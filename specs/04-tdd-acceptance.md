@@ -351,7 +351,9 @@ Playwright 最小完整旅程：
 
 **D64／D65（Issue #219／#220）目標驗收（決策已接受；實作拆分見 [19](19-import-redesign-and-table-sort-plan.md)，P0 docs 僅寫契約，UX121–UX128 實作前皆為目標列，**不等於已完成**）**：UX121–UX124 為 D64 匯入頁重設，UX125–UX128 為 D65 表頭排序；UX47 已由 D64 改寫。 進度：UX127、UX128（B3 學生總表 server 排序與 keyset cursor）已由 PR B3 實作；其餘列仍為目標列。
 
-**D66（Issue #253／#255）目標驗收（決策已接受；實作前皆為目標列，**不等於已完成**）**：所有表頭篩選／排序共用一套規則與實作——篩選依顯示文字、排序依底層值、文字筆畫序、「(空白)」最後；契約見 [03 §5.1「表頭欄位統一篩選與排序」](03-architecture-api.md)、[09 §5.1／§5.2](09-ui-workflow-redesign-spec.md)、[06 D66](06-handoff-decisions.md)。UX131 取代 UX127 (c) 的 `name` 碼點序與 `grade` 子句；UX127 其餘子句不變。
+**D66（Issue #253／#255）驗收（決策已接受；UX129–UX133 已全數交付並合併，Close #253／#255；實作進度見下）**：所有表頭篩選／排序共用一套規則與實作——篩選依顯示文字、排序依底層值、文字筆畫序、「(空白)」最後；契約見 [03 §5.1「表頭欄位統一篩選與排序」](03-architecture-api.md)、[09 §5.1／§5.2](09-ui-workflow-redesign-spec.md)、[06 D66](06-handoff-decisions.md)。UX131 取代 UX127 (c) 的 `name` 碼點序與 `grade` 子句；UX127 其餘子句不變。
+
+**D66 實作進度**（各 UX 由哪個 PR 交付）：UX129 共用欄位模組＝P1 #256（引擎核心、`col.*` 解析、cursor v3）＋P2 #257（學生總表 13 欄欄位定義，儲存格同源）；UX130 `col.*` 篩選與 `columnOptions`＝P3a #259；UX131 排序與 cursor v3＝P3b #261；UX132 學生總表 UI 與網址＝P4 #262（含 #260：所屬班級原始 token 改 tooltip＋明細）；UX133 client 表共用模組＝P5 #258；P6（本批）新增 D66 效能路徑 `col-filter`、`sort-name`、`options-columns`，與原五條合計八條 `test:perf:isolated` 路徑，並收尾文件。
 
 **D63／Issue #208 目標驗收（已接受；PR-1、PR-2、PR-3 已全數交付 UX115–UX120，PR #211、PR #214、PR #215 已合併，Close #208）**：行為契約以 09 §3.1.1 為準。UX106 五類欄位與 UX108 待補流程不變；UX109 的課表新增類型選單改為 UX117，班名同步新增仍依 D62；UX114 的舊工具列間距改為 UX115。各階段標記完成範圍，不把下表視為已通過報告。
 
