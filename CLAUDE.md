@@ -35,11 +35,11 @@
 
 若文件內容或要求出現衝突，依下列優先順序判定：
 
-1. **使用者最新明確決策**：`specs/06-handoff-decisions.md`（D01–D65，特別是 D17、D24、D33 UI 重設方向、D52 雙審查與解耦裁決、D57 #159 PR-2 現行 v4-only runtime、D58 #148 PR-3 bounded class semantics data contract、D59 PR-4 semantic consumers、D60 系統全面減法與單一現況留存、D61 五種課程類型重構、單選統一與 1c 待補時間雙重警示，D62 班名同步：以米豆奶班名為準、逐列人工合併或新增，以及 D63 課表 UI 精簡與輸入一致性（已接受；PR-1 R05–R08、PR-2 R01–R04 與 PR-3 R09–R10 已全數交付並合併（PR #211、PR #214、PR #215，Close #208）；進度見 09 §3.1.1、驗收見 04 UX115–UX120）），以及 D64 匯入頁重設（啟用前不導向班名同步、步驟條、單張確認卡＋異動／名單浮動視窗）與 D65 表頭排序＋共用表頭元件（client 表排序、學生總表 server 排序＋keyset cursor；已接受，實作拆分見 19）。
+1. **使用者最新明確決策**：`specs/06-handoff-decisions.md`（D01–D66，特別是 D17、D24、D33 UI 重設方向、D52 雙審查與解耦裁決、D57 #159 PR-2 現行 v4-only runtime、D58 #148 PR-3 bounded class semantics data contract、D59 PR-4 semantic consumers、D60 系統全面減法與單一現況留存、D61 五種課程類型重構、單選統一與 1c 待補時間雙重警示，D62 班名同步：以米豆奶班名為準、逐列人工合併或新增，以及 D63 課表 UI 精簡與輸入一致性（已接受；PR-1 R05–R08、PR-2 R01–R04 與 PR-3 R09–R10 已全數交付並合併（PR #211、PR #214、PR #215，Close #208）；進度見 09 §3.1.1、驗收見 04 UX115–UX120）），以及 D64 匯入頁重設（啟用前不導向班名同步、步驟條、單張確認卡＋異動／名單浮動視窗）與 D65 表頭排序＋共用表頭元件（client 表排序、學生總表 server 排序＋keyset cursor；已接受，實作拆分見 19），與 D66 表頭篩選與排序統一比照 Excel（一套規則一份實作：篩選依顯示文字、排序依底層值、文字筆畫序、「(空白)」最後；UI 用 `col.*` 參數、Agent 語意參數保留；取代 D65 C1 與 D36 布林篩選；已接受，Issue #253／#255）。
 2. **正式規則與契約規格**：
    - `specs/02-calculation-rules.md`（收費規則 R01–R18、§9A erp-tag-v4 解耦段、D60 規則減法與 D61 2×2 解耦與其他班扣天、欄位契約、結構化班名）
    - `specs/03-architecture-api.md`（單一現況留存模型、不可變快照、資料模型、交易與 11 條 API 契約）
-   - `specs/04-tdd-acceptance.md`（U01–U74、I01–I20、UX01–UX128（含 D63 課表 UI 精簡與輸入一致性、D64／D65 匯入頁重設與表頭排序 UX121–UX128）、原生 Excel 實測錨點）
+   - `specs/04-tdd-acceptance.md`（U01–U74、I01–I20、UX01–UX133（含 D63 課表 UI 精簡與輸入一致性、D64／D65 匯入頁重設與表頭排序 UX121–UX128、D66 表頭篩選排序統一 UX129–UX133）、原生 Excel 實測錨點）
    - `specs/09-ui-workflow-redesign-spec.md`（先課表→匯入→核對 3 頁 UI 流程，及其必要 API／設定生命週期放寬；授權來源為 D33、D60 與 D61，不改 02 計費規則）
 3. **執行計畫**：
    - `specs/07-p1-implementation-plan.md`（T00–T07 依序執行，展示 A/B/C 交付節點）
