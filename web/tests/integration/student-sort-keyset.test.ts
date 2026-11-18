@@ -164,8 +164,12 @@ describe('D65 B3 學生總表 server 排序與 keyset cursor', () => {
   });
 
   it('N1：形狀不符的偽造 cursor 一律 400 指名 cursor（runs 為 v3、preview 仍為 v2；不得 500）', async () => {
+    // 合成安親天數（含顯示文字）使第 1 頁最後一列為非空白儲存格：cursor 帶 v＋t（空白列的 cursor 則帶 n）。
+    const setDays = getDatabase().prepare('UPDATE student_calculations SET anqin_days = ?, anqin_display = ? WHERE run_id = ? AND person_code = ?');
+    [1, 2, 3, 4, 5, 6, 7, 8].forEach((i) => setDays.run(i, String(i), runId, code(i)));
     const real = (await run(runId, [['sort', 'anqinDays'], ['limit', '2']])).body.nextCursor as string;
     const body = JSON.parse(Buffer.from(real, 'base64').toString('utf8'));
+    expect(body).toMatchObject({ version: 3, p: code(2), v: 2, t: '2' });
     const forge = (patch: Record<string, unknown>, drop: string[] = []) => {
       const next: Record<string, unknown> = { ...body, ...patch };
       for (const k of drop) delete next[k];

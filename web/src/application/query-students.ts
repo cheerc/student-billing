@@ -2,13 +2,13 @@ import Database from 'better-sqlite3';
 import { StudentCalculationRecord, getCalculationRun } from '@/adapters/sqlite/runs-repository';
 import { ParsedToken } from '@/domain/students';
 import { createStudentPredicateBuilder } from './student-query-predicates';
-import { normalizeStudentQuery, StudentQueryInputError, queryIdentity, decodeStudentCursor, encodeStudentCursor, type NormalizedStudentQuery } from '@/contracts/student-query';
+import { normalizeStudentQuery, StudentQueryInputError, queryIdentity, decodeStudentCursor, encodeStudentCursor, decodeColumnCursor, encodeColumnCursor, type NormalizedStudentQuery } from '@/contracts/student-query';
 import { resolveSingleClassName, type ColumnFilterKeys, type ColumnSelection } from '@/contracts/column-filter';
-import { matchesColumnSelection } from '@/lib/table-columns/cell';
+import { matchesColumnSelection, type Cell } from '@/lib/table-columns/cell';
+import { compareCells } from '@/lib/table-columns/compare';
 import { STUDENT_COLUMN_SPECS, enrollmentCellsOf, studentColumnSpec, type StudentColumnCtx } from '@/lib/table-columns/student-columns';
 import { noCoursePredicate } from './student-query-sql';
-import { buildSortSql } from './student-sort';
-import { RUN_SORT_COLUMNS } from '@/contracts/student-sort-fields';
+import { RUN_SORT_COLUMNS, RUN_SORT_COLUMN_KEYS } from '@/contracts/student-sort-fields';
 
 export { RUN_SORT_COLUMNS };
 export class QueryStudentError extends Error {
@@ -244,10 +244,16 @@ export function queryRunStudents(db: Database.Database, runId: string, params: R
   if (!run) throw new QueryStudentError(404, `找不到計算 run: ${runId}`);
   if (query.runId && query.runId !== runId) throw new QueryStudentError(400, 'runId 與路徑不符');
   const limit = query.limit;
-  const identity = queryIdentity(`run:${runId}:import:${run.importId}`, query);
-  let after: ReturnType<typeof decodeStudentCursor>;
-  try { after = decodeStudentCursor(query.cursor, identity, query.sort); }
-  catch (error) { throw new QueryStudentError(400, (error as Error).message); }
+  // D66 R8：帶 sort 的請求走 application 層 compareCells＋cursor v3（identity 納入 cursorVersion 3，舊版／錯版 cursor 一律 400 指名 cursor）；
+  // 未帶 sort 維持 personCode UTF-8 位元組序與 v2 無排序 cursor（UX128／UX131 (e) 不變）。
+  const sort = query.sort;
+  const identity = queryIdentity(`run:${runId}:import:${run.importId}`, query, sort ? 3 : undefined);
+  let after: ReturnType<typeof decodeStudentCursor> = null;
+  let afterSorted: ReturnType<typeof decodeColumnCursor> = null;
+  try {
+    if (sort) afterSorted = decodeColumnCursor(query.cursor, identity, true);
+    else after = decodeStudentCursor(query.cursor, identity);
+  } catch (error) { throw new QueryStudentError(400, (error as Error).message); }
   const selected = query.selections;
 
   // 第一段：SQL 前篩（語意參數＋q／subject）。
@@ -256,14 +262,17 @@ export function queryRunStudents(db: Database.Database, runId: string, params: R
   const columnEntries = Object.entries(query.columns);
   const columnCtx = buildStudentColumnCtx(query, run.classCategories);
 
-  // 第二段：application 層 `col.*`（與儲存格同一份 cells()）；沒有 col.* 時最終集合＝前篩集合（finalCodes 為 null）。
+  // 第二段：application 層 `col.*`（與儲存格同一份 cells()）與排序；沒有 col.* 時最終集合＝前篩集合（finalCodes 為 null）。
+  // 帶 col.* 或 sort 才需要完整 item；`candidates` 即最終集合的 item（已含 col.* 篩選），排序與 keyset 直接用它。
   let finalCodes: string[] | null = null;
-  if (columnEntries.length) {
+  let candidates: StudentCalculationItem[] = [];
+  if (columnEntries.length || sort) {
     const prefiltered = db.prepare(`${ITEM_ROW_SQL} WHERE ${where.sql}`).all(run.importId, ...where.args) as any[];
-    finalCodes = [];
     for (const r of prefiltered) {
-      if (studentPassesColumns(toStudentItem(r, tokensOf(grouped, r.person_code), 'list'), query.columns, columnCtx)) finalCodes.push(r.person_code);
+      const item = toStudentItem(r, tokensOf(grouped, r.person_code), 'list');
+      if (!columnEntries.length || studentPassesColumns(item, query.columns, columnCtx)) candidates.push(item);
     }
+    if (columnEntries.length) finalCodes = candidates.map((item) => item.personCode);
   }
   const final = finalCodes ? inCodes(finalCodes) : { sql: '1', args: [] as string[] };
   const scopeSql = `${where.sql} AND ${final.sql}`;
@@ -289,12 +298,13 @@ export function queryRunStudents(db: Database.Database, runId: string, params: R
     classScopeTotal = (db.prepare(`SELECT COUNT(*) AS total FROM student_calculations sc WHERE sc.run_id = ? AND ${classes.sql}`).get(runId, ...classes.args) as { total: number }).total;
   }
 
-  // 分頁。P3a 不改排序語意（P-8）：
+  // 分頁：
   // - 未帶 sort：JS 依 personCode 的 UTF-8 位元組序（Buffer.compare；＝SQLite BINARY `person_code ASC`）排序並以 v2 無排序 cursor 分頁。
-  // - 帶 sort：沿用 D65 SQL ORDER BY＋v2 keyset，WHERE 另加 person_code IN (最終集合)。
-  let itemRows: any[];
+  // - 帶 sort（D66 R3／R8）：對最終集合的每列取排序欄的 Cell `{ value, text }`（與儲存格同一份 cells()），
+  //   依完整比較鍵 `(value, text, personCode)` 排序與 keyset：降冪反轉 value 與 text、空白恆最後、personCode 恆升冪（UTF-8 位元組序）。
+  let items: StudentCalculationItem[];
   let nextCursor: string | null = null;
-  if (!query.sort) {
+  if (!sort) {
     const codes = finalCodes ?? (db.prepare(`SELECT sc.person_code FROM student_calculations sc WHERE ${scopeSql}`).all(...scopeArgs) as Array<{ person_code: string }>).map((r) => r.person_code);
     const keyed = codes.map((code) => ({ code, bytes: utf8(code) })).sort((a, b) => Buffer.compare(a.bytes, b.bytes));
     const afterBytes = after ? utf8(after.personCode) : null;
@@ -303,22 +313,23 @@ export function queryRunStudents(db: Database.Database, runId: string, params: R
     const byCode = new Map((db.prepare(`${ITEM_ROW_SQL} WHERE sc.run_id = ? AND ${inCodes(page).sql}`).all(run.importId, runId, ...inCodes(page).args) as any[]).map((r) => [r.person_code as string, r]));
     const rows = page.map((code) => byCode.get(code)!);
     const hasNext = rows.length > limit;
-    itemRows = hasNext ? rows.slice(0, limit) : rows;
+    const itemRows = hasNext ? rows.slice(0, limit) : rows;
     nextCursor = hasNext && itemRows.length ? encodeStudentCursor(identity, { personCode: itemRows[itemRows.length - 1].person_code, sortValue: undefined }) : null;
+    items = itemRows.map((r) => toStudentItem(r, tokensOf(grouped, r.person_code), 'list'));
   } else {
-    const pagedWhere = [scopeSql];
-    const pagedArgs = [...scopeArgs];
-    const sortSql = buildSortSql(query.sort, RUN_SORT_COLUMNS, 'sc');
-    const keyset = sortSql.keyset(after);
-    if (keyset) { pagedWhere.push(keyset.sql); pagedArgs.push(...keyset.args); }
-    pagedArgs.push(limit + 1);
-    const rows = db.prepare(`${ITEM_ROW_SQL} WHERE ${pagedWhere.join(' AND ')} ORDER BY ${sortSql.orderBy} LIMIT ?`).all(run.importId, ...pagedArgs) as any[];
-    const hasNext = rows.length > limit;
-    itemRows = hasNext ? rows.slice(0, limit) : rows;
-    nextCursor = hasNext && itemRows.length ? encodeStudentCursor(identity, { personCode: itemRows[itemRows.length - 1].person_code, sortValue: sortSql.valueOf(itemRows[itemRows.length - 1]) }) : null;
+    const spec = studentColumnSpec(RUN_SORT_COLUMN_KEYS[sort.field])!;
+    const keyed = candidates.map((item) => ({ item, cell: (spec.cells(item, columnCtx).find((c) => c !== null) ?? null) as Cell, bytes: utf8(item.personCode) }));
+    const order = (a: { cell: Cell; bytes: Buffer }, b: { cell: Cell; bytes: Buffer }) => compareCells(a.cell, b.cell, sort.dir) || Buffer.compare(a.bytes, b.bytes);
+    keyed.sort(order);
+    const anchor = afterSorted ? { cell: afterSorted.cell ?? null, bytes: utf8(afterSorted.personCode) } : null;
+    const rest = anchor ? keyed.filter((k) => order(k, anchor) > 0) : keyed;
+    const page = rest.slice(0, limit + 1);
+    const hasNext = page.length > limit;
+    const shown = hasNext ? page.slice(0, limit) : page;
+    items = shown.map((k) => k.item);
+    const last = shown[shown.length - 1];
+    nextCursor = hasNext && last ? encodeColumnCursor(identity, { personCode: last.item.personCode, cell: last.cell }) : null;
   }
-
-  const items = itemRows.map((r) => toStudentItem(r, tokensOf(grouped, r.person_code), 'list'));
 
   return {
     runId,

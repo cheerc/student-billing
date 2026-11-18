@@ -152,12 +152,16 @@ export function normalizeStudentQuery(input: StudentQueryInput, allowed: Readonl
   return result;
 }
 
-export function queryIdentity(scope: string, query: NormalizedStudentQuery): string {
+/**
+ * `cursorVersion`：只有 D66 cursor v3 的端點（學生總表、帶 `sort`）傳入；納入 identity 使舊版 cursor 因 identity 不符回 400。
+ * 未傳（匯入預覽 `roster-query`、未排序請求）時 identity 與先前逐位元相同。
+ */
+export function queryIdentity(scope: string, query: NormalizedStudentQuery, cursorVersion?: number): string {
   const filters = Object.fromEntries(Object.entries(query.selections).sort(([a], [b]) => a.localeCompare(b)));
   // col.* 只在有條件時才進 identity：未帶 col.* 的請求 identity 與 D66 之前逐位元相同。
   const columns = Object.entries(query.columns ?? {}).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
     .map(([key, c]) => [key, { texts: [...c.texts].sort(), blank: c.blank, none: c.none }]);
-  const extra = columns.length ? { columns } : {};
+  const extra = { ...(columns.length ? { columns } : {}), ...(cursorVersion ? { cursorVersion } : {}) };
   return createHash('sha256').update(JSON.stringify({ scope, filters, ...extra, q: query.q || '', subject: query.subject || '', careType: query.careType || '', sort: query.sort ? `${query.sort.dir}:${query.sort.field}` : '' })).digest('hex');
 }
 
