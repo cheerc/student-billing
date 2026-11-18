@@ -121,19 +121,22 @@ function EnrollmentCell({
 /**
  * 所屬班級原始 token 的滑鼠 tooltip（D66 Q2-b）。整張表只掛一個：文件層級監聽 hover，
  * 讀 `[data-raw-token]`，以 position:fixed 呈現（不被 .table-scroll 裁切、不佔表格版面）；
- * pointer-events:none 不攔截點擊；Esc／離開／捲動即關；不增加任何 tab stop。
+ * pointer-events:none 不攔截點擊；Esc／離開／捲動／錨點被移出 DOM 即關；不增加任何 tab stop。
  * 只放補充資訊——鍵盤與螢幕閱讀器的對等路徑是明細抽屜「原始資料」（09 §6）。
  */
 function EnrollTokenTooltip() {
-  const [tip, setTip] = useState<{ text: string; left: number; top: number } | null>(null);
+  const [tip, setTip] = useState<{ text: string; left: number; top: number; anchor: Element } | null>(null);
   useEffect(() => {
     const holder = (e: Event): Element | null => (e.target instanceof Element ? e.target.closest('[data-raw-token]') : null);
     const over = (e: MouseEvent) => {
       const el = holder(e);
       const text = el?.getAttribute('data-raw-token');
-      if (!el || !text) return;
+      if (!el || !text) {
+        setTip(null); // 指標在別處＝不殘留
+        return;
+      }
       const r = el.getBoundingClientRect();
-      setTip({ text, left: r.left, top: r.bottom + 4 });
+      setTip({ text, left: r.left, top: r.bottom + 4, anchor: el });
     };
     const out = (e: MouseEvent) => {
       const el = holder(e);
@@ -153,6 +156,16 @@ function EnrollTokenTooltip() {
       document.removeEventListener('scroll', close, true);
     };
   }, []);
+  // 篩選／排序重繪會把錨點整列移除，被移除的元素不會再發 mouseout：錨點離開 DOM 就關閉
+  const anchor = tip?.anchor;
+  useEffect(() => {
+    if (!anchor) return;
+    const obs = new MutationObserver(() => {
+      if (!anchor.isConnected) setTip(null);
+    });
+    obs.observe(document.body, { childList: true, subtree: true });
+    return () => obs.disconnect();
+  }, [anchor]);
   if (!tip) return null;
   return (
     <span role="tooltip" className="enroll-tip" style={{ position: 'fixed', left: tip.left, top: tip.top, pointerEvents: 'none' }}>
