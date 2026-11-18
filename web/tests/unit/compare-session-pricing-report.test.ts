@@ -930,6 +930,17 @@ describe('按堂計價帳務比對工具：報表解析契約', () => {
       expect(notBilledNames(records).sort()).toEqual(['另科未開單生', '美語未開單生'].sort());
     });
 
+    it('另一科目的學費列分類（v4 快照）：care → UNKNOWN_CLASS；none／unset → WEB_RATE_NOT_CONFIGURED', () => {
+      const expected: Record<string, string> = { care: 'UNKNOWN_CLASS', none: 'WEB_RATE_NOT_CONFIGURED', unset: 'WEB_RATE_NOT_CONFIGURED' };
+      for (const [category, statusCategory] of Object.entries(expected)) {
+        const records = runMixed([
+          { base_name: ENGLISH_BASE, category: 'english' },
+          { base_name: CARE_BASE, category },
+        ]);
+        expect(records.find((r) => r.name === '另科開單生')?.statusCategory, category).toBe(statusCategory);
+      }
+    });
+
     it('學雜費常模不受類別限縮：care 班同班多數收書籍費，未收者仍標書籍費偏離常模', () => {
       const context = buildRunSnapshotContext({
         ruleSetVersion: 'erp-tag-v4',
