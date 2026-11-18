@@ -2,11 +2,10 @@
 
 import React, { useState } from 'react';
 import { StudentCalculationItem } from '@/application/query-students';
-import { formatDiscountBps } from '@/application/roster-changes';
-import { applicableRateForClass, type RunClassCategorySnapshot } from '@/application/applicable-rate';
-import { parseTagDiscounts } from '@/domain/billing/discount-rules';
+import type { RunClassCategorySnapshot } from '@/application/applicable-rate';
 import { InfoTip } from './ui/info-tip';
-import { issueLabel } from '@/lib/issue-copy';
+import { BLANK_CELL_TEXT, nonBlankCells, type TextCell } from '@/lib/table-columns/cell';
+import { baseDiscountCell, studentColumnSpec, type StudentColumnCtx } from '@/lib/table-columns/student-columns';
 import { columnLabels, type ColumnDef } from './tables/column-def';
 import TableHeaderCell, { type HeaderSortState } from './tables/table-header-cell';
 
@@ -59,43 +58,9 @@ export type StudentColumnKey =
   | 'internal'
   | 'review';
 
-/** 合計折扣＝基本率收取率短標（與異動判準共用同一格式化，短標一致）。 */
+/** 合計折扣＝基本率收取率短標（與異動判準共用同一格式化，短標一致）；委派欄位定義模組的同一份 cell。 */
 export function formatBaseDiscount(bps: number | null): string {
-  return formatDiscountBps(bps);
-}
-
-/** 數值欄：null＝非適用／無法判定，顯示「—」而非 0（UX14 型別不混）。 */
-function num(v: number | null | undefined): string {
-  if (v === null || v === undefined) return '—';
-  return String(v);
-}
-
-/** 額外扣天：hasExtraFlag 為「*額」標記來源（0 天與「無額外」不同）。 */
-function extraDays(stu: StudentCalculationItem): string {
-  const care = stu.trace as { careDays?: { anqin?: { hasExtraFlag?: boolean }; tutoring?: { hasExtraFlag?: boolean } } } | undefined;
-  const hasExtra = Boolean(care?.careDays?.anqin?.hasExtraFlag || care?.careDays?.tutoring?.hasExtraFlag);
-  const total =
-    (stu.anqinDays ?? 0) + (stu.tutoringDays ?? 0);
-  return hasExtra ? `${total}*` : num(stu.anqinDays === null && stu.tutoringDays === null ? null : total);
-}
-
-/**
- * 恰選一班時的本班適用折扣：未配置＝「未設定」（不是 100%）；已配置但無法判定＝「—」。
- *
- * D2b 3（N-8）：v3 run 以 server 傳下的類別快照判斷，查詢 key 必須是**名冊班名**
- * （快照的 base_name 存的就是名冊班名；`singleClass` 亦來自名冊報名 key，兩者同源）。
- * 缺 Run 或缺該班快照時不猜，一律顯示「未設定」。
- */
-function localRate(
-  stu: StudentCalculationItem,
-  className: string,
-  snapshots: RunClassCategorySnapshot[] | undefined
-): string {
-  const r = applicableRateForClass(className, stu, {
-    findSnapshot: (name) => snapshots?.find((x) => x.base_name === name),
-  });
-  if (r.status === 'not_configured') return '未設定';
-  return r.bps === null ? '—' : formatDiscountBps(r.bps);
+  return baseDiscountCell(bps).text;
 }
 
 interface SummaryTableProps {
@@ -116,12 +81,24 @@ interface SummaryTableProps {
 
 /**
  * 班名最多兩行，其餘收成同一行尾端的「另 N 班」，可點擊展開全部（O01）。
- * 每個班名固定一行（過長以省略號截斷，完整原文在明細「原始資料」），避免一列被折成好幾行而擠掉可見列數。
+ * 每個班名固定一行（過長以省略號截斷），主文字＝欄位定義的 baseName（空 baseName＝「班名無法解析」），
+ * 原始 token（年度前綴、`[N]` 等修飾）放在 `title` 與明細「原始資料」（D66 Q2-b）。
+ * `cells` 與 `stu.enrollments` 逐項同序（enrollment 欄位定義每個報名一項）。
  */
-function EnrollmentCell({ stu, expanded, onToggle }: { stu: StudentCalculationItem; expanded: boolean; onToggle: () => void }) {
-  if (stu.enrollments.length === 0) return <>—</>;
-  const shown = expanded ? stu.enrollments : stu.enrollments.slice(0, 2);
-  const extra = stu.enrollments.length - 2;
+function EnrollmentCell({
+  stu,
+  cells,
+  expanded,
+  onToggle,
+}: {
+  stu: StudentCalculationItem;
+  cells: TextCell[];
+  expanded: boolean;
+  onToggle: () => void;
+}) {
+  if (cells.length === 0) return <>{BLANK_CELL_TEXT}</>;
+  const shown = expanded ? cells : cells.slice(0, 2);
+  const extra = cells.length - 2;
   const more = (label: string) => (
     <button type="button" className="enroll-more" aria-expanded={expanded} onClick={(ev) => { ev.stopPropagation(); onToggle(); }}>
       {label}
@@ -129,9 +106,9 @@ function EnrollmentCell({ stu, expanded, onToggle }: { stu: StudentCalculationIt
   );
   return (
     <div className="enroll-cell">
-      {shown.map((e, i) => (
+      {shown.map((c, i) => (
         <span key={i} className="enroll-line">
-          <span className="enroll-name">{e.rawToken}</span>
+          <span className="enroll-name" title={stu.enrollments[i]?.rawToken}>{c.text}</span>
           {!expanded && extra > 0 && i === shown.length - 1 ? more(`另 ${extra} 班`) : null}
         </span>
       ))}
@@ -232,7 +209,15 @@ export default function SummaryTable({
           <tbody>
             {emptyState}
             {students.map((stu) => {
-              const tags = parseTagDiscounts((stu.trace as { rawTags?: string } | undefined)?.rawTags ?? '');
+              // 每格文字都取自欄位定義（03 R6）：渲染、篩選、排序同一份 cells()
+              const ctx: StudentColumnCtx = { singleClass, snapshots: classCategorySnapshots };
+              const cells = (key: string): TextCell[] => nonBlankCells(studentColumnSpec(key)?.cells(stu, ctx) ?? []);
+              const text = (key: string): string => cells(key).map((c) => c.text).join(' ') || BLANK_CELL_TEXT;
+              const flag = (key: string, cls: string) => {
+                const c = cells(key)[0];
+                return c ? <span className={cls}>{c.text}</span> : <span className="subtle">{BLANK_CELL_TEXT}</span>;
+              };
+              const review = cells('review');
               return (
                 <tr
                   key={stu.personCode}
@@ -250,13 +235,14 @@ export default function SummaryTable({
                       }}
                       aria-label={`查看 ${stu.name} 的明細`}
                     >
-                      {stu.name}
+                      {text('name')}
                     </button>
                   </td>
-                  <td>{stu.grade ? `${stu.grade}年級` : stu.gradeRaw || '—'}</td>
+                  <td>{text('grade')}</td>
                   <td style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
                     <EnrollmentCell
                       stu={stu}
+                      cells={cells('enrollment')}
                       expanded={expandedRows.has(stu.personCode)}
                       onToggle={() =>
                         setExpandedRows((prev) => {
@@ -268,45 +254,23 @@ export default function SummaryTable({
                       }
                     />
                   </td>
-                  <td className="cblue number">{stu.anqinDisplay || '—'}</td>
-                  <td className="cblue number">{stu.tutoringDisplay || '—'}</td>
-                  <td className="number">{extraDays(stu)}</td>
-                  <td className="number">{formatBaseDiscount(stu.baseDiscountBps)}</td>
-                  {singleClass !== null && (
-                    <td className="number">{localRate(stu, singleClass, classCategorySnapshots ?? undefined)}</td>
-                  )}
-                  <td className="number">{num(stu.subjectCount)}</td>
+                  <td className="cblue number">{text('anqinDays')}</td>
+                  <td className="cblue number">{text('tutoringDays')}</td>
+                  <td className="number">{text('extraDeduction')}</td>
+                  <td className="number">{text('baseDiscount')}</td>
+                  {singleClass !== null && <td className="number">{text('applicableDiscount')}</td>}
+                  <td className="number">{text('subjectCount')}</td>
+                  <td>{flag('sibling', 'badge badge-ok')}</td>
+                  <td>{flag('specialDiscount', 'number')}</td>
+                  <td>{flag('internalStudent', 'badge badge-ok')}</td>
                   <td>
-                    {tags.sibling ? (
-                      <span className="badge badge-ok">有</span>
+                    {review.length > 0 ? (
+                      review.map((c) => (
+                        <span key={c.text} className="badge badge-warn">{c.text}</span>
+                      ))
                     ) : (
-                      <span className="subtle">—</span>
+                      <span className="subtle">{BLANK_CELL_TEXT}</span>
                     )}
-                  </td>
-                  <td>
-                    {tags.specialDiscount !== null ? (
-                      <span className="number">{formatDiscountBps(Math.round(tags.specialDiscount * 10000))}</span>
-                    ) : (
-                      <span className="subtle">—</span>
-                    )}
-                  </td>
-                  <td>
-                    {tags.internalStudent ? (
-                      <span className="badge badge-ok">是</span>
-                    ) : (
-                      <span className="subtle">—</span>
-                    )}
-                  </td>
-                  <td>
-                    {stu.tierMismatch && (
-                      <span className="badge badge-warn">天數不同</span>
-                    )}
-                    {stu.actionableHasIssues && (
-                      <span className="badge badge-warn">
-                        {stu.actionableIssues.length > 0 ? issueLabel(stu.actionableIssues[0].code) : '待核對'}
-                      </span>
-                    )}
-                    {!stu.tierMismatch && !stu.actionableHasIssues && <span className="subtle">—</span>}
                   </td>
                 </tr>
               );
