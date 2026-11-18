@@ -5,6 +5,11 @@ export const PERF_PATHS: Array<{ name: string; pairs: Array<[string, string]> }>
   { name: 'class-mismatch', pairs: [['enrollmentKey', '國小輔導-一A'], ['tierMismatch', 'true']] },
   // D65 B3：server 排序路徑（ORDER BY＋keyset 首頁）
   { name: 'sort-anqin-desc', pairs: [['sort', '-anqinDays'], ['limit', '50']] },
+  // D66 P6：表頭欄位統一篩選／排序路徑。值皆取自 perf fixture 的顯示文字：年級 `1年級`；
+  // 安親天數僅有 `4.5` 與空白（fixture 的 [5]／[3_5] 計算結果皆為 4.5），故用 `4.5` 而非 `4`。
+  { name: 'col-filter', pairs: [['col.grade', '1年級'], ['col.anqinDays', '4.5']] },
+  { name: 'sort-name', pairs: [['sort', 'name'], ['limit', '50']] },
+  { name: 'options-columns', pairs: [['options', 'true']] },
 ];
 
 export function summarizeTimings(samples: number[]): { medianMs: number; p95Ms: number } {
