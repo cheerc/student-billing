@@ -423,10 +423,10 @@ describe('D66 P2：學生總表欄位定義（03 §5.1 R6）', () => {
       });
       expect(tdTexts(html, stu.personCode)).toEqual(expected);
     }
-    // 手算錨點（防止 spec 與渲染一起錯）：列 A 全 13 格
+    // 手算錨點（防止 spec 與渲染一起錯）：每列 13 格；本班適用折扣＝該班（math）取學生層 applicableMathBps（fixture 預設 9500）
     expect(tdTexts(html, 'A1')).toEqual(['王小明', '3年級', '國小數學-三A 班名無法解析', '—', '5', '5', '95折', '9折', '2', '有', '85折', '是', '天數不同 班名未對應課表 排課空時段']);
-    expect(tdTexts(html, 'B1')).toEqual(['李小華', '小班', '—', '4*額', '—', '4*', '未設定', '—', '—', '—', '—', '—', '待核對']);
-    expect(tdTexts(html, 'C1')).toEqual(['陳小美', '—', '—', '—', '—', '—', '無折扣', '—', '—', '—', '—', '—', '—']);
+    expect(tdTexts(html, 'B1')).toEqual(['李小華', '小班', '—', '4*額', '—', '4*', '未設定', '95折', '—', '—', '—', '—', '待核對']);
+    expect(tdTexts(html, 'C1')).toEqual(['陳小美', '—', '—', '—', '—', '—', '無折扣', '95折', '—', '—', '—', '—', '—']);
   });
 
   it('所屬班級：每行主文字為 baseName，原始 token 放在 title（Q2-b）；空 baseName 顯示「班名無法解析」', () => {
