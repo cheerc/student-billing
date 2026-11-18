@@ -175,3 +175,20 @@ export function decodeStudentCursor(cursor: string | undefined, identity: string
     invalid('cursor', '無效或與本次名冊／條件不符，請從第一頁重查');
   }
 }
+
+/**
+ * D66 cursor v3（03 §5.1 R8）：keyset 鍵 `(value, text, personCode)`。
+ * `cell`：undefined＝未排序（只有 `p`）；null＝空白列（`n: true`）；其餘帶 `v`（數值或字串）與 `t`（顯示文字）。
+ */
+export interface ColumnCursorPosition { personCode: string; cell?: { value: number | string; text: string } | null }
+
+export function encodeColumnCursor(identity: string, after: ColumnCursorPosition): string {
+  void identity; void after;
+  return '';
+}
+
+/** `sorted`：本次請求是否帶 sort；形狀必須相符，否則 400 並指名 `cursor`。 */
+export function decodeColumnCursor(cursor: string | undefined, identity: string, sorted = true): ColumnCursorPosition | null {
+  void cursor; void identity; void sorted;
+  return null;
+}
