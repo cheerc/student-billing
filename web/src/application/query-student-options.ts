@@ -3,7 +3,9 @@ import { getCalculationRun } from '@/adapters/sqlite/runs-repository';
 import { parseTagDiscounts } from '@/domain/billing/discount-rules';
 import { normalizeStudentQuery, type QueryValue } from '@/contracts/student-query';
 import { createStudentPredicateBuilder } from './student-query-predicates';
-import { ALLOWED_RUN_QUERY_PARAMS, validateRunQueryParams, QueryStudentError } from './query-students';
+import { ALLOWED_RUN_QUERY_PARAMS, RUN_COLUMN_FILTER_KEYS, validateRunQueryParams, QueryStudentError, loadRunStudentItems, buildStudentColumnCtx, studentPassesColumns } from './query-students';
+import { buildColumnOptions, type ColumnOption } from '@/lib/table-columns/options';
+import { STUDENT_COLUMN_SPECS } from '@/lib/table-columns/student-columns';
 
 export interface StudentFilterOption { value: string; count: number; labelKey?: 'unparsedClassLabel' }
 /** URL／內部篩選條件（wire 值的 partial record）；與 RunStudentQueryParams 同形但非查詢專用。 */
@@ -14,6 +16,8 @@ export interface RunStudentOptions {
   totalStudents: number;
   noCourseTotal: number;
   options: Record<string, StudentFilterOption[]>;
+  /** D66：依 `col.<columnKey>` 顯示文字分組的選項（03 §5.1 R7）；只含可篩選欄，`applicableDiscount` 僅在恰選一班時存在。 */
+  columnOptions: Record<string, ColumnOption[]>;
   applicableRateContext: { classKey: string | null; status: 'configured' | 'not_configured' | 'requires_class' };
 }
 
@@ -27,7 +31,7 @@ function wireValue(value: string | number | boolean | null): string {
 /** 指定 run 的值宇宙；每欄 count 套其他已套用條件（排除自身），不受列表 limit/cursor 影響。 */
 export function queryStudentOptions(db: Database.Database, runId: string, params: StudentFilterParams): RunStudentOptions {
   validateRunQueryParams(params);
-  const query = normalizeStudentQuery(params, ALLOWED_RUN_QUERY_PARAMS);
+  const query = normalizeStudentQuery(params, ALLOWED_RUN_QUERY_PARAMS, undefined, RUN_COLUMN_FILTER_KEYS);
   const run = getCalculationRun(db, runId);
   if (!run) throw new QueryStudentError(404, `找不到計算 run: ${runId}`);
   if (query.runId && query.runId !== runId) throw new QueryStudentError(400, 'runId 與路徑不符');
@@ -40,6 +44,14 @@ export function queryStudentOptions(db: Database.Database, runId: string, params
     const { where } = base(query, key);
     return new Set((db.prepare(`SELECT sc.person_code FROM student_calculations sc WHERE ${where.sql}`).all(...where.args) as Array<{ person_code: string }>).map((row) => row.person_code));
   };
+  // D66：全 run 的 item（值宇宙）與通過全部 col.* 的人；未帶 col.* 時不限縮，legacy options 逐位元不變。
+  const items = loadRunStudentItems(db, runId, run.importId);
+  const columnCtx = buildStudentColumnCtx(query, run.classCategories);
+  const hasColumns = Object.keys(query.columns).length > 0;
+  const columnPass: Set<string> | null = hasColumns
+    ? new Set(items.filter((item) => studentPassesColumns(item, query.columns, columnCtx)).map((item) => item.personCode))
+    : null;
+  const columnScoped = (codes: ReadonlySet<string>): ReadonlySet<string> => (columnPass ? new Set([...codes].filter((c) => columnPass.has(c))) : codes);
   const enrollments = db.prepare('SELECT person_code, base_name FROM student_enrollments WHERE import_id = ?').all(run.importId) as Array<{ person_code: string; base_name: string }>;
   const classNames = new Map<string, Set<string>>();
   for (const enrollment of enrollments) {
@@ -135,7 +147,7 @@ export function queryStudentOptions(db: Database.Database, runId: string, params
   // （既有 GET 400 契約不變；點不動的值不該顯示人數，-81）。
   const legal = (key: string, raw: QueryValue): boolean => {
     try {
-      normalizeStudentQuery({ ...params, [key]: [wireValue(raw)] }, ALLOWED_RUN_QUERY_PARAMS);
+      normalizeStudentQuery({ ...params, [key]: [wireValue(raw)] }, ALLOWED_RUN_QUERY_PARAMS, undefined, RUN_COLUMN_FILTER_KEYS);
       return true;
     } catch {
       return false;
@@ -145,7 +157,7 @@ export function queryStudentOptions(db: Database.Database, runId: string, params
     // 一般欄每欄一次GROUP BY，不對每個候選值重掃run；仍由同源predicate定義其他欄範圍。
     // 班級候選會改變tierMismatch／applicable的取值context，這兩種情況須逐候選重建predicate。
     const contextual = key === 'tierMismatch' || (key === 'enrollmentKey' && Boolean(query.selections.tierMismatch || query.selections.applicableDiscountBps));
-    const scoped = scopeOf(key);
+    const scoped = columnScoped(scopeOf(key));
     const pairs = facetRows.get(key)!.filter(([code, wire]) => scoped.has(code) && legal(key, group.get(wire)!));
     let counts = new Map<string, number>();
     if (!contextual) {
@@ -158,10 +170,25 @@ export function queryStudentOptions(db: Database.Database, runId: string, params
       let count = counts.get(value) ?? 0;
       if (contextual && legal(key, raw)) {
         const { where } = base(query, key, { values: [raw], none: false });
-        count = (db.prepare(`SELECT COUNT(DISTINCT sc.person_code) AS total FROM student_calculations sc WHERE ${where.sql}`).get(...where.args) as { total: number }).total;
+        const narrowed = columnPass ? { sql: ' AND sc.person_code IN (SELECT value FROM json_each(?))', args: [JSON.stringify([...columnPass])] } : { sql: '', args: [] };
+        count = (db.prepare(`SELECT COUNT(DISTINCT sc.person_code) AS total FROM student_calculations sc WHERE ${where.sql}${narrowed.sql}`).get(...where.args, ...narrowed.args) as { total: number }).total;
       }
       return key === 'enrollmentKey' && value === '~empty' ? { value, count, labelKey: 'unparsedClassLabel' as const } : { value, count };
     })];
   }));
-  return { runId, importId: run.importId, totalStudents: rows.length, noCourseTotal, options, applicableRateContext: context };
+  // columnOptions：值宇宙＝全 run 的顯示文字；每欄 count 的範圍＝語意前篩（含 q／subject）∩ 其他 col.*（排除本欄），0 人值仍回傳（D46）。
+  const semanticScope = new Set((() => {
+    const { where } = base(query);
+    return (db.prepare(`SELECT sc.person_code FROM student_calculations sc WHERE ${where.sql}`).all(...where.args) as Array<{ person_code: string }>).map((row) => row.person_code);
+  })());
+  const columnOptions: Record<string, ColumnOption[]> = {};
+  for (const spec of STUDENT_COLUMN_SPECS) {
+    if (!spec.filterable) continue;
+    if (spec.key === 'applicableDiscount' && columnCtx.singleClass === null) continue;
+    const inScope = (item: (typeof items)[number]) => semanticScope.has(item.personCode) && studentPassesColumns(item, query.columns, columnCtx, spec.key);
+    const counts = new Map(buildColumnOptions(items, spec, columnCtx, inScope, (item) => item.personCode).map((o) => [o.value, o.count]));
+    columnOptions[spec.key] = buildColumnOptions(items, spec, columnCtx, undefined, (item) => item.personCode)
+      .map((o) => ({ value: o.value, count: counts.get(o.value) ?? 0 }));
+  }
+  return { runId, importId: run.importId, totalStudents: rows.length, noCourseTotal, options, columnOptions, applicableRateContext: context };
 }

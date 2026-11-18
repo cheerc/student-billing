@@ -2,6 +2,7 @@ import type Database from 'better-sqlite3';
 import type { NormalizedStudentQuery, QuerySelection } from '@/contracts/student-query';
 import { parseTagDiscounts } from '@/domain/billing/discount-rules';
 import { getCalculationRun } from '@/adapters/sqlite/runs-repository';
+import { UNPARSEABLE_CLASS_TEXT } from '@/contracts/column-filter';
 import { selectionPredicate, classPredicate, branchPredicate, escapeLike, type QueryPredicate } from './student-query-sql';
 
 /** 有任何問題，或任一級距比對需人工確認（needsReview）。與畫面的「有問題」判斷同一定義。 */
@@ -48,9 +49,18 @@ export function createStudentPredicateBuilder(db: Database.Database, runId: stri
     const classValues = selected.enrollmentKey && !selected.enrollmentKey.none
       ? selected.enrollmentKey.values.filter((v): v is string => typeof v === 'string') : [];
     const classScopeSql = classValues.length ? `json_extract(j.value, '$.baseName') IN (${classValues.map(() => '?').join(',')}) AND ` : '';
-    const mismatch: QueryPredicate = {
+    // 語意 tierMismatch 篩選的班級範圍只看語意 enrollmentKey（Agent 契約逐位元不變）。
+    const filterMismatch: QueryPredicate = {
       sql: `EXISTS (SELECT 1 FROM json_each(sc.tier_comparisons) j WHERE ${classScopeSql}json_extract(j.value, '$.status') = 'mismatch')`,
       args: classValues,
+    };
+    // stats.mismatchCount 的班級範圍＝語意 enrollmentKey ∪ col.enrollment 對應的 baseName（D66 P-6）；`~blank` 不納入。
+    const columnClassValues = query.columns?.enrollment && !query.columns.enrollment.none
+      ? [...query.columns.enrollment.texts].map((t) => (t === UNPARSEABLE_CLASS_TEXT ? '' : t)) : [];
+    const statsClassValues = [...new Set([...classValues, ...columnClassValues])];
+    const mismatch: QueryPredicate = statsClassValues.length === classValues.length ? filterMismatch : {
+      sql: `EXISTS (SELECT 1 FROM json_each(sc.tier_comparisons) j WHERE json_extract(j.value, '$.baseName') IN (${statsClassValues.map(() => '?').join(',')}) AND json_extract(j.value, '$.status') = 'mismatch')`,
+      args: statsClassValues,
     };
     if (selected.tierMismatch) {
       if (selected.tierMismatch.none) add({ sql: '0', args: [] });
@@ -58,7 +68,7 @@ export function createStudentPredicateBuilder(db: Database.Database, runId: stri
         const terms: string[] = [];
         const termArgs: Array<string | number> = [];
         for (const value of selected.tierMismatch.values) {
-          if (value === true) { terms.push(mismatch.sql); termArgs.push(...mismatch.args); }
+          if (value === true) { terms.push(filterMismatch.sql); termArgs.push(...filterMismatch.args); }
           else if (value === false) {
             terms.push(`(EXISTS (SELECT 1 FROM json_each(sc.tier_comparisons) j WHERE ${classScopeSql}json_extract(j.value, '$.status') = 'match') ` +
               `AND NOT EXISTS (SELECT 1 FROM json_each(sc.tier_comparisons) j WHERE ${classScopeSql}json_extract(j.value, '$.status') IN ('mismatch', 'unavailable')))`);

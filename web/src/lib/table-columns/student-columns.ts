@@ -11,7 +11,10 @@ import { formatDiscountBps } from '@/application/roster-changes';
 import { applicableRateForClass, type RunClassCategorySnapshot } from '@/application/applicable-rate';
 import { parseTagDiscounts } from '@/domain/billing/discount-rules';
 import { issueLabel } from '@/lib/issue-copy';
+import { UNPARSEABLE_CLASS_TEXT } from '@/contracts/column-filter';
 import { cell, type Cell, type ColumnSpec, type TextCell } from './cell';
+
+export { UNPARSEABLE_CLASS_TEXT };
 
 export interface StudentColumnCtx {
   /** 恰選一班時的班名（名冊班名）；非 null 才有「本班適用折扣」。 */
@@ -21,11 +24,14 @@ export interface StudentColumnCtx {
 }
 export type StudentColumnSpec = ColumnSpec<StudentCalculationItem, StudentColumnCtx>;
 
-/** baseName 為空字串（token 僅中括號等無法解析）的顯示文字。 */
-export const UNPARSEABLE_CLASS_TEXT = '班名無法解析';
 export const NOT_CONFIGURED_TEXT = '未設定';
 
 const NO_CELLS: Cell[] = [];
+
+/** 所屬班級（多值）：每個報名項目 → baseName；baseName 為空字串顯示「班名無法解析」；零報名＝空白。 */
+export function enrollmentCellsOf(enrollments: ReadonlyArray<{ baseName: string }>): Cell[] {
+  return enrollments.map((e) => (e.baseName === '' ? cell('', UNPARSEABLE_CLASS_TEXT) : cell(e.baseName)));
+}
 const one = (c: Cell): Cell[] => (c === null ? NO_CELLS : [c]);
 
 /** 年級：`grade` 非 null → 數值／`N年級`；否則 `grade_raw` 非空白 → 字串原文；否則空白。匯入「名單」表（P5）共用。 */
@@ -107,9 +113,7 @@ const spec = (key: string, label: string, filterable: boolean, sortable: boolean
 export const STUDENT_COLUMN_SPECS: readonly StudentColumnSpec[] = [
   spec('name', '姓名', false, true, (s) => [cell(s.name)]),
   spec('grade', '年級', true, true, (s) => one(gradeCell(s.grade, s.gradeRaw))),
-  spec('enrollment', '所屬班級', true, false, (s) =>
-    s.enrollments.map((e) => (e.baseName === '' ? cell('', UNPARSEABLE_CLASS_TEXT) : cell(e.baseName)))
-  ),
+  spec('enrollment', '所屬班級', true, false, (s) => enrollmentCellsOf(s.enrollments)),
   spec('anqinDays', '安親天數', true, true, (s) => one(daysCell(s.anqinDays, s.anqinDisplay))),
   spec('tutoringDays', '課輔天數', true, true, (s) => one(daysCell(s.tutoringDays, s.tutoringDisplay))),
   spec('extraDeduction', '額外扣天', true, false, (s) => one(extraDeductionCell(s))),
