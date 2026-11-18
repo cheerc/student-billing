@@ -49,6 +49,11 @@ async function mount() {
   return host;
 }
 
+const rerender = (students: StudentCalculationItem[]) =>
+  act(async () => {
+    root!.render(<SummaryTable students={students} onSelectStudent={() => {}} />);
+  });
+
 const name0 = (h: HTMLElement) => h.querySelectorAll<HTMLElement>('.enroll-name')[0]!;
 const hover = (el: Element) => act(() => { el.dispatchEvent(new MouseEvent('mouseover', { bubbles: true, relatedTarget: null })); });
 const leave = (el: Element) => act(() => { el.dispatchEvent(new MouseEvent('mouseout', { bubbles: true, relatedTarget: document.body })); });
@@ -83,5 +88,22 @@ describe('所屬班級原始 token tooltip（a11y rule 6 修正）', () => {
     act(() => { document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); });
     expect(document.querySelector('[role="tooltip"]')).toBeNull();
     expect(h.querySelectorAll('.enroll-cell a[href], .enroll-cell button, .enroll-cell [tabindex]').length).toBe(0);
+  });
+
+  it('錨點被移出 DOM（篩選／排序重繪）時 tooltip 自動關閉：被移除的元素不會再發 mouseout', async () => {
+    const h = await mount();
+    hover(name0(h));
+    expect(document.querySelector('[role="tooltip"]')).not.toBeNull();
+    await rerender([]); // 該列消失；指標仍停在原處，沒有任何 mouseout
+    expect(h.querySelector('.enroll-name')).toBeNull();
+    expect(document.querySelector('[role="tooltip"]')).toBeNull();
+  });
+
+  it('指標移到非班名元素時 tooltip 關閉（不殘留）', async () => {
+    const h = await mount();
+    hover(name0(h));
+    expect(document.querySelector('[role="tooltip"]')).not.toBeNull();
+    hover(h.querySelector('thead th')!);
+    expect(document.querySelector('[role="tooltip"]')).toBeNull();
   });
 });
