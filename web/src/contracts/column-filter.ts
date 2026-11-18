@@ -1,6 +1,8 @@
-import { StudentQueryInputError, type StudentQueryInput } from './student-query';
+import { StudentQueryInputError, type QuerySelection, type StudentQueryInput } from './student-query';
 
 export const COLUMN_PARAM_PREFIX = 'col.';
+/** `baseName` 為空字串（token 僅中括號等無法解析）的儲存格顯示文字（03 §5.1 R6）。 */
+export const UNPARSEABLE_CLASS_TEXT = '班名無法解析';
 export interface ColumnSelection { texts: Set<string>; blank: boolean; none: boolean }
 export interface ColumnFilterKeys { known: ReadonlySet<string>; filterable: ReadonlySet<string> }
 
@@ -50,4 +52,28 @@ export function parseColumnFilters(input: StudentQueryInput, keys: ColumnFilterK
     if (selected) result[columnKey] = selected;
   }
   return result;
+}
+
+/**
+ * R7「恰選一班」（`col.applicableDiscount` 的前提）：班級條件來自 `col.enrollment` 與／或語意 `enrollmentKey`（`classId`）。
+ * 只有一方時，該方須恰為一個非空白 baseName；兩方並存時，兩方須各自恰選一個且為同一個 baseName；
+ * 不以任一方靜默優先。回傳該 baseName，不成立回 null。
+ */
+export function resolveSingleClassName(enrollmentKey: QuerySelection | undefined, enrollment: ColumnSelection | undefined): string | null {
+  const BAD = Symbol('bad');
+  const fromKey = (): string | typeof BAD | undefined => {
+    if (!enrollmentKey) return undefined;
+    const [value] = enrollmentKey.values;
+    return !enrollmentKey.none && enrollmentKey.values.length === 1 && typeof value === 'string' && value !== '' ? value : BAD;
+  };
+  const fromColumn = (): string | typeof BAD | undefined => {
+    if (!enrollment) return undefined;
+    const [text] = enrollment.texts;
+    return !enrollment.none && !enrollment.blank && enrollment.texts.size === 1 && text !== UNPARSEABLE_CLASS_TEXT ? text : BAD;
+  };
+  const key = fromKey();
+  const column = fromColumn();
+  if (key === BAD || column === BAD) return null;
+  if (key !== undefined && column !== undefined) return key === column ? key : null;
+  return key ?? column ?? null;
 }

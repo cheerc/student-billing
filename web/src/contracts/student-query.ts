@@ -1,11 +1,14 @@
 import { createHash } from 'crypto';
 import { TEXT_SORT_FIELDS } from './student-sort-fields';
+import { isColumnParam, parseColumnFilters, resolveSingleClassName, type ColumnFilterKeys, type ColumnSelection } from './column-filter';
 
 export type QueryValue = string | number | boolean | null;
 export type StudentQueryInput = Record<string, any>;
 export interface QuerySelection { values: QueryValue[]; none: boolean }
 export interface NormalizedStudentQuery {
   selections: Record<string, QuerySelection>;
+  /** D66 `col.<columnKey>` 表頭欄位篩選（顯示文字）；與 selections 為 AND。 */
+  columns: Record<string, ColumnSelection>;
   q?: string;
   subject?: string;
   careType?: 'anqin' | 'tutoring';
@@ -83,9 +86,16 @@ function selection(key: string, raw: string[]): QuerySelection | undefined {
   return unique.length ? { values: unique, none: false } : undefined;
 }
 
-export function normalizeStudentQuery(input: StudentQueryInput, allowed: ReadonlySet<string>, sortFields: ReadonlySet<string> = new Set()): NormalizedStudentQuery {
-  const result: NormalizedStudentQuery = { selections: {}, limit: 50, options: false };
+/**
+ * `columnKeys`：該端點接受的 `col.*` 欄位（03 §5.1 R6）；未提供者（如匯入預覽 `parseImportQuery`）遇 `col.*` 一律 400。
+ */
+export function normalizeStudentQuery(input: StudentQueryInput, allowed: ReadonlySet<string>, sortFields: ReadonlySet<string> = new Set(), columnKeys?: ColumnFilterKeys): NormalizedStudentQuery {
+  const result: NormalizedStudentQuery = { selections: {}, columns: {}, limit: 50, options: false };
   for (const key of Object.keys(input)) {
+    if (isColumnParam(key)) {
+      if (!columnKeys) invalid(key, '未知或不支援');
+      continue; // 由 parseColumnFilters 統一解析
+    }
     if (!allowed.has(key)) invalid(key, '未知或不支援');
     if (['scheduleStatus', 'mappingStatus'].includes(key)) invalid(key, '尚未實作，請勿指定');
     const source = input[key];
@@ -122,6 +132,12 @@ export function normalizeStudentQuery(input: StudentQueryInput, allowed: Readonl
     result.selections.enrollmentKey = result.selections.classId;
     delete result.selections.classId;
   }
+  if (columnKeys) {
+    result.columns = parseColumnFilters(input, columnKeys);
+    if (result.columns.applicableDiscount && resolveSingleClassName(result.selections.enrollmentKey, result.columns.enrollment) === null) {
+      throw new StudentQueryInputError('查詢參數「col.applicableDiscount」須恰選一個班級（col.enrollment 與／或 enrollmentKey 各恰選一個非空白班名；兩者並存須為同一班）');
+    }
+  }
   if (result.selections.billingTier && !result.careType) invalid('billingTier', '必須同時帶 careType');
   const issue = result.selections.issueCode;
   const hasIssues = result.selections.hasIssues?.values;
@@ -138,7 +154,11 @@ export function normalizeStudentQuery(input: StudentQueryInput, allowed: Readonl
 
 export function queryIdentity(scope: string, query: NormalizedStudentQuery): string {
   const filters = Object.fromEntries(Object.entries(query.selections).sort(([a], [b]) => a.localeCompare(b)));
-  return createHash('sha256').update(JSON.stringify({ scope, filters, q: query.q || '', subject: query.subject || '', careType: query.careType || '', sort: query.sort ? `${query.sort.dir}:${query.sort.field}` : '' })).digest('hex');
+  // col.* 只在有條件時才進 identity：未帶 col.* 的請求 identity 與 D66 之前逐位元相同。
+  const columns = Object.entries(query.columns ?? {}).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+    .map(([key, c]) => [key, { texts: [...c.texts].sort(), blank: c.blank, none: c.none }]);
+  const extra = columns.length ? { columns } : {};
+  return createHash('sha256').update(JSON.stringify({ scope, filters, ...extra, q: query.q || '', subject: query.subject || '', careType: query.careType || '', sort: query.sort ? `${query.sort.dir}:${query.sort.field}` : '' })).digest('hex');
 }
 
 /** v2 keyset：`n`＝排序值為 null（與任何實值，含空字串、0，皆可區分）；`v`＝排序值。v1 舊格式一律視為無效。 */
