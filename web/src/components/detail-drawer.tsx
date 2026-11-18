@@ -410,6 +410,16 @@ function DrawerPanel({
                 <strong>人員代碼：</strong>
                 <span style={{ fontFamily: 'ui-monospace, monospace' }}>{student.personCode}</span>
               </div>
+              {student.enrollments.length > 0 && (
+                <div style={{ marginBottom: '6px' }}>
+                  <strong>所屬班級原始資料：</strong>
+                  <ul style={{ margin: '4px 0 0', paddingLeft: '20px' }}>
+                    {student.enrollments.map((en, i) => (
+                      <li key={i} style={{ fontFamily: 'ui-monospace, monospace', overflowWrap: 'anywhere' }}>{en.rawToken}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
               <div style={{ marginBottom: '6px' }}>
                 <strong>標籤 (Tags)：</strong> {trace?.rawTags || '-'}
               </div>
