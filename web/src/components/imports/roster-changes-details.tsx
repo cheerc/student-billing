@@ -113,6 +113,8 @@ const ROSTER_COLUMNS: readonly ColumnDef<RosterChange>[] = [
   { key: 'tutoringDays', label: '課輔天數', sort: { type: 'number', accessor: (c) => c.dayChange?.afterTutoringDays ?? null } },
 ];
 
+export const rosterChangeColumns = ROSTER_COLUMNS;
+
 function BreakdownList({ rows }: { rows: ClassBreakdown[] }) {
   return (
     <ul className="roster-change-classes">

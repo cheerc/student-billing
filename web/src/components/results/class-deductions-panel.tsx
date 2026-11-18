@@ -51,6 +51,7 @@ const CLASS_DEDUCTION_COLUMN_DEFS = [
   { key: 'status', label: '狀態', filterKey: 'dStatus', sort: { type: 'text', accessor: (c: DeductionClass) => statusLabel(classStatus(c)) } },
 ] as const satisfies readonly ColumnDef<DeductionClass>[];
 
+export const classDeductionColumnDefs = CLASS_DEDUCTION_COLUMN_DEFS;
 export const classDeductionsColumns = columnLabels(CLASS_DEDUCTION_COLUMN_DEFS);
 
 /** 扣除值 → 正量字串；原始三位小數、實際半天單位。domain 負值在此轉為正量顯示。 */
@@ -104,6 +105,19 @@ function statusLabel(s: CareStatus): string {
   return '已計算';
 }
 
+/** 表頭篩選選項（整個 run 的全部班級列）。 */
+export function deductionFilterSection(classes: readonly DeductionClass[], key: DeductionFilterKey): FilterSection {
+  const map = new Map<string, string>();
+  for (const c of classes) {
+    const wire = key === 'dClass' ? wireOf(c.classKey) : key === 'dTeacher' ? wireOf(c.teacher) : escapeLiteral(statusLabel(classStatus(c)));
+    const label = wire === BLANK ? '(空白)' : key === 'dClass' ? c.classKey : key === 'dTeacher' ? (c.teacher ?? '') : statusLabel(classStatus(c));
+    if (!map.has(wire)) map.set(wire, label);
+  }
+  const options = [...map].map(([value, label]) => ({ value, label }));
+  options.sort((a, b) => (a.value === BLANK ? -1 : b.value === BLANK ? 1 : a.label.localeCompare(b.label, 'zh-Hant')));
+  return { key, options };
+}
+
 interface ClassDeductionsPanelProps {
   data?: DeductionsResponse;
   onEditClass: (classKey: string) => void;
@@ -146,17 +160,7 @@ export function ClassDeductionsPanel({ data, onEditClass, expandedClassKey, unav
   }
 
   // 選項取自整個 run 的全部班級列（不受目前條件收斂）
-  const optionsOf = (key: DeductionFilterKey): FilterSection => {
-    const map = new Map<string, string>();
-    for (const { facets, c } of rowsWithFacets) {
-      const wire = facets[key];
-      const label = wire === BLANK ? '(空白)' : key === 'dClass' ? c.classKey : key === 'dTeacher' ? (c.teacher ?? '') : statusLabel(classStatus(c));
-      if (!map.has(wire)) map.set(wire, label);
-    }
-    const options = [...map].map(([value, label]) => ({ value, label }));
-    options.sort((a, b) => (a.value === BLANK ? -1 : b.value === BLANK ? 1 : a.label.localeCompare(b.label, 'zh-Hant')));
-    return { key, options };
-  };
+  const optionsOf = (key: DeductionFilterKey): FilterSection => deductionFilterSection(data.classes, key);
 
   const matches = (facets: Record<DeductionFilterKey, string>): boolean =>
     DEDUCTION_FILTER_FIELDS.every((f) => {

@@ -1,14 +1,16 @@
 import { describe, it, expect } from 'vitest';
 import { nextSort, sortRows } from '@/components/tables/use-client-sort';
+import { cell } from '@/lib/table-columns/cell';
 
 /**
- * UX126（D65 G5）：client 表排序純函式。
- * expected 依規格手算（空值最後、同值保持輸入相對順序、文字用 zh-Hant collator），
- * 不以 sortRows 自身輸出生成。
+ * UX126（D65 G5）＋UX133（D66）：client 表排序純函式，比較走共用 `compareCells`（欄位定義 `{ cell }`）。
+ * expected 依規格手算（空白最後、同值保持輸入相對順序、中文依總筆畫數寫死），
+ * 不以 sortRows、Intl.Collator 或其他待測函式的輸出生成。
  */
 type Row = { id: string; v: number | string | null };
-const num = { type: 'number' as const, accessor: (r: Row) => r.v as number | null };
-const text = { type: 'text' as const, accessor: (r: Row) => r.v as string | null };
+const toCell = (r: Row) => (r.v === null ? null : cell(r.v));
+const num = { cell: toCell };
+const text = { cell: toCell };
 const rows = (vs: (number | string | null)[]): Row[] => vs.map((v, i) => ({ id: `r${i}`, v }));
 const values = (rs: Row[]) => rs.map((r) => r.v);
 
@@ -53,23 +55,26 @@ describe('UX126 sortRows', () => {
     expect(sortRows(input, num, 'descending').map((r) => r.id)).toEqual(['y', 'x', 'z']);
   });
 
-  it('中文文字：比較依據為 Intl.Collator("zh-Hant")（in-test 以 collator 逐對驗證，非 sortRows 輸出）', () => {
-    const collator = new Intl.Collator('zh-Hant');
-    const names = ['王小明', '李大華', '陳美玲', '張志強', '林雅婷', null, '黃建國'];
-    const asc = values(sortRows(rows(names), text, 'ascending'));
-    // 空值在最後；其餘每一對相鄰值 collator.compare ≤ 0
-    expect(asc[asc.length - 1]).toBeNull();
-    const nonNull = asc.slice(0, -1) as string[];
-    expect(nonNull).toHaveLength(6);
-    for (let i = 1; i < nonNull.length; i++) {
-      expect(collator.compare(nonNull[i - 1]!, nonNull[i]!)).toBeLessThanOrEqual(0);
-    }
-    const desc = values(sortRows(rows(names), text, 'descending'));
-    expect(desc[desc.length - 1]).toBeNull();
-    const nonNullDesc = desc.slice(0, -1) as string[];
-    for (let i = 1; i < nonNullDesc.length; i++) {
-      expect(collator.compare(nonNullDesc[i - 1]!, nonNullDesc[i]!)).toBeGreaterThanOrEqual(0);
-    }
+  it('中文文字依總筆畫數：丁2 王4 吳7 林8 黃12 蔡15（碼點序為 丁 吳 林 王 蔡 黃，兩者不同）', () => {
+    const names = ['王一', '蔡一', '丁一', null, '黃一', '吳一', '林一'];
+    expect(values(sortRows(rows(names), text, 'ascending'))).toEqual(['丁一', '王一', '吳一', '林一', '黃一', '蔡一', null]);
+    expect(values(sortRows(rows(names), text, 'descending'))).toEqual(['蔡一', '黃一', '林一', '吳一', '王一', '丁一', null]);
+  });
+
+  it('同底層值再比顯示文字：4 與 4*額 兩格（value 同為 4）依 text 升冪、降冪反轉，空白仍最後', () => {
+    const input = [
+      { id: 'a', c: cell(4, '4*額') },
+      { id: 'b', c: null },
+      { id: 'c', c: cell(4, '4') },
+      { id: 'd', c: cell(3.5, '3.5') },
+    ];
+    const by = { cell: (r: (typeof input)[number]) => r.c };
+    expect(sortRows(input, by, 'ascending').map((r) => r.id)).toEqual(['d', 'c', 'a', 'b']);
+    expect(sortRows(input, by, 'descending').map((r) => r.id)).toEqual(['a', 'c', 'd', 'b']);
+  });
+
+  it('數值先於字串（混合欄）：[\'小班\', 3, null, 1] 升冪 → [1, 3, \'小班\', null]', () => {
+    expect(values(sortRows(rows(['小班', 3, null, 1]), text, 'ascending'))).toEqual([1, 3, '小班', null]);
   });
 
   it('不改動輸入陣列', () => {

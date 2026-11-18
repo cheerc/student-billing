@@ -1,7 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { RosterChangesDetails } from '@/components/imports/roster-changes-details';
+import { RosterChangesDetails, rosterChangeColumns } from '@/components/imports/roster-changes-details';
+import { sortRows } from '@/components/tables/use-client-sort';
+import type { Cell } from '@/lib/table-columns/cell';
 import type {
   ClassBreakdown,
   ClassDiscountChange,
@@ -415,5 +417,28 @@ describe('PR-2 折扣變動欄（-76 二：班級｜原本｜現在｜原因）'
   it('無折扣變動 → 「—」', () => {
     const html = render([change({ personCode: 'NONE', classDiscountChanges: [], enrollmentChanges: [] })]);
     expect(rowOf(html, 'NONE')).toMatch(/<td data-field="class-discount">—<\/td>/);
+  });
+});
+
+
+/**
+ * UX133（D66）：逐人明細排序走共用欄位模組。學生欄依總筆畫（丁2 王4 吳7），不是碼點序；
+ * 安親天數取「後」值，不適用（無 dayChange）＝空白，不論方向最後。expected 手算寫死。
+ */
+describe('UX133 逐人明細欄位（共用 cell 排序）', () => {
+  const chg = (personCode: string, name: string, after: number | null) =>
+    ({ personCode, name, dayChange: after === null ? undefined : { afterAnqinDeduction: 0, afterAnqinDays: after, afterTutoringDays: after } }) as unknown as RosterChange;
+  const rows = [chg('p1', '吳一', 4), chg('p2', '丁一', null), chg('p3', '王一', 5), chg('p4', '林一', 3)];
+  const by = (key: string) => rosterChangeColumns.find((c) => c.key === key)!.sort as { cell: (c: RosterChange) => Cell };
+  const ids = (rs: RosterChange[]) => rs.map((r) => r.personCode);
+
+  it('學生升冪 丁一、王一、吳一、林一；降冪 林一、吳一、王一、丁一', () => {
+    expect(ids(sortRows(rows, by('student'), 'ascending'))).toEqual(['p2', 'p3', 'p1', 'p4']);
+    expect(ids(sortRows(rows, by('student'), 'descending'))).toEqual(['p4', 'p1', 'p3', 'p2']);
+  });
+
+  it('安親天數升冪 3,4,5,空白；降冪 5,4,3,空白', () => {
+    expect(ids(sortRows(rows, by('anqinDays'), 'ascending'))).toEqual(['p4', 'p1', 'p3', 'p2']);
+    expect(ids(sortRows(rows, by('anqinDays'), 'descending'))).toEqual(['p3', 'p1', 'p4', 'p2']);
   });
 });

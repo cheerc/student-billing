@@ -49,6 +49,9 @@ const SYSTEM_ONLY_COLUMNS: readonly ColumnDef<ClassNameSyncSystemOnly>[] = [
   { key: 'legacyAliasFrom', label: '舊別名來源', sort: { type: 'text', accessor: (c) => (c.legacyAliasFrom.length > 0 ? c.legacyAliasFrom.join('、') : null) } },
 ];
 
+export const mismatchColumns = MISMATCH_COLUMNS;
+export const systemOnlyColumns = SYSTEM_ONLY_COLUMNS;
+
 export function ClassNameSyncPanel({
   report,
   rows = [],

@@ -13,7 +13,7 @@ import { restoreFocusToOpener } from '@/components/ui/restore-focus-to-opener';
 export type ReviewTab = 'changes' | 'list';
 export type StudentFilterMode = 'all' | 'with-class' | 'no-class' | 'withdrawn';
 
-interface ImportReviewDialogProps {
+export interface ImportReviewDialogProps {
   isOpen: boolean;
   tab: ReviewTab;
   onTabChange: (tab: ReviewTab) => void;
@@ -38,6 +38,8 @@ const LIST_COLUMNS: readonly ColumnDef<StudentSnapshot>[] = [
   { key: 'tags', label: '標籤', sort: { type: 'text', accessor: (s) => s.tagsRaw || null } },
   { key: 'notes', label: '備註', sort: { type: 'text', accessor: (s) => s.notesRaw || null } },
 ];
+
+export const importListColumns = LIST_COLUMNS;
 
 /**
  * 匯入預覽的「異動／名單」浮動視窗（D64 G3，UX124）。
