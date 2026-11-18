@@ -839,6 +839,119 @@ describe('按堂計價帳務比對工具：報表解析契約', () => {
     });
   });
 
+  /**
+   * Issue #251 項目 1：反向在席查核的範圍只含「按堂計價」可能涉及的班。
+   *
+   * 預期值手算（合成 fixture）：
+   *  - 報表開兩班：兒童美語（english）與國小輔導（care，月費、非本工具範圍）。
+   *  - 名單另有各班在席未開單者各 1 人。
+   *  - 快照（v4）判 care／none 的班不屬按堂計價 → 其在席未開單者不得被標 ROSTER_NOT_BILLED；
+   *    english 照常；類別無法判定（unset、快照缺該班）不得靜默，維持反查（D17、§9.3）。
+   */
+  describe('compare：反向在席查核範圍依快照類別 (Issue #251)', () => {
+    const ENGLISH = '兒童美語-Dommie[團][W9]';
+    const ENGLISH_BASE = '兒童美語-Dommie';
+    const CARE = '115國小輔導-三年級[團][3]';
+    // 快照 base_name 為去修飾（含年度前綴 115）後的名冊班名，與工具 baseClassName 的輸出一致。
+    const CARE_BASE = '國小輔導-三年級';
+    const enroll = (rawToken: string, baseName: string) => [{ rawToken, baseName, withdrawalDate: null }];
+
+    const runMixed = (
+      classCategories: { base_name: string; category: string }[],
+      extraBilledRaw = CARE,
+      extraBilledBase = CARE_BASE,
+    ) => {
+      const context = buildRunSnapshotContext({
+        ruleSetVersion: 'erp-tag-v4',
+        classCategories: classCategories.map((c) => ({ ...c, fixed_five_days: 0, class_type: null })),
+      })!;
+      const report = [
+        reportStudent('美語開單生', { tuitionRows: [`${ENGLISH} - 16 堂課`] }),
+        reportStudent('另科開單生', { tuitionRows: [`${extraBilledRaw} - 16 堂課`] }),
+      ];
+      const roster = [
+        webStudent('美語開單生', { enrollments: enroll(ENGLISH, ENGLISH_BASE) }),
+        webStudent('另科開單生', { enrollments: enroll(extraBilledRaw, extraBilledBase) }),
+        webStudent('美語未開單生', { enrollments: enroll(ENGLISH, ENGLISH_BASE) }),
+        webStudent('另科未開單生', { enrollments: enroll(extraBilledRaw, extraBilledBase) }),
+      ];
+      return compare(
+        new Map(report.map((r) => [r.name as string, r])) as never,
+        roster as never[],
+        '2026-10-14',
+        undefined,
+        context as never,
+      ).records;
+    };
+
+    const notBilledNames = (records: { name: string; statusCategory: string }[]) =>
+      records.filter((r) => r.statusCategory === 'ROSTER_NOT_BILLED').map((r) => r.name);
+
+    it('快照判 care 的班在報表開單 → 該班在席未開單者不標 ROSTER_NOT_BILLED，english 班照常', () => {
+      const records = runMixed([
+        { base_name: ENGLISH_BASE, category: 'english' },
+        { base_name: CARE_BASE, category: 'care' },
+      ]);
+      expect(notBilledNames(records)).toEqual(['美語未開單生']);
+    });
+
+    it('快照判 none 的班在報表開單 → 同樣不納入反查', () => {
+      const records = runMixed([
+        { base_name: ENGLISH_BASE, category: 'english' },
+        { base_name: CARE_BASE, category: 'none' },
+      ]);
+      expect(notBilledNames(records)).toEqual(['美語未開單生']);
+    });
+
+    it('類別 unset 的班在報表開單 → 不靜默，仍反查', () => {
+      const records = runMixed([
+        { base_name: ENGLISH_BASE, category: 'english' },
+        { base_name: CARE_BASE, category: 'unset' },
+      ]);
+      expect(notBilledNames(records).sort()).toEqual(['另科未開單生', '美語未開單生'].sort());
+    });
+
+    it('快照缺該班 → 不靜默，仍反查', () => {
+      const records = runMixed([{ base_name: ENGLISH_BASE, category: 'english' }]);
+      expect(notBilledNames(records).sort()).toEqual(['另科未開單生', '美語未開單生'].sort());
+    });
+
+    it('英文＋數學同報表 → 兩科皆在反查範圍', () => {
+      const MATH = '115國小數學-三A[團]';
+      const MATH_BASE = '國小數學-三A';
+      const records = runMixed(
+        [
+          { base_name: ENGLISH_BASE, category: 'english' },
+          { base_name: MATH_BASE, category: 'math' },
+        ],
+        MATH,
+        MATH_BASE,
+      );
+      expect(notBilledNames(records).sort()).toEqual(['另科未開單生', '美語未開單生'].sort());
+    });
+
+    it('學雜費常模不受類別限縮：care 班同班多數收書籍費，未收者仍標書籍費偏離常模', () => {
+      const context = buildRunSnapshotContext({
+        ruleSetVersion: 'erp-tag-v4',
+        classCategories: [{ base_name: CARE_BASE, category: 'care', fixed_five_days: 0, class_type: null }],
+      })!;
+      const names = ['生1', '生2', '生3', '生4', '未收生'];
+      const report = names.map((n) => reportStudent(n, { tuitionRows: [`${CARE} - 16 堂課`] }));
+      const roster = names.map((n) => webStudent(n, { enrollments: enroll(CARE, CARE_BASE) }));
+      const fee = [{ subject: '書籍費', detail: '教材', amount: 1000 }];
+      const ancillary = new Map(names.map((n) => [n, n === '未收生' ? [] : fee]));
+      const records = compare(
+        new Map(report.map((r) => [r.name as string, r])) as never,
+        roster as never[],
+        '2026-10-14',
+        undefined,
+        context as never,
+        ancillary as never,
+      ).records;
+      expect(records.find((r) => r.name === '未收生')?.note.tags).toContain('書籍費偏離常模');
+    });
+  });
+
   describe('compare：堂數單價檢驗與異常標記 (SESSION_ANOMALY)', () => {
     it('學費不可整除堂數 (7350 / 16) → 判定 SESSION_ANOMALY 並提示無法整除', () => {
       const report = [
