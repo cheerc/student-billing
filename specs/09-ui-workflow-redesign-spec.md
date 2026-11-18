@@ -210,7 +210,7 @@
 2. 輸入關鍵字後可一鍵「全選搜尋結果」（只加入搜尋命中者，不清掉搜尋範圍外既有的選取），並提供「(空白)」選項。
 3. 按「確定」才套用；「取消」保留原條件。
 4. 表格上方顯示可逐一移除的已套用條件chips與「清除全部」；有篩選的欄位▾變色。
-5. 同一欄的選項為OR、不同欄為AND；複值欄（所屬班級、問題類型）學生任一報名班／任一問題命中即列出。人數依personCode去重，多班不相加。
+5. 同一欄的選項為OR、不同欄為AND；複值欄（所屬班級、需確認）學生任一報名班／任一徽章命中即列出。人數依personCode去重，多班不相加。
 6. 「本班」字樣與本班適用折扣只在**恰好選一班**時出現；選多班顯示「已選 N 班，共 M 人」；未選班顯示「全部 N 人」（O03）。
 
 三種狀態分開：未設篩選（全部）／選了「(空白)」／取消全選後按確定（0筆）；不得以空字串一律代表全部。查詢契約見[03 §5.1](03-architecture-api.md)。
@@ -221,7 +221,7 @@
 - **需確認欄（D66 改寫，Operator Q2-a）**：儲存格顯示該生**全部**徽章（「天數不同」、每個待確認問題的中文標籤、只有級距需人工確認時「待核對」），篩選面板為**一張**清單，選項＝各徽章文字＋「(空白)」（＝「—」，沒有待確認事項），任一徽章命中即列出；原「米豆奶天數比較／問題類型」兩分區與「天數吻合」選項移除。
 - **所屬班級欄（D66，Operator Q2-b）**：儲存格每行主文字為班名（`baseName`），原始 token（年度前綴、`[N]` 等）移至 tooltip 與明細；選項與儲存格同一班名，「本班」與本班適用折扣判定不變。
 - **已套用條件**顯示在表格上方：每個條件一顆可移除的chip（含姓名搜尋的chip），另有「清除全部」（同時清空姓名搜尋）；有條件的欄位▾變色（`data-filter-active`）。
-- **網址**：`view`、`runId`與非個資條件寫在網址。**（D66）** 學生總表條件一律為 `col.<columnKey>=<顯示文字>`（重複key、`~blank`／`~none`、`~~`跳脫；columnKey 見 03 §5.1：`grade`、`enrollment`、`anqinDays`、`tutoringDays`、`extraDeduction`、`baseDiscount`、`applicableDiscount`、`sibling`、`specialDiscount`、`internalStudent`、`review`）；舊網址的語意參數（`grade=3`、`enrollmentKey=…`、`hasExtraDeduction=true` 等）載入時一律移除並沿用「已移除…」提示（API 仍為 Agent 保留這些參數）；班級扣天頁籤的條件用`dClass`、`dTeacher`、`dStatus`。姓名搜尋`q`不入網址，頁內session保存（同一分頁返回或重新整理仍在）。網址帶有這份資料中已不存在的選值（例如run變更後）時，載入即自動移除並提示「已移除N個在這份資料中不存在的篩選值」，網址同步為移除後的條件與目前的run；網址條件無效（例如`hasExtraDeduction=maybe`）時忽略全部條件並提示，不出錯誤頁。
+- **網址**：`view`、`runId`與非個資條件寫在網址。**（D66）** 學生總表條件一律為 `col.<columnKey>=<顯示文字>`（重複key、`~blank`／`~none`、`~~`跳脫；columnKey 見 03 §5.1：`grade`、`enrollment`、`anqinDays`、`tutoringDays`、`extraDeduction`、`baseDiscount`、`applicableDiscount`、`sibling`、`specialDiscount`、`internalStudent`、`review`）；舊網址的語意參數（`grade=3`、`enrollmentKey=…`、`hasExtraDeduction=true` 等）載入時一律移除並沿用「已移除…」提示（API 仍為 Agent 保留這些參數）；班級扣天頁籤的條件用`dClass`、`dTeacher`、`dStatus`。姓名搜尋`q`不入網址，頁內session保存（同一分頁返回或重新整理仍在）。網址帶有這份資料中已不存在的選值（例如run變更後）時，載入即自動移除並提示「已移除N個在這份資料中不存在的篩選值」，網址同步為移除後的條件與目前的run；網址條件無效（例如`col.bogus=x`、`col.grade=`或未跳脫的`col.grade=~x`）時忽略全部條件並提示，不出錯誤頁；舊語意參數（`grade`、`hasExtraDeduction` 等）**不論值是否有效**一律移除並提示。
 - **一致性**：名單、統計、分頁cursor共用同一條件；條件改變即清cursor；只採用最新一次查詢的回應，晚到的舊回應不得覆蓋新條件的結果；載入中保留舊表並標「更新中…下方仍是上一次的結果」。
 - **保留的能力與UI入口**：既有API參數不刪。「已補科數」不提供篩選（`hasClass`是折扣科數，不是無課程判定）。**分校**沒有預設欄位，其UI入口**待operator確認**，本批（B2）不實作、不自行決定，API參數（多值OR）保留生效。
 - **特殊折扣欄**顯示標籤上的特殊折扣（例如95折；沒有標籤為「—」）；課程適用率不再出現在此欄，改由恰選一班時的「本班適用折扣」欄顯示。
