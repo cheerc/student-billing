@@ -179,7 +179,7 @@ PR-1 raw/actionable issue 相容邊界：`issues`、`hasIssues`、`issueCounts` 
 
 1. route 以 `readStudentQuery` 保留重複 query key 之多值陣列，不再以 `Record<string,string>` 壓覆舊值。
 2. 班級支援多值 OR，支援 `~blank`（無課程＝零 enrollment）與 `~empty`（有 enrollment 但 baseName 為空）。
-3. 下列原先未生效或靜默忽略之欄位已落實或明確拒絕：`hasExtraDeduction`（讀持久化 trace 之 `hasExtraFlag`）、`specialDiscount`（以標籤特殊折扣判定）、`applicableDiscountBps`（恰選一班時依暫定 v2 映射生效）；未實作之 `scheduleStatus`、`sort` 在 runs 與 preview 兩側皆明確回 400；preview 之 `mappingStatus` 亦明確回 400（待 D 批班名比對報告與設定快照落實）。`grade` 非整數回 400（D66 起：未加 `~text:` 前綴之非整數仍回 400，見下「年級欄」）。
+3. 下列原先未生效或靜默忽略之欄位已落實或明確拒絕：`hasExtraDeduction`（讀持久化 trace 之 `hasExtraFlag`）、`specialDiscount`（以標籤特殊折扣判定）、`applicableDiscountBps`（恰選一班時依暫定 v2 映射生效）；未實作之 `scheduleStatus`、`sort` 在 runs 與 preview 兩側皆明確回 400；preview 之 `mappingStatus` 亦明確回 400（待 D 批班名比對報告與設定快照落實）。`grade` 非整數回 400。
 4. `hasClass` runs 端點維持 `subject_count > 0` 既有語意，**不作為「無課程」判定**；「無課程」為獨立語意（零 enrollment），以 `noCourseTotal` 與 `stats.filteredNoCourseCount` 分開回報。
 5. cursor 契約升級：編碼綁定 `scope`（run/import）與正規化查詢條件之 SHA-256 identity；條件改變而沿用舊 cursor 一律回 400，防止跨條件分頁污染。
 6. `stats.classScopeTotal` 支援多班聯集之去重人數；未選班為全批人數；若設空集合 `~none` 則為 0。
@@ -190,7 +190,7 @@ PR-1 raw/actionable issue 相容邊界：`issues`、`hasIssues`、`issueCounts` 
 |表頭／用途|參數|值型別|現況實作|
 |---|---|---|---|
 |所屬班級|`enrollmentKey`（`classId`為同義單值別名，同時給時`enrollmentKey`優先）|字串＝班名|多值 OR；保留值 `~blank`＝無課程（零 enrollment）；`~empty`＝有 enrollment 但 baseName 空字串；`stats.classScopeTotal`隨多值|
-|年級|`grade`|整數年級或文字年級（D66）|多值 OR；值域＝儲存格顯示值，分三群（見下「年級欄」）：整數 `1`–`6`＝已識別國小年級（`grade = n`）；`~text:<原文>`＝`grade` 為 null 且原文非空白（`grade IS NULL AND grade_raw = <原文>`，含小班／中班／大班／國一／未知／無等）；`~blank`＝`grade` 為 null 且原文空白。其他非整數（含未加前綴之 `中班`、`3.5`）及空原文 `~text:` 回 400|
+|年級|`grade`|整數|多值 OR；`~blank`＝年級未知；非整數回 400|
 |安親天數／課輔天數|`anqinDays`、`tutoringDays`|數字（3、3.5、4、4.5、5）|多值 OR；`~blank`＝null。兩欄可同時篩（AND）；既有 `billingTier`＋`careType` 保留為單值相容|
 |額外扣天|`hasExtraDeduction`|布林|真正生效；讀取持久化 trace 之 `hasExtraFlag`（與 UI 額外扣天欄同源）|
 |合計折扣（基本率）|`baseDiscountBps`|整數bps|多值 OR；新 run 的無報名學生基本率為 10000（特殊折扣仍優先），不產生 null。`~blank` 的 null 解析／相容仍保留，不回 400；在新 run 此值匹配 0 人，options 不產生此選項。0 仍為有效 bps 值，不與 null 混用|
@@ -203,21 +203,34 @@ PR-1 raw/actionable issue 相容邊界：`issues`、`hasIssues`、`issueCounts` 
 |學生搜尋|`q`|字串（姓名或代碼子字串）|維持單值搜尋框；LIKE escape `%` 與 `_`（不作為 SQL wildcard）；不入 URL、不多值、不提供 options|
 |科別（UI入口已移除）|`subject`|字串|維持單值，參數保留（agent 相容）|
 |有無折扣科數|`hasClass`|布林|語意不改（`subject_count > 0`），**不作為無課程判定**|
-|控制參數|`cursor`、`limit`、`sort`、`options`|—|`sort`（D65）：`sort=<field>`／`sort=-<field>`（降冪）單值，白名單外回 400 並指名 `sort`；`/runs/{id}/students` 白名單＝`name`、`grade`、`anqinDays`、`tutoringDays`、`baseDiscountBps`、`subjectCount`，`/imports/{previewId}/students` 白名單＝`name`、`grade`；未帶 `sort` 時順序與現行逐位元相同；空值不論方向排最後、同值以 `personCode` 升冪；文字欄僅 `name`，採 SQLite BINARY（UTF-8 碼點序），非 zh-Hant；`grade` 依 D66 三群序（整數年級→文字年級→空白；見下「年級欄」），取代 D65 C1 原「INTEGER 依數值、null 最後」；`cursor` 綁定 identity（含 `sort`）；`limit` 預設 50、最大 200；`options=true` 進入 options 模式|
+|表頭欄位篩選（D66；UI 唯一使用）|`col.<columnKey>`|字串＝該欄儲存格**顯示文字**|多值 OR（同欄）、跨欄 AND，且與左列各語意參數 AND；保留值 `~blank`／`~none`、`~~` 跳脫同下；未知 `columnKey` 或不可篩選欄回 400 並指名參數；不在值域的顯示文字匹配 0 人（不回 400）。見下「表頭欄位統一篩選與排序」|
+|控制參數|`cursor`、`limit`、`sort`、`options`|—|`sort`（D65）：`sort=<field>`／`sort=-<field>`（降冪）單值，白名單外回 400 並指名 `sort`；`/runs/{id}/students` 白名單＝`name`、`grade`、`anqinDays`、`tutoringDays`、`baseDiscountBps`、`subjectCount`，`/imports/{previewId}/students` 白名單＝`name`、`grade`；未帶 `sort` 時順序與現行逐位元相同；空值不論方向排最後、同值以 `personCode` 升冪；欄位比較規則（含 `name` 文字序與 `grade`）自 D66 起依下「表頭欄位統一篩選與排序」（取代原 D65 C1「文字欄 SQLite BINARY 碼點序」與「`grade` 為 INTEGER，null 最後」兩子句；`sort` 欄位名稱白名單不變）；`cursor` 綁定 identity（含 `sort`）；`limit` 預設 50、最大 200；`options=true` 進入 options 模式|
 
-**年級欄：篩選與排序比照 Excel 的儲存格顯示值（D66，Issue #253）**：
+**表頭欄位統一篩選與排序（D66，Issue #253／#255；取代各欄個別規則）**：
 
-- **顯示值與三群**：年級儲存格顯示值＝`grade` 非 null 時 `N年級`；否則 `grade_raw` 非空白時為原文；否則為空白（畫面「—」）。據此分三群，**只由 `grade`／`grade_raw` 兩欄判定**（`imported_students` 與 `student_calculations` 皆有，後者無 `grade_status`）：**整數年級**（`grade` 非 null）、**文字年級**（`grade` 為 null 且 `grade_raw` 去頭尾空白後非空）、**空白**（`grade` 為 null 且 `grade_raw` 為 null 或去頭尾空白後為空）。`not_applicable`（小班、中班、大班、國一、國中…）與有原文的 `unavailable`（未知、無、未識別字串）**都是文字年級**，每個不同原文各自成為一個選項；`(空白)` 只代表真正空白的儲存格。
-- **傳輸值**：整數年級沿用整數（`grade=3`，與 D66 前逐位元相容）；文字年級為保留前綴 `~text:` 加 `grade_raw` 原值（逐字比對，不再正規化；匯入時已去頭尾空白，見 `erp-reader` `extractCellValue`），例：`grade=~text:中班`；空白為 `~blank`。前綴使三群無歧義：原文本身可能是整數字樣（如 `7`、`03`，`parseGrade` 判為 `unavailable`、`grade` 為 null），不可與整數年級 `7` 混用。`~text:` 只適用 `grade`，其他參數帶此前綴仍以未知保留值回 400；`~text:` 之後不再套 `~~` 跳脫（字面 `~x` 傳 `~text:~x`）。
-- **比對**：整數 `n` → `grade = n`；`~text:<v>` → `grade IS NULL AND grade_raw = <v>`；`~blank` → `grade IS NULL AND (grade_raw IS NULL OR trim(grade_raw) = '')`。`/runs/{runId}/students`（`student_calculations`）與 `/imports/{previewId}/students`（`imported_students`）同一定義。
-- **選項**：`options=true` 的 `grade` 值宇宙含三群；標籤與儲存格一致：整數 `N年級`、文字年級為原文、`~blank` 為「(空白)」；計數語意不變（D46）。
-- **排序**（`sort=grade`／`sort=-grade`，兩個 students 端點；匯入「名單」頁籤 client 表年級欄同此序；選項面板順序同升冪，惟「(空白)」依 09 §5.1 面板慣例置頂）：
-  - 升冪：整數年級依數值升冪 → 文字年級依 `grade_raw` 碼點升冪（SQLite BINARY，同 D65 C1） → 空白。
-  - 降冪：文字年級依碼點降冪 → 整數年級依數值降冪 → 空白（空白不論方向最後）。
-  - 同值（同整數年級、同原文）依 `personCode` 升冪；整數年級群內不以原文分序（`3` 與 `小三` 皆顯示 `3年級`，同值）。
-  - **Excel 依據**：Microsoft 支援文件〈How to correctly sort alphanumeric data in Excel〉（KB 322067）所述 Excel 預設排序：升冪為數值 → 文字 → 邏輯值 → 錯誤值 → 空白；降冪反轉，但空白一律排最後。本欄整數年級即數值群、文字年級即文字群；年級僅 1–6 單一位數，以顯示字串 `N年級` 作文字排序結果亦相同（數字先於中文）。Excel 對中文文字的先後取決於地區與排序選項（筆劃／注音），沒有單一定義，故文字群採碼點序（與 D65 C1 一致、可手算、server 不需 ICU）。手算例：`中班`(U+4E2D) < `國一`(U+570B U+4E00) < `國中`(U+570B U+4E2D) < `大班`(U+5927) < `小班`(U+5C0F)。**不採年齡序**（Operator 2026-11-18：一般 A→Z／Z→A）。
-- **cursor**：`sort` 為 `grade` 時 `v` 為安全整數（整數年級群）或 1–200 字之字串（文字年級群），以 JSON 型別區分群；`n: true`＝空白群；形狀不符回 400。keyset 比較依上列三群順序。
-- **不變**：整數 `grade` 欄位、`grade-parser`（U31）與一切計費語意（02 不變；care 適用率依 1–2／3–6 年級取值不受影響）。**相容影響**：`grade=~blank` 由「`grade` 為 null」收窄為「真正空白」；需非國小年級學生的 Agent 呼叫改由 options 取得 `~text:` 值。
+所有可篩選／可排序的表頭欄位共用**同一套規則與同一份實作**（純函式共用模組，server 與 client 皆 import），不得逐欄另寫篩選或排序邏輯。範圍：學生總表（`/runs/{runId}/students`，server 端）、班級扣天、匯入預覽「名單」「異動」兩頁籤、班名同步兩表（皆 client 端，對已載入的全量資料）。排除：課表時段編輯表（可編輯，D65）。各表可篩選／可排序的欄位集合不因 D66 增減，只改規則。
+
+1. **欄位定義＝值＋顯示文字（Excel 的「儲存格值＋數值格式」模型）**：每個欄位定義對每一列產生 `{ value, text }`：`value` 為底層值（數值、字串或空白），`text` 為儲存格**實際顯示的文字**。儲存格渲染與 server 篩選／選項／排序呼叫**同一個**格式化函式，顯示與篩選不可能分岔。空白＝無值（儲存格以「—」呈現；`text` 為空）。多值欄（所屬班級、需確認）每列產生多個項目，各自一組 `{ value, text }`。
+2. **篩選以顯示文字為準**（Excel 自動篩選依格式化後文字分組）：選項＝範圍內所有不同的 `text`，外加「(空白)」（`~blank`，僅限真正空白的儲存格）；勾選即篩出顯示文字相同的列；多值欄任一項目命中即列出、依 personCode 去重。
+3. **排序以底層值為準**（Excel 預設排序，Microsoft 支援文件〈How to correctly sort alphanumeric data in Excel〉KB 322067）：升冪＝數值（小→大）→ 文字 → 空白；降冪＝文字（反序）→ 數值（大→小）→ 空白；**空白不論方向皆最後**。同值（底層值相同）再依 `text` 比較，仍同則 server 依 `personCode` 升冪、client 保持輸入相對順序。多值欄不提供排序（D65 不變）。
+4. **文字比較（取代 D65 C1）**：一律 `new Intl.Collator('zh-Hant')`（`usage: 'sort'`、`sensitivity: 'variant'`、`numeric: false`）；CLDR `zh-Hant` 預設定序即筆畫序（`zh-Hant-u-co-stroke` 結果相同）；比較為 0 時以 UTF-16 碼元序決勝。**版本依附**：結果取決於執行環境 ICU／CLDR 版本——server 為 Node 內建 ICU（CI 與本機皆 Node 24；以 Node v24.22.3／ICU 78.3／CLDR 48 實測：`丁 王 吳 林 黃 蔡`、`7 小班 中班 未知 國一 國中`），client 為瀏覽器 ICU，規則相同。**測試 expected 一律以總筆畫數相異的字手算**（同筆畫字的相對序屬 ICU 內部資料，不作為 expected），數字字元先於漢字。
+5. **選項面板順序**：依該選項底層值做升冪（同第 3 點，同值依顯示文字），**「(空白)」一律最後**（取代 09 §5.1「保留項目在最上」）。計數語意不變（D46：套其他欄已套用條件與 `q`，排除本欄）。
+6. **學生總表各欄**（`columnKey`：底層值／顯示文字；空白皆顯示「—」）：
+   - `name` 姓名：字串／同值；只排序、不提供選項（敏感欄，維持 `q`）。
+   - `grade` 年級：`grade` 非 null → 數值 `grade`／`N年級`；`grade` 為 null 且 `grade_raw` 非空白 → 字串 `grade_raw`／同值（小班、中班、國一、未知、無…各成一項）；否則空白。整數 `grade` 與計費不變（02、U31）。
+   - `enrollment` 所屬班級（多值）：每個報名項目 → 字串 `baseName`／同值；`baseName` 為空字串者顯示「班名無法解析」；零報名＝空白（無課程，D38）。儲存格每行主文字改為 `baseName`，原始 token（年度前綴、`[N]` 等修飾）移至 tooltip／明細（Operator Q2-b）；「本班」與本班適用折扣仍依恰選一個 `baseName` 判定（不變）。
+   - `anqinDays`／`tutoringDays` 安親／課輔天數：數值天數／`anqin_display`（如 `4`、`4*額`）；`4` 與 `4*額` 為兩個選項，排序同在 4。
+   - `extraDeduction` 額外扣天：數值（安親＋課輔天數合計）／`N*`（有額外扣天旗標）或 `N`；無旗標且兩側天數皆 null 為空白（顯示文字以現行儲存格格式化函式為準）。
+   - `baseDiscount` 合計折扣：數值 bps／`formatDiscountBps`（如 `95折`、`9折`、`無折扣`）。
+   - `applicableDiscount` 本班適用折扣（僅恰選一班時存在；否則 `col.applicableDiscount` 回 400）：數值 bps／折扣文字；該班未配置 → 字串「未設定」；已配置但無法判定 → 空白。
+   - `subjectCount` 已補科數：數值／同值；只排序、不提供篩選（09 §5.1 不變）。
+   - `sibling` 兄弟姊妹折扣：字串「有」或空白；`internalStudent` 園內生：字串「是」或空白。
+   - `specialDiscount` 特殊折扣：數值（特殊折扣率 bps）／折扣文字（如 `95折`）或空白。
+   - `review` 需確認（多值）：儲存格顯示**全部**徽章——`天數不同`（`tier_mismatch`）、每個 actionable issue 的中文標籤、只有 `needsReview` 而無 issue 時 `待核對`；無任何徽章＝空白（「—」）。選項＝各徽章文字，原「米豆奶天數比較／問題類型」兩分區合併為一張清單，「天數吻合」選項移除（它不是顯示值；Operator Q2-a）。
+7. **傳輸（學生總表 API）**：UI 與網址只用 `col.<columnKey>=<顯示文字>`；字面以 `~` 開頭者前置 `~` 跳脫；`~blank`、`~none`（只能單獨出現）同既有語意。**既有語意參數（`grade`、`enrollmentKey`、`anqinDays`、`baseDiscountBps`、`hasExtraDeduction`、`sibling`、`issueCode`、`tierMismatch` 等上表各列）對 Agent 逐位元不變**，與 `col.*` 為 AND。`options=true` 回應保留既有 `options`（語意參數鍵、語意不變），另新增 `columnOptions: Record<columnKey, Array<{ value: <顯示文字>|'~blank', count }>>`（順序依第 5 點）；兩者的計數皆套用含 `col.*` 在內的其他已套用條件。`stats`（含 `classScopeTotal`：只套班級條件，含 `col.enrollment` 與語意 `enrollmentKey`）以最終篩選結果計算。
+8. **排序與 cursor（學生總表）**：`sort` 欄位名稱白名單不變（`name`、`grade`、`anqinDays`、`tutoringDays`、`baseDiscountBps`、`subjectCount`），比較改依第 3、4 點。server 於 application 層對「語意參數 SQL 前篩後」的該 run 學生計算 `{ value, text }`、篩選、排序與 keyset 分頁（N≤名冊人數；不新增持久化排序鍵或 migration）。cursor `version: 3`：`p`＝personCode、`v`＝底層值（數值或字串，以 JSON 型別區分）或 `n: true`（空白）；舊版 cursor 一律 400。未帶 `sort` 時順序仍為 `person_code ASC`（UX128 不變）。效能門檻不變：`npm run test:perf:isolated` 排序路徑單輪 p95 < 200ms；若不達標，先回報再考慮預算排序鍵。
+9. **Agent 可見變更（明列）**：新增 `col.*` 參數與 `columnOptions`；`sort=name` 由碼點序改為筆畫序；`sort=grade` 由「數值、null（含小班等）最後」改為「數值年級→文字年級（筆畫序）→空白」；cursor 改 v3。其餘參數、回應欄位與未帶 `sort` 之順序不變。
+10. **端點說明**：`GET /api/v1/imports/{previewId}/students` 已於 D60 移除（§5.9.2）；本節舊文字中該端點的參數與白名單僅屬歷史。匯入頁表格以預覽回應在 client 端套用第 1–5 點。
 
 **傳輸格式與單值相容**：
 
@@ -231,7 +244,7 @@ PR-1 raw/actionable issue 相容邊界：`issues`、`hasIssues`、`issueCounts` 
 |狀態|傳輸|語意|
 |---|---|---|
 |未設篩選（全部）|該欄 key 不出現（既有空字串如 `grade=` 視為未設，僅為相容；UI 不送）|該欄不限制|
-|選了「(空白)」|保留值 `~blank`，可與一般值並存（OR）|該欄為空：所屬班級＝零報名（無課程，以 `enrollmentKey=~blank` 查詢）；年級＝`grade` 為 null 且原文空白（D66；有原文者為文字年級，不屬空白）；天數／本班適用折扣仍可能為 null 或未知。合計折扣在新 run 不產生 null，無報名且無特殊折扣者歸入 10000；該欄的 `~blank` 仍接受但匹配 0 人，不代表無報名|
+|選了「(空白)」|保留值 `~blank`，可與一般值並存（OR）|該欄為空：所屬班級＝零報名（無課程，以 `enrollmentKey=~blank` 查詢）；年級／天數／本班適用折扣仍可能為 null 或未知。合計折扣在新 run 不產生 null，無報名且無特殊折扣者歸入 10000；該欄的 `~blank` 仍接受但匹配 0 人，不代表無報名|
 |班名無法解析|保留值 `~empty`，僅適用於所屬班級|有 enrollment 但 baseName 為空字串（token 僅中括號等無法解析出班名者）。與 `~blank` 互斥（不可混用回 400）；**不計入無課程**|
 |取消全選後按「確定」|保留值 `~none`，**只能單獨出現**；與其他值並存回 400|空集合：0 筆，`totalStudents` 與各項 stats 皆為 0|
 
@@ -262,7 +275,7 @@ PR-1 raw/actionable issue 相容邊界：`issues`、`hasIssues`、`issueCounts` 
 **一致性、分頁與 cursor 契約變更**：
 
 - 名單、統計、分頁使用同一條件。
-- **Cursor 契約變更**：為防止條件改變後仍套用舊分頁，cursor 編碼包含 `scope` 與正規化條件之 SHA-256 identity。條件改變（選值變更、切換 run、改 `q`）而帶舊 cursor 者一律回 400。preview 端 cursor 同步綁定 `importId` 與篩選條件。**（D65）** identity 一併納入 `sort`：換 `sort` 沿用舊 cursor 回 400。cursor 內容改為 keyset `(sortValue, personCode)`（`grade` 的 `sortValue` 型別見上「年級欄」，D66）；`sortValue` 為 null 時須以與任何實值皆可區分的方式編碼（頁界可落在 null 群內），`ORDER BY` 為 `(<col> IS NULL), <col> <dir>, person_code ASC`，分頁 WHERE 依同一順序做 keyset 比較。無法解碼的 cursor 回 400。
+- **Cursor 契約變更**：為防止條件改變後仍套用舊分頁，cursor 編碼包含 `scope` 與正規化條件之 SHA-256 identity。條件改變（選值變更、切換 run、改 `q`）而帶舊 cursor 者一律回 400。preview 端 cursor 同步綁定 `importId` 與篩選條件。**（D65）** identity 一併納入 `sort`：換 `sort` 沿用舊 cursor 回 400。cursor 內容改為 keyset `(sortValue, personCode)`（D66 起 `version: 3`，`sortValue` 為儲存格底層值，數值或字串依 JSON 型別區分；見下「表頭欄位統一篩選與排序」）；`sortValue` 為 null 時須以與任何實值皆可區分的方式編碼（頁界可落在 null 群內），`ORDER BY` 為 `(<col> IS NULL), <col> <dir>, person_code ASC`，分頁 WHERE 依同一順序做 keyset 比較。無法解碼的 cursor 回 400。
 - client 於條件改變時必須清空 cursor 並從第一頁重查。
 
 **「無課程」（D38；獨立語意，不重用 hasClass）**：
