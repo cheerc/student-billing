@@ -132,21 +132,15 @@ test.describe('R4 重寫：T06 故障恢復與歷程查閱 E2E 驗收', () => {
     // 結果表一頁只顯示 50 列（分頁），因此斷言「第一頁滿載且每列都對」，
     // 總筆數由上面的「符合篩選」人數行斷言（兩者互相佐證）。
     await expect(rows).toHaveCount(RESULT_PAGE_SIZE);
-    // 「需確認」欄的徽章只顯示**第一個**問題碼的中文名稱（summary-table 只渲染
-    // `issueLabel(stu.issues[0].code)`），且該列可能同時有「天數不同」徽章。因此
-    // 不能要求每一列都出現「班名未對應課表」——有些學生的第一個問題碼是別的
-    // （例如「重複報名」「員工家屬無折扣」）。這裡改為斷言：
-    //   (a) 每一列的「需確認」欄都有徽章（都有待確認事項）；
-    //   (b) **多數**列的徽章是「班名未對應課表」（本篩選的目標問題碼確實呈現），
-    //       但不要求每一列（少數學生的第一個問題碼是別的）。
+    // D66 R6（Operator Q2-a）：「需確認」欄顯示**全部**徽章（天數不同、每個 issue 標籤、待核對），
+    // 不再只渲染第一個問題碼。篩選條件是「班名未對應課表」，所以結果的**每一列**都必須帶該徽章。
+    // 斷言：(a) 每一列的「需確認」欄都有徽章（不是「—」）；(b) 每一列都含「班名未對應課表」徽章。
     const reviewCells = table.locator('tbody tr td:last-child');
     for (let i = 0; i < RESULT_PAGE_SIZE; i++) {
       await expect(reviewCells.nth(i)).not.toContainText('—');
       await expect(reviewCells.nth(i)).not.toContainText('CLASS_NOT_MAPPED', { useInnerText: true });
+      await expect(reviewCells.nth(i).locator('.badge-warn', { hasText: '班名未對應課表' })).toHaveCount(1);
     }
-    const badges = await reviewCells.allInnerTexts();
-    const unmappedBadges = badges.filter((b) => b.includes('班名未對應課表')).length;
-    expect(unmappedBadges, '大部分列的徽章應是本篩選的目標問題碼').toBeGreaterThan(RESULT_PAGE_SIZE / 2);
 
     // 7. 點擊學生列展開明細抽屜：來源列座標與排課問題說明（舊版斷言，恢復）
     await rows.first().click();
