@@ -3,6 +3,7 @@ import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import SummaryTable, { formatBaseDiscount, STUDENT_TABLE_COLUMNS } from '@/components/summary-table';
 import { formatDiscountBps } from '@/application/roster-changes';
+import { STUDENT_COLUMN_SPECS, gradeCell, studentColumnSpec } from '@/lib/table-columns/student-columns';
 import type { StudentCalculationItem } from '@/application/query-students';
 
 /**
@@ -250,5 +251,196 @@ describe('UX28／F05：恰選一班時的本班適用折扣欄（與基本率並
   it('沒有 singleClass（未選班或選多班）：沒有本班適用折扣欄', () => {
     expect(headers(render([item()]))).not.toContain('本班適用折扣');
     expect(headers(render([item()], { singleClass: null }))).not.toContain('本班適用折扣');
+  });
+});
+
+/**
+ * D66 UX129 (e)／03 §5.1 R6（Issue #253 P2）：學生總表每格文字取自 `student-columns.ts` 的同一欄位定義；
+ * 所屬班級主文字＝baseName（Q2-b）、需確認顯示全部徽章（Q2-a）。
+ * expected 皆依 03 R6 手算（合成列），不由待測函式輸出產生。
+ */
+describe('D66 P2：學生總表欄位定義（03 §5.1 R6）', () => {
+  const careTrace = { careDays: { anqin: { hasExtraFlag: true }, tutoring: { hasExtraFlag: false } } };
+  // 列 A：多報名（含無法解析班名）、三種標籤、天數不同＋兩個 issue
+  const rowA = item({
+    personCode: 'A1',
+    grade: 3,
+    gradeRaw: '三年級',
+    subjectCount: 2,
+    baseDiscountBps: 9500,
+    anqinDays: null,
+    anqinDisplay: null,
+    tutoringDays: 5,
+    tutoringDisplay: '5',
+    applicableMathBps: 9000,
+    tierMismatch: true,
+    actionableIssues: [{ code: 'CLASS_NOT_MAPPED' }, { code: 'SCHEDULE_EMPTY' }],
+    actionableHasIssues: true,
+    trace: { rawTags: '有兄弟姊妹折扣 園內生 特殊折扣85折' } as never,
+    enrollments: [
+      { rawToken: '2026國小數學-三A[團]', yearPrefix: '2026', baseName: '國小數學-三A', groupFlag: '團', modifiers: [], withdrawalDate: null, erpBillingTierRaw: null, erpBillingTier: null, tierParseStatus: 'parsed', parseStatus: 'ok' },
+      { rawToken: '[團]', yearPrefix: null, baseName: '', groupFlag: '團', modifiers: [], withdrawalDate: null, erpBillingTierRaw: null, erpBillingTier: null, tierParseStatus: 'parsed', parseStatus: 'ok' },
+    ],
+  } as Partial<StudentCalculationItem>);
+  // 列 B：文字年級、安親 `4*額`（有額外扣天旗標）、零報名、折扣 null、只有 needsReview（無 issue）
+  const rowB = item({
+    personCode: 'B1',
+    name: '李小華',
+    grade: null,
+    gradeRaw: '小班',
+    subjectCount: null,
+    baseDiscountBps: null,
+    anqinDays: 4,
+    anqinDisplay: '4*額',
+    tutoringDays: null,
+    tutoringDisplay: null,
+    tierMismatch: false,
+    actionableIssues: [],
+    actionableHasIssues: true,
+    trace: careTrace as never,
+    enrollments: [],
+  } as Partial<StudentCalculationItem>);
+  // 列 C：全空白
+  const rowC = item({
+    personCode: 'C1',
+    name: '陳小美',
+    grade: null,
+    gradeRaw: null as never,
+    subjectCount: null,
+    baseDiscountBps: 10000,
+    anqinDays: null,
+    anqinDisplay: null,
+    tutoringDays: null,
+    tutoringDisplay: null,
+    tierMismatch: false,
+    actionableIssues: [],
+    actionableHasIssues: false,
+    trace: {},
+    enrollments: [],
+  } as Partial<StudentCalculationItem>);
+
+  const ctx = { singleClass: null, snapshots: defaultSnapshots };
+  const textsOf = (key: string, row: StudentCalculationItem, c: { singleClass: string | null; snapshots: typeof defaultSnapshots | null } = ctx) => {
+    const spec = studentColumnSpec(key);
+    expect(spec, `spec ${key}`).toBeDefined();
+    return spec!.cells(row, c).map((x) => (x === null ? null : [x.value, x.text]));
+  };
+
+  it('共 13 個 ColumnSpec，key／label／filterable／sortable 依 R6', () => {
+    expect(STUDENT_COLUMN_SPECS.map((s) => [s.key, s.label, s.filterable, s.sortable])).toEqual([
+      ['name', '姓名', false, true],
+      ['grade', '年級', true, true],
+      ['enrollment', '所屬班級', true, false],
+      ['anqinDays', '安親天數', true, true],
+      ['tutoringDays', '課輔天數', true, true],
+      ['extraDeduction', '額外扣天', true, false],
+      ['baseDiscount', '合計折扣', true, true],
+      ['applicableDiscount', '本班適用折扣', true, false],
+      ['subjectCount', '已補科數', false, true],
+      ['sibling', '兄弟姊妹折扣', true, false],
+      ['specialDiscount', '特殊折扣', true, false],
+      ['internalStudent', '園內生', true, false],
+      ['review', '需確認', true, false],
+    ]);
+  });
+
+  it('name／grade／gradeCell：數值年級 N年級、文字年級原文、否則空白', () => {
+    expect(textsOf('name', rowA)).toEqual([['王小明', '王小明']]);
+    expect(textsOf('grade', rowA)).toEqual([[3, '3年級']]);
+    expect(textsOf('grade', rowB)).toEqual([['小班', '小班']]);
+    expect(textsOf('grade', rowC)).toEqual([]);
+    expect(gradeCell(3, '三年級')).toEqual({ value: 3, text: '3年級' });
+    expect(gradeCell(null, '國一')).toEqual({ value: '國一', text: '國一' });
+    expect(gradeCell(null, '  ')).toBeNull();
+    expect(gradeCell(null, null)).toBeNull();
+  });
+
+  it('enrollment：每個報名一個項目，主文字＝baseName；空 baseName 顯示「班名無法解析」；零報名為空白', () => {
+    expect(textsOf('enrollment', rowA)).toEqual([
+      ['國小數學-三A', '國小數學-三A'],
+      ['', '班名無法解析'],
+    ]);
+    expect(textsOf('enrollment', rowB)).toEqual([]);
+  });
+
+  it('anqinDays／tutoringDays：數值天數／顯示文字（4 與 4*額 為不同文字）；無值為空白', () => {
+    expect(textsOf('anqinDays', rowB)).toEqual([[4, '4*額']]);
+    expect(textsOf('anqinDays', rowA)).toEqual([]);
+    expect(textsOf('tutoringDays', rowA)).toEqual([[5, '5']]);
+    expect(textsOf('tutoringDays', rowB)).toEqual([]);
+  });
+
+  it('extraDeduction：有旗標 N*、無旗標 N（安親＋課輔合計）、兩側皆 null 且無旗標為空白', () => {
+    expect(textsOf('extraDeduction', rowB)).toEqual([[4, '4*']]);
+    expect(textsOf('extraDeduction', rowA)).toEqual([[5, '5']]);
+    expect(textsOf('extraDeduction', rowC)).toEqual([]);
+  });
+
+  it('baseDiscount／subjectCount：bps／折扣文字（null→字串未設定）；subjectCount 數值同值、null 空白', () => {
+    expect(textsOf('baseDiscount', rowA)).toEqual([[9500, '95折']]);
+    expect(textsOf('baseDiscount', rowB)).toEqual([['未設定', '未設定']]);
+    expect(textsOf('baseDiscount', rowC)).toEqual([[10000, '無折扣']]);
+    expect(textsOf('subjectCount', rowA)).toEqual([[2, '2']]);
+    expect(textsOf('subjectCount', rowB)).toEqual([]);
+  });
+
+  it('applicableDiscount：僅恰選一班時存在；未配置＝字串未設定；已配置但無法判定＝空白', () => {
+    expect(textsOf('applicableDiscount', rowA, ctx)).toEqual([]); // 未恰選一班
+    expect(textsOf('applicableDiscount', rowA, { singleClass: '國小數學-三A', snapshots: defaultSnapshots })).toEqual([[9000, '9折']]);
+    expect(textsOf('applicableDiscount', rowA, { singleClass: '不存在的班', snapshots: defaultSnapshots })).toEqual([['未設定', '未設定']]);
+    expect(textsOf('applicableDiscount', rowB, { singleClass: '國小輔導-一A', snapshots: defaultSnapshots })).toEqual([]); // 年級未知 → 無法判定
+  });
+
+  it('sibling／specialDiscount／internalStudent：有／折扣文字／是，否則空白', () => {
+    expect(textsOf('sibling', rowA)).toEqual([['有', '有']]);
+    expect(textsOf('sibling', rowB)).toEqual([]);
+    expect(textsOf('specialDiscount', rowA)).toEqual([[8500, '85折']]);
+    expect(textsOf('specialDiscount', rowB)).toEqual([]);
+    expect(textsOf('internalStudent', rowA)).toEqual([['是', '是']]);
+    expect(textsOf('internalStudent', rowC)).toEqual([]);
+  });
+
+  it('review（Q2-a）：全部徽章依序＝天數不同、每個 issue 標籤、只有 needsReview 時待核對；無徽章為空白', () => {
+    expect(textsOf('review', rowA).map((x) => x![1])).toEqual(['天數不同', '班名未對應課表', '排課空時段']);
+    expect(textsOf('review', rowB).map((x) => x![1])).toEqual(['待核對']);
+    expect(textsOf('review', rowC)).toEqual([]);
+  });
+
+  const tdTexts = (html: string, personCode: string) => {
+    const row = (html.match(/<tr[^>]*>[\s\S]*?<\/tr>/g) ?? []).find((r) => r.includes(`data-student-trigger="${personCode}"`))!;
+    return (row.match(/<td[^>]*>[\s\S]*?<\/td>/g) ?? []).map((c) => c.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim());
+  };
+
+  it('SSR：每個 <td> 文字＝同欄 cells() 各項 text（以空白連接），空白為「—」（含恰選一班的本班適用折扣欄）', () => {
+    const students = [rowA, rowB, rowC];
+    const singleClass = '國小數學-三A';
+    const html = render(students, { singleClass, classCategorySnapshots: defaultSnapshots as any });
+    const c = { singleClass, snapshots: defaultSnapshots };
+    for (const stu of students) {
+      const expected = STUDENT_COLUMN_SPECS.map((spec) => {
+        const cells = spec.cells(stu, c).filter((x) => x !== null);
+        return cells.length ? cells.map((x) => x!.text).join(' ') : '—';
+      });
+      expect(tdTexts(html, stu.personCode)).toEqual(expected);
+    }
+    // 手算錨點（防止 spec 與渲染一起錯）：列 A 全 13 格
+    expect(tdTexts(html, 'A1')).toEqual(['王小明', '3年級', '國小數學-三A 班名無法解析', '—', '5', '5', '95折', '9折', '2', '有', '85折', '是', '天數不同 班名未對應課表 排課空時段']);
+    expect(tdTexts(html, 'B1')).toEqual(['李小華', '小班', '—', '4*額', '—', '4*', '未設定', '—', '—', '—', '—', '—', '待核對']);
+    expect(tdTexts(html, 'C1')).toEqual(['陳小美', '—', '—', '—', '—', '—', '無折扣', '—', '—', '—', '—', '—', '—']);
+  });
+
+  it('所屬班級：每行主文字為 baseName，原始 token 放在 title（Q2-b）；空 baseName 顯示「班名無法解析」', () => {
+    const html = render([rowA]);
+    expect(html).toMatch(/title="2026國小數學-三A\[團\]"[^>]*>國小數學-三A</);
+    expect(html).toMatch(/title="\[團\]"[^>]*>班名無法解析</);
+    expect(html).not.toMatch(/>2026國小數學-三A\[團\]</);
+  });
+
+  it('需確認：天數不同＋兩個 issue 的學生顯示 3 個徽章（不再只顯示首個 issue）', () => {
+    const html = render([rowA]);
+    const row = html.match(/<tr[^>]*>[\s\S]*?<\/tr>/g)!.find((r) => r.includes('<td'))!;
+    const lastTd = row.match(/<td[^>]*>[\s\S]*?<\/td>/g)!.at(-1)!;
+    const badges = (lastTd.match(/<span class="badge badge-warn">[^<]*<\/span>/g) ?? []).map((b) => b.replace(/<[^>]*>/g, ''));
+    expect(badges).toEqual(['天數不同', '班名未對應課表', '排課空時段']);
   });
 });
