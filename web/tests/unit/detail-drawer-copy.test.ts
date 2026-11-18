@@ -194,3 +194,35 @@ describe('issue #100：學生明細各課程適用率與學生總表同格式', 
     expect(html).not.toContain('各課程適用率：');
   });
 });
+
+/**
+ * D66 Q2-b：總表所屬班級儲存格只顯示 baseName，原始 token 移至 tooltip 與明細。
+ * 明細「原始資料」摺疊區必須逐筆列出每個報名的原始 token（含無級距比對者），
+ * 供鍵盤／螢幕閱讀器使用者取得（a11y rule 6：不得只靠 hover）。
+ */
+describe('D66 Q2-b：明細原始資料列出所屬班級原始 token', () => {
+  const enr = (rawToken: string, baseName: string) => ({
+    rawToken, yearPrefix: null, baseName, groupFlag: null, modifiers: [], withdrawalDate: null,
+    erpBillingTierRaw: null, erpBillingTier: null, tierParseStatus: 'not_applicable', parseStatus: 'ok',
+  });
+  it('每個 enrollment 的 rawToken 都在「原始資料」區塊內（tierComparisons 為空也要有）', () => {
+    const html = renderToStaticMarkup(
+      React.createElement(DetailDrawer, {
+        student: { ...base, tierComparisons: [], enrollments: [enr('2026兒童美語-KC[團]', '兒童美語-KC'), enr('國小數學-三A', '國小數學-三A')] } as unknown as StudentCalculationItem,
+        onClose: () => {},
+      })
+    );
+    const start = html.indexOf('原始資料</summary>');
+    expect(start, '找不到原始資料區塊').toBeGreaterThan(-1);
+    const block = html.slice(start, html.indexOf('技術資訊', start));
+    expect(block).toContain('所屬班級原始資料');
+    expect(block).toContain('2026兒童美語-KC[團]');
+    expect(block).toContain('國小數學-三A');
+  });
+  it('零報名時不出現「所屬班級原始資料」', () => {
+    const html = renderToStaticMarkup(
+      React.createElement(DetailDrawer, { student: { ...base } as StudentCalculationItem, onClose: () => {} })
+    );
+    expect(html).not.toContain('所屬班級原始資料');
+  });
+});

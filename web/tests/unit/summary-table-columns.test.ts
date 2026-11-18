@@ -429,11 +429,13 @@ describe('D66 P2：學生總表欄位定義（03 §5.1 R6）', () => {
     expect(tdTexts(html, 'C1')).toEqual(['陳小美', '—', '—', '—', '—', '—', '無折扣', '95折', '—', '—', '—', '—', '—']);
   });
 
-  it('所屬班級：每行主文字為 baseName，原始 token 放在 title（Q2-b）；空 baseName 顯示「班名無法解析」', () => {
+  it('所屬班級：每行主文字為 baseName，原始 token 放在 data-raw-token 供 tooltip 讀取、不用 title（Q2-b；a11y rule 6）；空 baseName 顯示「班名無法解析」', () => {
     const html = render([rowA]);
-    expect(html).toMatch(/title="2026國小數學-三A\[團\]"[^>]*>國小數學-三A</);
-    expect(html).toMatch(/title="\[團\]"[^>]*>班名無法解析</);
+    expect(html).toMatch(/data-raw-token="2026國小數學-三A\[團\]"[^>]*>國小數學-三A</);
+    expect(html).toMatch(/data-raw-token="\[團\]"[^>]*>班名無法解析</);
     expect(html).not.toMatch(/>2026國小數學-三A\[團\]</);
+    // 不可聚焦元素只靠 title 傳達內容＝hover-only（a11y.spec.ts rule 6）；整個表格都不得出現 title 屬性
+    expect(html).not.toMatch(/\btitle="/);
   });
 
   it('需確認：天數不同＋兩個 issue 的學生顯示 3 個徽章（不再只顯示首個 issue）', () => {
