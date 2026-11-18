@@ -109,19 +109,18 @@ test.describe('R4 重寫：T06 故障恢復與歷程查閱 E2E 驗收', () => {
     // #157 Ruling 3：未對應課表的班一律 CLASS_NOT_MAPPED（中文「班名未對應課表」），
     // 取代舊制的「缺排課」（SCHEDULE_NOT_FOUND／「排課缺漏」）——fixture 學生報的班
     // 根本不在課表設定內，說「缺排課」並不準確。
-    const unmappedOption = issuePanel.locator('[data-filter-section="issueCode"] [data-filter-option="班名未對應課表"]');
+    const unmappedOption = issuePanel.locator('[data-filter-section="review"] [data-filter-option="班名未對應課表"]');
     await expect(unmappedOption).toBeVisible();
     await expect(unmappedOption.locator('[data-filter-count]')).toHaveText(String(FIXTURE_CLASS_NOT_MAPPED));
     // 選項名稱只有中文（工程代碼不出現在主畫面；代碼移至明細技術資訊）
-    await expect(issuePanel.locator('[data-filter-section="issueCode"]')).not.toContainText('CLASS_NOT_MAPPED');
+    await expect(issuePanel.locator('[data-filter-section="review"]')).not.toContainText('CLASS_NOT_MAPPED');
     await page.keyboard.press('Escape');
 
     // 6. 選「班名未對應課表」後：筆數 ＝ fixture 實測值（舊版 toHaveCount(13)，斷言強度不降），
     //    並且人數行「符合篩選」、列數、每一列的問題碼三者一致（比舊版更嚴）
     //
-    // 篩選面板的「需確認」有兩個 section（級距差異／問題類型）。本步驟只勾**問題類型**
-    // 的「班名未對應課表」；級距差異兩個選項都不勾（＝不限定級距），
-    // 因此結果是「有該問題碼的學生」全數（191），不是只有級距吻合的那些。
+    // D66：篩選面板的「需確認」是單一清單（徽章文字＋「(空白)」）。本步驟只勾「班名未對應課表」，
+    // 其他徽章（含「天數不同」）都不勾，因此結果是「有該問題碼的學生」全數（191），不限定天數是否相同。
     await applyFilter(page, '需確認', { pick: ['班名未對應課表'] });
     const counts = page.locator('.counts-line');
     await expect(counts.locator('[data-count="matched"]')).toHaveText(String(FIXTURE_CLASS_NOT_MAPPED));

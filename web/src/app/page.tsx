@@ -54,6 +54,7 @@ export default async function HomePage({
           classCategorySnapshots={loadRunClassCategories(db, activeRun.id)}
           initialData={view.data}
           initialOptions={view.options}
+          initialOptionsClass={view.optionsClass}
           initialView={view.view}
           initialFilters={view.filters}
           initialDeductionFilters={view.deductionFilters}

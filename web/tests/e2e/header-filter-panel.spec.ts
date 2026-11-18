@@ -83,7 +83,7 @@ test.describe('UX25 表頭篩選：選項、六點語意、三種空狀態', () 
     const orExpected = students.filter((s) => classesOf(s).some((c) => wanted.has(c)));
     await expect(matched(page)).toHaveText(String(orExpected.length));
     for (const c of wanted) await expect(chip(page, '所屬班級', c)).toBeVisible();
-    expect(urlParams(page).getAll('enrollmentKey').sort()).toEqual([...wanted].sort());
+    expect(urlParams(page).getAll('col.enrollment').sort()).toEqual([...wanted].sort());
 
     // 再加一欄（年級 3）：跨欄 AND
     await applyFilter(page, '年級', { pick: ['3年級'] });
@@ -91,7 +91,7 @@ test.describe('UX25 表頭篩選：選項、六點語意、三種空狀態', () 
     expect(andExpected.length).toBeLessThan(orExpected.length);
     await expect(matched(page)).toHaveText(String(andExpected.length));
     await expect(chip(page, '年級', '3年級')).toBeVisible();
-    expect(urlParams(page).getAll('grade')).toEqual(['3']);
+    expect(urlParams(page).getAll('col.grade')).toEqual(['3年級']);
   });
 
   test('取消保留原條件；逐一移除 chip；清除全部回到全批；有篩選的欄位 ▾ 變色', async ({ page }) => {
@@ -112,7 +112,7 @@ test.describe('UX25 表頭篩選：選項、六點語意、三種空狀態', () 
     await p.getByRole('button', { name: '取消', exact: true }).click();
     await expect(p).toHaveCount(0);
     await expect(matched(page)).toHaveText(String(mathG3.length));
-    expect(urlParams(page).getAll('grade')).toEqual(['3']);
+    expect(urlParams(page).getAll('col.grade')).toEqual(['3年級']);
     await expect(chip(page, '年級')).toHaveCount(1);
     // 重開面板仍是原條件
     const again = await openFilter(page, '年級');
@@ -125,14 +125,14 @@ test.describe('UX25 表頭篩選：選項、六點語意、三種空狀態', () 
     await expect(matched(page)).toHaveText(String(mathIds.length));
     await expect(chip(page, '年級')).toHaveCount(0);
     await expect(trigger(page, '年級')).not.toHaveAttribute('data-filter-active', 'true');
-    expect(urlParams(page).getAll('enrollmentKey')).toEqual([B2.MATH]);
+    expect(urlParams(page).getAll('col.enrollment')).toEqual([B2.MATH]);
 
     // 清除全部
     await applyFilter(page, '年級', { pick: ['2年級'] });
     await page.getByRole('button', { name: '清除全部' }).click();
     await expect(matched(page)).toHaveText(String(B2.SIZE));
     await expect(chips(page).locator('button[aria-label^="移除"]')).toHaveCount(0);
-    for (const key of ['enrollmentKey', 'grade']) expect(urlParams(page).getAll(key)).toEqual([]);
+    for (const key of ['col.enrollment', 'col.grade']) expect(urlParams(page).getAll(key)).toEqual([]);
   });
 
   test('三種空狀態分開：(空白)＝無課程 3 人、班名無法解析 1 人、取消全選後確定＝0 筆；未設篩選＝全部', async ({ page }) => {
@@ -146,7 +146,7 @@ test.describe('UX25 表頭篩選：選項、六點語意、三種空狀態', () 
     for (const i of [0, 1, 2]) {
       await expect(page.locator('.results-table tbody')).toContainText(studentName(i));
     }
-    expect(urlParams(page).getAll('enrollmentKey')).toEqual(['~blank']);
+    expect(urlParams(page).getAll('col.enrollment')).toEqual(['~blank']);
     await expect(chip(page, '所屬班級', '(空白)')).toBeVisible();
 
     // 班名無法解析：有報名但 baseName 空（不是無課程）
@@ -157,7 +157,8 @@ test.describe('UX25 表頭篩選：選項、六點語意、三種空狀態', () 
     await expect(matched(page)).toHaveText(String(B2.UNPARSED));
     await expect(page.locator('.results-table tbody tr')).toHaveCount(B2.UNPARSED);
     await expect(page.locator('.results-table tbody')).toContainText(studentName(5));
-    expect(urlParams(page).getAll('enrollmentKey')).toEqual(['~empty']);
+    // D66：「班名無法解析」是一般顯示文字（不再是保留值 ~empty）
+    expect(urlParams(page).getAll('col.enrollment')).toEqual(['班名無法解析']);
     await expect(chip(page, '所屬班級', '班名無法解析')).toBeVisible();
     await expect(chip(page, '所屬班級', '(空白)')).toHaveCount(0);
 
@@ -168,12 +169,12 @@ test.describe('UX25 表頭篩選：選項、六點語意、三種空狀態', () 
     await p.getByRole('button', { name: '確定', exact: true }).click();
     await expect(matched(page)).toHaveText('0');
     await expect(page.getByText('沒有符合條件的學生')).toBeVisible();
-    expect(urlParams(page).getAll('enrollmentKey')).toEqual(['~none']);
+    expect(urlParams(page).getAll('col.enrollment')).toEqual(['~none']);
     await expect(chip(page, '所屬班級')).toHaveCount(1);
 
     // 由網址還原三種狀態
-    for (const [wire, expected] of [['~blank', B2.NO_COURSE], ['~empty', B2.UNPARSED], ['~none', 0]] as const) {
-      await page.goto(`/?enrollmentKey=${encodeURIComponent(wire)}`);
+    for (const [wire, expected] of [['~blank', B2.NO_COURSE], ['班名無法解析', B2.UNPARSED], ['~none', 0]] as const) {
+      await page.goto(`/?col.enrollment=${encodeURIComponent(wire)}`);
       await expect(matched(page)).toHaveText(String(expected));
     }
   });
@@ -266,6 +267,77 @@ test.describe('UX25 表頭篩選：選項、六點語意、三種空狀態', () 
     await expect(chip(page, '姓名或代碼', 'B2E_0006')).toBeVisible();
     await page.getByRole('button', { name: '清除全部' }).click();
     await expect(q).toHaveValue('');
+    await expect(matched(page)).toHaveText(String(B2.SIZE));
+  });
+});
+
+test.describe('UX132 表頭篩選面板與網址（D66）', () => {
+  test('選項順序：「(空白)」一律最後；班名無法解析是一般顯示文字、排在「(空白)」之前', async ({ page }) => {
+    const classes = await visibleOptionLabels(await openFilter(page, '所屬班級'));
+    expect(classes.at(-1)).toBe('(空白)');
+    expect(classes.indexOf('班名無法解析')).toBeGreaterThanOrEqual(0);
+    expect(classes.indexOf('班名無法解析')).toBeLessThan(classes.indexOf('(空白)'));
+    await page.keyboard.press('Escape');
+    for (const column of ['年級', '安親天數', '課輔天數', '額外扣天', '合計折扣', '特殊折扣', '需確認']) {
+      const labels = await visibleOptionLabels(await openFilter(page, column));
+      if (labels.includes('(空白)')) expect(labels.at(-1), `${column}「(空白)」須最後`).toBe('(空白)');
+      await page.keyboard.press('Escape');
+    }
+  });
+
+  test('需確認是單一清單：沒有「米豆奶天數比較／問題類型」分區，也沒有「天數吻合」；選項是徽章文字', async ({ page }) => {
+    const p = await openFilter(page, '需確認');
+    await expect(p.locator('[data-filter-section]')).toHaveCount(1);
+    await expect(p.locator('[data-filter-section="review"]')).toHaveCount(1);
+    await expect(p.locator('legend')).toHaveCount(0);
+    await expect(p).not.toContainText('米豆奶天數比較');
+    await expect(p).not.toContainText('問題類型');
+    await expect(p.locator('[data-filter-option="天數吻合"]')).toHaveCount(0);
+    const labels = await visibleOptionLabels(p);
+    expect(labels.length).toBeGreaterThanOrEqual(2);
+    expect(labels.every((l) => l.trim() !== '')).toBe(true);
+    // 選任一徽章後，網址是 col.review=<徽章文字>，不再有舊參數
+    const first = labels.find((l) => l !== '(空白)')!;
+    await p.locator(`[data-filter-option="${first}"] input[type="checkbox"]`).check();
+    await p.getByRole('button', { name: '確定', exact: true }).click();
+    const params = urlParams(page);
+    expect(params.getAll('col.review')).toEqual([first]);
+    for (const legacy of ['tierMismatch', 'issueCode']) expect(params.has(legacy)).toBe(false);
+    await expect(chip(page, '需確認', first)).toBeVisible();
+  });
+
+  test('舊語意網址參數載入時一律移除並提示（col.* 照常生效），網址同步為乾淨', async ({ page }) => {
+    await page.goto(`/?grade=3&hasExtraDeduction=maybe&enrollmentKey=${encodeURIComponent(B2.MATH)}&col.grade=${encodeURIComponent('3年級')}`);
+    const notice = page.locator('[data-notice="filters-pruned"]');
+    await expect(notice).toBeVisible();
+    await expect(notice).toContainText('已移除');
+    await expect(notice).toContainText('額外扣天');
+    await expect(notice).toContainText('所屬班級');
+    // 舊參數沒有生效：班級條件被移除，只剩 col.grade
+    await expect(chip(page, '所屬班級')).toHaveCount(0);
+    await expect(chip(page, '年級', '3年級')).toBeVisible();
+    await expect.poll(() => [...urlParams(page).keys()].filter((k) => ['grade', 'enrollmentKey', 'hasExtraDeduction'].includes(k))).toEqual([]);
+    expect(urlParams(page).getAll('col.grade')).toEqual(['3年級']);
+    // 只有舊參數：全部名單、提示、網址回到乾淨路徑
+    await page.goto('/?tierMismatch=true');
+    await expect(matched(page)).toHaveText(String(B2.SIZE));
+    await expect(page.locator('[data-notice="filters-pruned"]')).toContainText('需確認');
+    await expect.poll(() => new URL(page.url()).search).toBe('');
+  });
+
+  test('網址條件無效（未知欄、空值、未跳脫的 ~ 開頭）：忽略全部條件並提示，不出錯誤頁', async ({ page }) => {
+    for (const qs of ['col.bogus=x&col.grade=3%E5%B9%B4%E7%B4%9A', 'col.grade=', 'col.grade=~x']) {
+      await page.goto(`/?${qs}`);
+      await expect(page.locator('[data-notice="filters-invalid"]')).toBeVisible();
+      await expect(matched(page)).toHaveText(String(B2.SIZE));
+      await expect(chips(page).locator('button[aria-label^="移除"]')).toHaveCount(0);
+    }
+  });
+
+  test('字面以 ~ 開頭的值以 ~~ 跳脫：網址帶 ~~x 合法，查無此值被移除並提示', async ({ page }) => {
+    await page.goto('/?col.enrollment=~~x');
+    await expect(page.locator('[data-notice="filters-pruned"]')).toBeVisible();
+    await expect(page.locator('[data-notice="filters-invalid"]')).toHaveCount(0);
     await expect(matched(page)).toHaveText(String(B2.SIZE));
   });
 });

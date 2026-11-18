@@ -90,15 +90,52 @@ test.describe('UX28 人數行（全部／本班／已選 N 班）與本班適用
     const only95 = care.filter((s) => careApplicable(s) === 9500);
     expect(only95.length).toBeGreaterThanOrEqual(1);
     await expect(matched(page)).toHaveText(String(only95.length));
-    expect(urlParams(page).getAll('applicableDiscountBps')).toEqual(['9500']);
+    expect(urlParams(page).getAll('col.applicableDiscount')).toEqual(['95折']);
     await expect(chip(page, '本班適用折扣', '95折')).toBeVisible();
 
     // 改成兩個班 → 本班條件不再成立：自動移除並提示，不出現錯誤
     await applyFilter(page, '所屬班級', { pick: [B2.MATH] });
     await expect(page.locator('.alert-danger')).toHaveCount(0); // 查詢失敗警告（不是 Next 的路由播報）
-    expect(urlParams(page).getAll('applicableDiscountBps')).toEqual([]);
+    expect(urlParams(page).getAll('col.applicableDiscount')).toEqual([]);
     await expect(chip(page, '本班適用折扣')).toHaveCount(0);
     await expect(page.locator('[data-notice="applicable-removed"]')).toContainText('本班適用折扣');
+  });
+
+  test('UX132 班級選取任何改變（換班、移除班級 chip）都先清掉本班適用折扣，重取選項的請求不帶 col.applicableDiscount', async ({ page }) => {
+    await applyFilter(page, '所屬班級', { pick: [B2.CARE] });
+    await applyFilter(page, '本班適用折扣', { pick: ['95折'] });
+    await expect(chip(page, '本班適用折扣', '95折')).toBeVisible();
+    expect(urlParams(page).getAll('col.applicableDiscount')).toEqual(['95折']);
+
+    // 換班（單選→單選）：選項與清單請求都不得帶過期的 col.applicableDiscount
+    const requests: URL[] = [];
+    page.on('request', (r) => {
+      const u = new URL(r.url());
+      if (/\/api\/v1\/runs\/[^/]+\/students$/.test(u.pathname)) requests.push(u);
+    });
+    const p = await openFilter(page, '所屬班級');
+    await p.locator(`[data-filter-option="${B2.CARE}"] input[type="checkbox"]`).uncheck();
+    await p.locator(`[data-filter-option="${B2.MATH}"] input[type="checkbox"]`).check();
+    await p.getByRole('button', { name: '確定', exact: true }).click();
+    await expect(chip(page, '所屬班級', B2.MATH)).toBeVisible();
+    await expect(chip(page, '本班適用折扣')).toHaveCount(0);
+    await expect(page.locator('[data-notice="applicable-removed"]')).toContainText('班級選取已變更');
+    await expect.poll(() => requests.some((u) => u.searchParams.get('options') === 'true' && u.searchParams.getAll('col.enrollment').join() === B2.MATH)).toBe(true);
+    expect(requests.length).toBeGreaterThanOrEqual(2);
+    for (const u of requests) expect(u.searchParams.has('col.applicableDiscount'), u.search).toBe(false);
+    expect(urlParams(page).getAll('col.applicableDiscount')).toEqual([]);
+    expect(urlParams(page).getAll('col.enrollment')).toEqual([B2.MATH]);
+
+    // 本班適用折扣面板屬於新選的班：可再選一個值；之後移除班級 chip，條件連同清掉
+    const panelNew = await openFilter(page, '本班適用折扣');
+    const label = (await panelNew.locator('[data-filter-option]').filter({ hasNotText: '(空白)' }).first().getAttribute('data-filter-option'))!;
+    await page.keyboard.press('Escape');
+    await applyFilter(page, '本班適用折扣', { pick: [label] });
+    await expect(chip(page, '本班適用折扣')).toHaveCount(1);
+    await chip(page, '所屬班級', B2.MATH).click();
+    await expect(chip(page, '所屬班級')).toHaveCount(0);
+    await expect(chip(page, '本班適用折扣')).toHaveCount(0);
+    expect(urlParams(page).getAll('col.applicableDiscount')).toEqual([]);
   });
 
   test('恰選一個未配置適用折扣的班：欄位顯示「未設定」，不當成 100%（無折扣）', async ({ page }) => {
@@ -151,7 +188,7 @@ test.describe('UX29 無課程提示', () => {
     for (const i of [0, 1, 2]) await expect(page.locator('.results-table tbody')).toContainText(studentName(i));
     for (const i of [3, 4, 5]) await expect(page.locator('.results-table tbody')).not.toContainText(studentName(i));
     await expect(chip(page, '所屬班級', '(空白)')).toBeVisible();
-    expect(urlParams(page).getAll('enrollmentKey')).toEqual(['~blank']);
+    expect(urlParams(page).getAll('col.enrollment')).toEqual(['~blank']);
     // 無課程學生另有真實 issue 者仍計入需確認（列 2）
     await expect(counts(page).locator('[data-count="needs-review"]')).toHaveText(String(noCourse.filter((s) => s.hasIssues).length));
 
@@ -277,9 +314,9 @@ test.describe('run 變更、無效網址與晚到回應', () => {
     const runId = await currentRunId(page);
     const q = new URLSearchParams();
     q.set('runId', 'run_previous_generation');
-    q.append('enrollmentKey', '已不存在的班');
-    q.append('enrollmentKey', B2.MATH);
-    q.set('grade', '9');
+    q.append('col.enrollment', '已不存在的班');
+    q.append('col.enrollment', B2.MATH);
+    q.set('col.grade', '9年級');
     await page.goto(`/?${q}`);
     await expect(page.locator('.results-table')).toBeVisible({ timeout: 15000 });
 
@@ -293,13 +330,18 @@ test.describe('run 變更、無效網址與晚到回應', () => {
     const mathN = students.filter((s) => classesOf(s).includes(B2.MATH)).length;
     await expect(matched(page)).toHaveText(String(mathN));
     // 網址同步為移除後的條件與目前的 run
-    await expect.poll(() => urlParams(page).getAll('enrollmentKey')).toEqual([B2.MATH]);
-    expect(urlParams(page).getAll('grade')).toEqual([]);
+    await expect.poll(() => urlParams(page).getAll('col.enrollment')).toEqual([B2.MATH]);
+    expect(urlParams(page).getAll('col.grade')).toEqual([]);
     expect(urlParams(page).get('runId')).toBe(runId);
   });
 
   test('網址帶有無效的篩選值 → 忽略並提示，不白屏、不顯示錯誤頁', async ({ page }) => {
+    // D66：舊語意參數（hasExtraDeduction=maybe）不論值是否有效一律移除並提示，不是「無效」；無效是 col.* 形狀錯誤。
     await page.goto('/?hasExtraDeduction=maybe');
+    await expect(page.locator('.results-table')).toBeVisible({ timeout: 15000 });
+    await expect(page.locator('[data-notice="filters-pruned"]')).toContainText('額外扣天');
+    await expect(matched(page)).toHaveText(String(B2.SIZE));
+    await page.goto('/?col.extraDeduction=~maybe');
     await expect(page.locator('.results-table')).toBeVisible({ timeout: 15000 });
     await expect(page.locator('[data-notice="filters-invalid"]')).toContainText('無效');
     await expect(matched(page)).toHaveText(String(B2.SIZE));
@@ -310,7 +352,7 @@ test.describe('run 變更、無效網址與晚到回應', () => {
     const students = await allStudents(page);
     await page.route(/\/api\/v1\/runs\/[^/]+\/students\?/, async (route) => {
       const url = new URL(route.request().url());
-      if (url.searchParams.getAll('grade').join() === '3' && !url.searchParams.has('options')) {
+      if (url.searchParams.getAll('col.grade').join() === '3年級' && !url.searchParams.has('options')) {
         await new Promise((r) => setTimeout(r, 1500));
       }
       await route.continue();
@@ -328,7 +370,7 @@ test.describe('run 變更、無效網址與晚到回應', () => {
     await expect(matched(page)).toHaveText(String(g4));
     await expect(chip(page, '年級', '4年級')).toBeVisible();
     await expect(chip(page, '年級', '3年級')).toHaveCount(0);
-    expect(urlParams(page).getAll('grade')).toEqual(['4']);
+    expect(urlParams(page).getAll('col.grade')).toEqual(['4年級']);
     const gradeCol = await columnIndex(page, '年級');
     const cells = await page.locator('.results-table tbody tr').evaluateAll(
       (trs, col) => trs.map((tr) => (tr.querySelectorAll('td')[col]?.textContent ?? '').trim()),

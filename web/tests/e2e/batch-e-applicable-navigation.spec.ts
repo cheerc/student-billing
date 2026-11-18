@@ -19,12 +19,12 @@ for (const invalid of [false, true]) {
       // 模擬手動改網址條件，不改 DOM／API／資料庫；數值合法但此班無該適用率。
       await page.evaluate(() => {
         const url = new URL(location.href);
-        url.searchParams.set('applicableDiscountBps', '1234');
+        url.searchParams.set('col.applicableDiscount', '12.34折');
         history.replaceState(history.state, '', url);
       });
     }
     const before = page.url();
-    const rateWire = new URL(before).searchParams.get('applicableDiscountBps');
+    const rateWire = new URL(before).searchParams.get('col.applicableDiscount');
     expect(rateWire).toBeTruthy();
     await page.locator('.deductions-table tbody > tr:not(.ded-expanded) button').first().click();
     await page.getByRole('button', { name: /編輯此班課表/ }).click();
@@ -35,14 +35,14 @@ for (const invalid of [false, true]) {
     console.log('UX74 applicable Back', JSON.stringify({ invalid, before, after: page.url(), selected, rateWire }));
     expect.soft(selected, 'Back 頁籤').toBe('true');
     if (!invalid) {
-      expect.soft(new URL(page.url()).searchParams.get('applicableDiscountBps'), '有效適用折扣不被 stale options 剪掉').toBe(rateWire);
+      expect.soft(new URL(page.url()).searchParams.get('col.applicableDiscount'), '有效適用折扣不被 stale options 剪掉').toBe(rateWire);
     }
     // 已列出真正 RED 值時終止此案例，避免在錯誤頁籤上等不存在的條件而掩蓋原始斷言。
     if (selected !== 'true') return;
     await page.getByRole('tab', { name: '學生總表', exact: true }).click();
     if (invalid) {
       await expect.soft(page.locator('[data-notice="filters-pruned"]'), '失效條件需提示').toBeVisible();
-      expect.soft(new URL(page.url()).searchParams.has('applicableDiscountBps')).toBe(false);
+      expect.soft(new URL(page.url()).searchParams.has('col.applicableDiscount')).toBe(false);
     } else {
       await expect.soft(chip(page, '本班適用折扣', label!)).toBeVisible();
     }
