@@ -407,6 +407,9 @@ export function resolveApplicableRate(className, student, context) {
 /** 按堂計價的類別（Issue #238）：只有這些類別的學費列會做堂數／整除／單價檢驗。 */
 const SESSION_PRICED_CATEGORIES = new Set(['english', 'math']);
 
+/** 反向在席查核排除的類別（Issue #251）：快照明確判為這些類別的班不屬按堂計價，不納入在席反查。 */
+const OUT_OF_SESSION_SCOPE_CATEGORIES = new Set(['care', 'none']);
+
 /** 類別的中文顯示名（用於表格欄位與說明）。 */
 const CATEGORY_LABEL = {
   english: '兒童美語',
@@ -747,7 +750,13 @@ export function compare(reportStudents, webStudents, asOfDate, amountLookup = un
       const routedField = routed.category ? (RATE_FIELD_BY_CATEGORY[routed.category] ?? null) : null;
 
       if (scopedClassName && !isEnhancementClass(scopedClassName)) {
-        activeBilledClasses.add(scopedClassName);
+        // 反向在席查核的範圍只含「按堂計價可能涉及」的班（Issue #251）：Run 快照判 care／none 的班
+        // （月費或不計費，非本工具比對科目）即使出現在混合報表也不納入，否則其在席未開單者會被誤標
+        // ROSTER_NOT_BILLED。類別無法判定（unset、快照缺該班、not_configured）一律保留反查，不可靜默
+        // （D17、§9.3）。學雜費常模（下方 ancillaryByClass）與類別無關，不受此限縮。
+        if (!OUT_OF_SESSION_SCOPE_CATEGORIES.has(routed.category)) {
+          activeBilledClasses.add(scopedClassName);
+        }
         billedStudentsByClass.add(`${normalizeName(entry.name)}\u0000${scopedClassName}`);
 
         const studentAncillaries = ancillaryForClass(
@@ -1391,7 +1400,7 @@ export function renderHtml(records, meta) {
   return renderShell({
     title: '按堂計價收費核對與財務報表比對報告',
     logoBadge: '按堂計價比對',
-    description: '以每一筆學費列為單位，比對「兒童美語」與「國小數學」之**適用折扣率**。\n    按堂計價採堂數 × 單價、**無收費級距制度**，故本報告不比對天數。\n    堂數與學費金額僅為顯示值：系統端尚無對應欄位（#118），工具不做換算。\n    比對目的為找出差異並標示可能成因，不預設任一資料來源為正確。',
+    description: '以每一筆學費列為單位，比對「兒童美語」與「國小數學」之**適用折扣率**。\n    按堂計價採堂數 × 單價、**無收費級距制度**，故本報告不比對天數。\n    堂數與學費金額不與系統比對（系統端尚無每堂單價欄位，#118）；僅暫行以報表自身數字篩出「學費除不盡堂數」與「同班每堂單價不一致」，列為需人工確認，不判定任一邊正確。\n    比對目的為找出差異並標示可能成因，不預設任一資料來源為正確。',
     meta: [
       { label: '網頁系統名單', value: `${meta.asOfDate} 米豆奶匯出` },
       { label: 'Run', value: meta.runId },
