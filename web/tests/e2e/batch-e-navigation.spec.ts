@@ -76,6 +76,8 @@ for (const { mode, blankTeacher } of [
     await page.reload();
     await expect(tab(page, '班級扣天')).toHaveAttribute('aria-selected', 'true');
     await expect(chip(page, '老師', teachers)).toBeVisible();
+    // 上列只是 SSR 可滿足的檢查；等 hydration 完成再 Forward，避免 popstate 落在 hydration commit 與 effect flush 之間（#264）。
+    await expect(page.locator('.results-page[data-hydrated="true"]')).toBeVisible();
     // reload 替換目前 history entry，但 Forward 仍應回原課表定位。
     await page.goForward();
     await expect(page).toHaveURL(settingsUrl);
