@@ -46,7 +46,7 @@ for (const { mode, blankTeacher } of [
     expect(requests.filter((request) => request.rsc), 'UI 條件同步不得新增 RSC round-trip').toEqual([]);
     const before = new URL(page.url());
     expect(before.searchParams.get('view')).toBe('deductions');
-    expect(before.searchParams.getAll('enrollmentKey')).toEqual([B2.MATH]);
+    expect(before.searchParams.getAll('col.enrollment')).toEqual([B2.MATH]);
     expect(before.searchParams.getAll('dTeacher')).toEqual([teacherWire]);
     expect(before.searchParams.has('q')).toBe(false);
 
@@ -62,7 +62,7 @@ for (const { mode, blankTeacher } of [
     expect.soft(await tab(page, '班級扣天').getAttribute('aria-selected'), 'Back 後的頁籤').toBe('true');
     const after = new URL(page.url());
     expect.soft(after.searchParams.get('view'), 'Back 後 view').toBe('deductions');
-    expect.soft(after.searchParams.getAll('enrollmentKey'), 'Back 後學生班級').toEqual([B2.MATH]);
+    expect.soft(after.searchParams.getAll('col.enrollment'), 'Back 後學生班級').toEqual([B2.MATH]);
     expect.soft(after.searchParams.getAll('dTeacher'), 'Back 後老師').toEqual([teacherWire]);
     expect.soft(hydrationErrors, '不得有 hydration error').toEqual([]);
     // RED 若已發生，保留上述完整 failure list，不在錯誤頁籤上繼續操作造成 setup timeout。

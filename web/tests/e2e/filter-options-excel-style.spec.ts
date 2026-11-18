@@ -62,14 +62,22 @@ test('選班後面板計數等於點選人數，統計不一致數依該班範�
   await selectClass(page, MATH);
   // math的甲、乙、丙都不適用care級距，不能計入甲care班的不一致。
   await expect(page.locator('[data-count="matched"]')).toHaveText('3');
-  const mismatch = await openFilter(page, '需確認');
-  await expect(mismatch.locator('[data-filter-option="天數不同"]')).toHaveCount(0);
-  await page.keyboard.press('Escape');
+  // 統計「計算天數與米豆奶登記不符」仍依班級層比對：不一致發生在 care 班，選 math 班時範圍內無班級層不一致、不顯示。
+  await expect(page.locator('[data-count="mismatch"]')).toHaveCount(0);
+  // D66：需確認欄選項是儲存格的顯示文字（學生層徽章），math 班內帶「天數不同」徽章的人仍計入；
+  // 選項計數等於「把本欄改為該單值」後的結果人數（03 R2），所以勾選後 matched 必須等於選項上的人數。
+  const review = await openFilter(page, '需確認');
+  const count = Number(await review.locator('[data-filter-option="天數不同"] [data-filter-count]').textContent());
+  expect(count).toBeGreaterThan(0);
+  await review.locator('[data-filter-option="天數不同"] input').check();
+  await review.getByRole('button', { name: '確定', exact: true }).click();
+  await expect(page.locator('[data-count="matched"]')).toHaveText(String(count));
 });
 
 test('URL 還原已勾選0人值：不prune，仍能取消；未勾選0人值不顯示', async ({ page }) => {
   // 既有0結果畫面不渲染表頭；用OR保留有結果的1年級，同時驗已選但0人的3年級。
-  await page.goto(`/?enrollmentKey=${encodeURIComponent(CARE)}&grade=1&grade=3`);
+  // D66：網址條件是 col.<columnKey>=<顯示文字>。
+  await page.goto(`/?col.enrollment=${encodeURIComponent(CARE)}&col.grade=${encodeURIComponent('1年級')}&col.grade=${encodeURIComponent('3年級')}`);
   await expect(page.locator('[data-count="matched"]')).toHaveText('2');
   const grades = await openFilter(page, '年級');
   await expect(grades.locator('[data-filter-option="3年級"] [data-filter-count]')).toHaveText('0');
@@ -78,7 +86,7 @@ test('URL 還原已勾選0人值：不prune，仍能取消；未勾選0人值不
   await grades.locator('[data-filter-option="3年級"] input').uncheck();
   await grades.getByRole('button', { name: '確定', exact: true }).click();
   await expect(page.locator('[data-count="matched"]')).toHaveText('2');
-  expect(new URL(page.url()).searchParams.getAll('grade')).toEqual(['1']);
+  expect(new URL(page.url()).searchParams.getAll('col.grade')).toEqual(['1年級']);
 });
 
 test('舊 options 回應延後到新選班後：不能覆蓋新面板計數', async ({ page }) => {
@@ -91,7 +99,7 @@ test('舊 options 回應延後到新選班後：不能覆蓋新面板計數', as
   let oldCaptured = false;
   await page.route('**/api/v1/runs/*/students?**', async (route) => {
     const url = new URL(route.request().url());
-    if (url.searchParams.get('options') === 'true' && url.searchParams.get('enrollmentKey') === CARE && !oldCaptured) {
+    if (url.searchParams.get('options') === 'true' && url.searchParams.get('col.enrollment') === CARE && !oldCaptured) {
       oldCaptured = true;
       const response = await route.fetch();
       captured();

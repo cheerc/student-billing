@@ -20,22 +20,24 @@ import {
 } from '@/application/query-students';
 import type { RunStudentOptions } from '@/application/query-student-options';
 import { isCurrentRunResponse } from '@/application/run-scope';
+import { UNPARSEABLE_CLASS_TEXT } from '@/contracts/column-filter';
 import {
   BLANK,
-  EMPTY,
+  NONE,
   STUDENT_FILTER_FIELDS,
   buildResultsQuery,
   parseSortWire,
   buildStudentApiParams,
   chipsOf,
-  compareOptionValues,
-  displayValue,
   exactlyOneClass,
   findStudentField,
   hasAnySelection,
+  optionWire,
+  reconcileStudentFilters,
   scopeOf,
   unescapeWire,
   type DeductionFilters,
+  type PrunedEntry,
   type StudentFilterKey,
   type StudentFilters,
 } from '@/lib/results-filters';
@@ -47,12 +49,14 @@ interface ActiveRunViewProps {
   initialData: RunStudentsQueryResult;
   /** 全 run 值宇宙，計數依其他已套用篩選、不受分頁限制（03 §5.1 options read model）。 */
   initialOptions: RunStudentOptions;
+  /** `initialOptions` 是以哪個「恰選一班」取得的（`columnOptions.applicableDiscount` 只屬於該班）；null＝取得時沒有恰選一班 */
+  initialOptionsClass?: string | null;
   /** 網址還原的頁籤與各頁籤條件（F03／F04：兩頁籤各自保留條件） */
   initialView?: 'students' | 'deductions';
   initialFilters?: StudentFilters;
   initialDeductionFilters?: DeductionFilters;
   /** 載入時被移除的選值／被忽略的無效網址條件 */
-  initialNotices?: { invalid?: boolean; pruned?: Array<{ column: string; label: string }> };
+  initialNotices?: { invalid?: boolean; pruned?: PrunedEntry[] };
   /** 班級扣天 read model（09 §5.2；與學生總表同一份 run 課表快照）。快照不可用時改傳 deductionsUnavailable。 */
   initialDeductions?: DeductionsResponse;
   /** 歷史 run 的課表快照不存在（或屬診斷軌）：明示資料不足、無法重建，不顯示表格（09 §5.2） */
@@ -71,19 +75,19 @@ interface ActiveRunViewProps {
   source?: { fileName: string; importedAt: string; updatedAt: string };
 }
 
-/** 各欄表頭篩選對應的條件（需確認欄有兩個分區：米豆奶天數比較、問題類型）。 */
-const COLUMN_FILTERS: Record<StudentColumnKey, StudentFilterKey[]> = {
-  grade: ['grade'],
-  enrollment: ['enrollmentKey'],
-  anqinDays: ['anqinDays'],
-  tutoringDays: ['tutoringDays'],
-  extra: ['hasExtraDeduction'],
-  baseDiscount: ['baseDiscountBps'],
-  applicable: ['applicableDiscountBps'],
-  sibling: ['sibling'],
-  special: ['specialDiscount'],
-  internal: ['internalStudent'],
-  review: ['tierMismatch', 'issueCode'],
+/** 各欄表頭篩選對應的 `col.<columnKey>`（D66：每欄一張選項清單，需確認欄也是單一清單）。 */
+const COLUMN_FILTERS: Record<StudentColumnKey, StudentFilterKey> = {
+  grade: 'grade',
+  enrollment: 'enrollment',
+  anqinDays: 'anqinDays',
+  tutoringDays: 'tutoringDays',
+  extra: 'extraDeduction',
+  baseDiscount: 'baseDiscount',
+  applicable: 'applicableDiscount',
+  sibling: 'sibling',
+  special: 'specialDiscount',
+  internal: 'internalStudent',
+  review: 'review',
 };
 
 const Q_KEY = (runId: string) => `sb.results.q:${runId}`;
@@ -120,6 +124,7 @@ export default function ActiveRunView({
   asOfDate,
   initialData,
   initialOptions,
+  initialOptionsClass = null,
   initialFilters = {},
   initialNotices,
   initialDeductions,
@@ -133,9 +138,9 @@ export default function ActiveRunView({
   // Back 的 RSC props 可能來自無條件入口；在首次 render 用目前網址還原，不在 effect 後跳頁籤。
   const [restored] = useState(() => {
     const parsed = parseResultsState(new URLSearchParams(searchParams.toString()));
-    const deferredRate = Boolean(parsed.filters.applicableDiscountBps && exactlyOneClass(parsed.filters)
-      && initialOptions.applicableRateContext.classKey !== parsed.filters.enrollmentKey?.[0]);
-    const state = pruneResultsState(parsed, initialOptions.options, deferredRate);
+    const deferredRate = Boolean(parsed.filters.applicableDiscount && exactlyOneClass(parsed.filters)
+      && initialOptionsClass !== exactlyOneClass(parsed.filters));
+    const state = pruneResultsState(parsed, initialOptions.columnOptions, deferredRate);
     return { ...state, deferredRate, needsLoad: deferredRate || JSON.stringify(state.filters) !== JSON.stringify(initialFilters) };
   });
   const [restoring, setRestoring] = useState(restored.needsLoad);
@@ -160,7 +165,9 @@ export default function ActiveRunView({
   }, []);
   const [prunedNotice, setPrunedNotice] = useState(restored.pruned.length ? restored.pruned : initialNotices?.pruned ?? []);
   const [invalidNotice, setInvalidNotice] = useState(restored.invalid || Boolean(initialNotices?.invalid));
-  const [applicableRemoved, setApplicableRemoved] = useState(false);
+  const [applicableRemoved, setApplicableRemoved] = useState<'not-single' | 'class-changed' | null>(null);
+  // `options.columnOptions.applicableDiscount` 屬於哪一班（取得選項時恰選的班）；與目前選的班不同＝過期，面板不顯示
+  const [optionsClass, setOptionsClass] = useState<string | null>(initialOptionsClass);
 
   // 分頁狀態
   const [cursor, setCursor] = useState<string | null>(null);
@@ -274,8 +281,9 @@ export default function ActiveRunView({
         }) || JSON.stringify(filtersRef.current) !== JSON.stringify(next) || qRef.current !== q) return null;
         optionsRef.current = json;
         setOptions(json);
+        setOptionsClass(exactlyOneClass(next));
         if (!resolveDeferred) return next;
-        const resolved = pruneResultsState({ ...restored, filters: next, pruned: [] }, json.options);
+        const resolved = pruneResultsState({ ...restored, filters: next, pruned: [] }, json.columnOptions);
         filtersRef.current = resolved.filters;
         setFilters(resolved.filters);
         if (resolved.pruned.length) setPrunedNotice((prev) => [...prev, ...resolved.pruned]);
@@ -319,19 +327,14 @@ export default function ActiveRunView({
     [load]
   );
 
-  /** 套用學生條件：條件改變即清 cursor 從第一頁重查（03 §5.1）；本班適用折扣在不再恰選一班時自動移除並提示。 */
+  /**
+   * 套用學生條件：條件改變即清 cursor 從第一頁重查（03 §5.1）。本班適用折扣在不再恰選一班、或班級選取有任何改變時，
+   * 在重取選項前先自動移除並提示（避免過期折扣條件下的跨班計數）。
+   */
   const applyFilters = useCallback(
     (next: StudentFilters) => {
-      const merged: StudentFilters = {};
-      for (const [k, v] of Object.entries(next)) {
-        if (v && v.length > 0) merged[k as StudentFilterKey] = v;
-      }
-      let removed = false;
-      if (merged.applicableDiscountBps && !exactlyOneClass(merged)) {
-        delete merged.applicableDiscountBps;
-        removed = true;
-      }
-      setApplicableRemoved(removed);
+      const { filters: merged, removedApplicable } = reconcileStudentFilters(filtersRef.current, next);
+      setApplicableRemoved(removedApplicable);
       setPrunedNotice([]);
       setInvalidNotice(false);
       filtersRef.current = merged;
@@ -368,7 +371,7 @@ export default function ActiveRunView({
     setAppliedQ('');
     qRef.current = '';
     writeStorage(Q_KEY(runId), null);
-    setApplicableRemoved(false);
+    setApplicableRemoved(null);
     setPrunedNotice([]);
     setInvalidNotice(false);
     filtersRef.current = {};
@@ -504,33 +507,26 @@ export default function ActiveRunView({
 
   // ── 表頭篩選：全 run 值宇宙、依其他已套用條件的計數 ─────────────────
   const singleClass = exactlyOneClass(filters);
-  const singleWire = filters.enrollmentKey?.[0] ?? null;
 
+  /** 選項清單＝server `columnOptions`（顯示文字；順序即 R5 的順序，UI 不重排）；`~blank` 顯示「(空白)」。 */
   const sectionFor = (key: StudentFilterKey): FilterSection => {
-    const def = findStudentField(key)!;
-    let raw = options.options[key] ?? [];
-    if (key === 'applicableDiscountBps' && options.applicableRateContext.classKey !== singleWire) raw = [];
-    const opts = [...raw]
-      .sort((a, b) => compareOptionValues(def, a.value, b.value))
-      .map((o) => ({
-        value: o.value,
-        label: o.labelKey === 'unparsedClassLabel' ? '班名無法解析' : displayValue(def, o.value),
-        count: o.count,
-      }));
-    return { key, title: def.section, options: opts };
+    let raw = options.columnOptions[key] ?? [];
+    // 本班適用折扣選項只屬於取得它時選的那一班；班級已換（選項尚未重取）時不顯示，避免跨班數字
+    if (key === 'applicableDiscount' && optionsClass !== singleClass) raw = [];
+    return {
+      key,
+      options: raw.map((o) => ({ value: optionWire(o.value), label: o.value === BLANK ? '(空白)' : o.value, count: o.count })),
+    };
   };
 
   const renderFilter = (column: StudentColumnKey) => {
-    const keys = COLUMN_FILTERS[column];
-    const sections = keys.map(sectionFor);
-    const value = Object.fromEntries(keys.map((k) => [k, filters[k]]));
-    const name = findStudentField(keys[0])!.column;
+    const key = COLUMN_FILTERS[column];
     return (
       <HeaderFilter
-        column={name}
+        column={findStudentField(key)!.column}
         hideUnselectedZero
-        sections={sections}
-        value={value}
+        sections={[sectionFor(key)]}
+        value={{ [key]: filters[key] }}
         onApply={(next) => applyFilters({ ...filtersRef.current, ...next })}
       />
     );
@@ -551,8 +547,8 @@ export default function ActiveRunView({
   const scope = scopeOf(filters);
   const noCourseTotal = data?.noCourseTotal ?? 0;
   const noCourseFiltered = stats.filteredNoCourseCount ?? 0;
-  const selectedRealClasses = (filters.enrollmentKey ?? [])
-    .filter((w) => w !== BLANK && w !== EMPTY && w !== '~none')
+  const selectedRealClasses = (filters.enrollment ?? [])
+    .filter((w) => w !== BLANK && w !== NONE && w !== UNPARSEABLE_CLASS_TEXT)
     .map(unescapeWire);
   const unmappedSelected = selectedRealClasses.filter((c) => unmappedClasses?.includes(c));
 
@@ -649,7 +645,9 @@ export default function ActiveRunView({
             )}
             {applicableRemoved && (
               <div className="notice-inline" role="status" data-notice="applicable-removed">
-                已移除「本班適用折扣」條件：它只在恰選一個班級時適用。
+                {applicableRemoved === 'class-changed'
+                  ? '已移除「本班適用折扣」條件：班級選取已變更，請在新的班級下重新選擇。'
+                  : '已移除「本班適用折扣」條件：它只在恰選一個班級時適用。'}
               </div>
             )}
             {error && <ErrorNotice message={error.message} detail={error.detail} />}
@@ -682,7 +680,7 @@ export default function ActiveRunView({
                     type="button"
                     className="no-course-hint"
                     data-count="no-course"
-                    onClick={() => applyFilters({ ...filtersRef.current, enrollmentKey: [BLANK] })}
+                    onClick={() => applyFilters({ ...filtersRef.current, enrollment: [BLANK] })}
                   >
                     無課程 <strong>{noCourseTotal}</strong> 人 · 請至米豆奶辦理離籍
                   </button>

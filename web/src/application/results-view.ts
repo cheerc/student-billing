@@ -3,15 +3,19 @@ import { queryRunStudents, QueryStudentError, type RunStudentsQueryResult } from
 import { parseResultsState, pruneResultsState } from '@/lib/results-state';
 import { queryStudentOptions, type RunStudentOptions } from './query-student-options';
 import {
+  exactlyOneClass,
+  studentFiltersToParams,
   type DeductionFilters,
+  type PrunedEntry,
   type StudentFilters,
 } from '@/lib/results-filters';
 
 /**
  * 核對結果頁（現行資料與歷史資料共用）的伺服器端初始狀態（specs/09 §5.1、03 §5.1）。
  *
- * 由網址還原 view 與兩個頁籤各自的條件；條件在這份 run 的整體選項中已不存在時（run 變更、網址過期）
- * 自動移除並回報，網址不合法（例如 hasExtraDeduction=maybe）時忽略全部條件並回報，不讓頁面出錯。
+ * 由網址還原 view 與兩個頁籤各自的條件；學生條件是 `col.<columnKey>=<顯示文字>`（D66），
+ * 在這份 run 的 `columnOptions` 中已不存在時（run 變更、網址過期）自動移除並回報；
+ * 舊語意參數（`grade=3` 等）一律移除並回報；網址不合法（例如 `col.bogus=x`、`col.grade=`）時忽略全部條件並回報，不讓頁面出錯。
  * 姓名搜尋 q 不在網址，這裡不處理。
  */
 export interface ResultsInitialState {
@@ -22,25 +26,27 @@ export interface ResultsInitialState {
   sort: string | null;
   data: RunStudentsQueryResult;
   options: RunStudentOptions;
+  /** `options` 對應的「恰選一班」班名（`columnOptions.applicableDiscount` 只在此時存在）；client 以它判斷本班適用折扣選項是否屬於目前選的班 */
+  optionsClass: string | null;
   /** 網址帶的條件無效而被整組忽略 */
   invalid: boolean;
   /** 因這份資料不存在而被移除的選值 */
-  pruned: Array<{ column: string; label: string }>;
+  pruned: PrunedEntry[];
 }
 
 type RawParams = Record<string, string | string[] | undefined>;
 
 export function resolveResultsView(db: Database.Database, runId: string, raw: RawParams): ResultsInitialState {
   const url = parseResultsState(raw);
-  const options = queryStudentOptions(db, runId, url.filters);
-  const resolved = pruneResultsState(url, options.options);
+  const options = queryStudentOptions(db, runId, studentFiltersToParams(url.filters));
+  const resolved = pruneResultsState(url, options.columnOptions);
   let invalid = resolved.invalid;
   let sortWire = url.sort;
   let pruned = resolved.filters;
 
   let data: RunStudentsQueryResult;
   try {
-    data = queryRunStudents(db, runId, { limit: 50, ...pruned, ...(url.sort ? { sort: url.sort } : {}) });
+    data = queryRunStudents(db, runId, { limit: 50, ...studentFiltersToParams(pruned), ...(url.sort ? { sort: url.sort } : {}) });
   } catch (error) {
     if (!(error instanceof QueryStudentError)) throw error;
     invalid = true;
@@ -57,6 +63,7 @@ export function resolveResultsView(db: Database.Database, runId: string, raw: Ra
     sort: sortWire,
     data,
     options,
+    optionsClass: exactlyOneClass(url.filters),
     invalid,
     pruned: resolved.pruned,
   };
