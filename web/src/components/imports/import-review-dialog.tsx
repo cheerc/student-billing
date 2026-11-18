@@ -8,12 +8,14 @@ import { RosterChangesDetails } from '@/components/imports/roster-changes-detail
 import TableHeaderCell from '@/components/tables/table-header-cell';
 import { useClientSort } from '@/components/tables/use-client-sort';
 import type { ColumnDef } from '@/components/tables/column-def';
+import { BLANK_CELL_TEXT, cell, type Cell } from '@/lib/table-columns/cell';
+import { gradeCell } from '@/lib/table-columns/student-columns';
 import { restoreFocusToOpener } from '@/components/ui/restore-focus-to-opener';
 
 export type ReviewTab = 'changes' | 'list';
 export type StudentFilterMode = 'all' | 'with-class' | 'no-class' | 'withdrawn';
 
-interface ImportReviewDialogProps {
+export interface ImportReviewDialogProps {
   isOpen: boolean;
   tab: ReviewTab;
   onTabChange: (tab: ReviewTab) => void;
@@ -27,17 +29,25 @@ interface ImportReviewDialogProps {
   filteredStudents: StudentSnapshot[];
 }
 
-/** 名單頁籤表格欄位（D65 G5）：序號／報名班級為版面與多值欄，不可排序。 */
+/** 文字儲存格：空字串／null＝空白（排序最後）。 */
+const textCell = (v: string | null | undefined): Cell => (v ? cell(v) : null);
+
+/**
+ * 名單頁籤表格欄位（D65 G5、D66）：序號／報名班級為版面與多值欄，不可排序。
+ * 年級格的顯示文字與排序鍵同源（`gradeCell`）：`N年級`、原文、空白「—」。
+ */
 const LIST_COLUMNS: readonly ColumnDef<StudentSnapshot>[] = [
   { key: 'seq', label: '序號' },
-  { key: 'personCode', label: '人員代碼', sort: { type: 'text', accessor: (s) => s.personCode } },
-  { key: 'name', label: '姓名', sort: { type: 'text', accessor: (s) => s.name } },
-  { key: 'grade', label: '年級', sort: { type: 'number', accessor: (s) => s.grade ?? null } },
-  { key: 'branch', label: '所屬分校', sort: { type: 'text', accessor: (s) => s.branch || null } },
+  { key: 'personCode', label: '人員代碼', sort: { cell: (s) => textCell(s.personCode) } },
+  { key: 'name', label: '姓名', sort: { cell: (s) => textCell(s.name) } },
+  { key: 'grade', label: '年級', sort: { cell: (s) => gradeCell(s.grade, s.gradeRaw) } },
+  { key: 'branch', label: '所屬分校', sort: { cell: (s) => textCell(s.branch) } },
   { key: 'enrollments', label: '報名班級' },
-  { key: 'tags', label: '標籤', sort: { type: 'text', accessor: (s) => s.tagsRaw || null } },
-  { key: 'notes', label: '備註', sort: { type: 'text', accessor: (s) => s.notesRaw || null } },
+  { key: 'tags', label: '標籤', sort: { cell: (s) => textCell(s.tagsRaw) } },
+  { key: 'notes', label: '備註', sort: { cell: (s) => textCell(s.notesRaw) } },
 ];
+
+export const importListColumns = LIST_COLUMNS;
 
 /**
  * 匯入預覽的「異動／名單」浮動視窗（D64 G3，UX124）。
@@ -224,11 +234,10 @@ export function ImportReviewDialog({
                   <td className="code-text" style={{ fontWeight: 600 }}>{stu.personCode}</td>
                   <td style={{ fontWeight: 600 }}>{stu.name}</td>
                   <td>
-                    {stu.grade ? (
-                      <span>{stu.grade} 年級</span>
-                    ) : (
-                      <span style={{ color: 'var(--text-muted)' }}>{stu.gradeRaw || '未識別'}</span>
-                    )}
+                    {(() => {
+                      const g = gradeCell(stu.grade, stu.gradeRaw);
+                      return g ? <span>{g.text}</span> : <span style={{ color: 'var(--text-muted)' }}>{BLANK_CELL_TEXT}</span>;
+                    })()}
                   </td>
                   <td style={{ color: 'var(--text-secondary)' }}>{stu.branch || '-'}</td>
                   <td>

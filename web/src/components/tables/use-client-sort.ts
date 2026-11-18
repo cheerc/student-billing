@@ -2,14 +2,17 @@
 
 import { useState } from 'react';
 import type { ColumnDef } from './column-def';
+import type { Cell } from '@/lib/table-columns/cell';
+import { compareCells } from '@/lib/table-columns/compare';
 import type { HeaderSortState } from './table-header-cell';
 
 /**
- * client 全量資料表排序（specs/19 §3 B2、D65 G5、04 UX126）。
+ * client 全量資料表排序（specs/19 §3 B2、D65 G5、D66、04 UX126／UX133）。
  * 兩態（升冪↔降冪）；點另一欄從升冪開始；未點任何欄＝呼叫端原有預設順序。
- * 空值（null／undefined／NaN）不論方向排最後；同值（含空值之間）保持輸入相對順序（穩定、不反轉）。
- * 文字用 `Intl.Collator('zh-Hant')`，數值依數值。排序狀態只存元件 state，不入網址。
- * （學生總表的 server 排序是另一條路，文字為 SQLite 碼點序；見 D65 Collation 分歧。）
+ * 比較走共用 `compareCells`（`@/lib/table-columns/compare`）：數值先於字串、文字依 zh-Hant 筆畫序、
+ * 空白（`null` cell）不論方向排最後；同值（含空白之間）保持輸入相對順序（穩定、不反轉）。
+ * 排序狀態只存元件 state，不入網址。
+ * （學生總表的 server 排序是另一條路，但比較規則同源，見 03 §5.1。）
  */
 export type SortDirection = 'ascending' | 'descending';
 export interface SortState {
@@ -17,13 +20,8 @@ export interface SortState {
   dir: SortDirection;
 }
 export interface ClientSort<Row> {
-  type: 'text' | 'number';
-  accessor: (row: Row) => string | number | null | undefined;
+  cell: (row: Row) => Cell;
 }
-
-const COLLATOR = new Intl.Collator('zh-Hant');
-
-const isEmpty = (v: unknown): v is null | undefined => v === null || v === undefined || (typeof v === 'number' && Number.isNaN(v));
 
 /** 點表頭後的下一個排序狀態。 */
 export function nextSort(current: SortState | null, key: string): SortState {
@@ -33,23 +31,11 @@ export function nextSort(current: SortState | null, key: string): SortState {
   return { key, dir: 'ascending' };
 }
 
-/** 純函式：回傳新陣列，不改動輸入。 */
+/** 純函式：回傳新陣列，不改動輸入。同值（compareCells 為 0）保持輸入序。 */
 export function sortRows<Row>(rows: readonly Row[], sort: ClientSort<Row>, dir: SortDirection): Row[] {
-  const sign = dir === 'ascending' ? 1 : -1;
-  const decorated = rows.map((row, index) => ({ row, index, value: sort.accessor(row) }));
-  decorated.sort((a, b) => {
-    const aEmpty = isEmpty(a.value);
-    const bEmpty = isEmpty(b.value);
-    if (aEmpty || bEmpty) {
-      if (aEmpty && bEmpty) return a.index - b.index;
-      return aEmpty ? 1 : -1; // 空值最後，與方向無關
-    }
-    const cmp =
-      sort.type === 'number'
-        ? Number(a.value) - Number(b.value)
-        : COLLATOR.compare(String(a.value), String(b.value));
-    return cmp !== 0 ? sign * cmp : a.index - b.index;
-  });
+  const direction = dir === 'ascending' ? 'asc' : 'desc';
+  const decorated = rows.map((row, index) => ({ row, index, cell: sort.cell(row) }));
+  decorated.sort((a, b) => compareCells(a.cell, b.cell, direction) || a.index - b.index);
   return decorated.map((d) => d.row);
 }
 
@@ -59,7 +45,7 @@ export function useClientSort<Row>(columns: readonly ColumnDef<Row>[]) {
 
   const headerSort = (key: string): HeaderSortState | undefined => {
     const col = columns.find((c) => c.key === key);
-    if (!col || !col.sort || !('accessor' in col.sort)) return undefined;
+    if (!col || !col.sort || !('cell' in col.sort)) return undefined;
     return {
       dir: state && state.key === key ? state.dir : 'none',
       onToggle: () => setState((cur) => nextSort(cur, key)),
@@ -68,7 +54,7 @@ export function useClientSort<Row>(columns: readonly ColumnDef<Row>[]) {
 
   const apply = (rows: readonly Row[]): Row[] => {
     const col = state ? columns.find((c) => c.key === state.key) : undefined;
-    if (!state || !col || !col.sort || !('accessor' in col.sort)) return rows.slice();
+    if (!state || !col || !col.sort || !('cell' in col.sort)) return rows.slice();
     return sortRows(rows, col.sort, state.dir);
   };
 

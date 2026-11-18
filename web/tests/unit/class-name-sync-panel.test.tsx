@@ -1,7 +1,10 @@
 import React from 'react';
 import { describe, it, expect } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { ClassNameSyncPanel } from '@/components/settings/class-name-sync-panel';
+import { ClassNameSyncPanel, mismatchColumns, systemOnlyColumns } from '@/components/settings/class-name-sync-panel';
+import { sortRows } from '@/components/tables/use-client-sort';
+import type { Cell } from '@/lib/table-columns/cell';
+import type { ClassNameSyncSystemOnly } from '@/application/class-name-match-report';
 import type { ClassNameSyncReport } from '@/application/class-name-match-report';
 
 describe('D62 Phase 2: ClassNameSyncPanel 班名同步面板 UI 元件（RED 測試）', () => {
@@ -198,5 +201,35 @@ describe('D62 Phase 2: ClassNameSyncPanel 班名同步面板 UI 元件（RED 測
 
       expect(html).toContain('匯入名單後，可在這裡同步班名');
     });
+  });
+});
+
+
+/**
+ * UX133（D66）：班名同步兩表排序走共用欄位模組。expected 手算寫死（丁2 王4 吳7；已3 啟11）。
+ */
+describe('UX133 班名同步表欄位（共用 cell 排序）', () => {
+  type Mismatch = NonNullable<ClassNameSyncReport['mismatches']>[number];
+  const mm = (erpBaseName: string, students: number) => ({ erpBaseName, students }) as unknown as Mismatch;
+  const mmRows = [mm('吳一', 3), mm('丁一', 12), mm('王一', 9)];
+  const so = (baseName: string, active: boolean, sessionCount: number, legacyAliasFrom: string[]) =>
+    ({ baseName, active, classType: 'care', sessionCount, legacyAliasFrom }) as ClassNameSyncSystemOnly;
+  const soRows = [so('吳一', true, 2, []), so('丁一', false, 10, ['舊A']), so('王一', true, 1, ['舊B'])];
+  const name = <T,>(rows: T[], f: (r: T) => string) => rows.map(f);
+
+  it('米豆奶班名依筆畫：丁一、王一、吳一；學生數依數值：3、9、12（不是字串序 12、3、9）', () => {
+    const byName = mismatchColumns.find((c) => c.key === 'erpBaseName')!.sort as { cell: (m: Mismatch) => Cell };
+    const byStudents = mismatchColumns.find((c) => c.key === 'students')!.sort as { cell: (m: Mismatch) => Cell };
+    expect(name(sortRows(mmRows, byName, 'ascending'), (m) => m.erpBaseName)).toEqual(['丁一', '王一', '吳一']);
+    expect(name(sortRows(mmRows, byStudents, 'ascending'), (m) => String(m.students))).toEqual(['3', '9', '12']);
+    expect(name(sortRows(mmRows, byStudents, 'descending'), (m) => String(m.students))).toEqual(['12', '9', '3']);
+  });
+
+  it('課表有／名冊沒有：狀態 已停用（已 3 畫）< 啟用中（啟 11 畫）；舊別名來源空白最後（升降冪皆然）', () => {
+    const col = (k: string) => systemOnlyColumns.find((c) => c.key === k)!.sort as { cell: (c: ClassNameSyncSystemOnly) => Cell };
+    expect(name(sortRows(soRows, col('active'), 'ascending'), (c) => c.baseName)).toEqual(['丁一', '吳一', '王一']);
+    expect(name(sortRows(soRows, col('legacyAliasFrom'), 'ascending'), (c) => c.baseName)).toEqual(['丁一', '王一', '吳一']);
+    expect(name(sortRows(soRows, col('legacyAliasFrom'), 'descending'), (c) => c.baseName)).toEqual(['王一', '丁一', '吳一']);
+    expect(name(sortRows(soRows, col('sessionCount'), 'ascending'), (c) => String(c.sessionCount))).toEqual(['1', '2', '10']);
   });
 });

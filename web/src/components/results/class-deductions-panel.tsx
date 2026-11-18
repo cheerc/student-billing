@@ -9,6 +9,8 @@ import { HeaderFilter, FilterChips, type FilterSection, type ChipItem } from '@/
 import { columnLabels, type ColumnDef } from '@/components/tables/column-def';
 import TableHeaderCell from '@/components/tables/table-header-cell';
 import { useClientSort } from '@/components/tables/use-client-sort';
+import { BLANK_LABEL, cell, type Cell, type ColumnSpec } from '@/lib/table-columns/cell';
+import { buildColumnOptions } from '@/lib/table-columns/options';
 import {
   BLANK,
   DEDUCTION_FILTER_FIELDS,
@@ -37,20 +39,24 @@ import {
 
 type DeductionClass = DeductionsResponse['classes'][number];
 
-/** 扣除欄依畫面顯示值（正量）排序；null（不適用）排最後。 */
-const absOrNull = (v: number | null): number | null => (v === null ? null : Math.abs(v));
+/** 文字儲存格：空字串／null／undefined＝空白（「—」、選項「(空白)」、排序最後）。 */
+const textCell = (v: string | null | undefined): Cell => (v ? cell(v) : null);
+
+/** 扣除欄儲存格（D66）：底層值＝畫面正量數值，顯示文字＝`formatDeduction`；null（不適用）＝空白，排最後。 */
+const deductionCell = (v: number | null, digits: 0 | 3): Cell => (v === null ? null : cell(Math.abs(v), formatDeduction(v, digits)));
 
 const CLASS_DEDUCTION_COLUMN_DEFS = [
-  { key: 'class', label: '班級', filterKey: 'dClass', sort: { type: 'text', accessor: (c: DeductionClass) => c.classKey } },
-  { key: 'teacher', label: '老師', filterKey: 'dTeacher', sort: { type: 'text', accessor: (c: DeductionClass) => c.teacher || null } },
+  { key: 'class', label: '班級', filterKey: 'dClass', sort: { cell: (c: DeductionClass) => textCell(c.classKey) } },
+  { key: 'teacher', label: '老師', filterKey: 'dTeacher', sort: { cell: (c: DeductionClass) => textCell(c.teacher) } },
   { key: 'time', label: '上課時間' },
-  { key: 'anqinRaw', label: '安親原始扣除', className: 'number cblue', unit: '天', sort: { type: 'number', accessor: (c: DeductionClass) => absOrNull(c.anqin.raw) } },
-  { key: 'anqinActual', label: '安親實際扣除', className: 'number cblue', unit: '天', sort: { type: 'number', accessor: (c: DeductionClass) => absOrNull(c.anqin.rounded) } },
-  { key: 'tutoringRaw', label: '課輔原始扣除', className: 'number cblue', unit: '天', sort: { type: 'number', accessor: (c: DeductionClass) => absOrNull(c.tutoring.raw) } },
-  { key: 'tutoringActual', label: '課輔實際扣除', className: 'number cblue', unit: '天', sort: { type: 'number', accessor: (c: DeductionClass) => absOrNull(c.tutoring.rounded) } },
-  { key: 'status', label: '狀態', filterKey: 'dStatus', sort: { type: 'text', accessor: (c: DeductionClass) => statusLabel(classStatus(c)) } },
+  { key: 'anqinRaw', label: '安親原始扣除', className: 'number cblue', unit: '天', sort: { cell: (c: DeductionClass) => deductionCell(c.anqin.raw, 3) } },
+  { key: 'anqinActual', label: '安親實際扣除', className: 'number cblue', unit: '天', sort: { cell: (c: DeductionClass) => deductionCell(c.anqin.rounded, 0) } },
+  { key: 'tutoringRaw', label: '課輔原始扣除', className: 'number cblue', unit: '天', sort: { cell: (c: DeductionClass) => deductionCell(c.tutoring.raw, 3) } },
+  { key: 'tutoringActual', label: '課輔實際扣除', className: 'number cblue', unit: '天', sort: { cell: (c: DeductionClass) => deductionCell(c.tutoring.rounded, 0) } },
+  { key: 'status', label: '狀態', filterKey: 'dStatus', sort: { cell: (c: DeductionClass) => cell(statusLabel(classStatus(c))) } },
 ] as const satisfies readonly ColumnDef<DeductionClass>[];
 
+export const classDeductionColumnDefs: readonly ColumnDef<DeductionClass>[] = CLASS_DEDUCTION_COLUMN_DEFS;
 export const classDeductionsColumns = columnLabels(CLASS_DEDUCTION_COLUMN_DEFS);
 
 /** 扣除值 → 正量字串；原始三位小數、實際半天單位。domain 負值在此轉為正量顯示。 */
@@ -104,6 +110,40 @@ function statusLabel(s: CareStatus): string {
   return '已計算';
 }
 
+/**
+ * 三個篩選欄的欄位規格：cells 與欄位定義的排序儲存格是同一個函式（D66 R1），
+ * 選項、篩選比對、排序、儲存格文字不可能分岔。
+ */
+const FILTER_SPECS: Record<DeductionFilterKey, ColumnSpec<DeductionClass>> = Object.fromEntries(
+  DEDUCTION_FILTER_FIELDS.map((f) => {
+    const def = classDeductionColumnDefs.find((d) => d.filterKey === f.key)!;
+    const cellOf = (def.sort as { cell: (c: DeductionClass) => Cell }).cell;
+    const spec: ColumnSpec<DeductionClass> = {
+      key: def.key,
+      label: def.label,
+      cells: (c) => [cellOf(c)],
+      filterable: true,
+      sortable: true,
+    };
+    return [f.key, spec];
+  })
+) as Record<DeductionFilterKey, ColumnSpec<DeductionClass>>;
+
+/** 篩選 wire 值：空白＝`~blank`，其餘為顯示文字（字面 `~` 開頭者跳脫）。 */
+const wireOfCell = (c: Cell): string => (c === null ? BLANK : escapeLiteral(c.text));
+
+/**
+ * 表頭篩選選項（整個 run 的全部班級列，不受目前條件收斂）。
+ * 順序由共用 `buildColumnOptions`：各文字依筆畫序（數值先於字串），「(空白)」最後。
+ * 列身分＝classKey（每個班級一列；班級扣天表的列不會重複同一班）。
+ */
+export function deductionFilterSection(classes: readonly DeductionClass[], key: DeductionFilterKey): FilterSection {
+  const options = buildColumnOptions(classes, FILTER_SPECS[key], undefined, undefined, (c) => c.classKey).map((o) =>
+    o.value === BLANK ? { value: BLANK, label: BLANK_LABEL } : { value: escapeLiteral(o.value), label: o.value }
+  );
+  return { key, options };
+}
+
 interface ClassDeductionsPanelProps {
   data?: DeductionsResponse;
   onEditClass: (classKey: string) => void;
@@ -118,8 +158,6 @@ interface ClassDeductionsPanelProps {
   onFiltersChange?: (next: DeductionFilters) => void;
 }
 
-const wireOf = (v: string | null | undefined): string => (v === null || v === undefined || v === '' ? BLANK : escapeLiteral(v));
-
 export function ClassDeductionsPanel({ data, onEditClass, expandedClassKey, unavailable, filters = {}, onFiltersChange }: ClassDeductionsPanelProps) {
   const [expanded, setExpanded] = useState<string | null>(expandedClassKey ?? null);
   const columnSort = useClientSort<DeductionClass>(CLASS_DEDUCTION_COLUMN_DEFS);
@@ -128,7 +166,9 @@ export function ClassDeductionsPanel({ data, onEditClass, expandedClassKey, unav
     () =>
       (data?.classes ?? []).map((c) => ({
         c,
-        facets: { dClass: wireOf(c.classKey), dTeacher: wireOf(c.teacher), dStatus: escapeLiteral(statusLabel(classStatus(c))) },
+        facets: Object.fromEntries(
+          DEDUCTION_FILTER_FIELDS.map((f) => [f.key, wireOfCell(FILTER_SPECS[f.key].cells(c, undefined)[0] ?? null)])
+        ) as Record<DeductionFilterKey, string>,
       })),
     [data]
   );
@@ -146,17 +186,7 @@ export function ClassDeductionsPanel({ data, onEditClass, expandedClassKey, unav
   }
 
   // 選項取自整個 run 的全部班級列（不受目前條件收斂）
-  const optionsOf = (key: DeductionFilterKey): FilterSection => {
-    const map = new Map<string, string>();
-    for (const { facets, c } of rowsWithFacets) {
-      const wire = facets[key];
-      const label = wire === BLANK ? '(空白)' : key === 'dClass' ? c.classKey : key === 'dTeacher' ? (c.teacher ?? '') : statusLabel(classStatus(c));
-      if (!map.has(wire)) map.set(wire, label);
-    }
-    const options = [...map].map(([value, label]) => ({ value, label }));
-    options.sort((a, b) => (a.value === BLANK ? -1 : b.value === BLANK ? 1 : a.label.localeCompare(b.label, 'zh-Hant')));
-    return { key, options };
-  };
+  const optionsOf = (key: DeductionFilterKey): FilterSection => deductionFilterSection(data.classes, key);
 
   const matches = (facets: Record<DeductionFilterKey, string>): boolean =>
     DEDUCTION_FILTER_FIELDS.every((f) => {

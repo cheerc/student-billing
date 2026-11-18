@@ -11,7 +11,10 @@ import { generateImportPreview } from '@/application/import-preview';
 import { saveImportBatch } from '@/adapters/sqlite/import-repository';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { ClassDeductionsPanel, classDeductionsColumns } from '@/components/results/class-deductions-panel';
+import { ClassDeductionsPanel, classDeductionsColumns, classDeductionColumnDefs, deductionFilterSection } from '@/components/results/class-deductions-panel';
+import { sortRows } from '@/components/tables/use-client-sort';
+import { BLANK } from '@/lib/results-filters';
+import type { Cell } from '@/lib/table-columns/cell';
 import type { DeductionsResponse } from '@/application/schedule-deductions';
 
 /**
@@ -200,5 +203,58 @@ describe('UX05–07／09 §5.2：班級扣天 read model 與面板', () => {
     expect(html).toContain('安親課輔班（不計時段）');
     // 驗證兩個班級的上課時間摘要皆顯示為「—」，而不是「待補」
     expect(html).not.toContain('待補');
+  });
+});
+
+
+/**
+ * UX133 (b)（D66）：班級扣天的排序與表頭篩選選項來自共用欄位模組。
+ * 老師 `吳一`（總筆畫 7）、`王一`（4）、空白：升冪 王一、吳一、空白（碼點序會是 吳一、王一）；
+ * 選項 王一、吳一、(空白)（空白最後）。expected 手算寫死，不由 Collator 或待測函式產生。
+ */
+describe('UX133 (b)：班級扣天共用欄位模組', () => {
+  type DC = DeductionsResponse['classes'][number];
+  const side = (raw: number | null, rounded: number | null, status: DC['anqin']['status'] = 'calculated') =>
+    ({ totalOverlapMinutes: 0, raw, rounded, status }) as DC['anqin'];
+  const cls = (classKey: string, teacher: string | null, anqin: DC['anqin'], tutoring: DC['tutoring'] = side(0, 0, 'no_overlap')): DC =>
+    ({ classKey, teacher, active: true, rowIds: [], anqin, tutoring }) as DC;
+  const classes = [
+    cls('班乙', '吳一', side(-0.5, -0.5)),
+    cls('班甲', null, side(-1.25, -1)),
+    cls('班丙', '王一', side(null, null, 'unscheduled'), side(null, null, 'unscheduled')),
+    cls('班丁', '吳一', side(-0.5, 0)),
+  ];
+  const col = (key: string) => classDeductionColumnDefs.find((c) => c.key === key)!;
+  const keys = (rows: DC[]) => rows.map((c) => c.classKey);
+  const sortBy = (key: string, dir: 'ascending' | 'descending') => keys(sortRows(classes, col(key).sort as { cell: (c: DC) => Cell }, dir));
+
+  it('老師升冪 王一、吳一（輸入序 班乙、班丁）、空白；降冪 吳一（班乙、班丁）、王一、空白', () => {
+    expect(sortBy('teacher', 'ascending')).toEqual(['班丙', '班乙', '班丁', '班甲']);
+    expect(sortBy('teacher', 'descending')).toEqual(['班乙', '班丁', '班丙', '班甲']);
+  });
+
+  it('老師篩選選項 王一、吳一、(空白)；wire 值 王一／吳一／~blank，count 依班級去重', () => {
+    const section = deductionFilterSection(classes, 'dTeacher');
+    expect(section.key).toBe('dTeacher');
+    expect(section.options).toEqual([
+      { value: '王一', label: '王一' },
+      { value: '吳一', label: '吳一' },
+      { value: BLANK, label: '(空白)' },
+    ]);
+  });
+
+  it('狀態選項依筆畫：已計算（已 3 畫）在不排課（不 4 畫）前', () => {
+    expect(deductionFilterSection(classes, 'dStatus').options.map((o) => o.label)).toEqual(['已計算', '不排課']);
+  });
+
+  it('四個扣除欄：底層值＝正量數值、顯示文字＝formatDeduction；null＝空白（排最後，不當 0）', () => {
+    const raw = col('anqinRaw').sort as { cell: (c: DC) => Cell };
+    const actual = col('anqinActual').sort as { cell: (c: DC) => Cell };
+    expect(raw.cell(classes[1]!)).toEqual({ value: 1.25, text: '1.250' });
+    expect(actual.cell(classes[1]!)).toEqual({ value: 1, text: '1' });
+    expect(actual.cell(classes[3]!)).toEqual({ value: 0, text: '0' });
+    expect(raw.cell(classes[2]!)).toBeNull();
+    expect(sortBy('anqinRaw', 'ascending')).toEqual(['班乙', '班丁', '班甲', '班丙']);
+    expect(sortBy('anqinRaw', 'descending')).toEqual(['班甲', '班乙', '班丁', '班丙']);
   });
 });

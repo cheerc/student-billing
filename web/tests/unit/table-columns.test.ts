@@ -1,4 +1,11 @@
 import { beforeAll, describe, expect, it } from 'vitest';
+import fs from 'fs';
+import path from 'path';
+import React from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
+import { ImportReviewDialog, importListColumns, type ImportReviewDialogProps } from '@/components/imports/import-review-dialog';
+import { sortRows } from '@/components/tables/use-client-sort';
+import type { StudentSnapshot } from '@/domain/students';
 import { BLANK_OPTION, cell, matchesColumnSelection, nonBlankCells, type Cell, type ColumnSpec } from '@/lib/table-columns/cell';
 import { compareCells, compareText, compareValues } from '@/lib/table-columns/compare';
 import { buildColumnOptions } from '@/lib/table-columns/options';
@@ -431,5 +438,75 @@ describe('cursor v3 編碼與解碼（03 §5.1 R8；UX131 (d) 單元部分）', 
     const padded = encodeColumnCursor(id, { personCode: 'P11', cell: null });
     expect(padded.endsWith('==')).toBe(true);
     expectCursor400(padded.replace(/=+$/, ''));
+  });
+});
+
+
+/**
+ * UX133（D66）：client 表（匯入「名單」）共用同一模組。expected 依 04 UX133 手算：
+ * 小3 中4（總筆畫）；數字字元 '7' 為字串，排在漢字前；數值 1、2 排在所有字串前。
+ */
+describe('UX133 (a)：匯入「名單」年級欄', () => {
+  const snap = (personCode: string, grade: number | null, gradeRaw: string | null): StudentSnapshot =>
+    ({
+      personCode, name: `學生${personCode}`, branch: '本校', grade, gradeRaw, gradeStatus: 'valid',
+      contact: null, schoolInfo: null, tagsRaw: '', tags: [], notesRaw: '', enrollments: [], sourceRow: 2,
+    }) as unknown as StudentSnapshot;
+  const students = [
+    snap('A', null, '中班'),
+    snap('B', 2, '小二'),
+    snap('C', null, null),
+    snap('D', 1, '小一'),
+    snap('E', null, '7'),
+    snap('F', null, '小班'),
+  ];
+  const gradeCol = importListColumns.find((c) => c.key === 'grade')!;
+  const codes = (rows: StudentSnapshot[]) => rows.map((r) => r.personCode);
+
+  it('升冪 D,B,E,F,A,C（1年級、2年級、"7"、小班、中班、空白）；降冪 A,F,E,B,D,C（空白仍最後）', () => {
+    const sort = gradeCol.sort as { cell: (s: StudentSnapshot) => Cell };
+    expect(codes(sortRows(students, sort, 'ascending'))).toEqual(['D', 'B', 'E', 'F', 'A', 'C']);
+    expect(codes(sortRows(students, sort, 'descending'))).toEqual(['A', 'F', 'E', 'B', 'D', 'C']);
+  });
+
+  it('年級格顯示與排序同源：`1年級`／`2年級`（無空格）、原文 `7`／`小班`／`中班`、空白「—」，不再出現「未識別」', () => {
+    const props: ImportReviewDialogProps = {
+      isOpen: true, tab: 'list', onTabChange: () => {}, onClose: () => {},
+      preview: { stats: { totalStudents: 6, studentsWithClass: 0, studentsWithoutClass: 6, withdrawnStudentsCount: 0, gradeCounts: {} }, students, pendingClasses: [], issues: [] } as never,
+      searchQuery: '', onSearchChange: () => {}, filterMode: 'all', onFilterModeChange: () => {}, filteredStudents: students,
+    };
+    const html = renderToStaticMarkup(React.createElement(ImportReviewDialog, props));
+    const gradeTdOf = (code: string) => {
+      const tr = html.split('<tr').find((t) => t.includes(`>${code}</td>`));
+      return tr!.split('<td')[4]!.replace(/<[^>]+>/g, '').replace(/^[^>]*>/, '');
+    };
+    expect(html).not.toContain('未識別');
+    expect(html).not.toContain('1 年級');
+    expect(['A', 'B', 'C', 'D', 'E', 'F'].map(gradeTdOf)).toEqual(['中班', '2年級', '—', '1年級', '7', '小班']);
+  });
+});
+
+/**
+ * UX133 (c)：client 表的排序／篩選比較皆來自共用模組（`lib/table-columns`）。
+ * 靜態掃描 `src/components/**`：不得出現自寫 collator 或 `localeCompare(`。
+ * 例外清單：無（掃描當下 components 內沒有任何合法用途；新增例外須在此列出檔名與理由）。
+ */
+describe('UX133 (c)：src/components 不自寫 collator／localeCompare', () => {
+  const EXCEPTIONS: Record<string, string> = {};
+  const walk = (dir: string): string[] =>
+    fs.readdirSync(dir, { withFileTypes: true }).flatMap((e) => {
+      const full = path.join(dir, e.name);
+      return e.isDirectory() ? walk(full) : /\.(ts|tsx)$/.test(e.name) ? [full] : [];
+    });
+  const root = path.resolve(__dirname, '../../src/components');
+
+  it('掃描檔數 > 0 且無違規（例外以檔名列於 EXCEPTIONS）', () => {
+    const files = walk(root);
+    expect(files.length).toBeGreaterThan(10);
+    const offenders = files
+      .map((f) => path.relative(root, f))
+      .filter((rel) => !(rel in EXCEPTIONS))
+      .filter((rel) => /new\s+Intl\.Collator\(|localeCompare\(/.test(fs.readFileSync(path.join(root, rel), 'utf8')));
+    expect(offenders).toEqual([]);
   });
 });
