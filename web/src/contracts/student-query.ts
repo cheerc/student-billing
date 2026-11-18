@@ -175,3 +175,49 @@ export function decodeStudentCursor(cursor: string | undefined, identity: string
     invalid('cursor', '無效或與本次名冊／條件不符，請從第一頁重查');
   }
 }
+
+/**
+ * D66 cursor v3（03 §5.1 R8）：keyset 鍵 `(value, text, personCode)`。
+ * `cell`：undefined＝未排序（只有 `p`）；null＝空白列（`n: true`）；其餘帶 `v`（數值或字串）與 `t`（顯示文字）。
+ */
+export interface ColumnCursorPosition { personCode: string; cell?: { value: number | string; text: string } | null }
+
+export function encodeColumnCursor(identity: string, after: ColumnCursorPosition): string {
+  const body: Record<string, unknown> = { version: 3, identity, p: after.personCode };
+  if (after.cell === null) body.n = true;
+  else if (after.cell !== undefined) { body.v = after.cell.value; body.t = after.cell.text; }
+  return Buffer.from(JSON.stringify(body)).toString('base64');
+}
+
+const COLUMN_CURSOR_KEYS = new Set(['version', 'identity', 'p', 'n', 'v', 't']);
+
+/** `sorted`：本次請求是否帶 sort；形狀必須相符，否則 400 並指名 `cursor`。 */
+export function decodeColumnCursor(cursor: string | undefined, identity: string, sorted = true): ColumnCursorPosition | null {
+  if (!cursor) return null;
+  try {
+    if (cursor.length > 4096 || !/^[A-Za-z0-9+/]+={0,2}$/.test(cursor)) throw new Error();
+    const bytes = Buffer.from(cursor, 'base64');
+    if (bytes.toString('base64') !== cursor) throw new Error();
+    const value = JSON.parse(bytes.toString('utf8'));
+    if (value === null || typeof value !== 'object' || Array.isArray(value)) throw new Error();
+    if (Object.keys(value).some((k) => !COLUMN_CURSOR_KEYS.has(k))) throw new Error();
+    if (value.version !== 3 || value.identity !== identity || typeof value.p !== 'string' || !value.p || value.p.length > 200) throw new Error();
+    const hasN = 'n' in value, hasV = 'v' in value, hasT = 't' in value;
+    if (!sorted) {
+      if (hasN || hasV || hasT) throw new Error();
+      return { personCode: value.p };
+    }
+    if (hasN) {
+      if (value.n !== true || hasV || hasT) throw new Error();
+      return { personCode: value.p, cell: null };
+    }
+    if (!hasV || !hasT) throw new Error();
+    const numeric = typeof value.v === 'number' && Number.isFinite(value.v);
+    const textual = typeof value.v === 'string' && value.v.length <= 200;
+    if (!numeric && !textual) throw new Error();
+    if (typeof value.t !== 'string' || value.t.length > 200) throw new Error();
+    return { personCode: value.p, cell: { value: value.v, text: value.t } };
+  } catch {
+    invalid('cursor', '無效或與本次名冊／條件不符，請從第一頁重查');
+  }
+}
