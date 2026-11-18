@@ -1,11 +1,17 @@
 /**
  * 資料表欄位定義（specs/19 §3 B1、D65）。表頭文字／樣式／排序／篩選入口的單一來源，
- * 欄名清單由此推導，不在各表重列。B2 起 client 表以 `sort: { type, accessor }` 啟用排序（use-client-sort）；`{ server }` 為學生總表 server 排序（B3）。
+ * 欄名清單由此推導，不在各表重列。client 表以 `sort: { cell }` 啟用排序（use-client-sort）；`{ server }` 為學生總表 server 排序（B3）。
+ *
+ * D66（03 §5.1 R1／R4）：client 排序的比較鍵來自共用欄位模組（`@/lib/table-columns`）的 `Cell`——
+ * 每列產生「底層值＋顯示文字」，空白回傳 `null`；比較一律走 `compareCells`，不在各表自寫 collator。
  */
-export type SortAccessor<Row> = (row: Row) => string | number | null | undefined;
+import type { Cell } from '@/lib/table-columns/cell';
+
+/** 一列在此欄的儲存格（單值）；`null`＝空白（排序恆最後）。 */
+export type SortCell<Row> = (row: Row) => Cell;
 
 export type ColumnSort<Row> =
-  | { type: 'text' | 'number'; accessor: SortAccessor<Row> }
+  | { cell: SortCell<Row> }
   | { server: string };
 
 export interface ColumnDef<Row = unknown> {

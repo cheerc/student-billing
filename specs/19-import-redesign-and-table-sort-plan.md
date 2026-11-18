@@ -98,7 +98,7 @@ Coordinator Rulings（Gate 1，優先於上列 Planner Rulings）：
 ### B1 — refactor(tables)：共用欄位定義與表頭元件（G4，無行為變更）
 
 - 檔案：
-  - 新 `web/src/components/tables/column-def.ts`：`ColumnDef<Row> = { key; label; className?; sort?: { type: 'text'|'number'; accessor(row) } | { server: string }; filter?: FilterSection 來源 }`。
+  - 新 `web/src/components/tables/column-def.ts`：`ColumnDef<Row> = { key; label; className?; sort?: { type: 'text'|'number'; accessor(row) } | { server: string }; filter?: FilterSection 來源 }`。（D66／P5 起 client 排序改為 `sort?: { cell(row): Cell } | { server: string }`，比較走共用 `lib/table-columns`，見 03 §5.1。）
   - 新 `web/src/components/tables/table-header-cell.tsx`：渲染 `<th>`，內含（可選）排序按鈕＋（可選）`HeaderFilter` 觸發鈕；`aria-sort` 只在有排序狀態時輸出。
   - `summary-table.tsx:183-205`、`results/class-deductions-panel.tsx:195-200` 改用上述元件；`STUDENT_TABLE_COLUMNS`（`summary-table.tsx:27`）改由欄位定義推導，維持單一來源。
   - `filters/header-filter.tsx` 介面不變。

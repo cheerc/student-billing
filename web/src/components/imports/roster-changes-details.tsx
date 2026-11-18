@@ -2,6 +2,7 @@ import React from 'react';
 import TableHeaderCell from '@/components/tables/table-header-cell';
 import { useClientSort } from '@/components/tables/use-client-sort';
 import type { ColumnDef } from '@/components/tables/column-def';
+import { cell, type Cell } from '@/lib/table-columns/cell';
 import type {
   RosterChange,
   ClassBreakdown,
@@ -103,14 +104,16 @@ function classDiscountText(item: ClassDiscountChange): { values: string; reason:
   };
 }
 
-/** 逐人明細欄位（D65 G5）：學生、狀態、天數可排序（天數取「後」值，不適用排最後）；多行文字欄不排序。 */
+const numberCell = (v: number | null | undefined): Cell => (v === null || v === undefined ? null : cell(v));
+
+/** 逐人明細欄位（D65 G5、D66）：學生、狀態、天數可排序（天數取「後」值，不適用排最後）；多行文字欄不排序。 */
 const ROSTER_COLUMNS: readonly ColumnDef<RosterChange>[] = [
-  { key: 'student', label: '學生', sort: { type: 'text', accessor: (c) => c.name } },
-  { key: 'status', label: '狀態', sort: { type: 'text', accessor: (c) => statusOf(c).label } },
+  { key: 'student', label: '學生', sort: { cell: (c) => (c.name ? cell(c.name) : null) } },
+  { key: 'status', label: '狀態', sort: { cell: (c) => cell(statusOf(c).label) } },
   { key: 'enrollment', label: '報名異動' },
   { key: 'classDiscount', label: '折扣變動' },
-  { key: 'anqinDays', label: '安親天數', sort: { type: 'number', accessor: (c) => c.dayChange?.afterAnqinDays ?? null } },
-  { key: 'tutoringDays', label: '課輔天數', sort: { type: 'number', accessor: (c) => c.dayChange?.afterTutoringDays ?? null } },
+  { key: 'anqinDays', label: '安親天數', sort: { cell: (c) => numberCell(c.dayChange?.afterAnqinDays) } },
+  { key: 'tutoringDays', label: '課輔天數', sort: { cell: (c) => numberCell(c.dayChange?.afterTutoringDays) } },
 ];
 
 export const rosterChangeColumns = ROSTER_COLUMNS;

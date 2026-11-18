@@ -5,6 +5,7 @@ import type { ClassNameSyncReport, ClassNameSyncSystemOnly } from '@/application
 import TableHeaderCell from '@/components/tables/table-header-cell';
 import { useClientSort } from '@/components/tables/use-client-sort';
 import type { ColumnDef } from '@/components/tables/column-def';
+import { cell, type Cell } from '@/lib/table-columns/cell';
 import { CLASS_TYPE_LABELS, type ScheduleGridRow, type AliasMapping, type ClassType } from '@/contracts/settings';
 
 export interface ClassNameSyncPanelProps {
@@ -28,12 +29,15 @@ export interface ClassNameSyncPanelProps {
 
 const CLASS_TYPE_ORDER: ClassType[] = ['care', 'english', 'math', 'other', 'unscheduled'];
 
+/** 文字儲存格：空字串＝空白（排序最後）。 */
+const textCell = (v: string): Cell => (v ? cell(v) : null);
+
 type SyncMismatch = NonNullable<ClassNameSyncReport['mismatches']>[number];
 
 /** 差異表欄位（D65 G5）：「現況」含暫存狀態、「動作」為按鈕，不排序。 */
 const MISMATCH_COLUMNS: readonly ColumnDef<SyncMismatch>[] = [
-  { key: 'erpBaseName', label: '米豆奶班名', sort: { type: 'text', accessor: (m) => m.erpBaseName } },
-  { key: 'students', label: '學生', sort: { type: 'number', accessor: (m) => m.students } },
+  { key: 'erpBaseName', label: '米豆奶班名', sort: { cell: (m) => textCell(m.erpBaseName) } },
+  { key: 'students', label: '學生', sort: { cell: (m) => cell(m.students) } },
   { key: 'status', label: '現況' },
   { key: 'action', label: '動作' },
 ];
@@ -42,11 +46,11 @@ const MISMATCH_WIDTHS: Record<string, string> = { erpBaseName: '25%', students: 
 
 /** 「課表有、本次名冊沒有」表欄位。 */
 const SYSTEM_ONLY_COLUMNS: readonly ColumnDef<ClassNameSyncSystemOnly>[] = [
-  { key: 'baseName', label: '課表班名', sort: { type: 'text', accessor: (c) => c.baseName } },
-  { key: 'classType', label: '課程類型', sort: { type: 'text', accessor: (c) => CLASS_TYPE_LABELS[c.classType] } },
-  { key: 'sessionCount', label: '時段數', sort: { type: 'number', accessor: (c) => c.sessionCount } },
-  { key: 'active', label: '狀態', sort: { type: 'text', accessor: (c) => (c.active ? '啟用中' : '已停用') } },
-  { key: 'legacyAliasFrom', label: '舊別名來源', sort: { type: 'text', accessor: (c) => (c.legacyAliasFrom.length > 0 ? c.legacyAliasFrom.join('、') : null) } },
+  { key: 'baseName', label: '課表班名', sort: { cell: (c) => textCell(c.baseName) } },
+  { key: 'classType', label: '課程類型', sort: { cell: (c) => cell(CLASS_TYPE_LABELS[c.classType]) } },
+  { key: 'sessionCount', label: '時段數', sort: { cell: (c) => cell(c.sessionCount) } },
+  { key: 'active', label: '狀態', sort: { cell: (c) => cell(c.active ? '啟用中' : '已停用') } },
+  { key: 'legacyAliasFrom', label: '舊別名來源', sort: { cell: (c) => (c.legacyAliasFrom.length > 0 ? cell(c.legacyAliasFrom.join('、')) : null) } },
 ];
 
 export const mismatchColumns = MISMATCH_COLUMNS;
