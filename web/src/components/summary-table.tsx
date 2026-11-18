@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { StudentCalculationItem } from '@/application/query-students';
 import type { RunClassCategorySnapshot } from '@/application/applicable-rate';
 import { InfoTip } from './ui/info-tip';
@@ -82,7 +82,8 @@ interface SummaryTableProps {
 /**
  * 班名最多兩行，其餘收成同一行尾端的「另 N 班」，可點擊展開全部（O01）。
  * 每個班名固定一行（過長以省略號截斷），主文字＝欄位定義的 baseName（空 baseName＝「班名無法解析」），
- * 原始 token（年度前綴、`[N]` 等修飾）放在 `title` 與明細「原始資料」（D66 Q2-b）。
+ * 原始 token（年度前綴、`[N]` 等修飾）放在 `data-raw-token`：滑鼠 hover 由 `EnrollTokenTooltip` 顯示，
+ * 鍵盤／螢幕閱讀器改走明細「原始資料」（D66 Q2-b）。不用 `title`：不可聚焦元素只靠 title＝hover-only（09 §6、a11y rule 6）。
  * `cells` 與 `stu.enrollments` 逐項同序（enrollment 欄位定義每個報名一項）。
  */
 function EnrollmentCell({
@@ -108,12 +109,55 @@ function EnrollmentCell({
     <div className="enroll-cell">
       {shown.map((c, i) => (
         <span key={i} className="enroll-line">
-          <span className="enroll-name" title={stu.enrollments[i]?.rawToken}>{c.text}</span>
+          <span className="enroll-name" data-raw-token={stu.enrollments[i]?.rawToken}>{c.text}</span>
           {!expanded && extra > 0 && i === shown.length - 1 ? more(`另 ${extra} 班`) : null}
         </span>
       ))}
       {expanded && extra > 0 ? more('收合') : null}
     </div>
+  );
+}
+
+/**
+ * 所屬班級原始 token 的滑鼠 tooltip（D66 Q2-b）。整張表只掛一個：文件層級監聽 hover，
+ * 讀 `[data-raw-token]`，以 position:fixed 呈現（不被 .table-scroll 裁切、不佔表格版面）；
+ * pointer-events:none 不攔截點擊；Esc／離開／捲動即關；不增加任何 tab stop。
+ * 只放補充資訊——鍵盤與螢幕閱讀器的對等路徑是明細抽屜「原始資料」（09 §6）。
+ */
+function EnrollTokenTooltip() {
+  const [tip, setTip] = useState<{ text: string; left: number; top: number } | null>(null);
+  useEffect(() => {
+    const holder = (e: Event): Element | null => (e.target instanceof Element ? e.target.closest('[data-raw-token]') : null);
+    const over = (e: MouseEvent) => {
+      const el = holder(e);
+      const text = el?.getAttribute('data-raw-token');
+      if (!el || !text) return;
+      const r = el.getBoundingClientRect();
+      setTip({ text, left: r.left, top: r.bottom + 4 });
+    };
+    const out = (e: MouseEvent) => {
+      const el = holder(e);
+      if (!el || (e.relatedTarget instanceof Node && el.contains(e.relatedTarget))) return;
+      setTip(null);
+    };
+    const close = () => setTip(null);
+    const key = (e: KeyboardEvent) => { if (e.key === 'Escape') setTip(null); };
+    document.addEventListener('mouseover', over);
+    document.addEventListener('mouseout', out);
+    document.addEventListener('keydown', key);
+    document.addEventListener('scroll', close, true);
+    return () => {
+      document.removeEventListener('mouseover', over);
+      document.removeEventListener('mouseout', out);
+      document.removeEventListener('keydown', key);
+      document.removeEventListener('scroll', close, true);
+    };
+  }, []);
+  if (!tip) return null;
+  return (
+    <span role="tooltip" className="enroll-tip" style={{ position: 'fixed', left: tip.left, top: tip.top, pointerEvents: 'none' }}>
+      {tip.text}
+    </span>
   );
 }
 
@@ -278,6 +322,7 @@ export default function SummaryTable({
           </tbody>
         </table>
       </div>
+      <EnrollTokenTooltip />
     </>
   );
 }
