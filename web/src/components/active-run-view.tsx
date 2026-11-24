@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import Link from 'next/link';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { parseResultsState, pruneResultsState } from '@/lib/results-state';
 import SummaryTable, { type StudentColumnKey } from './summary-table';
 import type { RunClassCategorySnapshot } from '@/application/applicable-rate';
@@ -135,6 +135,8 @@ export default function ActiveRunView({
 }: ActiveRunViewProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
+  // render 時的路由；URL-sync effect 以它確認「目前 history entry 仍是自己的路由」（#264）
+  const renderPathname = usePathname();
   // Back 的 RSC props 可能來自無條件入口；在首次 render 用目前網址還原，不在 effect 後跳頁籤。
   const [restored] = useState(() => {
     const parsed = parseResultsState(new URLSearchParams(searchParams.toString()));
@@ -422,7 +424,10 @@ export default function ActiveRunView({
 
   // 頁籤與條件同步到網址（不含姓名搜尋）；用 replaceState，不堆疊瀏覽器歷史。
   // 預設狀態（學生總表、無條件）網址保持乾淨（不寫 view／runId）；網址原本帶了參數而現在回到預設（清除全部、run 變更後選值全被移除）才改寫回乾淨路徑
+  // #264：hydration commit 與 passive effect flush 之間若 Forward／Back 已把 location 切到別的路由（Next 的 popstate 監聽尚未掛上），
+  // 不得用 window.location.pathname 組 target 去 replaceState，否則會把別的路由那一格改寫成本頁參數；本元件只擁有自己路由的 entry。
   useEffect(() => {
+    if (window.location.pathname !== renderPathname) return;
     const isDefault = resultTab === 'students' && !hasAnySelection(filters) && !hasAnySelection(deductionFilters) && !sort;
     if (isDefault && !window.location.search) return;
     const query = isDefault ? '' : buildResultsQuery({ view: resultTab, runId, sort, filters, deductionFilters });
@@ -430,7 +435,7 @@ export default function ActiveRunView({
     if (target !== `${window.location.pathname}${window.location.search}`) {
       window.history.replaceState(window.history.state, '', target);
     }
-  }, [resultTab, filters, deductionFilters, runId, sort]);
+  }, [resultTab, filters, deductionFilters, runId, sort, renderPathname]);
 
   // 捲動位置：儲存（表內與整頁），返回時還原
   useEffect(() => {
