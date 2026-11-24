@@ -47,9 +47,12 @@ test.beforeEach(async ({ page }) => {
 });
 
 test('選班後面板計數等於點選人數，統計不一致數依該班範圍', async ({ page }) => {
-  // CARE={甲一年級、乙一年級、戊二年級}；只有甲care宣告4、計算5不一致。
+  // CARE={甲一年級、乙一年級、戊二年級}；甲（宣告4）、乙（預設5）的計算級距為4.5，與登記不一致；戊一致。
   await selectClass(page, CARE);
   await expect(page.locator('[data-count="matched"]')).toHaveText('3');
+  // 正向斷言（手算）：CARE 範圍＝甲、乙、戊。戊單科、計算5＝預設登記5 → 一致；甲（登記4）與乙（無後綴預設登記5）
+  // 皆同時報輔導＋數學，計算級距4.5 ≠ 登記 → 不一致，共 2 位。統計行被移除或計數錯誤即失敗。
+  await expect(page.locator('[data-count="mismatch"]')).toHaveText('2');
   const grades = await openFilter(page, '年級');
   await expect(grades.locator('[data-filter-option="1年級"] [data-filter-count]')).toHaveText('2');
   await expect(grades.locator('[data-filter-option="2年級"] [data-filter-count]')).toHaveText('1');
