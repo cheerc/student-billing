@@ -92,6 +92,15 @@ An existing class's effective category is the projection of its **class type + �
 (`http://127.0.0.1:3100 is already used`). That is often another worktree's session, not a test failure.
 Pick a free port instead of killing the other run: `npm run test:e2e:isolated -- --port 3122 tests/e2e/<file>.spec.ts`.
 
+## Browser locale: UTF-8 is set by the configs (Issue #269)
+
+Containers without `LANG`/`LC_*` make Chromium run in the POSIX locale, which renames non-ASCII download
+names (e.g. `課表.xlsx`) to `download`. `playwright.config.ts`, `playwright.isolated.config.ts` and
+`playwright.perf.config.ts` therefore pass `use.launchOptions.env = utf8BrowserEnv()`
+(`scripts/e2e-browser-env.ts`): an already-UTF-8 locale is kept, anything else gets `LC_ALL=C.UTF-8`.
+Do not export `LANG` in the shell or workflow to make a spec pass, and do not add a second launch-env path;
+the browser-only env keeps local, cloud and nightly identical. Guarded by `tests/unit/e2e-browser-locale.test.ts`.
+
 ## Isolation, security, evidence
 
 - Every spec uses `web/scripts/e2e-isolated.ts`: fresh server at `127.0.0.1:3100` + temporary SQLite under `os.tmpdir()` (not port 3000, not `data/app.sqlite`). No `--shared` for full gate.

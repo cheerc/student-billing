@@ -3,6 +3,7 @@ import {
   assertIsolatedE2eTarget,
   DEFAULT_ISOLATED_E2E_PORT,
 } from './scripts/e2e-isolation';
+import { utf8BrowserEnv } from './scripts/e2e-browser-env';
 
 /**
  * 隔離 E2E 設定（specs/10 §4；issue #25）。與 playwright.config.ts 並存，不改它的 3000 行為。
@@ -39,6 +40,8 @@ export default defineConfig({
     baseURL,
     trace: isFull ? 'retain-on-failure' : 'on-first-retry',
     screenshot: isFull ? 'only-on-failure' : 'off',
+    // #269：UTF-8 locale，非 ASCII 下載檔名才不會被改成 "download"
+    launchOptions: { env: utf8BrowserEnv() },
   },
   projects: [
     {

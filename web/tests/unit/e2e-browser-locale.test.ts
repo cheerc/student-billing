@@ -36,7 +36,7 @@ describe('#269：E2E 瀏覽器 UTF-8 locale', () => {
   });
 
   it('不修改傳入的 env 物件', () => {
-    const input: NodeJS.ProcessEnv = { LANG: 'C' };
+    const input: Record<string, string | undefined> = { LANG: 'C' };
     utf8BrowserEnv(input);
     expect(input).toEqual({ LANG: 'C' });
   });
