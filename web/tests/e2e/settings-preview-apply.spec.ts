@@ -1,5 +1,7 @@
 import { test, expect } from '@playwright/test';
 import path from 'path';
+import { flipCalculateOnConfirmHover } from './helpers/hold-calculate';
+import { openClassSchedule, startInput } from './helpers/c-batch';
 
 /**
  * specs/10 §4（T05 重寫對照 R2 UX03／UX09／UX10；#189 D62 改寫）：
@@ -61,5 +63,16 @@ test.describe('T05 設定 preview→apply E2E（R2 課表與班名同步工作�
     // 驗證套用成功 toast 通知且確認視窗已關閉
     await expect(page.locator('#toast')).toContainText('課表已套用並完成重算', { timeout: 15000 });
     await expect(dialog).not.toBeVisible();
+  });
+  // Issue #271：編輯後立刻點「確認變更」，點擊落在 debounce 翻轉瞬間會遺失。
+  // flipCalculateOnConfirmHover 讓翻轉必然發生在 actionability 檢查之後、pointerdown 之前。
+  test('#271: 編輯後點「確認變更」遇到 calculate debounce 翻轉，仍須開啟確認視窗', async ({ page }) => {
+    await flipCalculateOnConfirmHover(page);
+    await openClassSchedule(page, '兒童美語-Gino');
+    await (await startInput(page)).fill('15:45');
+    await expect(page.locator('.save-status-dirty')).toBeVisible();
+
+    await page.locator('button', { hasText: '確認變更' }).click();
+    await expect(page.locator('dialog.impact-dialog')).toBeVisible({ timeout: 5000 });
   });
 });

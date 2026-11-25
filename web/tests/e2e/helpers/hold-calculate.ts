@@ -35,3 +35,51 @@ export async function holdCalculate(page: Page) {
     },
   };
 }
+
+/**
+ * 在「按下確認變更」的瞬間，決定性地重現 debounce 翻轉（Issue #271）。
+ *
+ * 真實競態：編輯後 250ms，debounce 計時器觸發 `setCalculating(true)`，「確認變更」變 disabled。
+ * 若翻轉剛好落在 Playwright 的 actionability 檢查與 click 之間，Chromium 對 disabled 按鈕不送
+ * `click`，點擊遺失、對話框不開。實機只有約 15ms 的窗口（機率性）。
+ *
+ * 這個 helper 把窗口變成必然：init script 把課表頁唯一的 250ms debounce 計時器
+ * （`settings-editor.tsx` 的 calculate effect）扣住，直到「確認變更」收到 `pointerdown` 才在該事件內放行。
+ * 在 pointerdown 事件期間呼叫 setState 會取得 React 的 discrete（sync）優先權並於 microtask 內提交，
+ * 所以按鈕在 `click` 之前就已經 disabled；效果等同真實競態（click 被 disabled 按鈕吞掉）。
+ * 沒人按時，`fallbackMs` 後自行放行，所以「先等 calculate 回應再點」的正確流程不會卡死。
+ *
+ * 必須在 `page.goto` 之前呼叫。只供回歸測試使用，不改產品行為。
+ */
+export async function flipCalculateOnConfirmHover(page: Page, fallbackMs = 800): Promise<void> {
+  await page.addInitScript((fallback: number) => {
+    const realSet = window.setTimeout.bind(window);
+    const realClear = window.clearTimeout.bind(window);
+    const pending = new Map<number, () => void>();
+    window.setTimeout = ((fn: TimerHandler, delay?: number, ...args: unknown[]) => {
+      if (delay !== 250 || typeof fn !== 'function') return realSet(fn, delay, ...args);
+      let id = 0;
+      const fire = () => {
+        if (!pending.delete(id)) return;
+        realClear(id);
+        (fn as (...a: unknown[]) => void)(...args);
+      };
+      id = realSet(fire, fallback);
+      pending.set(id, fire);
+      return id;
+    }) as typeof window.setTimeout;
+    window.clearTimeout = ((id?: number) => {
+      if (id !== undefined) pending.delete(id);
+      realClear(id);
+    }) as typeof window.clearTimeout;
+    document.addEventListener(
+      'pointerdown',
+      (event) => {
+        const button = (event.target as Element | null)?.closest('button');
+        if (!button || !button.textContent?.includes('確認變更')) return;
+        for (const fire of [...pending.values()]) fire();
+      },
+      true
+    );
+  }, fallbackMs);
+}
