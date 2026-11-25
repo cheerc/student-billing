@@ -1,6 +1,7 @@
 import { test, expect, Page } from '@playwright/test';
 import path from 'path';
 import { openFilter, applyFilter } from './helpers/header-filter';
+import { awaitCalculateAfter, clickConfirmChanges } from './helpers/d2c-settings';
 import {
   brokenXlsx,
   classRow,
@@ -192,8 +193,8 @@ test.describe('R5 文案全頁掃描（09 §7）', () => {
     await page.locator('button', { hasText: /^課表/ }).first().click();
 
     await page.locator('#class-type-tab-english').click();
-    await (await startInput(page)).fill('13:30');
-    await page.locator('button', { hasText: '確認變更' }).click();
+    await awaitCalculateAfter(page, async () => (await startInput(page)).fill('13:30'));
+    await clickConfirmChanges(page);
     await expect(page.locator('dialog.impact-dialog')).toBeVisible({ timeout: 15000 });
     await scan(page, '課表設定｜確認變更視窗（只有課表）', violations);
     await page.keyboard.press('Escape');
@@ -352,8 +353,8 @@ test.describe('R5 文案全頁掃描（09 §7）', () => {
     const row = page.locator('tr[data-mismatch-row="國小數學-一"]');
     await row.locator('button', { hasText: '同步到既有班級' }).click();
     await page.locator('select[aria-label="選擇同步目標課表班級"]').selectOption({ value: '國小數學-一A' });
-    await page.locator('button', { hasText: '暫存同步' }).click();
-    await page.locator('button', { hasText: '確認變更' }).click();
+    await awaitCalculateAfter(page, () => page.locator('button', { hasText: '暫存同步' }).click());
+    await clickConfirmChanges(page);
     await expect(page.locator('dialog.impact-dialog')).toBeVisible({ timeout: 15000 });
     await scan(page, '課表設定｜確認變更視窗（有名單，影響預覽）', violations);
 
@@ -399,8 +400,8 @@ test.describe('R5 文案全頁掃描（09 §7）', () => {
       })
     );
     await ensureEnglishTab();
-    await classRow(page, '兒童美語-Gino').locator('input.input-time').first().fill('14:40');
-    await page.locator('button', { hasText: '確認變更' }).click();
+    await awaitCalculateAfter(page, () => classRow(page, '兒童美語-Gino').locator('input.input-time').first().fill('14:40'));
+    await clickConfirmChanges(page);
     await expect(page.locator('dialog.impact-dialog')).toBeVisible({ timeout: 15000 });
     await expect(page.locator('dialog.impact-dialog [data-course-rate-deltas]')).toBeVisible({ timeout: 10000 });
     await scan(page, '課表設定｜確認變更視窗（課程學費折扣變動）', violations);
@@ -417,8 +418,8 @@ test.describe('R5 文案全頁掃描（09 §7）', () => {
       })
     );
     await ensureEnglishTab();
-    await classRow(page, '兒童美語-Gino').locator('input.input-time').first().fill('14:30');
-    await page.locator('button', { hasText: '確認變更' }).click();
+    await awaitCalculateAfter(page, () => classRow(page, '兒童美語-Gino').locator('input.input-time').first().fill('14:30'));
+    await clickConfirmChanges(page);
     await expect(page.locator('dialog.impact-dialog [data-dialog-error]')).toBeVisible({ timeout: 15000 });
     await scan(page, '課表設定｜確認變更視窗（資料已更新 409）', violations);
     await page.unroute('**/api/v1/settings/preview');
@@ -434,8 +435,8 @@ test.describe('R5 文案全頁掃描（09 §7）', () => {
       })
     );
     await ensureEnglishTab();
-    await (await startInput(page)).fill('14:50');
-    await page.locator('button', { hasText: '確認變更' }).click();
+    await awaitCalculateAfter(page, async () => (await startInput(page)).fill('14:50'));
+    await clickConfirmChanges(page);
     await expect(page.locator('dialog.impact-dialog [data-dialog-error]')).toBeVisible({ timeout: 15000 });
     // 這裡是 route.fulfill 直接模擬 400 INVALID_DRAFT，並沒有真的清空星期、也不經 splitter；
     // 標籤只描述被掃描的失敗態（伺服器拒絕無效草稿），不宣稱某個特定真實觸發條件（09 §7）。

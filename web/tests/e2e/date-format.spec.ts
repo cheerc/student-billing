@@ -6,6 +6,7 @@ import {
   openSchedule,
   startInput,
 } from './helpers/c-batch';
+import { awaitCalculateAfter, clickConfirmChanges } from './helpers/d2c-settings';
 
 /**
  * specs/04 UX33／09 §7（11 C；D38 O02）：全站日期時間一律 Asia/Taipei、`YYYY-MM-DD HH:mm`，不混用瀏覽器 locale。
@@ -22,9 +23,8 @@ test.describe('UX33 日期時間格式', () => {
   test('課表儲存時間：儲存後立即顯示新時間（台北時間、YYYY-MM-DD HH:mm）；重新整理後仍是同格式', async ({ page }) => {
     await openSchedule(page);
     await (await startInput(page)).click();
-    await (await startInput(page)).fill('15:45');
-    await page.waitForTimeout(500);
-    await page.locator('button', { hasText: '確認變更' }).click();
+    await awaitCalculateAfter(page, async () => (await startInput(page)).fill('15:45'));
+    await clickConfirmChanges(page);
     const impact = page.locator('dialog.impact-dialog');
     await expect(impact).toBeVisible({ timeout: 15000 });
 

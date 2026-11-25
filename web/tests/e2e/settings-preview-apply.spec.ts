@@ -2,6 +2,7 @@ import { test, expect } from '@playwright/test';
 import path from 'path';
 import { flipCalculateOnConfirmHover } from './helpers/hold-calculate';
 import { openClassSchedule, startInput } from './helpers/c-batch';
+import { awaitCalculateAfter, clickConfirmChanges } from './helpers/d2c-settings';
 
 /**
  * specs/10 §4（T05 重寫對照 R2 UX03／UX09／UX10；#189 D62 改寫）：
@@ -44,11 +45,12 @@ test.describe('T05 設定 preview→apply E2E（R2 課表與班名同步工作�
     await page
       .locator('select[aria-label="選擇同步目標課表班級"]')
       .selectOption({ value: '國小數學-一A' });
-    await page.locator('button', { hasText: '暫存同步' }).click();
+    // 暫存會改草稿並排程 calculate；等該次計算完成（#271）再點「確認變更」，點擊才不會撞上 debounce 翻轉
+    await awaitCalculateAfter(page, () => page.locator('button', { hasText: '暫存同步' }).click());
     await expect(row).toContainText('已暫存：國小數學-一A → 國小數學-一（未儲存）');
 
     // 6. 點擊底部操作列「確認變更」開啟 ImpactDialog 預覽影響 (D18)
-    await page.locator('button', { hasText: '確認變更' }).click();
+    await clickConfirmChanges(page);
     const dialog = page.locator('dialog.impact-dialog');
     await expect(dialog).toBeVisible({ timeout: 15000 });
 
@@ -65,14 +67,29 @@ test.describe('T05 設定 preview→apply E2E（R2 課表與班名同步工作�
     await expect(dialog).not.toBeVisible();
   });
   // Issue #271：編輯後立刻點「確認變更」，點擊落在 debounce 翻轉瞬間會遺失。
-  // flipCalculateOnConfirmHover 讓翻轉必然發生在 actionability 檢查之後、pointerdown 之前。
-  test('#271: 編輯後點「確認變更」遇到 calculate debounce 翻轉，仍須開啟確認視窗', async ({ page }) => {
+  // flipCalculateOnConfirmHover 讓翻轉必然發生在「確認變更」被按下的當下（見 helpers/hold-calculate.ts）。
+  test('#271: 編輯後以 awaitCalculateAfter + clickConfirmChanges 點「確認變更」，debounce 翻轉不影響開啟確認視窗', async ({ page }) => {
+    await flipCalculateOnConfirmHover(page);
+    await openClassSchedule(page, '兒童美語-Gino');
+    await awaitCalculateAfter(page, async () => (await startInput(page)).fill('15:45'));
+    await expect(page.locator('.save-status-dirty')).toBeVisible();
+
+    await clickConfirmChanges(page);
+    await expect(page.locator('dialog.impact-dialog')).toBeVisible({ timeout: 5000 });
+  });
+
+  // 對照組：同一個翻轉 harness 下，不等計算直接點，點擊會被吞掉。
+  // 證明 harness 真的重現競態（不是上一個測試恰好沒撞上），也鎖住 specs/09 的 gate 契約：計算中不可確認。
+  test('#271 對照組: 不等 calculate 就點「確認變更」，翻轉時點擊遺失（確認視窗不開）', async ({ page }) => {
     await flipCalculateOnConfirmHover(page);
     await openClassSchedule(page, '兒童美語-Gino');
     await (await startInput(page)).fill('15:45');
     await expect(page.locator('.save-status-dirty')).toBeVisible();
 
     await page.locator('button', { hasText: '確認變更' }).click();
+    await expect(page.locator('dialog.impact-dialog')).toBeHidden({ timeout: 2000 });
+    // 計算完成後按鈕恢復可點：再點一次才開啟（正式流程用 awaitCalculateAfter 避免這次遺失）
+    await clickConfirmChanges(page);
     await expect(page.locator('dialog.impact-dialog')).toBeVisible({ timeout: 5000 });
   });
 });

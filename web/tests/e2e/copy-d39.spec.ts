@@ -10,6 +10,7 @@ import {
   openSchedule,
   xlsxUpload,
 } from './helpers/c-batch';
+import { awaitCalculateAfter, clickConfirmChanges } from './helpers/d2c-settings';
 
 /**
  * specs/04 UX32／09 §7（11 C；D39）：使用者實際會走到的四處定稿文案，以及空白星期的 preview／儲存契約。
@@ -136,10 +137,10 @@ test.describe('UX32 D39 (1) 課表影響預覽：單位是「人」', () => {
     const row = page.locator('tr[data-mismatch-row="國小數學-一"]');
     await row.locator('button', { hasText: '同步到既有班級' }).click();
     await page.locator('select[aria-label="選擇同步目標課表班級"]').selectOption({ value: '國小數學-一A' });
-    await page.locator('button', { hasText: '暫存同步' }).click();
+    await awaitCalculateAfter(page, () => page.locator('button', { hasText: '暫存同步' }).click());
 
     const previewResponse = page.waitForResponse((r) => r.url().includes('/api/v1/settings/preview') && r.request().method() === 'POST');
-    await page.locator('button', { hasText: '確認變更' }).click();
+    await clickConfirmChanges(page);
     const preview = await (await previewResponse).json();
     const before = preview.mismatchBefore as number;
     const after = preview.mismatchAfter as number;
@@ -178,8 +179,7 @@ test.describe('UX32／D-1：空白星期成功預覽與確認視窗錯誤白話�
     expect(originalStart).not.toBe('');
     expect(originalEnd).not.toBe('');
 
-    await weekday.selectOption('');
-    await page.waitForTimeout(500);
+    await awaitCalculateAfter(page, () => weekday.selectOption(''));
 
     const previewRequest = page.waitForRequest(
       (request) => request.url().includes('/api/v1/settings/preview') && request.method() === 'POST'
@@ -187,7 +187,7 @@ test.describe('UX32／D-1：空白星期成功預覽與確認視窗錯誤白話�
     const previewResponse = page.waitForResponse(
       (response) => response.url().includes('/api/v1/settings/preview') && response.request().method() === 'POST'
     );
-    await page.locator('button', { hasText: '確認變更' }).click();
+    await clickConfirmChanges(page);
     const [request, response] = await Promise.all([previewRequest, previewResponse]);
     expect(response.status()).toBe(200);
 
@@ -252,9 +252,8 @@ test.describe('UX32／D-1：空白星期成功預覽與確認視窗錯誤白話�
     await page.route('**/api/v1/settings/preview', (route) =>
       route.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ error: 'SQLITE_BUSY: database is locked', code: 'SETTINGS_PREVIEW_FAILED' }) })
     );
-    await classRow(page, '兒童美語-Gino').locator('input.input-time').first().fill('15:45');
-    await page.waitForTimeout(500);
-    await page.locator('button', { hasText: '確認變更' }).click();
+    await awaitCalculateAfter(page, () => classRow(page, '兒童美語-Gino').locator('input.input-time').first().fill('15:45'));
+    await clickConfirmChanges(page);
     await expect(dialogOf(page)).toBeVisible({ timeout: 15000 });
     await expectPlainErrorWithDetails(errorOf(page), FAILED_TEXT, 'SETTINGS_PREVIEW_FAILED', ENGINEERING);
   });
@@ -262,9 +261,8 @@ test.describe('UX32／D-1：空白星期成功預覽與確認視窗錯誤白話�
   test('套用時預覽已逾期：白話說明並可重新確認，PREVIEW_EXPIRED 只在詳細資訊', async ({ page }) => {
     await activateFixture(page);
     await openSchedule(page);
-    await classRow(page, '兒童美語-Gino').locator('input.input-time').first().fill('15:45');
-    await page.waitForTimeout(500);
-    await page.locator('button', { hasText: '確認變更' }).click();
+    await awaitCalculateAfter(page, () => classRow(page, '兒童美語-Gino').locator('input.input-time').first().fill('15:45'));
+    await clickConfirmChanges(page);
     await expect(dialogOf(page)).toBeVisible({ timeout: 15000 });
     const apply = dialogOf(page).getByRole('button', { name: /^儲存/ });
     await expect(apply).toBeEnabled({ timeout: 15000 });
@@ -295,18 +293,16 @@ test.describe('UX32 兩個視窗互相覆蓋（會寫入課表，放最後）', 
       const start = (p: Page) => classRow(p, '兒童美語-Gino').locator('input.input-time').first();
 
       // 視窗 B 先儲存
-      await start(b).fill('15:45');
-      await b.waitForTimeout(500);
-      await b.locator('button', { hasText: '確認變更' }).click();
+      await awaitCalculateAfter(b, () => start(b).fill('15:45'));
+      await clickConfirmChanges(b);
       const impactB = b.locator('dialog.impact-dialog');
       await expect(impactB).toBeVisible({ timeout: 15000 });
       await impactB.getByRole('button', { name: /^儲存/ }).click();
       await expect(b.locator('#toast')).toContainText('課表已', { timeout: 30000 });
 
       // 視窗 A 用舊版本按「確認變更」
-      await start(a).fill('15:50');
-      await a.waitForTimeout(500);
-      await a.locator('button', { hasText: '確認變更' }).click();
+      await awaitCalculateAfter(a, () => start(a).fill('15:50'));
+      await clickConfirmChanges(a);
       const impactA = a.locator('dialog.impact-dialog');
       await expect(impactA).toBeVisible({ timeout: 15000 });
       const err = impactA.locator('[data-dialog-error]');

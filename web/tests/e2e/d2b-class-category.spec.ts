@@ -1,6 +1,6 @@
 import { test, expect, type Page } from '@playwright/test';
 import { activateFixture } from './helpers/c-batch';
-import { classRow } from './helpers/d2c-settings';
+import { awaitCalculateAfter, classRow, clickConfirmChanges } from './helpers/d2c-settings';
 
 /**
  * D2b & D61: 班級五類型、是否有多科折扣與固定 5 天設定 UI 與影響預覽 E2E 驗收
@@ -153,10 +153,12 @@ test.describe('D2b & D61：班級五類型、是否有多科折扣與固定 5 �
     test('R2-1: 只有多科折扣變化、天數不變時，受影響學生數仍正確（21 人）', async ({ page }) => {
       // 預設在安親頁籤：「國小輔導-一A」手動改多科折扣為「否」
       const row = classRow(page, '國小輔導-一A');
-      await row.locator('div[role="radiogroup"][aria-label="國小輔導-一A 的是否有多科折扣"]').locator('label.no-option').click();
+      await awaitCalculateAfter(page, () =>
+        row.locator('div[role="radiogroup"][aria-label="國小輔導-一A 的是否有多科折扣"]').locator('label.no-option').click()
+      );
       await expect(page.locator('.save-status-dirty')).toBeVisible();
 
-      await page.locator('button', { hasText: '確認變更' }).click();
+      await clickConfirmChanges(page);
       const dialog = page.locator('dialog.impact-dialog');
       await expect(dialog).toBeVisible({ timeout: 15000 });
 
@@ -171,12 +173,16 @@ test.describe('D2b & D61：班級五類型、是否有多科折扣與固定 5 �
       await page.locator('#class-type-tab-math').click();
       const row = classRow(page, '國小數學-三A');
       // 改多科折扣為「否」產生科數與折扣變動
-      await row.locator('div[role="radiogroup"][aria-label="國小數學-三A 的是否有多科折扣"]').locator('label.no-option').click();
+      await awaitCalculateAfter(page, () =>
+        row.locator('div[role="radiogroup"][aria-label="國小數學-三A 的是否有多科折扣"]').locator('label.no-option').click()
+      );
       // 改不計扣天為「是」產生天數變動
-      await row.locator('div[role="radiogroup"][aria-label*="不計扣天"]').locator('label.yes-option').click();
+      await awaitCalculateAfter(page, () =>
+        row.locator('div[role="radiogroup"][aria-label*="不計扣天"]').locator('label.yes-option').click()
+      );
       await expect(page.locator('.save-status-dirty')).toBeVisible();
 
-      await page.locator('button', { hasText: '確認變更' }).click();
+      await clickConfirmChanges(page);
       const dialog = page.locator('dialog.impact-dialog');
       await expect(dialog).toBeVisible({ timeout: 15000 });
 
