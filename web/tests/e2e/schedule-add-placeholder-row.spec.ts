@@ -1,6 +1,6 @@
 import { test, expect, type Page } from '@playwright/test';
 import { writeFile } from 'node:fs/promises';
-import { resetSeedSettings, saveSettings, reloadSettings, setMultiDiscount } from './helpers/d2c-settings';
+import { awaitCalculateAfter, resetSeedSettings, saveSettings, reloadSettings, setMultiDiscount } from './helpers/d2c-settings';
 import { calcCell, classRows, openClassScheduleFull } from './helpers/c-batch';
 
 /**
@@ -31,7 +31,7 @@ async function addClassNameOnly(page: Page, className: string, classType: string
   const form = page.locator('dialog.add-class-dialog form.add-session-panel');
   await expect(form).toBeVisible();
   await form.locator('input[aria-label="新增班級名稱"]').fill(className);
-  await form.getByRole('button', { name: '確認新增' }).click();
+  await awaitCalculateAfter(page, () => form.getByRole('button', { name: '確認新增' }).click());
   await expect(rowOf(page, className)).toBeVisible();
 }
 
@@ -668,12 +668,12 @@ test.describe('#82 & D61 1c: 新增班級僅班名必填與未填時間雙重警
     await form.getByLabel('新增星期').selectOption('一');
     await form.getByRole('textbox', { name: '新增起始時間' }).fill('15:20');
     await form.getByRole('textbox', { name: '新增結束時間' }).fill('16:50');
-    await form.getByRole('button', { name: '確認新增' }).click();
+    await awaitCalculateAfter(page, () => form.getByRole('button', { name: '確認新增' }).click());
     const row = classRows(page, className).first();
     const start = row.locator('input.input-time').first();
     const end = row.locator('input.input-time').last();
     const originalEnd = await end.inputValue();
-    await start.fill('');
+    await awaitCalculateAfter(page, () => start.fill(''));
     await expect(start).toHaveValue('');
     await expect(end).toHaveValue(originalEnd);
     await expect(row.locator('[data-pending-time-error]')).toHaveCount(0);

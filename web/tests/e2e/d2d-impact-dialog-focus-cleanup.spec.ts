@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { openClassSchedule, openClassScheduleViaHome, scheduleHeading, sideLink, startInput } from './helpers/c-batch';
+import { awaitCalculateAfter, clickConfirmChanges } from './helpers/d2c-settings';
 import { holdCalculate } from './helpers/hold-calculate';
 
 /**
@@ -235,8 +236,8 @@ test.describe('D2d r3／F4 cleanup：所有終止路徑都不得殘留 listener'
 
     const opener = page.locator('button', { hasText: '確認變更' });
     const dialog = page.locator('dialog.impact-dialog');
-    await (await startInput(page)).fill('14:25');
-    await opener.click();
+    await awaitCalculateAfter(page, async () => (await startInput(page)).fill('14:25'));
+    await clickConfirmChanges(page);
     await expect(dialog).toBeVisible({ timeout: 15000 });
     const save = dialog.locator('button', { hasText: /^儲存/ });
     await expect(save).toBeEnabled({ timeout: 15000 });

@@ -99,16 +99,28 @@ Every draft edit schedules `POST /api/v1/settings/calculate` after a 250ms debou
 (no `click` event, the dialog never opens), so a plain `await expect(btn).toBeEnabled()` or a sleep is not enough.
 
 ```ts
-import { awaitCalculateAfter, clickConfirmChanges } from './helpers/d2c-settings';
+import { awaitCalculateAfter, clickConfirmChanges, saveSettings } from './helpers/d2c-settings';
 
-await awaitCalculateAfter(page, () => page.locator('button', { hasText: '暫存同步' }).click()); // waitForResponse is registered BEFORE the edit
+await awaitCalculateAfter(page, () => page.locator('button', { hasText: '暫存同步' }).click()); // request-scoped wait, registered BEFORE the edit
 await clickConfirmChanges(page);                                                                  // toBeEnabled, then click
+// or, to confirm + save in one go (no re-click inside): after the edit above
+await saveSettings(page);
 ```
 
+- `awaitCalculateAfter` anchors on the **request** (`waitForRequest`, which only matches requests issued after it is registered) and then
+  awaits that request's response. A calculate that was already in flight before the edit (the page-mount one, the one `cancelEdits()` triggers)
+  can therefore never satisfy it; waiting on "any calculate response" would, and the edit's own debounced POST (~250ms later) would
+  then reopen the race.
 - Wrap **each** step that changes the draft (a step that only selects a target or opens a panel triggers no calculate).
-- Never re-click in a poll, add `waitForTimeout`, or raise a timeout to get past a lost click. `saveSettings`'s re-click poll predates this rule.
+  An edit that changes nothing sends no calculate and the wait times out: that means the edit did not take effect, not "retry".
+- `saveSettings(page)` and `clickConfirmChanges(page)` do **not** wait for calculate by themselves; the caller wraps its last edit.
+  `saveSettings` no longer re-clicks in a poll.
+- Never re-click in a poll, add `waitForTimeout`, or raise a timeout to get past a lost click.
+- Exempt: specs that freeze the page clock (`page.clock.install/pauseAt`, e.g. `d2d-impact-dialog-focus*.spec.ts`) — the debounce cannot fire
+  until the test advances it, so no calculate is sent and `awaitCalculateAfter` would hang; the click is deterministic there.
 - `flipCalculateOnConfirmHover(page)` (`helpers/hold-calculate.ts`) forces the flip at the moment the button is pressed;
-  `settings-preview-apply.spec.ts` uses it for the helper test and for a control showing the naive click is lost.
+  `settings-preview-apply.spec.ts` uses it for the helper test, for a control showing the naive click is lost, and (with `holdCalculate`)
+  for the stale-in-flight-calculate test.
 
 ## Browser locale: UTF-8 is set by the configs (Issue #269)
 

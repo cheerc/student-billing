@@ -13,6 +13,7 @@ import {
   sideLink,
   startInput,
 } from './helpers/c-batch';
+import { awaitCalculateAfter, clickConfirmChanges } from './helpers/d2c-settings';
 
 /**
  * UX31：唯讀 calculate 不得阻擋取消草稿。
@@ -293,9 +294,8 @@ test('timer barrier尊重clearTimeout：重新編輯與取消不得釋放已取�
 
 test('取消不放寬儲存gate：送出中仍disabled且只有一次apply', async ({ page }) => {
   await openSchedule(page);
-  await (await startInput(page)).fill('15:45');
-  await expect(reviewButton(page)).toBeEnabled();
-  await reviewButton(page).click();
+  await awaitCalculateAfter(page, async () => (await startInput(page)).fill('15:45'));
+  await clickConfirmChanges(page);
   const dialog = page.locator('dialog.impact-dialog');
   await expect(dialog).toBeVisible();
   const apply = dialog.getByRole('button', { name: /^儲存/ });

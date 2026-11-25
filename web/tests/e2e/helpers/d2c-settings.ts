@@ -48,16 +48,18 @@ const isCalculateRequest = (request: Request): boolean =>
  *   只選目標／展開面板等不改草稿的步驟不必包（不會觸發 calculate）。
  * - 動作若沒有改到草稿就不會有 calculate，這裡會逾時失敗——那代表測試的編輯根本沒生效，不是要重試。
  */
-export async function awaitCalculateAfter(page: Page, edit: () => Promise<unknown>): Promise<void> {
+export async function awaitCalculateAfter<T = void>(page: Page, edit: () => Promise<T>): Promise<T> {
   const requested = page.waitForRequest(isCalculateRequest);
+  let result: T;
   try {
-    await edit();
+    result = await edit();
   } catch (error) {
     requested.catch(() => {}); // 動作已失敗：不讓懸置的等待變成 unhandled rejection
     throw error;
   }
   const response = await (await requested).response();
   expect(response?.ok(), '本次編輯觸發的 calculate 應成功完成').toBe(true);
+  return result;
 }
 
 /**
@@ -70,19 +72,18 @@ export async function clickConfirmChanges(page: Page): Promise<void> {
   await confirmBtn.click();
 }
 
-/** 等本次 apply 成功、dialog 關閉與 dirty 清除；toast 不能識別是哪次儲存。 */
+/**
+ * 點「確認變更」→ 確認視窗 → 儲存，並等本次 apply 成功、dialog 關閉與 dirty 清除；toast 不能識別是哪次儲存。
+ *
+ * 前提：呼叫端已用 `awaitCalculateAfter` 等過最後一個改草稿步驟的 calculate（#271）。
+ * 這裡**不再重點**：舊版以 `expect.poll` 重複點擊來蓋住「點擊落在 debounce 翻轉瞬間而遺失」，
+ * 那只是把遺失的點擊藏起來；現在遺失點擊的成因由呼叫端的 request 錨定等待消除。
+ */
 export async function saveSettings(page: Page): Promise<void> {
-  const confirmBtn = page.getByRole('button', { name: '確認變更', exact: true });
   const dialog = page.locator('dialog.impact-dialog');
 
-  await expect(confirmBtn).toBeEnabled();
-  await expect.poll(async () => {
-    if (await dialog.isVisible()) return true;
-    if (await confirmBtn.isEnabled()) {
-      await confirmBtn.click();
-    }
-    return dialog.isVisible();
-  }, { timeout: 10000, intervals: [100, 250, 500] }).toBe(true);
+  await clickConfirmChanges(page);
+  await expect(dialog).toBeVisible({ timeout: 10000 });
 
   const applied = page.waitForResponse((response) =>
     response.url().endsWith('/api/v1/settings/apply') && response.request().method() === 'POST'

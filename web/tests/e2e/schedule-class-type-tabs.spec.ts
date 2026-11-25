@@ -1,7 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import { test, expect, type Page } from '@playwright/test';
-import { saveSettings } from './helpers/d2c-settings';
+import { awaitCalculateAfter, saveSettings } from './helpers/d2c-settings';
 
 test.use({ trace: 'retain-on-failure' });
 
@@ -496,7 +496,7 @@ test.describe('D61 UX106: 課表設定 5 頁籤與簡化操作 E2E 驗收', () =
     const addForm = page.locator('dialog.add-class-dialog form.add-session-panel');
     const testCareName = `國小輔導-持久化${Date.now().toString().slice(-4)}`;
     await addForm.locator('input[aria-label="新增班級名稱"]').fill(testCareName);
-    await addForm.getByRole('button', { name: '確認新增' }).click();
+    await awaitCalculateAfter(page, () => addForm.getByRole('button', { name: '確認新增' }).click());
 
     await expect(page.locator('#class-type-tab-care')).toHaveAttribute('aria-selected', 'true');
     await expect(page.locator('table.schedule-table-care tr.schedule-row')).toHaveCount(9);
@@ -505,7 +505,7 @@ test.describe('D61 UX106: 課表設定 5 頁籤與簡化操作 E2E 驗收', () =
     const grade6Row = page.locator('table.schedule-table-care tr.schedule-row', {
       has: page.locator('input[value="國小輔導-六年級"]'),
     });
-    await grade6Row.getByRole('button', { name: '刪除班級 國小輔導-六年級' }).click();
+    await awaitCalculateAfter(page, () => grade6Row.getByRole('button', { name: '刪除班級 國小輔導-六年級' }).click());
     await expect(page.locator('table.schedule-table-care tr.schedule-row')).toHaveCount(8);
 
     // 儲存變更
@@ -528,7 +528,7 @@ test.describe('D61 UX106: 課表設定 5 頁籤與簡化操作 E2E 驗收', () =
     const addForm1 = page.locator('dialog.add-class-dialog form.add-session-panel');
     const nameUnheld = `國小輔導-未延後${Date.now().toString().slice(-4)}`;
     await addForm1.locator('input[aria-label="新增班級名稱"]').fill(nameUnheld);
-    await addForm1.getByRole('button', { name: '確認新增' }).click();
+    await awaitCalculateAfter(page, () => addForm1.getByRole('button', { name: '確認新增' }).click());
     await expect(page.locator('table.schedule-table-care tr.schedule-row', {
       has: page.locator(`input[value="${nameUnheld}"]`),
     })).toBeVisible();
@@ -554,7 +554,7 @@ test.describe('D61 UX106: 課表設定 5 頁籤與簡化操作 E2E 驗收', () =
     const addForm2 = page.locator('dialog.add-class-dialog form.add-session-panel');
     const nameHeldRelease = `國小輔導-延後放行${Date.now().toString().slice(-4)}`;
     await addForm2.locator('input[aria-label="新增班級名稱"]').fill(nameHeldRelease);
-    await addForm2.getByRole('button', { name: '確認新增' }).click();
+    await awaitCalculateAfter(page, () => addForm2.getByRole('button', { name: '確認新增' }).click());
     await expect(page.locator('table.schedule-table-care tr.schedule-row', {
       has: page.locator(`input[value="${nameHeldRelease}"]`),
     })).toBeVisible();
