@@ -92,6 +92,24 @@ An existing class's effective category is the projection of its **class type + �
 (`http://127.0.0.1:3100 is already used`). That is often another worktree's session, not a test failure.
 Pick a free port instead of killing the other run: `npm run test:e2e:isolated -- --port 3122 tests/e2e/<file>.spec.ts`.
 
+## Settings page: wait for the edit's calculate before clicking 「確認變更」 (Issue #271)
+
+Every draft edit schedules `POST /api/v1/settings/calculate` after a 250ms debounce; while it runs,
+「確認變更」 is disabled by design (specs/09 §3). A click that lands at the enabled→disabled flip is swallowed
+(no `click` event, the dialog never opens), so a plain `await expect(btn).toBeEnabled()` or a sleep is not enough.
+
+```ts
+import { awaitCalculateAfter, clickConfirmChanges } from './helpers/d2c-settings';
+
+await awaitCalculateAfter(page, () => page.locator('button', { hasText: '暫存同步' }).click()); // waitForResponse is registered BEFORE the edit
+await clickConfirmChanges(page);                                                                  // toBeEnabled, then click
+```
+
+- Wrap **each** step that changes the draft (a step that only selects a target or opens a panel triggers no calculate).
+- Never re-click in a poll, add `waitForTimeout`, or raise a timeout to get past a lost click. `saveSettings`'s re-click poll predates this rule.
+- `flipCalculateOnConfirmHover(page)` (`helpers/hold-calculate.ts`) forces the flip at the moment the button is pressed;
+  `settings-preview-apply.spec.ts` uses it for the helper test and for a control showing the naive click is lost.
+
 ## Browser locale: UTF-8 is set by the configs (Issue #269)
 
 Containers without `LANG`/`LC_*` make Chromium run in the POSIX locale, which renames non-ASCII download
