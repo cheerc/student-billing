@@ -513,11 +513,13 @@ test.describe('#82 & D61 1c: 新增班級僅班名必填與未填時間雙重警
     await page.clock.fastForward(500);
     expect(calculateRequests).toBe(requestsBeforePending);
 
-    await start.fill('15:20');
-    await expect(row.locator('[data-pending-time-error]')).toHaveCount(0);
+    // Register before the triggering edit: the clock is installed but still flows, so the
+    // 250ms-debounced calculate can fire before a listener registered after fill() exists.
     const restoredRequest = page.waitForRequest((request) =>
       request.url().includes('/api/v1/settings/calculate') && request.method() === 'POST'
     );
+    await start.fill('15:20');
+    await expect(row.locator('[data-pending-time-error]')).toHaveCount(0);
     await page.clock.fastForward(500);
     await restoredRequest;
     await expect(cell('anqin-overlap').locator('.calc-value')).toHaveText('40', { timeout: 10000 });
