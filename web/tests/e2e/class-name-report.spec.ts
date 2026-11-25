@@ -3,7 +3,7 @@ import fs from 'fs';
 import JSZip from 'jszip';
 import { FIXTURE, xlsxUpload } from './helpers/c-batch';
 import { openReviewDialog, uploadPreviewAndGetReportPath } from './helpers/import-review';
-import { resetSeedSettings } from './helpers/d2c-settings';
+import { awaitCalculateAfter, clickConfirmChanges, resetSeedSettings } from './helpers/d2c-settings';
 
 /**
  * D1 班名比對報告（specs/11 §3 D1、04 §8 UX44–UX47；operator ruling d-20260930112930661160-25 Q12-b）
@@ -64,10 +64,10 @@ async function syncAndApply(page: Page, raw: string, target: string) {
   await expect(row).toBeVisible({ timeout: 15000 });
   await row.locator('button', { hasText: '同步到既有班級' }).click();
   await page.locator('select[aria-label="選擇同步目標課表班級"]').selectOption({ value: target });
-  await page.locator('button', { hasText: '暫存同步' }).click();
+  await awaitCalculateAfter(page, () => page.locator('button', { hasText: '暫存同步' }).click());
   await expect(row).toContainText('已暫存');
 
-  await page.locator('button', { hasText: '確認變更' }).click();
+  await clickConfirmChanges(page);
   const dialog = page.locator('dialog.impact-dialog');
   await expect(dialog).toBeVisible({ timeout: 15000 });
   await dialog.locator('button', { hasText: '儲存並更新結果' }).click();

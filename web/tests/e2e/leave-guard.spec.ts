@@ -17,6 +17,7 @@ import {
   sideLink,
   startInput,
 } from './helpers/c-batch';
+import { awaitCalculateAfter, clickConfirmChanges } from './helpers/d2c-settings';
 
 /**
  * specs/04 UX31／09 §3.2（11 C；D38 F07）：課表有未儲存修改時的離頁提醒。
@@ -321,9 +322,9 @@ test.describe('UX31 儲存成功後不再提醒（會寫入課表，放最後）
     await page.goto('/');
     await sideLink(page, /課表設定/).click();
     await expect(scheduleHeading(page)).toBeVisible({ timeout: 15000 });
-    await editStart(page, '15:45');
+    await awaitCalculateAfter(page, () => editStart(page, '15:45'));
 
-    await page.locator('button', { hasText: '確認變更' }).click();
+    await clickConfirmChanges(page);
     const impact = page.locator('dialog.impact-dialog');
     await expect(impact).toBeVisible({ timeout: 15000 });
     await impact.locator('button', { hasText: /^儲存/ }).click();
@@ -364,7 +365,7 @@ test.describe('UX31 R1/R2/R3: 儲存與取消之離頁守衛結算生命週期',
       const form = page.locator('dialog.add-class-dialog form.add-session-panel');
       const testName = `國小輔導-r1-${action}-${Date.now().toString().slice(-4)}`;
       await form.getByLabel('新增班級名稱').fill(testName);
-      await form.getByRole('button', { name: '確認新增' }).click();
+      await awaitCalculateAfter(page, () => form.getByRole('button', { name: '確認新增' }).click());
       await expect(page.locator('.save-status-dirty')).toBeVisible();
 
       // 啟用 barrier 扣留 Save/Cancel 觸發的 history.go(-1)
@@ -373,7 +374,7 @@ test.describe('UX31 R1/R2/R3: 儲存與取消之離頁守衛結算生命週期',
       });
 
       if (action === 'save') {
-        await page.getByRole('button', { name: '確認變更', exact: true }).click();
+        await clickConfirmChanges(page);
         const dialog = page.locator('dialog.impact-dialog');
         await expect(dialog).toBeVisible({ timeout: 15000 });
         const applied = page.waitForResponse(
@@ -441,7 +442,7 @@ test.describe('UX31 R1/R2/R3: 儲存與取消之離頁守衛結算生命週期',
     const form = page.locator('dialog.add-class-dialog form.add-session-panel');
     const testName = `國小輔導-r1-students-${Date.now().toString().slice(-4)}`;
     await form.getByLabel('新增班級名稱').fill(testName);
-    await form.getByRole('button', { name: '確認新增' }).click();
+    await awaitCalculateAfter(page, () => form.getByRole('button', { name: '確認新增' }).click());
     await expect(page.locator('.save-status-dirty')).toBeVisible();
 
     // 啟用 barrier
@@ -449,7 +450,7 @@ test.describe('UX31 R1/R2/R3: 儲存與取消之離頁守衛結算生命週期',
       (window as any).__sentinelBarrier.enabled = true;
     });
 
-    await page.getByRole('button', { name: '確認變更', exact: true }).click();
+    await clickConfirmChanges(page);
     const dialog = page.locator('dialog.impact-dialog');
     await expect(dialog).toBeVisible({ timeout: 15000 });
     const applied = page.waitForResponse(
@@ -533,7 +534,7 @@ test.describe('UX31 R1/R2/R3: 儲存與取消之離頁守衛結算生命週期',
       const currentVal = await startInputBox.inputValue();
       const nextVal = currentVal === '15:45' ? '14:30' : '15:45';
       await startInputBox.click();
-      await startInputBox.fill(nextVal);
+      await awaitCalculateAfter(page, () => startInputBox.fill(nextVal));
       await expect(dirtyBar(page)).toBeVisible();
 
       // 3. 點擊「顯示全部班級」清除焦點（URL 移除 class 參數）
@@ -543,7 +544,7 @@ test.describe('UX31 R1/R2/R3: 儲存與取消之離頁守衛結算生命週期',
 
       // 4. 儲存或取消修改
       if (action === 'save') {
-        await page.getByRole('button', { name: '確認變更', exact: true }).click();
+        await clickConfirmChanges(page);
         const dialog = page.locator('dialog.impact-dialog');
         await expect(dialog).toBeVisible({ timeout: 15000 });
         const applied = page.waitForResponse(
@@ -682,7 +683,7 @@ test.describe('UX31 R1/R2/R3: 儲存與取消之離頁守衛結算生命週期',
     await page.getByRole('button', { name: '＋ 新增班級' }).click();
     const form = page.locator('dialog.add-class-dialog form.add-session-panel');
     await form.getByLabel('新增班級名稱').fill(`國小輔導-f3-${Date.now().toString().slice(-4)}`);
-    await form.getByRole('button', { name: '確認新增' }).click();
+    await awaitCalculateAfter(page, () => form.getByRole('button', { name: '確認新增' }).click());
     await expect(page.locator('.save-status-dirty')).toBeVisible();
 
     const urlBefore = page.url();
@@ -704,7 +705,7 @@ test.describe('UX31 R1/R2/R3: 儲存與取消之離頁守衛結算生命週期',
         body: JSON.stringify({ error: '版本衝突：目前 revision 為 3，請求為 2', code: 'REVISION_CONFLICT' }),
       })
     );
-    await page.getByRole('button', { name: '確認變更', exact: true }).click();
+    await clickConfirmChanges(page);
     const dialog = page.locator('dialog.impact-dialog');
     await expect(dialog).toBeVisible({ timeout: 15000 });
     const applied = page.waitForResponse(

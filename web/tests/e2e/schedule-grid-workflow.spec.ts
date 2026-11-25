@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { ensureClassTypeTab, selectClassTypeTab, resetSeedSettings } from './helpers/d2c-settings';
+import { awaitCalculateAfter, clickConfirmChanges, ensureClassTypeTab, selectClassTypeTab, resetSeedSettings } from './helpers/d2c-settings';
 import { activateFixture, classRows, openClassSchedule } from './helpers/c-batch';
 import { buildSeedGridRows } from '../../src/contracts/settings';
 
@@ -51,11 +51,11 @@ test.describe('R2 展示一：空 DB 先課表後匯入排課工作流程 E2E', 
     // 5. 編輯一列時間觸發 dirty 狀態（以班名定位，不用整表第一個時段）
     //    四A 首列 seed 值為週三 13:30–15:00，因此這裡必須填「不同的值」才會真的改到草稿
     const row = await ensureClassTypeTab(page, '國小數學-四A');
-    await row.locator('input.input-time').first().fill('14:10');
+    await awaitCalculateAfter(page, () => row.locator('input.input-time').first().fill('14:10'));
     await expect(page.locator('.save-status-dirty')).toBeVisible();
 
     // 6. 點擊「確認變更」開啟 ImpactDialog
-    await page.locator('button', { hasText: '確認變更' }).click();
+    await clickConfirmChanges(page);
     const dialog = page.locator('dialog.impact-dialog');
     await expect(dialog).toBeVisible({ timeout: 15000 });
 

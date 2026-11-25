@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { FIXTURE } from './helpers/c-batch';
+import { awaitCalculateAfter, clickConfirmChanges } from './helpers/d2c-settings';
 
 /**
  * D62 Phase 2: 班名同步頁籤 UI (ClassNameSyncPanel) E2E 驗收
@@ -65,7 +66,7 @@ test.describe('班名同步（D62 Phase 2）', () => {
     const select = page.locator('select[aria-label="選擇同步目標課表班級"]');
     await expect(select).toBeVisible();
     await select.selectOption({ value: '國小數學-一A' });
-    await page.locator('button', { hasText: '暫存同步' }).click();
+    await awaitCalculateAfter(page, () => page.locator('button', { hasText: '暫存同步' }).click());
 
     await expect(mathRow).toContainText('已暫存：國小數學-一A → 國小數學-一（未儲存）');
 
@@ -76,12 +77,12 @@ test.describe('班名同步（D62 Phase 2）', () => {
 
     // 選擇不排課
     await page.locator('input[type="radio"][value="unscheduled"]').check();
-    await page.locator('button', { hasText: '暫存新增' }).click();
+    await awaitCalculateAfter(page, () => page.locator('button', { hasText: '暫存新增' }).click());
 
     await expect(busRow).toContainText('已暫存新增課表班級（未儲存）');
 
     // 6. 點擊「確認變更」並在 ImpactDialog 驗證「班名同步與新增變更」
-    await page.locator('button', { hasText: '確認變更' }).click();
+    await clickConfirmChanges(page);
     const dialog = page.locator('dialog.impact-dialog');
     await expect(dialog).toBeVisible();
     await expect(dialog.locator('[data-sync-impact-summary]')).toBeVisible();

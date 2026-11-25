@@ -2,6 +2,7 @@ import { test, expect, Page } from '@playwright/test';
 import path from 'path';
 import { openFilter, applyFilter } from './helpers/header-filter';
 import { openClassSchedule, startInput } from './helpers/c-batch';
+import { awaitCalculateAfter, clickConfirmChanges } from './helpers/d2c-settings';
 
 /**
  * R5 可及性稽核（specs/09 §6；specs/04 UX16）。
@@ -242,9 +243,9 @@ test.describe('R5 可及性稽核（09 §6）', () => {
 
   test('確認變更視窗（native dialog）：Tab 不逸出、Esc 關閉並回到「確認變更」按鈕', async ({ page }) => {
     await openClassSchedule(page, '兒童美語-Gino');
-    await (await startInput(page)).fill('13:30');
+    await awaitCalculateAfter(page, async () => (await startInput(page)).fill('13:30'));
     const opener = page.locator('button', { hasText: '確認變更' });
-    await opener.click();
+    await clickConfirmChanges(page);
 
     const dialog = page.locator('dialog.impact-dialog');
     await expect(dialog).toBeVisible({ timeout: 15000 });

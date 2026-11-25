@@ -8,7 +8,7 @@ import {
   openClassScheduleFull,
   sideLink,
 } from './helpers/c-batch';
-import { reloadSettings, resetSeedSettings, saveSettings } from './helpers/d2c-settings';
+import { awaitCalculateAfter, reloadSettings, resetSeedSettings, saveSettings } from './helpers/d2c-settings';
 import { buildSeedGridRows, gridRowsToClasses } from '../../src/contracts/settings';
 
 /**
@@ -197,7 +197,7 @@ test.describe('UX07（修訂）：未知／空白星期與 calculate 失敗不�
     await expect(weekday).toHaveValue('八');
     await expect(weekday.locator('option:checked')).toHaveText('需確認：八');
 
-    await weekday.selectOption('');
+    await awaitCalculateAfter(page, () => weekday.selectOption(''));
     await expect(weekday).toHaveValue('');
     await expect(weekday.locator('option:checked')).toHaveText('未定');
     await expect(weekday.locator('option[value="八"]')).toHaveCount(0);

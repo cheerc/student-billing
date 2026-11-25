@@ -1,9 +1,9 @@
 import { test, expect, type Page } from '@playwright/test';
-import { classRow, classRows, reloadSettings, resetSeedSettings, saveSettings } from './helpers/d2c-settings';
+import { awaitCalculateAfter, classRow, classRows, reloadSettings, resetSeedSettings, saveSettings } from './helpers/d2c-settings';
 
 async function renameWholeClass(page: Page, from: string, to: string) {
   const expectedRows = await classRows(page, from).count();
-  const changed = await page.locator('input.input-classname').evaluateAll((inputs, args) => {
+  const changed = await awaitCalculateAfter(page, () => page.locator('input.input-classname').evaluateAll((inputs, args) => {
     const [from, to] = args as [string, string];
     const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')?.set;
     let count = 0;
@@ -14,7 +14,7 @@ async function renameWholeClass(page: Page, from: string, to: string) {
       count++;
     }
     return count;
-  }, [from, to]);
+  }, [from, to]));
   expect(changed, `必須改到「${from}」的全部時段列`).toBe(expectedRows);
   expect(changed).toBeGreaterThan(0);
 }
@@ -48,7 +48,9 @@ test.describe('Issue #157 & D61：seed 類別生命週期與多科折扣持久�
 
   test('使用者先改多科折扣為「否」的 seed 班改名並存檔後仍為否', async ({ page }) => {
     const row = classRow(page, '國小數學-三B');
-    await row.locator('div[role="radiogroup"][aria-label*="是否有多科折扣"]').locator('label.no-option').click();
+    await awaitCalculateAfter(page, () =>
+      row.locator('div[role="radiogroup"][aria-label*="是否有多科折扣"]').locator('label.no-option').click()
+    );
 
     await renameWholeClass(page, '國小數學-三B', '國小數學-三B改名');
     const renamed = classRow(page, '國小數學-三B改名');
@@ -80,7 +82,9 @@ test.describe('Issue #157 & D61：seed 類別生命週期與多科折扣持久�
 
   test('未改名 seed 班在其他班修改存檔後仍保留多科折扣為是', async ({ page }) => {
     const row5A = classRow(page, '國小數學-五A');
-    await row5A.locator('div[role="radiogroup"][aria-label*="是否有多科折扣"]').locator('label.no-option').click();
+    await awaitCalculateAfter(page, () =>
+      row5A.locator('div[role="radiogroup"][aria-label*="是否有多科折扣"]').locator('label.no-option').click()
+    );
     await saveAndReload(page);
     await page.locator('#class-type-tab-math').click();
 

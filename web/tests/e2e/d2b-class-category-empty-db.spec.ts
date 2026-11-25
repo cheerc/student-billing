@@ -1,5 +1,7 @@
 import { test, expect, type Page } from '@playwright/test';
 import {
+  awaitCalculateAfter,
+  clickConfirmChanges,
   resetSeedSettings,
   saveSettings,
   multiDiscountGroup,
@@ -38,8 +40,8 @@ test.describe('D2b 空 DB 畫面契約：settings_only 影響預覽、Q11 升級
 
   test('D2b-6: 類別變更進影響預覽（科數／折扣差異）並可儲存', async ({ page }) => {
     // D61 單選統一：舊的五態下拉選單已不存在，改由「是否有多科折扣＝否」表達 category none
-    await setMultiDiscount(page, '國小數學-四A', false);
-    await page.locator('button', { hasText: '確認變更' }).click();
+    await awaitCalculateAfter(page, () => setMultiDiscount(page, '國小數學-四A', false));
+    await clickConfirmChanges(page);
 
     const dialog = page.locator('dialog.impact-dialog');
     await expect(dialog).toBeVisible({ timeout: 15000 });
@@ -84,8 +86,8 @@ test.describe('D2b 空 DB 畫面契約：settings_only 影響預覽、Q11 升級
     // D2c N-1：本案例必須自足，不依賴前一案例的狀態。
     // #157 Ruling 4：沒有「恢復自動」按鈕。把「國小數學-四A」設為多科折扣＝否（category none）、
     // 「國小數學-四B」設為多科折扣＝是（category math）→ 兩班有效屬性確定不同 → 合併必然是衝突。
-    await setMultiDiscount(page, '國小數學-四A', false);
-    await setMultiDiscount(page, '國小數學-四B', true);
+    await awaitCalculateAfter(page, () => setMultiDiscount(page, '國小數學-四A', false));
+    await awaitCalculateAfter(page, () => setMultiDiscount(page, '國小數學-四B', true));
 
     // D2c N-1：本案例必須自足——把手動設定**先儲存**再改名。
     // 合併衝突的判定基準是各來源班的「有效屬性」（已儲存的手動值優先，未手動者依 baseline 班名

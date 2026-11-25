@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { activateFixture, editStart, ensureClassTypeTab, openSchedule } from './helpers/c-batch';
-import { reloadSettings, resetSeedSettings, saveSettings } from './helpers/d2c-settings';
+import { awaitCalculateAfter, reloadSettings, resetSeedSettings, saveSettings } from './helpers/d2c-settings';
 
 const ROSTER_ONLY_CLASS = '國小數學-一';
 
@@ -31,7 +31,7 @@ test.describe('#189 D62：「班名同步」新增名單班級並持久化設定
     await expect(page.locator('[data-class-name-sync-panel] input[type="text"]')).toHaveValue(ROSTER_ONLY_CLASS);
     // D61：五種類型單選，選「數學班」
     await page.locator('input[type="radio"][value="math"]').check();
-    await page.getByRole('button', { name: '暫存新增' }).click();
+    await awaitCalculateAfter(page, () => page.getByRole('button', { name: '暫存新增' }).click());
 
     await expect(row).toContainText('已暫存新增課表班級（未儲存）');
     await expect(page.locator('.save-status-dirty')).toBeVisible();
@@ -91,7 +91,7 @@ test.describe('#189 D62：「班名同步」新增名單班級並持久化設定
 
   test('報告刷新失敗後差異表鎖定，不能依過期清單暫存同步或新增', async ({ page }) => {
     await openSchedule(page);
-    await editStart(page);
+    await awaitCalculateAfter(page, () => editStart(page));
 
     await page.route('**/api/v1/settings/class-name-report**', (route) =>
       route.fulfill({ status: 503, contentType: 'application/json', body: '{"error":"unavailable"}' })

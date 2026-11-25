@@ -2,7 +2,7 @@ import { test, expect, type Page, type Route } from '@playwright/test';
 import fs from 'fs';
 import JSZip from 'jszip';
 import { FIXTURE, ensureClassTypeTab, xlsxUpload } from './helpers/c-batch';
-import { resetSeedSettings } from './helpers/d2c-settings';
+import { awaitCalculateAfter, clickConfirmChanges, resetSeedSettings } from './helpers/d2c-settings';
 import { uploadPreviewAndGetReportPath } from './helpers/import-review';
 
 /**
@@ -49,7 +49,7 @@ async function renameWholeClass(page: Page, from: string, to: string) {
   expect(total, `課表應有班級「${from}」可改名`).toBeGreaterThan(0);
   // 每次改完第一列，該列的 value 就不再符合選擇器，因此重算 count 直到全部改完
   for (let remaining = total; remaining > 0; remaining--) {
-    await inputs.first().fill(to);
+    await awaitCalculateAfter(page, () => inputs.first().fill(to));
   }
   expect(await inputs.count(), `「${from}」的所有時段都應已改名`).toBe(0);
 }
@@ -60,12 +60,12 @@ async function stageSync(page: Page, raw: string, target: string) {
   await expect(row).toBeVisible({ timeout: 15000 });
   await row.locator('button', { hasText: '同步到既有班級' }).click();
   await page.locator('select[aria-label="選擇同步目標課表班級"]').selectOption({ value: target });
-  await page.locator('button', { hasText: '暫存同步' }).click();
+  await awaitCalculateAfter(page, () => page.locator('button', { hasText: '暫存同步' }).click());
   await expect(row).toContainText('已暫存');
 }
 
 async function confirmAndSave(page: Page) {
-  await page.locator('button', { hasText: '確認變更' }).click();
+  await clickConfirmChanges(page);
   const dialog = page.locator('dialog.impact-dialog');
   await expect(dialog).toBeVisible({ timeout: 15000 });
   await dialog.locator('button', { hasText: '儲存並更新結果' }).click();

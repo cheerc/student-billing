@@ -1,7 +1,7 @@
 import { test, expect, type Page } from '@playwright/test';
 import ExcelJS from 'exceljs';
 import { XLSX_MIME } from './helpers/c-batch';
-import { selectClassTypeTab } from './helpers/d2c-settings';
+import { awaitCalculateAfter, clickConfirmChanges, selectClassTypeTab } from './helpers/d2c-settings';
 import {
   SCHEDULE_COLUMNS,
   mutateExport,
@@ -132,10 +132,10 @@ test.describe('N02／R3-F01: 類別異動影響預覽科數與合計折扣明細
 
     // 3. 把「國小國語文-小五」從「不列入折扣」（none）改為「數學班」（math）
     //    R-188-P2：走 Excel 匯出入（既有班級沒有課程類型 UI 選單）
-    await changeXiaowuToMathViaExcel(page);
+    await awaitCalculateAfter(page, () => changeXiaowuToMathViaExcel(page));
 
     // 4. 開啟儲存確認視窗 (ImpactDialog)
-    await page.locator('button', { hasText: '確認變更' }).click();
+    await clickConfirmChanges(page);
     const dialog = page.locator('dialog.impact-dialog');
     await expect(dialog).toBeVisible({ timeout: 15000 });
 
@@ -197,11 +197,11 @@ test.describe('N02／R3-F01: 類別異動影響預覽科數與合計折扣明細
     await expect(page.locator('.save-status-clean')).toBeVisible();
 
     // 3. 修改「國小國語文-小五」為數學班（R-188-P2：Excel 匯出入）
-    await changeXiaowuToMathViaExcel(page);
+    await awaitCalculateAfter(page, () => changeXiaowuToMathViaExcel(page));
 
     // 4. 開啟確認視窗
     const openBtn = page.locator('button', { hasText: '確認變更' });
-    await openBtn.click();
+    await clickConfirmChanges(page);
     const dialog = page.locator('dialog.impact-dialog');
     await expect(dialog).toBeVisible({ timeout: 15000 });
 

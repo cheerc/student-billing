@@ -1,6 +1,6 @@
 import { test, expect, type Page, type Route } from '@playwright/test';
 import { FIXTURE, ensureClassTypeTab } from './helpers/c-batch';
-import { resetSeedSettings } from './helpers/d2c-settings';
+import { awaitCalculateAfter, clickConfirmChanges, resetSeedSettings } from './helpers/d2c-settings';
 
 /**
  * 課表儲存後「班名同步報告」取得失敗的最短恢復路徑（operator 裁決 d-20261002162913018695-69；specs/04 UX46；#189 D62 改寫）。
@@ -130,7 +130,7 @@ async function stageAndSaveRename(page: Page, raw: string, target: string) {
   await expect(row).toBeVisible({ timeout: 15000 });
   await row.locator('button', { hasText: '同步到既有班級' }).click();
   await page.locator('select[aria-label="選擇同步目標課表班級"]').selectOption({ value: target });
-  await page.locator('button', { hasText: '暫存同步' }).click();
+  await awaitCalculateAfter(page, () => page.locator('button', { hasText: '暫存同步' }).click());
   await expect(row).toContainText('已暫存');
   await confirmAndSave(page);
 }
@@ -144,13 +144,13 @@ async function applyScheduleTimeChange(page: Page, minute: string) {
   // D61：預設安親頁籤沒有時段欄，先切到該班所在頁籤（整張表，不進聚焦模式）。
   const row = await ensureClassTypeTab(page, '兒童美語-Gino');
   const start = row.locator('input.input-time').first();
-  await start.fill(`09:${minute}`);
+  await awaitCalculateAfter(page, () => start.fill(`09:${minute}`));
   await expect(page.locator('.save-status-dirty')).toBeVisible();
   await confirmAndSave(page);
 }
 
 async function confirmAndSave(page: Page) {
-  await page.locator('button', { hasText: '確認變更' }).click();
+  await clickConfirmChanges(page);
   const dialog = page.locator('dialog.impact-dialog');
   await expect(dialog).toBeVisible({ timeout: 20000 });
   await dialog.locator('button', { hasText: '儲存並更新結果' }).click();
