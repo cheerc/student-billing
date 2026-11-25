@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 import path from 'path';
-import { flipCalculateOnConfirmHover } from './helpers/hold-calculate';
+import { flipCalculateOnConfirmHover, holdCalculate } from './helpers/hold-calculate';
 import { openClassSchedule, startInput } from './helpers/c-batch';
 import { awaitCalculateAfter, clickConfirmChanges } from './helpers/d2c-settings';
 
@@ -92,5 +92,25 @@ test.describe('T05 設定 preview→apply E2E（R2 課表與班名同步工作�
     // 計算完成後按鈕恢復可點：再點一次才開啟（正式流程用 awaitCalculateAfter 避免這次遺失）
     await clickConfirmChanges(page);
     await expect(page.locator('dialog.impact-dialog')).toBeVisible({ timeout: 5000 });
+  });
+  // r2：awaitCalculateAfter 不得被「編輯之前就送出」的 calculate（掛載時那一筆、cancelEdits 那一筆）的回應滿足。
+  // 扣住掛載時的 calculate → 呼叫 awaitCalculateAfter → 編輯後放行它：舊 helper 在編輯自己的 debounce 請求送出前
+  // 就用這筆舊回應返回（確認變更的翻轉競態重新打開）；新 helper 只認編輯之後送出的請求。決定性，不靠時間差。
+  test('#271 r2: awaitCalculateAfter 不被編輯前已在途的 calculate 回應滿足', async ({ page }) => {
+    const hold = await holdCalculate(page);
+    await openClassSchedule(page, '兒童美語-Gino');
+    await expect.poll(() => hold.held(), { message: '掛載時的 calculate 應已送出並被扣住' }).toBe(1);
+
+    let sentAfterRegistration = 0;
+    page.on('request', (request) => {
+      if (new URL(request.url()).pathname === '/api/v1/settings/calculate' && request.method() === 'POST') {
+        sentAfterRegistration += 1;
+      }
+    });
+    await awaitCalculateAfter(page, async () => {
+      await (await startInput(page)).fill('15:45');
+      hold.release(); // 掛載時的舊回應此刻回來；編輯自己的請求要 250ms debounce 後才會送出
+    });
+    expect(sentAfterRegistration, '必須等到這次編輯自己的 calculate 請求送出並回應').toBeGreaterThanOrEqual(1);
   });
 });
