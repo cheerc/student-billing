@@ -81,7 +81,8 @@ test.describe('T05 設定 preview→apply E2E（R2 課表與班名同步工作�
   // 對照組：同一個翻轉 harness 下，不等計算直接點，點擊會被吞掉。
   // 證明 harness 真的重現競態（不是上一個測試恰好沒撞上），也鎖住 specs/09 的 gate 契約：計算中不可確認。
   test('#271 對照組: 不等 calculate 就點「確認變更」，翻轉時點擊遺失（確認視窗不開）', async ({ page }) => {
-    await flipCalculateOnConfirmHover(page);
+    // fallback 拉長：本案例不等計算，絕不能因機器負載讓計時器先自行放行而漏掉翻轉（否則對照組會偶發變綠）
+    await flipCalculateOnConfirmHover(page, 60_000);
     await openClassSchedule(page, '兒童美語-Gino');
     await (await startInput(page)).fill('15:45');
     await expect(page.locator('.save-status-dirty')).toBeVisible();
