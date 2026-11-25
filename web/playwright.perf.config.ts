@@ -1,5 +1,6 @@
 import { defineConfig, devices } from '@playwright/test';
 import { assertIsolatedE2eTarget } from './scripts/e2e-isolation';
+import { utf8BrowserEnv } from './scripts/e2e-browser-env';
 
 const port = Number(process.env.PERF_PORT ?? 3400);
 const databasePath = process.env.PERF_DATABASE_PATH;
@@ -14,7 +15,7 @@ export default defineConfig({
   retries: 0,
   timeout: 60_000,
   reporter: 'list',
-  use: { ...devices['Desktop Chrome'], baseURL },
+  use: { ...devices['Desktop Chrome'], baseURL, launchOptions: { env: utf8BrowserEnv() } },
   webServer: {
     command: `node node_modules/next/dist/bin/next start -H 127.0.0.1 -p ${port}`,
     url: `${baseURL}/api/v1/runs/current`,
